@@ -107,25 +107,25 @@ while preserving relations, causally important placeholders, and recovery.
 
 **Acceptance criteria:**
 
-- [ ] File reads use path, range, and content hash identity.
-- [ ] Searches and stateful commands include the relevant repository,
+- [x] File reads use path, range, and content hash identity.
+- [x] Searches and stateful commands include the relevant repository,
       environment, or freshness fingerprint defined by their tool adapter.
-- [ ] Same command/arguments before and after a relevant state change are never
+- [x] Same command/arguments before and after a relevant state change are never
       treated as duplicates.
-- [ ] Duplicate and superseded items link to their canonical/newer item and
+- [x] Duplicate and superseded items link to their canonical/newer item and
       remain recoverable.
-- [ ] A short individual placeholder is used only when removing the projection
+- [x] A short individual placeholder is used only when removing the projection
       would break causal understanding; routine relations stay in the dashboard.
-- [ ] Protected evidence is not silently deduplicated away.
-- [ ] Every applied decision has a receipt and appears in context inspection
+- [x] Protected evidence is not silently deduplicated away.
+- [x] Every applied decision has a receipt and appears in context inspection
       and export.
 
 **Verification:**
 
-- Tool-specific fingerprint tests, including false-positive adversarial cases.
-- Frozen repeated-read/search/command evaluator fixtures.
-- Provider-valid sequence tests.
-- `cargo test --workspace`
+- [x] Tool-specific fingerprint tests, including false-positive adversarial cases.
+- [x] Frozen repeated-read/search/command evaluator fixtures.
+- [x] Provider-valid sequence tests.
+- [x] `cargo test --workspace`
 
 ### Ticket 9: Reduce Command Results Without Hiding Failure Evidence
 

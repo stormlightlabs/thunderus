@@ -7,6 +7,7 @@ mod support;
 
 pub mod compaction;
 pub mod control;
+pub mod deduplication;
 pub mod lifecycle;
 pub mod reduction;
 pub mod selection;
@@ -23,6 +24,10 @@ pub use control::{
 };
 pub use control::{
     estimate_tokens, item_id_for_path, item_id_for_session_range, render_ledger_summary, render_model_dashboard,
+};
+pub use deduplication::{
+    STATE_IDENTICAL_REDUCER_VERSION, StateProjectionCandidate, StateProjectionDecision, StateProjectionIdentity,
+    StateProjectionRecord, StateProjectionReduction, reduce_state_identical,
 };
 pub use lifecycle::{
     ContextLifecycle, ContextLifecycleAction, ContextLifecycleError, ContextLifecycleState, ContextProtection,

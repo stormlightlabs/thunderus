@@ -278,6 +278,13 @@ pub enum AgentEvent {
         /// Boxed to avoid a large enum variant (`ProcessResult` carries multiple `Vec<String>` values).
         shell_result: Option<Box<tools::shell::ProcessResult>>,
     },
+    /// A state-aware projection relation for one completed tool result.
+    StateProjectionDecision {
+        /// Provider-assigned tool-call id.
+        id: String,
+        /// Proven duplicate or supersession decision.
+        decision: thndrs_agent::context::StateProjectionDecision,
+    },
     ModelMetadataLoaded(Vec<(String, String)>),
     Retrying {
         attempt: u32,
@@ -377,6 +384,8 @@ pub struct App {
     pub session_writer: Option<session::SessionWriter>,
     /// Tool-call ids mapped to their bounded redacted recovery handles.
     pub tool_artifacts: HashMap<String, String>,
+    /// State-aware model-projection decisions indexed by tool-call id.
+    pub(crate) tool_projection_decisions: HashMap<String, agent_context::StateProjectionDecision>,
     /// Durable lifecycle/protection state reconstructed from append-only
     /// context records and applied to each new ledger snapshot.
     pub(crate) context_lifecycles: BTreeMap<String, agent_context::ContextLifecycle>,
@@ -542,6 +551,7 @@ impl From<&Cli> for App {
             stopping_deadline: None,
             session_writer,
             tool_artifacts: HashMap::new(),
+            tool_projection_decisions: HashMap::new(),
             context_lifecycles: BTreeMap::new(),
             turn_count: 0,
             process_registry: ProcessRegistry::new(),

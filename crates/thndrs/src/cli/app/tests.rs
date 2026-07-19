@@ -1830,6 +1830,89 @@ fn tool_finished_marks_failed_status() {
 }
 
 #[test]
+fn state_identical_tool_decisions_appear_as_recoverable_context_relations() {
+    let mut app = fresh_app();
+    app.transcript = vec![
+        Entry::Tool {
+            name: "read_file_range#call_1".to_string(),
+            arguments: r#"{"path":"src/lib.rs","start_line":1,"end_line":2}"#.to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["1: first".to_string(), "2: second".to_string()],
+        },
+        Entry::Tool {
+            name: "read_file_range#call_2".to_string(),
+            arguments: r#"{"path":"src/lib.rs","start_line":1,"end_line":2}"#.to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["1: first".to_string(), "2: second".to_string()],
+        },
+        Entry::Tool {
+            name: "read_file_range#call_3".to_string(),
+            arguments: r#"{"path":"src/lib.rs","start_line":1,"end_line":2}"#.to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["1: changed".to_string(), "2: second".to_string()],
+        },
+    ];
+    app.tool_artifacts
+        .insert("call_1".to_string(), "artifact:call_1".to_string());
+    app.tool_artifacts
+        .insert("call_2".to_string(), "artifact:call_2".to_string());
+    app.tool_artifacts
+        .insert("call_3".to_string(), "artifact:call_3".to_string());
+    app.tool_projection_decisions.insert(
+        "call_2".to_string(),
+        thndrs_agent::context::StateProjectionDecision::DuplicateOf { canonical_id: "tool:call_1".to_string() },
+    );
+    app.tool_projection_decisions.insert(
+        "call_3".to_string(),
+        thndrs_agent::context::StateProjectionDecision::Supersedes { previous_id: "tool:call_1".to_string() },
+    );
+
+    let ledger = app.refresh_context_ledger(None);
+    let duplicate = ledger
+        .items
+        .iter()
+        .find(|item| item.label == "tool:read_file_range#call_2")
+        .expect("duplicate item");
+    assert_eq!(
+        duplicate.lifecycle.state,
+        thndrs_agent::context::ContextLifecycleState::Duplicate
+    );
+    assert!(duplicate.artifact_handle.is_some());
+    assert!(
+        duplicate
+            .lifecycle
+            .relations
+            .iter()
+            .any(|relation| { relation.kind == thndrs_agent::context::ContextRelationKind::DuplicateOf })
+    );
+    let canonical = ledger
+        .items
+        .iter()
+        .find(|item| item.label == "tool:read_file_range#call_1")
+        .expect("canonical item");
+    assert!(
+        canonical
+            .lifecycle
+            .relations
+            .iter()
+            .any(|relation| { relation.kind == thndrs_agent::context::ContextRelationKind::SupersededBy })
+    );
+
+    let export = app.build_context_export(false);
+    let exported = export
+        .items
+        .iter()
+        .find(|item| item.id == duplicate.id)
+        .expect("exported item");
+    assert!(exported.recovery_available);
+    assert_eq!(
+        exported.lifecycle,
+        thndrs_agent::context::ContextLifecycleState::Duplicate
+    );
+    assert_eq!(exported.relations.len(), 1);
+}
+
+#[test]
 fn failed_tool_error_line_is_visible_and_persisted() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "fake-agent".to_string(), ..Cli::default() };

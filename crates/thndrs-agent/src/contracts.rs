@@ -276,6 +276,16 @@ impl ToolOutput {
         }
     }
 
+    /// Attach an application-computed content hash for state-aware identity.
+    ///
+    /// The hash describes application evidence rather than provider-visible
+    /// content. Applications use it with a tool-specific source key when they
+    /// need to prove that two bounded projections observed the same state.
+    pub fn with_evidence_content_hash(mut self, content_hash: impl Into<String>) -> Self {
+        self.evidence.content_hash = Some(content_hash.into());
+        self
+    }
+
     /// Return display lines, materializing the structured failure detail.
     pub fn display_lines(&self) -> Vec<String> {
         projection_lines(&self.display.lines, self.error.as_deref())

@@ -198,6 +198,7 @@ pub fn map_agent_event(event: &AgentEvent) -> Vec<SessionUpdateIntent> {
         AgentEvent::Cancelled => vec![SessionUpdateIntent::Cancelled],
         AgentEvent::Finished => vec![SessionUpdateIntent::Finished],
         AgentEvent::Started
+        | AgentEvent::StateProjectionDecision { .. }
         | AgentEvent::ModelMetadataLoaded(_)
         | AgentEvent::Retrying { .. }
         | AgentEvent::PermissionRequest(_)

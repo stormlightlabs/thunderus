@@ -82,6 +82,7 @@ pub fn exec(
                 .map(|m| utils::truncate_line(&format!("{}:{}:{}", m.path, m.line_number, m.text.trim_end())))
                 .collect();
             ToolOutput::ok("search_text", lines)
+                .with_evidence_content_hash(format!("{:016x}", crate::tools::hash_content(&output.stdout)))
         }
         Err(e) => ToolOutput::failed("search_text", format!("search_text failed: {e}")),
     }

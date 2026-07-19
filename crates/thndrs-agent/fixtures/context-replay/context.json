@@ -4,6 +4,7 @@
   "description": "Frozen provider-neutral context evidence covering preservation, omission, cache accounting, and recovery.",
   "scenarios": [
     "repeated_reads",
+    "repeated_searches",
     "overlapping_reads",
     "passing_tests",
     "failing_tests",
@@ -30,7 +31,9 @@
       "label": "read config lines 1-30",
       "content": "config: parser = strict\nconfig: diagnostics = stable",
       "fact_ids": ["parser-mode"],
-      "recovery_handle": "artifact:read-config"
+      "recovery_handle": "artifact:read-config",
+      "state_source": "file_read:config:1-30",
+      "state_fingerprint": "hash:config-read-a"
     },
     {
       "id": "read-config-repeat",
@@ -38,7 +41,9 @@
       "label": "read config lines 1-30 again",
       "content": "config: parser = strict\nconfig: diagnostics = stable",
       "fact_ids": ["parser-mode"],
-      "recovery_handle": "artifact:read-config-repeat"
+      "recovery_handle": "artifact:read-config-repeat",
+      "state_source": "file_read:config:1-30",
+      "state_fingerprint": "hash:config-read-a"
     },
     {
       "id": "read-config-overlap",
@@ -46,7 +51,27 @@
       "label": "read config lines 20-45",
       "content": "config: diagnostics = stable\nconfig: recovery = bounded",
       "fact_ids": ["recovery-bounded"],
-      "recovery_handle": "artifact:read-config-overlap"
+      "recovery_handle": "artifact:read-config-overlap",
+      "state_source": "file_read:config:20-45",
+      "state_fingerprint": "hash:config-read-b"
+    },
+    {
+      "id": "search-first",
+      "kind": "tool_output",
+      "label": "search parser sources",
+      "content": "src/parser.rs:42: diagnostics = stable",
+      "fact_ids": [],
+      "state_source": "workspace_search:workspace:parser",
+      "state_fingerprint": "hash:search-parser-a"
+    },
+    {
+      "id": "search-repeat",
+      "kind": "tool_output",
+      "label": "search parser sources again",
+      "content": "src/parser.rs:42: diagnostics = stable",
+      "fact_ids": [],
+      "state_source": "workspace_search:workspace:parser",
+      "state_fingerprint": "hash:search-parser-a"
     },
     {
       "id": "progress-1",
@@ -101,6 +126,7 @@
       "label": "cargo test --lib",
       "content": "$ cargo test --lib\nstate: parser-before-fix",
       "fact_ids": ["command-before"] ,
+      "state_source": "command:cargo test --lib",
       "state_fingerprint": "parser-before-fix"
     },
     {
@@ -109,6 +135,7 @@
       "label": "cargo test --lib",
       "content": "$ cargo test --lib\nstate: parser-after-fix",
       "fact_ids": ["command-after"],
+      "state_source": "command:cargo test --lib",
       "state_fingerprint": "parser-after-fix"
     },
     {

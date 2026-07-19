@@ -930,6 +930,7 @@ fn write_acp_event<W: io::Write>(writer: &mut W, event: app::AgentEvent) -> io::
         app::AgentEvent::ToolFinished { id, status, output, .. } => {
             writeln!(writer, "tool_finished: {id} {status:?} {}", output.join("\n"))?
         }
+        app::AgentEvent::StateProjectionDecision { .. } => {}
         app::AgentEvent::PermissionRequest(permission) => {
             writeln!(writer, "permission: {} ({})", permission.title, permission.tool_call_id)?;
             let _ = permission.cancel();

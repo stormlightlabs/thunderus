@@ -21,6 +21,10 @@ pub use accounting::{
 pub use adapters::{ToolExecutionHook, ToolPermissionHook};
 pub use budget::{ToolBudgetDecision, ToolIterationBudget};
 pub use cancel::CancelToken;
+pub use context::deduplication::{
+    StateProjectionCandidate, StateProjectionDecision, StateProjectionIdentity, StateProjectionRecord,
+    StateProjectionReduction, reduce_state_identical,
+};
 pub use context::reduction::{measure_lines, reduce_lines, reduce_projection, render_reduction_dashboard};
 pub use contracts::{
     AgentEvent, AgentMessage, AgentTurn, RetryPolicy, ToolDefinition, ToolDisplayProjection, ToolEvidenceKind,

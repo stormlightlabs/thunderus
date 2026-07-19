@@ -27,6 +27,7 @@ mod registry;
 mod replace_range;
 mod sawk;
 mod search_text;
+mod state_identity;
 mod subproc;
 mod web_search;
 mod write_patch;
@@ -90,6 +91,7 @@ pub use thndrs_agent::ToolDefinition;
 pub use thndrs_agent::{ToolBudgetDecision, ToolIterationBudget};
 
 pub use registry::ProviderSchemaFormat;
+pub(crate) use state_identity::identity_for as state_identity_for;
 
 /// Configuration for an agent run, shared by the fake and Umans providers.
 #[derive(Clone, Debug)]

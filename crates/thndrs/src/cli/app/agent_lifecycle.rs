@@ -122,6 +122,10 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             app.refresh_git_status();
             None
         }
+        AgentEvent::StateProjectionDecision { id, decision } => {
+            app.tool_projection_decisions.insert(id, decision);
+            None
+        }
         AgentEvent::ModelMetadataLoaded(items) => {
             app.model_picker_items = items
                 .into_iter()

@@ -300,6 +300,7 @@ impl App {
                 self.context_lifecycles.insert(item.id.clone(), item.lifecycle.clone());
             }
         }
+        self.apply_tool_projection_relations(&mut ledger);
         diagnostics.extend(
             self.context_diagnostics
                 .iter()
@@ -592,11 +593,131 @@ impl App {
         }
     }
 
+    fn apply_tool_projection_relations(&mut self, ledger: &mut agent_context::ContextLedger) {
+        let tool_items = self
+            .transcript
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| match entry {
+                Entry::Tool { name, .. } => name.rsplit_once('#').map(|(_, call_id)| {
+                    (
+                        format!("tool:{call_id}"),
+                        (
+                            index,
+                            agent_context::item_id_for_session_range(
+                                &ContextItemKind::Transcript,
+                                &self.session_id,
+                                index as u64 + 1,
+                                index as u64 + 1,
+                            ),
+                        ),
+                    )
+                }),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let mut decisions = self
+            .tool_projection_decisions
+            .iter()
+            .map(|(call_id, decision)| (call_id.clone(), decision.clone()))
+            .collect::<Vec<_>>();
+        decisions.sort_by_key(|(call_id, _)| {
+            tool_items
+                .get(&format!("tool:{call_id}"))
+                .map(|(index, _)| *index)
+                .unwrap_or(usize::MAX)
+        });
+
+        for (call_id, decision) in decisions {
+            let current = format!("tool:{call_id}");
+            let relation = match decision {
+                agent_context::StateProjectionDecision::Retained => continue,
+                agent_context::StateProjectionDecision::DuplicateOf { canonical_id } => {
+                    (current, canonical_id, agent_context::ContextRelationKind::DuplicateOf)
+                }
+                agent_context::StateProjectionDecision::Supersedes { previous_id } => {
+                    (previous_id, current, agent_context::ContextRelationKind::SupersededBy)
+                }
+            };
+            let (source_call, target_call, kind) = relation;
+            let (Some((_, source_id)), Some((_, target_id))) =
+                (tool_items.get(&source_call), tool_items.get(&target_call))
+            else {
+                continue;
+            };
+            self.apply_tool_projection_relation(ledger, source_id, target_id, kind);
+        }
+    }
+
+    fn apply_tool_projection_relation(
+        &mut self, ledger: &mut agent_context::ContextLedger, source_id: &str, target_id: &str,
+        kind: agent_context::ContextRelationKind,
+    ) {
+        let Some(index) = ledger.items.iter().position(|item| item.id == source_id) else {
+            return;
+        };
+        let item = ledger.items[index].clone();
+        if item
+            .lifecycle
+            .relations
+            .iter()
+            .any(|relation| relation.kind == kind && relation.target_id == target_id)
+        {
+            return;
+        }
+        let relation = agent_context::ContextRelation::applied(
+            agent_context::relation_id_for(kind, source_id, target_id),
+            kind,
+            source_id,
+            target_id,
+        );
+        let action = match kind {
+            agent_context::ContextRelationKind::DuplicateOf => {
+                agent_context::ContextLifecycleAction::Duplicate { relation }
+            }
+            agent_context::ContextRelationKind::SupersededBy => {
+                agent_context::ContextLifecycleAction::Supersede { relation }
+            }
+            _ => return,
+        };
+        let Ok(lifecycle) = item.lifecycle.apply(action.clone()) else {
+            ledger.diagnostics.push(agent_context::ContextDiagnostic {
+                severity: agent_context::DiagnosticSeverity::Warning,
+                code: "state_identity_lifecycle_rejected".to_string(),
+                message: format!(
+                    "state-aware {} relation could not be applied to {source_id}",
+                    kind.label()
+                ),
+            });
+            return;
+        };
+        let mut next_item = item;
+        next_item.lifecycle = lifecycle.clone();
+        if let Some(writer) = self.session_writer.as_mut()
+            && writer
+                .append_context_lifecycle(&next_item, action, "state-aware model projection relation")
+                .is_err()
+        {
+            ledger.diagnostics.push(agent_context::ContextDiagnostic {
+                severity: agent_context::DiagnosticSeverity::Warning,
+                code: "state_identity_lifecycle_not_persisted".to_string(),
+                message: format!(
+                    "state-aware {} relation was not persisted for {source_id}",
+                    kind.label()
+                ),
+            });
+            return;
+        }
+        self.context_lifecycles.insert(source_id.to_string(), lifecycle.clone());
+        ledger.items[index].lifecycle = lifecycle;
+    }
+
     pub fn restore_context_state(&mut self, records: &[session::SessionRecord]) {
         self.context_pins.clear();
         self.context_dropped_ids.clear();
         self.compaction_summaries.clear();
         self.tool_artifacts.clear();
+        self.tool_projection_decisions.clear();
         self.context_lifecycles.clear();
         self.last_compaction_review = None;
         for record in records {

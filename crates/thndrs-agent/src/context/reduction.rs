@@ -113,6 +113,10 @@ pub struct ReductionConfig {
     /// Apply exact repeated-line collapse to model projections.
     #[serde(alias = "repeated_lines")]
     pub repeated_line: bool,
+    /// Apply state-identical evidence suppression when an application adapter
+    /// supplies a matching tool-specific state fingerprint.
+    #[serde(alias = "state_deduplication", alias = "deduplicate_state_identical")]
+    pub state_identical: bool,
     /// Maximum consecutive blank lines retained when [`Self::blank_run`] is on.
     pub max_blank_lines: usize,
 }
@@ -125,6 +129,7 @@ impl Default for ReductionConfig {
             progress_redraw: false,
             blank_run: false,
             repeated_line: false,
+            state_identical: false,
             max_blank_lines: 1,
         }
     }
@@ -140,6 +145,7 @@ impl ReductionConfig {
             progress_redraw: false,
             blank_run: false,
             repeated_line: false,
+            state_identical: false,
             max_blank_lines: 1,
         }
     }
@@ -155,6 +161,11 @@ impl ReductionConfig {
     /// Return enabled reducers in their stable pipeline order.
     pub fn enabled_reducers(&self) -> Vec<ReducerKind> {
         ReducerKind::ALL.into_iter().filter(|kind| kind.enabled(self)).collect()
+    }
+
+    /// Whether any configured reduction can change a model projection.
+    pub fn has_applied_reducer(&self) -> bool {
+        self.state_identical || !self.enabled_reducers().is_empty()
     }
 }
 

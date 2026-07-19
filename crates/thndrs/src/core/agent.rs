@@ -322,6 +322,8 @@ impl RunHandle {
         let mut wrote_file = false;
         let mut continuation = ProviderContinuation::default();
         let mut pending_reduction_receipts = Vec::new();
+        let mut state_history = Vec::new();
+        let mut workspace_freshness = 0_u64;
 
         loop {
             if cancel.is_cancelled() {
@@ -507,7 +509,35 @@ impl RunHandle {
                 if write_result.is_some() && status == ToolStatus::Ok {
                     wrote_file = true;
                 }
+                let state_identity = tools::state_identity_for(req, &output, &self.config.root, workspace_freshness);
+                let state_protected = status != ToolStatus::Ok || write_result.is_some();
+                let (tool_result, result_content, reduced, projection_decision, state_record) = model_tool_result(
+                    &tool_id,
+                    &output,
+                    &self.config.model_reduction,
+                    state_identity,
+                    state_protected,
+                    &state_history,
+                );
+                if let Some(record) = state_record {
+                    state_history.push(record);
+                }
+                if write_result.is_some() || req.name == tools::shell::NAME {
+                    workspace_freshness = workspace_freshness.saturating_add(1);
+                }
                 tracing::info!(tool = %req.name, tool_id = %tool_id, status = ?status, "tool request finished");
+                if !matches!(
+                    &projection_decision,
+                    thndrs_agent::context::StateProjectionDecision::Retained
+                ) && send(
+                    tx,
+                    AgentEvent::StateProjectionDecision { id: tool_id.clone(), decision: projection_decision },
+                    cancel,
+                )
+                .is_none()
+                {
+                    return;
+                }
                 if send(
                     tx,
                     AgentEvent::ToolFinished {
@@ -531,8 +561,6 @@ impl RunHandle {
                     input,
                 });
 
-                let (tool_result, result_content, reduced) =
-                    model_tool_result(&tool_id, &output, &self.config.model_reduction);
                 for diagnostic in &reduced.diagnostics {
                     tracing::warn!(
                         reducer = diagnostic.reducer.map(|reducer| reducer.label()).unwrap_or("pipeline"),
@@ -767,15 +795,60 @@ where
 /// request unchanged.
 fn model_tool_result(
     tool_id: &str, output: &ToolOutput, config: &thndrs_agent::context::ReductionConfig,
-) -> (ProviderMessage, String, thndrs_agent::context::ReductionResult) {
-    let reduced = thndrs_agent::reduce_lines(&format!("tool:{tool_id}"), output.model_lines(), config);
-    let mut content = if reduced.lines.is_empty() { "(no output)".to_string() } else { reduced.lines.join("\n") };
-    if !config.enabled_reducers().is_empty() {
+    state_identity: Option<thndrs_agent::context::StateProjectionIdentity>, state_protected: bool,
+    state_history: &[thndrs_agent::context::StateProjectionRecord],
+) -> (
+    ProviderMessage,
+    String,
+    thndrs_agent::context::ReductionResult,
+    thndrs_agent::context::StateProjectionDecision,
+    Option<thndrs_agent::context::StateProjectionRecord>,
+) {
+    let mut reduced = thndrs_agent::reduce_lines(&format!("tool:{tool_id}"), output.model_lines(), config);
+    let mut state_candidate = thndrs_agent::context::StateProjectionCandidate::new(
+        format!("tool:{tool_id}"),
+        reduced.lines.clone(),
+        state_identity,
+    );
+    if state_protected {
+        state_candidate = state_candidate.protected();
+    }
+    let state_reduction = thndrs_agent::reduce_state_identical(&state_candidate, state_history, config);
+    let state_record = state_reduction.history_record(&state_candidate);
+    let projection_decision = state_reduction
+        .receipt
+        .as_ref()
+        .filter(|receipt| receipt.mode == thndrs_agent::ContextReductionMode::Applied)
+        .map_or(thndrs_agent::context::StateProjectionDecision::Retained, |_| {
+            state_reduction.decision.clone()
+        });
+    if let Some(receipt) = state_reduction.receipt {
+        reduced.receipts.push(receipt.clone());
+        reduced.dashboard.receipts.push(receipt.clone());
+        if receipt.mode == thndrs_agent::ContextReductionMode::Applied {
+            reduced.lines = state_reduction.lines;
+            reduced.dashboard.after_bytes = thndrs_agent::measure_lines(&reduced.lines);
+            reduced.dashboard.after_lines = reduced.lines.len();
+            reduced.dashboard.routine_omissions = reduced.dashboard.before_lines.saturating_sub(reduced.lines.len());
+        }
+    }
+    let suppressed_duplicate = matches!(
+        state_reduction.decision,
+        thndrs_agent::context::StateProjectionDecision::DuplicateOf { .. }
+    ) && reduced.lines.is_empty();
+    let mut content = if suppressed_duplicate {
+        String::new()
+    } else if reduced.lines.is_empty() {
+        "(no output)".to_string()
+    } else {
+        reduced.lines.join("\n")
+    };
+    if config.has_applied_reducer() {
         content.push('\n');
         content.push_str(&reduced.render_dashboard());
     }
     let message = ProviderMessage::tool_result(tool_id, &content, output.status == ToolStatus::Failed);
-    (message, content, reduced)
+    (message, content, reduced, projection_decision, state_record)
 }
 
 /// Best-effort classifier for prompts that should not finish without a
@@ -2810,7 +2883,8 @@ mod tests {
         let output = ToolOutput::ok("run_shell", vec!["same".to_string(); 10]);
         let display_before = output.display_lines();
 
-        let (message, content, result) = model_tool_result("toolu_1", &output, &reduction);
+        let (message, content, result, decision, _) =
+            model_tool_result("toolu_1", &output, &reduction, None, false, &[]);
 
         assert_eq!(output.display_lines(), display_before);
         assert_eq!(output.model.lines, vec!["same".to_string(); 10]);
@@ -2818,11 +2892,45 @@ mod tests {
         assert!(content.contains("<reduction_dashboard>"));
         assert!(result.changed());
         assert_eq!(result.receipts[0].mode, thndrs_agent::ContextReductionMode::Applied);
+        assert_eq!(decision, thndrs_agent::context::StateProjectionDecision::Retained);
 
         assert_eq!(message.role, "user");
         let value = serde_json::to_value(&message).expect("provider message serializes");
         assert_eq!(value["content"][0]["type"], "tool_result");
         assert_eq!(value["content"][0]["tool_use_id"], "toolu_1");
         assert_eq!(value["content"][0]["content"], content);
+    }
+
+    #[test]
+    fn duplicate_tool_results_keep_provider_structure_and_record_the_canonical_call() {
+        let mut reduction = thndrs_agent::context::ReductionConfig::disabled();
+        reduction.state_identical = true;
+        let identity = thndrs_agent::context::StateProjectionIdentity::new("file:src/lib.rs:1:2", "content-a");
+        let output = ToolOutput::ok("read_file_range", vec!["1: first".to_string(), "2: second".to_string()]);
+
+        let (_, _, _, first_decision, first_record) =
+            model_tool_result("toolu_1", &output, &reduction, identity.clone(), false, &[]);
+        let history = vec![first_record.expect("state record")];
+        let (message, content, result, decision, _) =
+            model_tool_result("toolu_2", &output, &reduction, identity, false, &history);
+
+        assert_eq!(first_decision, thndrs_agent::context::StateProjectionDecision::Retained);
+        assert_eq!(
+            decision,
+            thndrs_agent::context::StateProjectionDecision::DuplicateOf { canonical_id: "tool:toolu_1".to_string() }
+        );
+        assert!(content.contains("<reduction_dashboard>"));
+        assert!(!content.contains("1: first"));
+        assert!(
+            result
+                .receipts
+                .iter()
+                .any(|receipt| receipt.method == "state_identical_evidence"
+                    && receipt.mode == thndrs_agent::ContextReductionMode::Applied)
+        );
+
+        let value = serde_json::to_value(&message).expect("provider message serializes");
+        assert_eq!(value["content"][0]["type"], "tool_result");
+        assert_eq!(value["content"][0]["tool_use_id"], "toolu_2");
     }
 }

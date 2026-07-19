@@ -502,7 +502,10 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    use thndrs_agent::accounting::{ModelProjectionMessage, ProviderUsageComponents, ProviderUsageRule};
+    use thndrs_agent::accounting::{
+        ContextReductionMode, ContextReductionReceipt, ModelProjectionMessage, ProviderUsageComponents,
+        ProviderUsageRule,
+    };
     use thndrs_agent::context::{
         ContextBudget, ContextLifecycle, ContextLifecycleAction, ContextLifecycleState, ContextProtection,
         ContextProtectionReason, ContextRelation, ContextRelationStatus, DiagnosticSeverity, ModelContextLimits,
@@ -561,6 +564,16 @@ mod tests {
             b"serialized request",
             Vec::new(),
         )
+        .with_reduction_receipts(vec![ContextReductionReceipt {
+            item_id: "tool:call_2".to_string(),
+            method: "state_identical_evidence".to_string(),
+            version: thndrs_agent::context::STATE_IDENTICAL_REDUCER_VERSION.to_string(),
+            before_bytes: 42,
+            after_bytes: 0,
+            lossy: true,
+            mode: ContextReductionMode::Applied,
+            diagnostic: None,
+        }])
         .with_model_projection(vec![ModelProjectionMessage {
             role: "user".to_string(),
             content: "visible api_key=source-secret-that-must-not-be-rendered".to_string(),
@@ -591,7 +604,9 @@ mod tests {
         assert!(json.contains("budget_eviction"));
         assert!(json.contains("failure_evidence"));
         assert!(json.contains("verified_by"));
+        assert!(json.contains("state_identical_evidence"));
         assert!(markdown.contains("Inclusive input: 106"));
+        assert!(markdown.contains("1 total (0 shadow, 1 applied, 0 baseline fallback)"));
         assert!(markdown.contains("Recovery"));
         assert!(markdown.contains("Lifecycle"));
         assert!(markdown.contains("verified_by"));

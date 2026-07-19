@@ -37,11 +37,14 @@ pub fn exec(path: &Path, root: &Path, start_line: u32, end_line: Option<u32>) ->
     let start = start_line.max(1) as usize;
     let end = end_line.map(|e| e.max(start as u32) as usize).unwrap_or(start + 20);
 
-    let lines: Vec<String> = content
+    let selected = content
         .lines()
         .enumerate()
         .skip(start.saturating_sub(1))
         .take(end.saturating_sub(start) + 1)
+        .collect::<Vec<_>>();
+    let lines: Vec<String> = selected
+        .iter()
         .map(|(i, line)| format!("{}: {}", i + 1, utils::truncate_line(line)))
         .collect();
 
@@ -49,7 +52,16 @@ pub fn exec(path: &Path, root: &Path, start_line: u32, end_line: Option<u32>) ->
         return ToolOutput::failed("read_file_range", format!("no lines in range {start}-{end}"));
     }
 
-    ToolOutput::ok("read_file_range", lines)
+    ToolOutput::ok("read_file_range", lines).with_evidence_content_hash(format!(
+        "{:016x}",
+        crate::tools::hash_content(
+            &selected
+                .into_iter()
+                .map(|(_, line)| line)
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    ))
 }
 
 /// Provider-visible definition for `read_file_range`.
@@ -172,5 +184,23 @@ mod tests {
 
         assert_eq!(output.status, ToolStatus::Ok);
         assert_eq!(output.display.lines, vec!["2: b", "3: c"]);
+    }
+
+    #[test]
+    fn evidence_hash_covers_untruncated_range_content() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path().canonicalize().expect("canonical temp dir");
+        let path = root.join("long.txt");
+        let prefix = "x".repeat(crate::tools::MAX_LINE_LEN + 32);
+        std::fs::write(&path, format!("{prefix}one\n")).expect("write first content");
+        let first = exec(&path, &root, 1, Some(1));
+        std::fs::write(&path, format!("{prefix}two\n")).expect("write changed content");
+        let second = exec(&path, &root, 1, Some(1));
+
+        assert_eq!(
+            first.display.lines, second.display.lines,
+            "both rendered lines truncate identically"
+        );
+        assert_ne!(first.evidence.content_hash, second.evidence.content_hash);
     }
 }

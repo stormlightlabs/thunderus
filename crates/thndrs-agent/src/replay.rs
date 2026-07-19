@@ -161,6 +161,8 @@ impl ReplayItemKind {
 pub enum ReplayScenario {
     /// Repeated reads of the same source.
     RepeatedReads,
+    /// Repeated searches of the same workspace state.
+    RepeatedSearches,
     /// Reads whose ranges overlap without being identical.
     OverlappingReads,
     /// Passing test output.
@@ -188,6 +190,7 @@ impl ReplayScenario {
     pub const fn label(self) -> &'static str {
         match self {
             Self::RepeatedReads => "repeated_reads",
+            Self::RepeatedSearches => "repeated_searches",
             Self::OverlappingReads => "overlapping_reads",
             Self::PassingTests => "passing_tests",
             Self::FailingTests => "failing_tests",
@@ -238,6 +241,9 @@ pub struct ReplayItem {
     /// State fingerprint for state-aware identity checks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_fingerprint: Option<String>,
+    /// Opaque logical-source key paired with `state_fingerprint`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_source: Option<String>,
 }
 
 impl ReplayItem {
@@ -864,5 +870,53 @@ mod tests {
         let mut fixture = load_fixture(FIXTURE).expect("fixture loads");
         fixture.items[0].fact_ids.push("missing".to_string());
         assert!(matches!(fixture.validate(), Err(ReplayError::InvalidFixture(_))));
+    }
+
+    #[test]
+    fn frozen_state_identity_cases_preserve_duplicate_and_changed_state_boundaries() {
+        let fixture = load_fixture(FIXTURE).expect("fixture loads");
+        let report = evaluate_fixture(&fixture, &CandidatePolicy::new("state-identical"))
+            .expect("frozen fixture remains evaluator-valid");
+        assert_eq!(report.fixture_id, fixture.id);
+
+        let config =
+            crate::context::ReductionConfig { state_identical: true, ..crate::context::ReductionConfig::disabled() };
+        let mut history = Vec::new();
+        let mut decisions = std::collections::BTreeMap::new();
+        for item in &fixture.items {
+            let Some(identity) = item
+                .state_source
+                .as_ref()
+                .zip(item.state_fingerprint.as_ref())
+                .and_then(|(source, fingerprint)| crate::context::StateProjectionIdentity::new(source, fingerprint))
+            else {
+                continue;
+            };
+            let candidate =
+                crate::context::StateProjectionCandidate::new(&item.id, vec![item.content.clone()], Some(identity));
+            let candidate = if item.protected { candidate.protected() } else { candidate };
+            let reduction = crate::context::reduce_state_identical(&candidate, &history, &config);
+            decisions.insert(item.id.as_str(), reduction.decision.clone());
+            if let Some(record) = reduction.history_record(&candidate) {
+                history.push(record);
+            }
+        }
+
+        assert_eq!(
+            decisions.get("read-config-repeat"),
+            Some(&crate::context::StateProjectionDecision::DuplicateOf {
+                canonical_id: "read-config-first".to_string(),
+            })
+        );
+        assert_eq!(
+            decisions.get("search-repeat"),
+            Some(&crate::context::StateProjectionDecision::DuplicateOf { canonical_id: "search-first".to_string() })
+        );
+        assert_eq!(
+            decisions.get("command-after-state"),
+            Some(&crate::context::StateProjectionDecision::Supersedes {
+                previous_id: "command-before-state".to_string(),
+            })
+        );
     }
 }
