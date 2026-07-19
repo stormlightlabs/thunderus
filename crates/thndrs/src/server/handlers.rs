@@ -1632,6 +1632,7 @@ fn record_time(record: &SessionRecord) -> Option<String> {
         | SessionRecord::ContextPin { time, .. }
         | SessionRecord::ContextDrop { time, .. }
         | SessionRecord::ContextRecovery { time, .. }
+        | SessionRecord::ContextLifecycle { time, .. }
         | SessionRecord::Compaction { time, .. }
         | SessionRecord::CompactionReview { time, .. }
         | SessionRecord::User { time, .. }

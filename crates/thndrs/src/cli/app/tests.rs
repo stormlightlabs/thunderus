@@ -2613,6 +2613,7 @@ fn acp_permission_select_sends_selected_option() {
         &mut app,
         &Msg::Agent(AgentEvent::PermissionRequest(pending_permission(tx))),
     );
+    app.refresh_context_ledger(None);
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -2622,6 +2623,7 @@ fn acp_permission_select_sends_selected_option() {
         PermissionDecision::Selected("allow".to_string())
     );
     assert!(app.pending_permission.is_none());
+    assert!(app.context_ledger.is_none());
 }
 
 #[test]
@@ -2632,6 +2634,7 @@ fn acp_permission_escape_cancels_request() {
         &mut app,
         &Msg::Agent(AgentEvent::PermissionRequest(pending_permission(tx))),
     );
+    app.refresh_context_ledger(None);
 
     update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
 
@@ -2640,6 +2643,7 @@ fn acp_permission_escape_cancels_request() {
         PermissionDecision::Cancelled
     );
     assert!(app.pending_permission.is_none());
+    assert!(app.context_ledger.is_none());
 }
 
 #[test]

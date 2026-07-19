@@ -13,10 +13,10 @@ and reduces avoidable input only after measurement proves that the reduction
 preserves required evidence and task behavior.
 
 The first shippable milestone is behavior-preserving context observability.
-Later milestones add deterministic reduction, explicit lifecycle management,
-and review-gated semantic compression. The product does not offer behavioral
-presets that trade control for an opaque `quality`, `balanced`, or `economy`
-mode.
+The next milestone adds deterministic reduction and review-gated semantic
+compression; explicit lifecycle management now ships as its auditable
+foundation. The product does not offer behavioral presets that trade control
+for an opaque `quality`, `balanced`, or `economy` mode.
 
 ## Users And Use Cases
 
@@ -168,10 +168,13 @@ an 80% target and may compact above a 92% threshold.
 for both display and provider feedback. That coupling prevents independent
 durable evidence, display, and model projections.
 
-The context ledger has a `ToolArchive` kind but selection input and prompt
-projection do not yet provide a complete artifact lifecycle. Visibility states
-describe prompt inclusion, but there is no separate lifecycle/protection model,
-replacement link, reduction receipt, or verification relation.
+The context ledger has a `ToolArchive` kind, and selection now carries a
+provider-neutral lifecycle/protection contract beside request visibility. The
+contract records explicit duplicate, supersession, summary, archive, recovery,
+and verification relations without treating omission from one request as a
+lifecycle transition. Conservative protection reasons cover user context,
+constraints, safety state, permissions, pins, recovery metadata, failures, and
+unverified writes.
 
 ### Application
 
@@ -181,10 +184,11 @@ the display output is likewise joined and sent back to the provider.
 
 Append-only session JSONL records context-ledger metadata, aggregate provider
 input/output usage, tool starts/finishes, compaction audits, shell execution,
-and context actions. Tool-finished output is redacted and capped, but evidence,
-display, and model projection are not independent records. Provider usage does
-not yet preserve cache-read, cache-creation, or reasoning components in the
-provider-neutral event/session contract.
+context actions, and content-free lifecycle transitions. Verification review,
+explicit release, and recovery write post-transition lifecycle metadata before
+the in-memory state changes; resume replays the latest lifecycle record.
+Tool-finished output remains redacted and capped, and lifecycle records carry
+metadata and relations rather than raw evidence.
 
 The TUI already has a context surface, pin/drop/recovery actions, context health
 information, and manual/automatic compaction review. The feature extends these

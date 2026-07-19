@@ -27,8 +27,9 @@ use std::path::PathBuf;
 
 use super::support::{ratio_of, scope_depth};
 use crate::context::{
-    ContextBudget, ContextDiagnostic, ContextItem, ContextItemKind, ContextLedger, ContextVisibility,
-    DiagnosticSeverity, ModelContextLimits, estimate_tokens, item_id_for_path, item_id_for_session_range,
+    ContextBudget, ContextDiagnostic, ContextItem, ContextItemKind, ContextLedger, ContextLifecycle, ContextProtection,
+    ContextProtectionReason, ContextVisibility, DiagnosticSeverity, ModelContextLimits, estimate_tokens,
+    item_id_for_path, item_id_for_session_range,
 };
 
 /// A transcript entry considered for selection.
@@ -52,6 +53,8 @@ pub struct TranscriptCandidate {
     pub ui_only: bool,
     /// Whether the entry is still streaming and not yet settled.
     pub streaming: bool,
+    /// Explicit application classification of conservative protection reasons.
+    pub protection: ContextProtection,
 }
 
 impl TranscriptCandidate {
@@ -65,6 +68,7 @@ impl TranscriptCandidate {
             artifact_handle: None,
             ui_only: false,
             streaming: false,
+            protection: ContextProtection::default(),
         }
     }
 
@@ -77,6 +81,12 @@ impl TranscriptCandidate {
     /// Mark this candidate as still streaming and not yet settled.
     pub fn streaming(mut self) -> Self {
         self.streaming = true;
+        self
+    }
+
+    /// Attach conservative protection classified by the application.
+    pub fn with_protection(mut self, protection: ContextProtection) -> Self {
+        self.protection = protection;
         self
     }
 }
@@ -233,6 +243,8 @@ pub struct HarnessCandidate {
     pub label: String,
     /// Estimated UTF-8 byte size of the fragment.
     pub bytes: usize,
+    /// Conservative protection classified by the application.
+    pub protection: ContextProtection,
 }
 
 impl HarnessCandidate {
@@ -240,7 +252,31 @@ impl HarnessCandidate {
     pub fn new(label: impl Into<String>, bytes: usize) -> Self {
         let label = label.into();
         let id = format!("ctx_harness_{}", slug(&label));
-        HarnessCandidate { id, label, bytes }
+        HarnessCandidate { id, label, bytes, protection: ContextProtection::default() }
+    }
+
+    /// Attach conservative protection to this harness fragment.
+    pub fn with_protection(mut self, protection: ContextProtection) -> Self {
+        self.protection = protection;
+        self
+    }
+}
+
+/// A pending permission request considered as protected context.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingPermissionCandidate {
+    /// Stable id for the pending request.
+    pub id: String,
+    /// Redacted display label for the request.
+    pub label: String,
+    /// Estimated UTF-8 byte size of its metadata.
+    pub bytes: usize,
+}
+
+impl PendingPermissionCandidate {
+    /// Build a pending permission candidate from application-owned metadata.
+    pub fn new(id: impl Into<String>, label: impl Into<String>, bytes: usize) -> Self {
+        Self { id: id.into(), label: label.into(), bytes }
     }
 }
 
@@ -255,6 +291,8 @@ pub struct SelectionInput {
     pub harness: Vec<HarnessCandidate>,
     /// Current user turn text, outside ordinary budget eviction.
     pub user_turn: Option<UserTurnCandidate>,
+    /// Permission requests waiting for an explicit user decision.
+    pub pending_permissions: Vec<PendingPermissionCandidate>,
     /// Scoped project instructions, closest-first.
     pub instructions: Vec<InstructionCandidate>,
     /// Active pins.
@@ -314,6 +352,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             visibility: ContextVisibility::Visible,
             reason_code: "harness_always_loaded".to_string(),
             reason: "always-loaded harness context".to_string(),
+            lifecycle: ContextLifecycle::new(harness.protection.clone()),
         });
     }
 
@@ -332,6 +371,30 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             visibility: ContextVisibility::Visible,
             reason_code: "current_user_turn".to_string(),
             reason: "current user turn, outside ordinary budget eviction".to_string(),
+            lifecycle: ContextLifecycle::new(ContextProtection::from_reason(
+                ContextProtectionReason::CurrentUserContext,
+            )),
+        });
+    }
+
+    for permission in &input.pending_permissions {
+        items.push(ContextItem {
+            id: permission.id.clone(),
+            kind: ContextItemKind::Harness,
+            label: permission.label.clone(),
+            source_path: None,
+            scope: ".".to_string(),
+            content_hash: None,
+            artifact_handle: None,
+            byte_count: permission.bytes,
+            content: None,
+            token_estimate: estimate_tokens(permission.bytes),
+            visibility: ContextVisibility::Visible,
+            reason_code: "pending_permission".to_string(),
+            reason: "pending permission requires an explicit user decision".to_string(),
+            lifecycle: ContextLifecycle::new(ContextProtection::from_reason(
+                ContextProtectionReason::PendingPermission,
+            )),
         });
     }
 
@@ -365,6 +428,10 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             visibility,
             reason_code: reason_code.to_string(),
             reason,
+            lifecycle: ContextLifecycle::new(protection_for_artifact(
+                ContextProtection::from_reason(ContextProtectionReason::UserPin),
+                pin.artifact_handle.is_some(),
+            )),
         });
     }
 
@@ -404,6 +471,9 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             visibility,
             reason_code: reason_code.to_string(),
             reason,
+            lifecycle: ContextLifecycle::new(ContextProtection::from_reason(
+                ContextProtectionReason::ExplicitConstraint,
+            )),
         });
     }
 
@@ -442,6 +512,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             visibility,
             reason_code: reason_code.to_string(),
             reason,
+            lifecycle: ContextLifecycle::new(ContextProtection::default()),
         });
     }
 
@@ -482,6 +553,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             visibility,
             reason_code: reason_code.to_string(),
             reason,
+            lifecycle: ContextLifecycle::new(ContextProtection::default()),
         });
     }
 
@@ -567,6 +639,10 @@ fn push_transcript(items: &mut Vec<ContextItem>, input: &SelectionInput, availab
             visibility,
             reason_code: reason_code.to_string(),
             reason: reason.to_string(),
+            lifecycle: ContextLifecycle::new(protection_for_artifact(
+                candidate.protection.clone(),
+                candidate.artifact_handle.is_some(),
+            )),
         });
     }
 }
@@ -608,6 +684,14 @@ fn blocked_oversized(id: &str, kind: &str) -> ContextDiagnostic {
         severity: DiagnosticSeverity::Warning,
         code: "blocked_oversized".to_string(),
         message: format!("{kind} {id} exceeds available input budget; marked blocked instead of truncating"),
+    }
+}
+
+fn protection_for_artifact(protection: ContextProtection, has_artifact: bool) -> ContextProtection {
+    if has_artifact {
+        protection.with_reason(ContextProtectionReason::RecoveryMetadata)
+    } else {
+        protection
     }
 }
 
@@ -680,5 +764,82 @@ mod tests {
                 .iter()
                 .any(|item| item.kind == ContextItemKind::Transcript && item.visibility == ContextVisibility::Archived)
         );
+    }
+
+    #[test]
+    fn conservative_protection_covers_user_safety_permissions_pins_failures_and_writes() {
+        let pin = PinnedCandidate {
+            id: "pin".to_string(),
+            kind: ContextItemKind::PinnedFile,
+            label: "notes".to_string(),
+            source_path: None,
+            scope: ".".to_string(),
+            content_hash: None,
+            artifact_handle: Some("artifact-1".to_string()),
+            bytes: 10,
+        };
+        let input = SelectionInput {
+            harness: vec![
+                HarnessCandidate::new("action_safety", 10)
+                    .with_protection(ContextProtection::from_reason(ContextProtectionReason::SafetyState)),
+            ],
+            user_turn: Some(UserTurnCandidate::new("session", 1, 10)),
+            pending_permissions: vec![PendingPermissionCandidate::new("permission", "permission", 10)],
+            instructions: vec![InstructionCandidate {
+                path: PathBuf::from("/repo/AGENTS.md"),
+                scope: ".".to_string(),
+                content_hash: 7,
+                byte_count: 10,
+                content: Some("explicit constraint".to_string()),
+                truncated: false,
+                applicable: true,
+            }],
+            pins: vec![pin],
+            transcript: vec![
+                TranscriptCandidate::new("session", 1, "failed tool", 10)
+                    .with_protection(ContextProtection::from_reason(ContextProtectionReason::FailureEvidence)),
+                TranscriptCandidate::new("session", 2, "write tool", 10).with_protection(
+                    ContextProtection::from_reason(ContextProtectionReason::UnverifiedWriteEdit),
+                ),
+            ],
+            ..Default::default()
+        };
+        let ledger = select_context(&input, limits(200_000));
+
+        let reason_for = |label: &str| {
+            ledger
+                .items
+                .iter()
+                .find(|item| item.label == label)
+                .map(|item| item.lifecycle.protection.reasons.clone())
+                .expect("protected item")
+        };
+        assert!(reason_for("current user turn").contains(&ContextProtectionReason::CurrentUserContext));
+        assert!(reason_for("action_safety").contains(&ContextProtectionReason::SafetyState));
+        assert!(reason_for("permission").contains(&ContextProtectionReason::PendingPermission));
+        assert!(reason_for("/repo/AGENTS.md").contains(&ContextProtectionReason::ExplicitConstraint));
+        assert!(reason_for("notes").contains(&ContextProtectionReason::UserPin));
+        assert!(reason_for("notes").contains(&ContextProtectionReason::RecoveryMetadata));
+        assert!(reason_for("failed tool").contains(&ContextProtectionReason::FailureEvidence));
+        assert!(reason_for("write tool").contains(&ContextProtectionReason::UnverifiedWriteEdit));
+    }
+
+    #[test]
+    fn lifecycle_protection_does_not_follow_visibility_eviction() {
+        let input = SelectionInput {
+            transcript: vec![
+                TranscriptCandidate::new("session", 1, "failed", 100_000)
+                    .with_protection(ContextProtection::from_reason(ContextProtectionReason::FailureEvidence)),
+            ],
+            ..Default::default()
+        };
+        let ledger = select_context(&input, limits(4_000));
+        let item = ledger
+            .items
+            .iter()
+            .find(|item| item.label == "failed")
+            .expect("transcript item");
+        assert_eq!(item.visibility, ContextVisibility::Archived);
+        assert!(item.lifecycle.is_protected());
     }
 }

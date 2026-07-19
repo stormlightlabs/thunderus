@@ -31,7 +31,7 @@ use thndrs_agent::context::{ContextItem, ContextLedger};
 
 pub use contracts::{
     AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,
-    ContextSourceMeta, McpToolSessionMeta, SessionConfigFile, SessionConfigMeta,
+    ContextLifecycleAudit, ContextSourceMeta, McpToolSessionMeta, SessionConfigFile, SessionConfigMeta,
 };
 
 /// Current JSONL schema version.
@@ -109,6 +109,14 @@ pub enum SessionRecord {
         time: String,
         item: ContextItemMeta,
         reason: String,
+    },
+    /// An explicit lifecycle, relation, protection, or verification action.
+    #[serde(rename = "context_lifecycle")]
+    ContextLifecycle {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        audit: ContextLifecycleAudit,
     },
     /// A manual or automatic compaction audit record.
     #[serde(rename = "compaction")]
@@ -392,6 +400,7 @@ impl SessionRecord {
             | SessionRecord::ContextPin { seq, .. }
             | SessionRecord::ContextDrop { seq, .. }
             | SessionRecord::ContextRecovery { seq, .. }
+            | SessionRecord::ContextLifecycle { seq, .. }
             | SessionRecord::Compaction { seq, .. }
             | SessionRecord::CompactionReview { seq, .. }
             | SessionRecord::User { seq, .. }
@@ -871,13 +880,13 @@ impl SessionWriter {
     /// Append a record to the session file.
     pub fn append(&mut self, mut record: SessionRecord) -> std::io::Result<()> {
         let seq = self.seq;
-        self.seq += 1;
         set_seq(&mut record, seq);
 
         let line = record.to_json().map_err(io_err)?;
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
         writeln!(file, "{line}")?;
+        self.seq += 1;
         Ok(())
     }
 
@@ -979,6 +988,24 @@ impl SessionWriter {
     /// Append a content-free user recovery action.
     pub fn append_context_recovery(&mut self, item: &ContextItem, reason: &str) -> std::io::Result<()> {
         self.append_context_action(item, reason, ContextActionKind::Recovery)
+    }
+
+    /// Append an explicit lifecycle transition with content-free post-state
+    /// metadata. Callers should apply the returned pure transition only after
+    /// this append succeeds.
+    pub fn append_context_lifecycle(
+        &mut self, item: &ContextItem, action: thndrs_agent::context::ContextLifecycleAction, reason: &str,
+    ) -> std::io::Result<()> {
+        self.append(SessionRecord::ContextLifecycle {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: datetime::now_iso8601(),
+            audit: ContextLifecycleAudit {
+                action,
+                item: ContextItemMeta::from(item),
+                reason: tools::shell::redact_secrets(reason),
+            },
+        })
     }
 
     /// Append a compaction audit record without source payloads.
@@ -1700,6 +1727,7 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::ContextPin { seq: s, .. }
         | SessionRecord::ContextDrop { seq: s, .. }
         | SessionRecord::ContextRecovery { seq: s, .. }
+        | SessionRecord::ContextLifecycle { seq: s, .. }
         | SessionRecord::Compaction { seq: s, .. }
         | SessionRecord::CompactionReview { seq: s, .. }
         | SessionRecord::User { seq: s, .. }

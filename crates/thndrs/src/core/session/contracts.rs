@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::context::ContextSource;
-use thndrs_agent::context::{ContextItem, ContextItemKind, ContextLedger, ContextVisibility};
+use thndrs_agent::context::{
+    ContextItem, ContextItemKind, ContextLedger, ContextLifecycle, ContextLifecycleAction, ContextVisibility,
+};
 
 /// Metadata for a loaded context source, without its model-visible content.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -71,6 +73,9 @@ pub struct ContextItemMeta {
     pub reason_code: String,
     /// Redacted explanation of the assigned visibility.
     pub reason: String,
+    /// Lifecycle and protection state independent of request visibility.
+    #[serde(default)]
+    pub lifecycle: ContextLifecycle,
 }
 
 impl From<&ContextItem> for ContextItemMeta {
@@ -87,6 +92,7 @@ impl From<&ContextItem> for ContextItemMeta {
             visibility: item.visibility.clone(),
             reason_code: item.reason_code.clone(),
             reason: redact_audit_text(&item.reason),
+            lifecycle: item.lifecycle.clone(),
         }
     }
 }
@@ -128,6 +134,17 @@ impl From<&ContextLedger> for ContextLedgerMeta {
                 .collect(),
         }
     }
+}
+
+/// Content-free audit record for an explicit lifecycle transition.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextLifecycleAudit {
+    /// Pure action applied to the item's lifecycle state.
+    pub action: ContextLifecycleAction,
+    /// Post-transition item metadata, including lifecycle and protection.
+    pub item: ContextItemMeta,
+    /// Redacted user or application reason for the transition.
+    pub reason: String,
 }
 
 /// Content-free diagnostic emitted while selecting context.

@@ -11,6 +11,10 @@ use crate::session::CompactionRisk;
 
 use super::*;
 
+pub const CONTEXT_INSPECTION_MAX_ITEMS: usize = 64;
+
+const CONTEXT_DISPLAY_MAX_BYTES: usize = 160;
+
 /// Pending compaction request with enough information to atomically replace
 /// active context after a successful configured-model response.
 ///
@@ -38,6 +42,7 @@ pub struct PendingCompactionReview {
     pending: PendingManualCompaction,
     summary: String,
 }
+
 impl App {
     /// Recover bounded redacted evidence for a context item or artifact handle.
     ///
@@ -66,6 +71,111 @@ impl App {
         self.recover_artifact_for_item(&item, handle, "user requested bounded artifact recovery")
     }
 
+    /// Propose a verification relation from protected evidence to a candidate
+    /// result. The proposal is durable and changes neither lifecycle nor
+    /// protection until the user reviews it.
+    pub fn propose_context_verification(
+        &mut self, evidence_reference: &str, candidate_reference: &str,
+    ) -> Result<String, String> {
+        self.ensure_context_ledger();
+        let evidence = self
+            .context_item(evidence_reference)?
+            .ok_or_else(|| {
+                format!(
+                    "unknown protected context item `{}`",
+                    redact_context_display(evidence_reference)
+                )
+            })?
+            .clone();
+        let candidate = self
+            .context_item(candidate_reference)?
+            .ok_or_else(|| {
+                format!(
+                    "unknown verification candidate `{}`",
+                    redact_context_display(candidate_reference)
+                )
+            })?
+            .clone();
+        if evidence.id == candidate.id {
+            return Err("verification evidence and candidate must be different context items".to_string());
+        }
+        if !evidence.lifecycle.is_protected() {
+            return Err(format!(
+                "context item `{}` has no active protection to verify",
+                redact_context_display(&evidence.id)
+            ));
+        }
+        let relation_id = agent_context::relation_id_for(
+            agent_context::ContextRelationKind::VerifiedBy,
+            &evidence.id,
+            &candidate.id,
+        );
+        let relation = agent_context::ContextRelation::proposed_verification(
+            relation_id.clone(),
+            evidence.id.clone(),
+            candidate.id,
+        );
+        let next_lifecycle = evidence
+            .lifecycle
+            .apply(agent_context::ContextLifecycleAction::ProposeVerification { relation: relation.clone() })
+            .map_err(|error| error.to_string())?;
+        self.append_lifecycle_transition(
+            &evidence,
+            next_lifecycle,
+            agent_context::ContextLifecycleAction::ProposeVerification { relation },
+            "agent proposed verification relation",
+        )?;
+        Ok(relation_id)
+    }
+
+    /// Approve a proposed verification relation without releasing protection.
+    pub fn approve_context_verification(&mut self, reference: &str) -> Result<(), String> {
+        self.apply_verification_review(reference, false)
+    }
+
+    /// Reject a proposed verification relation while retaining protection.
+    pub fn reject_context_verification(&mut self, reference: &str) -> Result<(), String> {
+        self.apply_verification_review(reference, true)
+    }
+
+    /// Release protected evidence through an approved verification relation.
+    pub fn release_context_verification(&mut self, reference: &str) -> Result<(), String> {
+        let Some((item, relation)) = self.context_relation_owner(reference)? else {
+            return Err(format!(
+                "unknown verification relation `{}`",
+                redact_context_display(reference)
+            ));
+        };
+        if relation.status != agent_context::ContextRelationStatus::Approved {
+            return Err(format!(
+                "verification relation `{}` must be approved before release",
+                redact_context_display(&relation.id)
+            ));
+        }
+        let action = agent_context::ContextLifecycleAction::Release { relation_id: Some(relation.id) };
+        let lifecycle = item
+            .lifecycle
+            .apply(action.clone())
+            .map_err(|error| error.to_string())?;
+        self.append_lifecycle_transition(&item, lifecycle, action, "user released verified context evidence")
+    }
+
+    /// Explicitly release protection for an item without claiming that any
+    /// command or assistant statement verified it.
+    pub fn release_context_item(&mut self, reference: &str) -> Result<(), String> {
+        self.ensure_context_ledger();
+        let item = self
+            .context_item(reference)?
+            .ok_or_else(|| format!("unknown context item `{}`", redact_context_display(reference)))?
+            .clone();
+        let action = agent_context::ContextLifecycleAction::Release { relation_id: None };
+        let lifecycle = item
+            .lifecycle
+            .apply(action.clone())
+            .map_err(|error| error.to_string())?;
+        self.append_lifecycle_transition(&item, lifecycle, action, "user explicitly released context protection")
+    }
+
     /// Rebuild the deterministic context ledger for a turn boundary.
     ///
     /// The caller owns discovery, transcript projection, and persistence. The
@@ -86,7 +196,16 @@ impl App {
 
         let mut harness = prompt::default_fragments()
             .into_iter()
-            .map(|fragment| HarnessCandidate::new(fragment.name, fragment.content.len()))
+            .map(|fragment| {
+                let candidate = HarnessCandidate::new(fragment.name, fragment.content.len());
+                if fragment.name == "action_safety" {
+                    candidate.with_protection(agent_context::ContextProtection::from_reason(
+                        agent_context::ContextProtectionReason::SafetyState,
+                    ))
+                } else {
+                    candidate
+                }
+            })
             .collect::<Vec<_>>();
         harness.push(HarnessCandidate::new(
             "tool_catalog",
@@ -137,11 +256,30 @@ impl App {
                     entry,
                     Entry::Agent { streaming: true, .. } | Entry::Reasoning { streaming: true, .. }
                 ),
+                protection: transcript_protection(entry),
             })
+            .collect();
+        let pending_permissions = self
+            .pending_permission
+            .as_ref()
+            .map(|permission| {
+                PendingPermissionCandidate::new(
+                    format!("ctx_permission_{}", permission.tool_call_id),
+                    format!("pending permission: {}", redact_context_display(&permission.title)),
+                    permission.title.len()
+                        + permission
+                            .options
+                            .iter()
+                            .map(|option| option.id.len() + option.name.len())
+                            .sum::<usize>(),
+                )
+            })
+            .into_iter()
             .collect();
         let selection_input = SelectionInput {
             harness,
             user_turn: user_turn.map(|text| UserTurnCandidate::new(&self.session_id, self.turn_count + 1, text.len())),
+            pending_permissions,
             instructions,
             pins: self.context_pins.clone(),
             compaction_summaries: self.compaction_summaries.clone(),
@@ -153,6 +291,15 @@ impl App {
         let provider = provider_label(&self.model);
         let (limits, mut diagnostics) = agent_context::ModelContextLimits::resolve(provider, &self.model, None, None);
         let mut ledger = agent_context::select_context(&selection_input, limits);
+        for item in &mut ledger.items {
+            if let Some(mut lifecycle) = self.context_lifecycles.get(&item.id).cloned() {
+                lifecycle.merge_derived_protection(&item.lifecycle.protection);
+                item.lifecycle = lifecycle.clone();
+                self.context_lifecycles.insert(item.id.clone(), lifecycle);
+            } else {
+                self.context_lifecycles.insert(item.id.clone(), item.lifecycle.clone());
+            }
+        }
         diagnostics.extend(
             self.context_diagnostics
                 .iter()
@@ -284,6 +431,9 @@ impl App {
                 visibility: ContextVisibility::Pinned,
                 reason_code: "user_pin".to_string(),
                 reason: "user pin".to_string(),
+                lifecycle: agent_context::ContextLifecycle::new(agent_context::ContextProtection::from_reason(
+                    agent_context::ContextProtectionReason::UserPin,
+                )),
             };
             (candidate, item)
         };
@@ -354,10 +504,30 @@ impl App {
                 redact_context_display(&item.id)
             ));
         }
-        if !artifact_recovered && let Some(writer) = self.session_writer.as_mut() {
-            writer
-                .append_context_recovery(&item, "user recovered context item")
-                .map_err(|error| format!("failed to record context recovery: {error}"))?;
+        if !artifact_recovered {
+            let recovery_target = format!("session:{}", item.id);
+            let relation = agent_context::ContextRelation::applied(
+                agent_context::relation_id_for(
+                    agent_context::ContextRelationKind::RecoveredFrom,
+                    &item.id,
+                    &recovery_target,
+                ),
+                agent_context::ContextRelationKind::RecoveredFrom,
+                item.id.clone(),
+                recovery_target,
+            );
+            let lifecycle = item
+                .lifecycle
+                .apply(agent_context::ContextLifecycleAction::Recover { relation })
+                .map_err(|error| error.to_string())?;
+            let mut next_item = item.clone();
+            next_item.lifecycle = lifecycle.clone();
+            if let Some(writer) = self.session_writer.as_mut() {
+                writer
+                    .append_context_recovery(&next_item, "user recovered context item")
+                    .map_err(|error| format!("failed to record context recovery: {error}"))?;
+            }
+            self.context_lifecycles.insert(item.id.clone(), lifecycle);
         }
         self.context_dropped_ids.retain(|id| id != &item.id);
         if needs_pin && !self.context_pins.iter().any(|pin| pin.id == item.id) {
@@ -383,11 +553,27 @@ impl App {
             .artifact_store()
             .recover(handle)
             .map_err(|_| format!("artifact `{}` metadata is unavailable", redact_context_display(handle)))?;
+        let relation_id =
+            agent_context::relation_id_for(agent_context::ContextRelationKind::RecoveredFrom, &item.id, handle);
+        let lifecycle = item
+            .lifecycle
+            .apply(agent_context::ContextLifecycleAction::Recover {
+                relation: agent_context::ContextRelation::applied(
+                    relation_id,
+                    agent_context::ContextRelationKind::RecoveredFrom,
+                    item.id.clone(),
+                    handle,
+                ),
+            })
+            .map_err(|error| error.to_string())?;
+        let mut next_item = item.clone();
+        next_item.lifecycle = lifecycle.clone();
         if let Some(writer) = self.session_writer.as_mut() {
             writer
-                .append_context_recovery(item, reason)
-                .map_err(|_| "failed to record context recovery".to_string())?;
+                .append_context_recovery(&next_item, reason)
+                .map_err(|error| format!("failed to record context recovery: {error}"))?;
         }
+        self.context_lifecycles.insert(item.id.clone(), lifecycle);
         Ok(recovery)
     }
 
@@ -411,20 +597,37 @@ impl App {
         self.context_dropped_ids.clear();
         self.compaction_summaries.clear();
         self.tool_artifacts.clear();
+        self.context_lifecycles.clear();
         self.last_compaction_review = None;
         for record in records {
             match record {
+                session::SessionRecord::ContextLedger { ledger, .. } => {
+                    for item in &ledger.items {
+                        if item.lifecycle != agent_context::ContextLifecycle::default() {
+                            self.context_lifecycles.insert(item.id.clone(), item.lifecycle.clone());
+                        }
+                    }
+                }
                 session::SessionRecord::ContextPin { item, .. } => {
+                    if item.lifecycle != agent_context::ContextLifecycle::default() {
+                        self.context_lifecycles.insert(item.id.clone(), item.lifecycle.clone());
+                    }
                     if item.kind != ContextItemKind::Harness && !self.context_pins.iter().any(|pin| pin.id == item.id) {
                         self.context_pins.push(pinned_candidate_from_meta(item));
                     }
                 }
                 session::SessionRecord::ContextDrop { item, .. } => {
+                    if item.lifecycle != agent_context::ContextLifecycle::default() {
+                        self.context_lifecycles.insert(item.id.clone(), item.lifecycle.clone());
+                    }
                     if !self.context_dropped_ids.iter().any(|id| id == &item.id) {
                         self.context_dropped_ids.push(item.id.clone());
                     }
                 }
                 session::SessionRecord::ContextRecovery { item, .. } => {
+                    if item.lifecycle != agent_context::ContextLifecycle::default() {
+                        self.context_lifecycles.insert(item.id.clone(), item.lifecycle.clone());
+                    }
                     self.context_dropped_ids.retain(|id| id != &item.id);
                     if item.kind != ContextItemKind::Harness
                         && !item.visibility.is_rendered()
@@ -432,6 +635,10 @@ impl App {
                     {
                         self.context_pins.push(pinned_candidate_from_meta(item));
                     }
+                }
+                session::SessionRecord::ContextLifecycle { audit, .. } => {
+                    self.context_lifecycles
+                        .insert(audit.item.id.clone(), audit.item.lifecycle.clone());
                 }
                 session::SessionRecord::ToolFinished { call_id, artifact: Some(artifact), .. } => {
                     self.tool_artifacts.insert(call_id.clone(), artifact.handle.clone());
@@ -476,6 +683,62 @@ impl App {
         }
     }
 
+    fn apply_verification_review(&mut self, reference: &str, reject: bool) -> Result<(), String> {
+        let Some((item, relation)) = self.context_relation_owner(reference)? else {
+            return Err(format!(
+                "unknown verification relation `{}`",
+                redact_context_display(reference)
+            ));
+        };
+        let action = if reject {
+            agent_context::ContextLifecycleAction::RejectVerification { relation_id: relation.id }
+        } else {
+            agent_context::ContextLifecycleAction::ApproveVerification { relation_id: relation.id }
+        };
+        let lifecycle = item
+            .lifecycle
+            .apply(action.clone())
+            .map_err(|error| error.to_string())?;
+        let reason = if reject { "user rejected verification relation" } else { "user approved verification relation" };
+        self.append_lifecycle_transition(&item, lifecycle, action, reason)
+    }
+
+    fn context_relation_owner(
+        &mut self, reference: &str,
+    ) -> Result<Option<(agent_context::ContextItem, agent_context::ContextRelation)>, String> {
+        self.ensure_context_ledger();
+        let Some(ledger) = &self.context_ledger else { return Ok(None) };
+        let mut matches = Vec::new();
+        for item in &ledger.items {
+            for relation in item.lifecycle.verification_relations() {
+                if relation.id == reference || relation.id.starts_with(reference) {
+                    matches.push((item.clone(), relation.clone()));
+                }
+            }
+        }
+        match matches.as_slice() {
+            [] => Ok(None),
+            [match_] => Ok(Some(match_.clone())),
+            _ => Err(format!("verification relation `{reference}` is ambiguous")),
+        }
+    }
+
+    fn append_lifecycle_transition(
+        &mut self, item: &agent_context::ContextItem, lifecycle: agent_context::ContextLifecycle,
+        action: agent_context::ContextLifecycleAction, reason: &str,
+    ) -> Result<(), String> {
+        let mut next_item = item.clone();
+        next_item.lifecycle = lifecycle.clone();
+        if let Some(writer) = self.session_writer.as_mut() {
+            writer
+                .append_context_lifecycle(&next_item, action, reason)
+                .map_err(|error| format!("failed to record context lifecycle action: {error}"))?;
+        }
+        self.context_lifecycles.insert(item.id.clone(), lifecycle);
+        self.refresh_context_ledger(None);
+        Ok(())
+    }
+
     fn resolve_context_path(&self, value: &str) -> Result<PathBuf, String> {
         let path = Path::new(value);
         let path = if path.is_absolute() { path.to_path_buf() } else { self.cwd.join(path) };
@@ -490,60 +753,10 @@ impl App {
         }
         Ok(canonical)
     }
-}
-pub const CONTEXT_INSPECTION_MAX_ITEMS: usize = 64;
-const CONTEXT_DISPLAY_MAX_BYTES: usize = 160;
 
-fn transcript_candidate_label(entry: &Entry) -> String {
-    match entry {
-        Entry::User { .. } => "user".to_string(),
-        Entry::Agent { .. } => "assistant".to_string(),
-        Entry::Reasoning { .. } => "reasoning".to_string(),
-        Entry::Tool { name, .. } => format!("tool:{name}"),
-        Entry::Status { .. } => "status".to_string(),
-        Entry::Error { .. } => "error".to_string(),
+    pub fn compaction_mode_label(&self) -> &'static str {
+        self.effective_compaction_policy().mode.label()
     }
-}
-
-fn pinned_candidate_from_meta(item: &session::ContextItemMeta) -> PinnedCandidate {
-    PinnedCandidate {
-        id: item.id.clone(),
-        kind: item.kind.clone(),
-        label: item.source_path.clone().unwrap_or_else(|| item.id.clone()),
-        source_path: item.source_path.clone().map(PathBuf::from),
-        scope: item.scope.clone().unwrap_or_else(|| ".".to_string()),
-        content_hash: item.content_hash,
-        artifact_handle: item.artifact_handle.clone(),
-        bytes: item.byte_count,
-    }
-}
-
-fn transcript_candidate_bytes(entry: &Entry) -> usize {
-    match entry {
-        Entry::User { text }
-        | Entry::Agent { text, .. }
-        | Entry::Reasoning { text, .. }
-        | Entry::Status { text }
-        | Entry::Error { text } => text.len(),
-        Entry::Tool { name, arguments, output, .. } => {
-            name.len() + arguments.len() + output.iter().map(String::len).sum::<usize>()
-        }
-    }
-}
-
-fn file_size(path: &Path) -> usize {
-    std::fs::metadata(path)
-        .map(|metadata| metadata.len().min(usize::MAX as u64) as usize)
-        .unwrap_or(0)
-}
-
-fn redact_context_display(value: &str) -> String {
-    let redacted = tools::shell::redact_secrets(value);
-    utils::truncate_ellipsis(&redacted, CONTEXT_DISPLAY_MAX_BYTES)
-}
-
-pub fn compaction_mode_label(app: &App) -> &'static str {
-    app.effective_compaction_policy().mode.label()
 }
 
 /// Start an automatic compaction triggered by preflight context pressure.
@@ -609,24 +822,6 @@ pub fn start_compaction(
         original_user_turn,
     });
     Some(started)
-}
-
-/// Render active transcript material for the configured compaction model.
-fn render_compaction_source(entries: &[Entry]) -> String {
-    entries
-        .iter()
-        .map(|entry| match entry {
-            Entry::User { text } => format!("user: {text}"),
-            Entry::Agent { text, .. } => format!("assistant: {text}"),
-            Entry::Reasoning { text, .. } => format!("reasoning: {text}"),
-            Entry::Tool { name, arguments, output, .. } => {
-                format!("tool {name} {arguments}: {}", output.join("\n"))
-            }
-            Entry::Status { text } => format!("status: {text}"),
-            Entry::Error { text } => format!("error: {text}"),
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
 }
 
 // FIXME: wrapping an option in an option is awful
@@ -758,21 +953,6 @@ pub fn restore_failed_compaction(app: &mut App, pending: PendingManualCompaction
     }
 }
 
-/// Map transcript signals to the durable compaction-risk classification.
-fn classify_compaction_risk(entries: &[Entry]) -> CompactionRisk {
-    let signals = agent_context::CompactionRiskSignals {
-        has_tool_output_or_diff: entries.iter().any(|entry| matches!(entry, Entry::Tool { .. })),
-        has_failure_or_permission: entries.iter().any(|entry| matches!(entry, Entry::Error { .. })),
-        has_correction_or_unresolved_work: entries.iter().any(
-            |entry| matches!(entry, Entry::Status { text } if text.contains("permission") || text.contains("failed")),
-        ),
-    };
-    match signals.classify() {
-        agent_context::CompactionRisk::Low => session::CompactionRisk::Low,
-        agent_context::CompactionRisk::High => session::CompactionRisk::High,
-    }
-}
-
 pub fn run_doctor_slash(app: &mut App) {
     app.refresh_context_ledger(None);
     let Some(ledger) = app.context_ledger.as_ref() else {
@@ -795,7 +975,7 @@ pub fn run_doctor_slash(app: &mut App) {
             ledger.budget.auto_compaction_threshold,
             ledger.budget.limits.source.label(),
             ledger.budget.limits.confidence.label(),
-            compaction_mode_label(app),
+            app.compaction_mode_label(),
             review,
         ),
     });
@@ -828,14 +1008,26 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
                 });
                 None
             }
+            "verify" | "verification" => {
+                app.transcript.push(Entry::Error {
+                    text: "usage: /context verify <propose|approve|reject|release> <id> [candidate-id]".to_string(),
+                });
+                None
+            }
+            "release" => {
+                app.transcript
+                    .push(Entry::Error { text: "usage: /context release <id>".to_string() });
+                None
+            }
             "pin" | "drop" | "recover" => {
                 app.transcript
                     .push(Entry::Error { text: format!("usage: /context {command} <id-or-path>") });
                 None
             }
             _ => {
-                app.transcript
-                    .push(Entry::Error { text: "usage: /context [show|pin|drop|recover|review]".to_string() });
+                app.transcript.push(Entry::Error {
+                    text: "usage: /context [show|pin|drop|recover|verify|release|review|export]".to_string(),
+                });
                 None
             }
         };
@@ -846,9 +1038,11 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
         "drop" if reference.trim() == "--reset" => app.reset_context_drops(),
         "drop" => app.drop_context_reference(reference.trim()),
         "recover" => app.recover_context_reference(reference.trim()),
+        "release" => app.release_context_item(reference.trim()),
         "review" => return handle_context_review(app, reference.trim()),
+        "verify" | "verification" => return handle_context_verification(app, reference.trim()),
         "export" => return handle_context_export(app, reference.trim()),
-        _ => Err("usage: /context [show|pin|drop|recover|review|export]".to_string()),
+        _ => Err("usage: /context [show|pin|drop|recover|verify|release|review|export]".to_string()),
     };
     match result {
         Ok(()) => {
@@ -859,6 +1053,86 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
         }
         Err(error) => app.transcript.push(Entry::Error { text: error }),
     }
+    None
+}
+
+/// Render active transcript material for the configured compaction model.
+fn render_compaction_source(entries: &[Entry]) -> String {
+    entries
+        .iter()
+        .map(|entry| match entry {
+            Entry::User { text } => format!("user: {text}"),
+            Entry::Agent { text, .. } => format!("assistant: {text}"),
+            Entry::Reasoning { text, .. } => format!("reasoning: {text}"),
+            Entry::Tool { name, arguments, output, .. } => {
+                format!("tool {name} {arguments}: {}", output.join("\n"))
+            }
+            Entry::Status { text } => format!("status: {text}"),
+            Entry::Error { text } => format!("error: {text}"),
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn handle_context_verification(app: &mut App, input: &str) -> Option<Msg> {
+    let mut parts = input.split_whitespace();
+    let Some(action) = parts.next() else {
+        app.transcript.push(Entry::Error {
+            text: "usage: /context verify <propose|approve|reject|release> <id> [candidate-id]".to_string(),
+        });
+        return None;
+    };
+    let Some(reference) = parts.next() else {
+        app.transcript.push(Entry::Error {
+            text: "usage: /context verify <propose|approve|reject|release> <id> [candidate-id]".to_string(),
+        });
+        return None;
+    };
+    let result = match action {
+        "propose" => {
+            let Some(candidate) = parts.next() else {
+                app.transcript.push(Entry::Error {
+                    text: "usage: /context verify propose <protected-id> <candidate-id>".to_string(),
+                });
+                return None;
+            };
+            if parts.next().is_some() {
+                Err("usage: /context verify propose <protected-id> <candidate-id>".to_string())
+            } else {
+                app.propose_context_verification(reference, candidate)
+                    .map(|relation_id| format!("verification proposed: {relation_id}"))
+            }
+        }
+        "approve" => {
+            if parts.next().is_some() {
+                Err("verification action accepts exactly one relation id".to_string())
+            } else {
+                app.approve_context_verification(reference).map(|()| String::new())
+            }
+        }
+        "reject" => {
+            if parts.next().is_some() {
+                Err("verification action accepts exactly one relation id".to_string())
+            } else {
+                app.reject_context_verification(reference).map(|()| String::new())
+            }
+        }
+        "release" => {
+            if parts.next().is_some() {
+                Err("verification action accepts exactly one relation id".to_string())
+            } else {
+                app.release_context_verification(reference).map(|()| String::new())
+            }
+        }
+        _ => Err("usage: /context verify <propose|approve|reject|release> <id> [candidate-id]".to_string()),
+    };
+    match result {
+        Ok(message) => app.transcript.push(Entry::Status {
+            text: if message.is_empty() { format!("verification {action}: recorded") } else { message },
+        }),
+        Err(error) => app.transcript.push(Entry::Error { text: error }),
+    }
+    app.input.clear();
     None
 }
 
@@ -946,4 +1220,94 @@ fn handle_context_review(app: &mut App, action: &str) -> Option<Msg> {
         return None;
     }
     apply_compaction(app, pending.pending, pending.summary).flatten()
+}
+
+fn transcript_candidate_label(entry: &Entry) -> String {
+    match entry {
+        Entry::User { .. } => "user".to_string(),
+        Entry::Agent { .. } => "assistant".to_string(),
+        Entry::Reasoning { .. } => "reasoning".to_string(),
+        Entry::Tool { name, .. } => format!("tool:{name}"),
+        Entry::Status { .. } => "status".to_string(),
+        Entry::Error { .. } => "error".to_string(),
+    }
+}
+
+fn transcript_protection(entry: &Entry) -> agent_context::ContextProtection {
+    use agent_context::ContextProtectionReason as Reason;
+
+    let mut reasons = Vec::new();
+    match entry {
+        Entry::User { .. } => reasons.push(Reason::ExplicitConstraint),
+        Entry::Error { .. } => reasons.push(Reason::FailureEvidence),
+        Entry::Tool { name, status, .. } => {
+            if matches!(status, ToolStatus::Failed | ToolStatus::Cancelled) {
+                reasons.push(Reason::FailureEvidence);
+            }
+            if is_write_tool(name) {
+                reasons.push(Reason::UnverifiedWriteEdit);
+            }
+        }
+        Entry::Agent { .. } | Entry::Reasoning { .. } | Entry::Status { .. } => {}
+    }
+    agent_context::ContextProtection::from_reasons(reasons)
+}
+
+fn is_write_tool(name: &str) -> bool {
+    matches!(
+        name.split_once('#').map_or(name, |(name, _)| name),
+        "create_file" | "replace_range" | "write_patch" | "acp.fs.write_text_file"
+    )
+}
+
+fn pinned_candidate_from_meta(item: &session::ContextItemMeta) -> PinnedCandidate {
+    PinnedCandidate {
+        id: item.id.clone(),
+        kind: item.kind.clone(),
+        label: item.source_path.clone().unwrap_or_else(|| item.id.clone()),
+        source_path: item.source_path.clone().map(PathBuf::from),
+        scope: item.scope.clone().unwrap_or_else(|| ".".to_string()),
+        content_hash: item.content_hash,
+        artifact_handle: item.artifact_handle.clone(),
+        bytes: item.byte_count,
+    }
+}
+
+fn transcript_candidate_bytes(entry: &Entry) -> usize {
+    match entry {
+        Entry::User { text }
+        | Entry::Agent { text, .. }
+        | Entry::Reasoning { text, .. }
+        | Entry::Status { text }
+        | Entry::Error { text } => text.len(),
+        Entry::Tool { name, arguments, output, .. } => {
+            name.len() + arguments.len() + output.iter().map(String::len).sum::<usize>()
+        }
+    }
+}
+
+fn file_size(path: &Path) -> usize {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len().min(usize::MAX as u64) as usize)
+        .unwrap_or(0)
+}
+
+fn redact_context_display(value: &str) -> String {
+    let redacted = tools::shell::redact_secrets(value);
+    utils::truncate_ellipsis(&redacted, CONTEXT_DISPLAY_MAX_BYTES)
+}
+
+/// Map transcript signals to the durable compaction-risk classification.
+fn classify_compaction_risk(entries: &[Entry]) -> CompactionRisk {
+    let signals = agent_context::CompactionRiskSignals {
+        has_tool_output_or_diff: entries.iter().any(|entry| matches!(entry, Entry::Tool { .. })),
+        has_failure_or_permission: entries.iter().any(|entry| matches!(entry, Entry::Error { .. })),
+        has_correction_or_unresolved_work: entries.iter().any(
+            |entry| matches!(entry, Entry::Status { text } if text.contains("permission") || text.contains("failed")),
+        ),
+    };
+    match signals.classify() {
+        agent_context::CompactionRisk::Low => session::CompactionRisk::Low,
+        agent_context::CompactionRisk::High => session::CompactionRisk::High,
+    }
 }

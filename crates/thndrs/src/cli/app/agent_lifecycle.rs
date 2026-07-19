@@ -1,6 +1,7 @@
 //! Agent event lifecycle, cancellation, and session persistence.
 
 use super::*;
+use crate::artifacts;
 use crate::mcp;
 
 /// Process an [`AgentEvent`] and mutate `app` accordingly.
@@ -153,6 +154,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                 let _ = writer.append_acp_permission_request(&turn_id, &permission);
             }
             app.pending_permission = Some(permission);
+            app.context_ledger = None;
             None
         }
         AgentEvent::PermissionResolved { tool_call_id, outcome } => {
@@ -160,6 +162,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             if let Some(ref mut writer) = app.session_writer {
                 let _ = writer.append_acp_permission_outcome(&turn_id, &tool_call_id, &outcome);
             }
+            app.context_ledger = None;
             None
         }
         AgentEvent::AcpSession(metadata) => {
@@ -249,32 +252,6 @@ pub fn record_background_results(app: &mut App, results: Vec<tools::shell::Proce
     }
 }
 
-fn finish_tool_output(
-    app: &mut App, id: &str, status: ToolStatus, output: &[String],
-) -> Option<crate::artifacts::ArtifactMetadata> {
-    let artifact = app
-        .artifact_store()
-        .create_tool_evidence(&format!("tool:{id}"), output)
-        .ok();
-    let safe_output = artifact.as_ref().map_or_else(
-        || crate::artifacts::bounded_redacted_lines(output, crate::artifacts::DEFAULT_MAX_ARTIFACT_BYTES),
-        |write| write.bounded_lines.clone(),
-    );
-    if let Some(write) = &artifact {
-        app.tool_artifacts.insert(id.to_string(), write.metadata.handle.clone());
-    }
-    for entry in app.transcript.iter_mut().rev() {
-        if let Entry::Tool { name, output: out, status: entry_status, .. } = entry
-            && name.ends_with(&format!("#{id}"))
-        {
-            *out = safe_output;
-            *entry_status = status;
-            break;
-        }
-    }
-    artifact.map(|write| write.metadata)
-}
-
 pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     match key.code {
         KeyCode::Up => {
@@ -297,6 +274,7 @@ pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                     text: format!("acp permission {}: selected {option_id}", permission.tool_call_id),
                 });
             }
+            app.context_ledger = None;
             None
         }
         KeyCode::Esc => {
@@ -305,6 +283,7 @@ pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                 app.transcript
                     .push(Entry::Status { text: format!("acp permission {}: cancelled", permission.tool_call_id) });
             }
+            app.context_ledger = None;
             None
         }
         _ => None,
@@ -357,6 +336,7 @@ pub fn stopping_grace_ticks(app: &App) -> u64 {
 pub fn cancel_pending_permission(app: &mut App) {
     if let Some(permission) = app.pending_permission.take() {
         let _ = permission.cancel();
+        app.context_ledger = None;
     }
 }
 
@@ -427,7 +407,7 @@ pub fn persist_last_entry(app: &mut App) {
 }
 
 /// Persist the last tool entry with its bounded artifact metadata.
-fn persist_last_entry_with_artifact(app: &mut App, artifact: Option<crate::artifacts::ArtifactMetadata>) {
+fn persist_last_entry_with_artifact(app: &mut App, artifact: Option<artifacts::ArtifactMetadata>) {
     if let Some(ref mut writer) = app.session_writer
         && let Some(entry) = app.transcript.last()
     {
@@ -544,6 +524,32 @@ pub fn refresh_mcp_config_audit(app: &mut App, turn_id: &str) {
     if let Some(ref mut writer) = app.session_writer {
         let _ = writer.append_mcp_config_changed(turn_id, previous_files, current_files, current_diagnostics);
     }
+}
+
+fn finish_tool_output(
+    app: &mut App, id: &str, status: ToolStatus, output: &[String],
+) -> Option<artifacts::ArtifactMetadata> {
+    let artifact = app
+        .artifact_store()
+        .create_tool_evidence(&format!("tool:{id}"), output)
+        .ok();
+    let safe_output = artifact.as_ref().map_or_else(
+        || artifacts::bounded_redacted_lines(output, artifacts::DEFAULT_MAX_ARTIFACT_BYTES),
+        |write| write.bounded_lines.clone(),
+    );
+    if let Some(write) = &artifact {
+        app.tool_artifacts.insert(id.to_string(), write.metadata.handle.clone());
+    }
+    for entry in app.transcript.iter_mut().rev() {
+        if let Entry::Tool { name, output: out, status: entry_status, .. } = entry
+            && name.ends_with(&format!("#{id}"))
+        {
+            *out = safe_output;
+            *entry_status = status;
+            break;
+        }
+    }
+    artifact.map(|write| write.metadata)
 }
 
 fn mcp_config_changed_status(

@@ -45,7 +45,7 @@ use onboarding::{
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -57,7 +57,8 @@ pub use thndrs_agent::ToolStatus;
 use thndrs_agent::context::{self as agent_context, CompactionConfig, CompactionPolicy};
 use thndrs_agent::context::{
     CompactionSummaryCandidate, ContextItemKind, ContextVisibility, HarnessCandidate, InstructionCandidate,
-    PinnedCandidate, SelectionInput, SkillCandidate, TranscriptCandidate, UserTurnCandidate,
+    PendingPermissionCandidate, PinnedCandidate, SelectionInput, SkillCandidate, TranscriptCandidate,
+    UserTurnCandidate,
 };
 
 use crate::acp::config::provider_label;
@@ -376,6 +377,9 @@ pub struct App {
     pub session_writer: Option<session::SessionWriter>,
     /// Tool-call ids mapped to their bounded redacted recovery handles.
     pub tool_artifacts: HashMap<String, String>,
+    /// Durable lifecycle/protection state reconstructed from append-only
+    /// context records and applied to each new ledger snapshot.
+    pub(crate) context_lifecycles: BTreeMap<String, agent_context::ContextLifecycle>,
     /// Monotonic turn counter for session record correlation.
     pub turn_count: u64,
     /// Registry of background processes started via `run_shell`.
@@ -538,6 +542,7 @@ impl From<&Cli> for App {
             stopping_deadline: None,
             session_writer,
             tool_artifacts: HashMap::new(),
+            context_lifecycles: BTreeMap::new(),
             turn_count: 0,
             process_registry: ProcessRegistry::new(),
             last_input: None,

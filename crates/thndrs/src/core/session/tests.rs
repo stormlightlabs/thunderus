@@ -6,7 +6,8 @@ use crate::context::ContextSource;
 use crate::prompt::PromptBundle;
 use crate::skills::SkillActivation;
 use thndrs_agent::context::{
-    ContextBudget, ContextItem, ContextItemKind, ContextLedger, ContextVisibility, ModelContextLimits,
+    ContextBudget, ContextItem, ContextItemKind, ContextLedger, ContextLifecycle, ContextLifecycleAction,
+    ContextProtection, ContextProtectionReason, ContextRelation, ContextVisibility, ModelContextLimits,
     ModelLimitConfidence, ModelLimitSource,
 };
 use thndrs_agent::{ProviderRequestAccounting, ProviderUsageComponents, ProviderUsageRule};
@@ -45,6 +46,7 @@ fn context_item(content: &str) -> ContextItem {
         visibility: ContextVisibility::Archived,
         reason_code: "test_archived".to_string(),
         reason: "archived after budget selection".to_string(),
+        lifecycle: thndrs_agent::context::ContextLifecycle::default(),
     }
 }
 
@@ -599,6 +601,35 @@ fn context_action_records_round_trip_without_content() {
         assert!(json.contains("user requested"));
         assert!(!json.contains("supersecretvalue"));
     }
+}
+
+#[test]
+fn lifecycle_action_records_round_trip_with_relation_and_protection_metadata() {
+    let relation = ContextRelation::proposed_verification("rel-1", "ctx-write", "ctx-test");
+    let mut item = context_item("write evidence");
+    item.lifecycle = ContextLifecycle::new(ContextProtection::from_reason(
+        ContextProtectionReason::UnverifiedWriteEdit,
+    ))
+    .apply(ContextLifecycleAction::ProposeVerification { relation: relation.clone() })
+    .expect("proposal");
+    let record = SessionRecord::ContextLifecycle {
+        schema_version: 1,
+        seq: 6,
+        time: "2026-07-10T12:00:04Z".to_string(),
+        audit: ContextLifecycleAudit {
+            action: ContextLifecycleAction::ProposeVerification { relation },
+            item: ContextItemMeta::from(&item),
+            reason: "agent proposed a verification relation".to_string(),
+        },
+    };
+
+    let json = record.to_json().expect("serialize lifecycle action");
+    let restored = SessionRecord::from_json(&json).expect("deserialize lifecycle action");
+    assert_eq!(record, restored);
+    assert!(json.contains("context_lifecycle"));
+    assert!(json.contains("unverified_write_edit"));
+    assert!(json.contains("verified_by"));
+    assert!(!json.contains("write evidence"));
 }
 
 #[test]

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::lifecycle::ContextLifecycle;
 use super::support::ratio_of;
 
 /// Conservative bytes-per-token divisor used until provider tokenizers exist.
@@ -459,16 +460,20 @@ pub struct ContextItem {
     pub reason_code: String,
     /// Why the item is visible, omitted, archived, dropped, blocked, or summary-only.
     pub reason: String,
+    /// Explicit lifecycle and protection state, independent of request
+    /// visibility.
+    pub lifecycle: ContextLifecycle,
 }
 
 impl ContextItem {
     /// Render a compact one-line summary for `/context` and transcript rows.
     pub fn summary(&self) -> String {
         format!(
-            "{}  {}  {}  {} est. tokens  [{}]",
+            "{}  {}  {}  {}  {} est. tokens  [{}]",
             self.id,
             self.kind.label(),
             self.visibility.label(),
+            self.lifecycle.state.label(),
             self.token_estimate,
             self.label,
         )

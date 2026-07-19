@@ -326,11 +326,403 @@ fn context_pin_drop_recover_and_failed_pin_preserve_prompt_input() {
             .iter()
             .any(|item| item.id == pinned_id && item.visibility == thndrs_agent::context::ContextVisibility::Pinned)
     );
+    let recovered = app
+        .context_ledger
+        .as_ref()
+        .expect("ledger after recovery")
+        .find(&pinned_id)
+        .expect("recovered item");
+    assert!(recovered.lifecycle.relations.iter().any(|relation| {
+        relation.kind == thndrs_agent::context::ContextRelationKind::RecoveredFrom
+            && relation.status == thndrs_agent::context::ContextRelationStatus::Applied
+    }));
 
     app.input = PromptInput::from("/context pin missing.md");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(app.input.as_str(), "/context pin missing.md");
     assert!(format!("{:?}", app.transcript).contains("cannot pin"));
+}
+
+#[test]
+fn context_verification_requires_review_before_release_and_survives_refresh() {
+    let mut app = fresh_app();
+    let writer = session::SessionWriter::create(
+        &session::sessions_dir(&app.cwd),
+        "verification-recording",
+        &app.cwd.display().to_string(),
+        "verification test",
+        "umans",
+        "umans-coder",
+        "none",
+        env!("CARGO_PKG_VERSION"),
+        None,
+    )
+    .expect("create verification session");
+    let session_path = writer.path().to_path_buf();
+    app.session_writer = Some(writer);
+    let file = app.cwd.join("unverified.md");
+    std::fs::write(&file, "pending edit").expect("write file");
+
+    app.input = PromptInput::from("/context pin unverified.md");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let evidence_id = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger")
+        .items
+        .iter()
+        .find(|item| item.kind == thndrs_agent::context::ContextItemKind::PinnedFile)
+        .expect("pinned evidence")
+        .id
+        .clone();
+
+    app.transcript
+        .push(Entry::User { text: "run the verification check".to_string() });
+    app.refresh_context_ledger(None);
+    let candidate_id = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger")
+        .items
+        .iter()
+        .find(|item| item.label == "user")
+        .expect("candidate result")
+        .id
+        .clone();
+
+    app.input = PromptInput::from(format!("/context verify propose {evidence_id} {candidate_id}"));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let relation_id = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger")
+        .find(&evidence_id)
+        .expect("evidence")
+        .lifecycle
+        .verification_relations()
+        .next()
+        .expect("proposed relation")
+        .id
+        .clone();
+    assert!(
+        app.context_ledger
+            .as_ref()
+            .expect("context ledger")
+            .find(&evidence_id)
+            .expect("evidence")
+            .lifecycle
+            .is_protected()
+    );
+
+    app.input = PromptInput::from(format!("/context verify approve {relation_id}"));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let approved = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger")
+        .find(&evidence_id)
+        .expect("evidence")
+        .lifecycle
+        .relation(&relation_id)
+        .expect("approved relation");
+    assert_eq!(approved.status, thndrs_agent::context::ContextRelationStatus::Approved);
+    assert!(
+        app.context_ledger
+            .as_ref()
+            .expect("context ledger")
+            .find(&evidence_id)
+            .expect("evidence")
+            .lifecycle
+            .is_protected()
+    );
+
+    app.input = PromptInput::from(format!("/context verify release {relation_id}"));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let released = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger")
+        .find(&evidence_id)
+        .expect("evidence")
+        .lifecycle
+        .clone();
+    assert!(!released.is_protected());
+    assert_eq!(
+        released.relation(&relation_id).expect("released relation").status,
+        thndrs_agent::context::ContextRelationStatus::Released
+    );
+
+    app.refresh_context_ledger(None);
+    assert_eq!(
+        app.context_ledger
+            .as_ref()
+            .expect("refreshed context ledger")
+            .find(&evidence_id)
+            .expect("evidence after refresh")
+            .lifecycle,
+        released
+    );
+
+    let records = {
+        let writer = app.session_writer.take().expect("verification session writer");
+        assert_eq!(writer.path(), session_path.as_path());
+        drop(writer);
+        session::SessionReader::read_records(&session_path)
+    };
+    let lifecycle_statuses = records
+        .iter()
+        .filter_map(|record| match record {
+            session::SessionRecord::ContextLifecycle { audit, .. } => audit
+                .item
+                .lifecycle
+                .relation(&relation_id)
+                .map(|relation| relation.status),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lifecycle_statuses,
+        vec![
+            thndrs_agent::context::ContextRelationStatus::Proposed,
+            thndrs_agent::context::ContextRelationStatus::Approved,
+            thndrs_agent::context::ContextRelationStatus::Released,
+        ]
+    );
+
+    let cli = Cli { cwd: app.cwd.clone(), model: "umans-coder".to_string(), ..Cli::default() };
+    let mut resumed = App::from_cli(&cli);
+    resumed.restore_context_state(&records);
+    resumed.refresh_context_ledger(None);
+    let resumed_lifecycle = resumed
+        .context_ledger
+        .as_ref()
+        .expect("resumed context ledger")
+        .find(&evidence_id)
+        .expect("resumed evidence")
+        .lifecycle
+        .clone();
+    assert!(!resumed_lifecycle.is_protected());
+    assert_eq!(
+        resumed_lifecycle
+            .relation(&relation_id)
+            .expect("resumed relation")
+            .status,
+        thndrs_agent::context::ContextRelationStatus::Released
+    );
+}
+
+#[test]
+fn context_verification_record_failure_does_not_mutate_in_memory_state() {
+    let mut app = fresh_app();
+    let writer = session::SessionWriter::create(
+        &session::sessions_dir(&app.cwd),
+        "verification-failure",
+        &app.cwd.display().to_string(),
+        "verification failure test",
+        "umans",
+        "umans-coder",
+        "none",
+        env!("CARGO_PKG_VERSION"),
+        None,
+    )
+    .expect("create verification session");
+    let session_path = writer.path().to_path_buf();
+    app.session_writer = Some(writer);
+
+    let file = app.cwd.join("failure.md");
+    std::fs::write(&file, "failed write evidence").expect("write file");
+    app.input = PromptInput::from("/context pin failure.md");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let evidence_id = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger")
+        .items
+        .iter()
+        .find(|item| item.kind == thndrs_agent::context::ContextItemKind::PinnedFile)
+        .expect("pinned evidence")
+        .id
+        .clone();
+    app.transcript
+        .push(Entry::User { text: "check the failed write".to_string() });
+    app.refresh_context_ledger(None);
+    let candidate_id = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger")
+        .items
+        .iter()
+        .find(|item| item.label == "user")
+        .expect("candidate")
+        .id
+        .clone();
+    let relation_id = app
+        .propose_context_verification(&evidence_id, &candidate_id)
+        .expect("propose verification");
+
+    std::fs::remove_file(&session_path).expect("remove session file to force append failure");
+    let error = app
+        .approve_context_verification(&relation_id)
+        .expect_err("approval should fail when the audit append fails");
+    assert!(error.contains("failed to record context lifecycle action"));
+    let lifecycle = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger after failed append")
+        .find(&evidence_id)
+        .expect("evidence after failed append")
+        .lifecycle
+        .clone();
+    assert_eq!(
+        lifecycle.relation(&relation_id).expect("proposal remains").status,
+        thndrs_agent::context::ContextRelationStatus::Proposed
+    );
+    assert!(lifecycle.is_protected());
+}
+
+#[test]
+fn context_verification_rejection_survives_refresh_and_keeps_protection() {
+    let mut app = fresh_app();
+    let file = app.cwd.join("rejected.md");
+    std::fs::write(&file, "evidence awaiting review").expect("write file");
+    app.input = PromptInput::from("/context pin rejected.md");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let evidence_id = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger")
+        .items
+        .iter()
+        .find(|item| item.kind == thndrs_agent::context::ContextItemKind::PinnedFile)
+        .expect("pinned evidence")
+        .id
+        .clone();
+    app.transcript
+        .push(Entry::User { text: "review the evidence".to_string() });
+    app.refresh_context_ledger(None);
+    let candidate_id = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger")
+        .items
+        .iter()
+        .find(|item| item.label == "user")
+        .expect("candidate")
+        .id
+        .clone();
+    let relation_id = app
+        .propose_context_verification(&evidence_id, &candidate_id)
+        .expect("propose verification");
+
+    app.input = PromptInput::from(format!("/context verify reject {relation_id}"));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    app.refresh_context_ledger(None);
+    let lifecycle = app
+        .context_ledger
+        .as_ref()
+        .expect("refreshed context ledger")
+        .find(&evidence_id)
+        .expect("evidence")
+        .lifecycle
+        .clone();
+    assert!(lifecycle.is_protected());
+    assert_eq!(
+        lifecycle.relation(&relation_id).expect("rejected relation").status,
+        thndrs_agent::context::ContextRelationStatus::Rejected
+    );
+}
+
+#[test]
+fn successful_commands_and_assistant_prose_never_release_write_protection() {
+    let mut app = fresh_app();
+    app.transcript.push(Entry::Tool {
+        name: "create_file#successful-write".to_string(),
+        arguments: "{}".to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["created file".to_string()],
+    });
+    app.transcript
+        .push(Entry::Agent { text: "The verification command succeeded.".to_string(), streaming: false });
+    app.refresh_context_ledger(None);
+
+    let write_item = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger")
+        .items
+        .iter()
+        .find(|item| item.label == "tool:create_file#successful-write")
+        .expect("write evidence");
+    assert!(write_item.lifecycle.is_protected());
+    assert!(
+        write_item
+            .lifecycle
+            .protection
+            .contains(thndrs_agent::context::ContextProtectionReason::UnverifiedWriteEdit)
+    );
+
+    app.input = PromptInput::from("/context show");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let write_item = app
+        .context_ledger
+        .as_ref()
+        .expect("context ledger after command")
+        .items
+        .iter()
+        .find(|item| item.label == "tool:create_file#successful-write")
+        .expect("write evidence after command");
+    assert!(write_item.lifecycle.is_protected());
+}
+
+#[test]
+fn context_reclassification_adds_failure_and_recovery_protection() {
+    let mut app = fresh_app();
+    app.transcript.push(Entry::Tool {
+        name: "run_shell#dynamic-tool".to_string(),
+        arguments: "{}".to_string(),
+        status: ToolStatus::Running,
+        output: Vec::new(),
+    });
+    app.refresh_context_ledger(None);
+    let initial = app
+        .context_ledger
+        .as_ref()
+        .expect("initial context ledger")
+        .items
+        .iter()
+        .find(|item| item.label == "tool:run_shell#dynamic-tool")
+        .expect("running tool")
+        .lifecycle
+        .clone();
+    assert!(!initial.is_protected());
+
+    let Some(Entry::Tool { status, .. }) = app.transcript.last_mut() else {
+        panic!("running tool transcript entry");
+    };
+    *status = ToolStatus::Failed;
+    app.tool_artifacts
+        .insert("dynamic-tool".to_string(), "artifact_dynamic".to_string());
+    app.refresh_context_ledger(None);
+    let reclassified = app
+        .context_ledger
+        .as_ref()
+        .expect("reclassified context ledger")
+        .items
+        .iter()
+        .find(|item| item.label == "tool:run_shell#dynamic-tool")
+        .expect("failed tool")
+        .lifecycle
+        .clone();
+    assert!(
+        reclassified
+            .protection
+            .contains(thndrs_agent::context::ContextProtectionReason::FailureEvidence)
+    );
+    assert!(
+        reclassified
+            .protection
+            .contains(thndrs_agent::context::ContextProtectionReason::RecoveryMetadata)
+    );
 }
 
 #[test]
@@ -548,6 +940,5 @@ fn slash_mcp_tools_requires_name() {
     app.input = PromptInput::from("/mcp tools ");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-
     assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("usage: /mcp tools <name>")));
 }

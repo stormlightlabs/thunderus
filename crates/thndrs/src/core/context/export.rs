@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 use thndrs_agent::accounting::{
     ContextReductionReceipt, MeasurementProvenance, ModelProjectionMessage, ProviderRequestAccounting,
 };
-use thndrs_agent::context::{ContextItem, ContextItemKind, ContextLedger, ContextVisibility};
+use thndrs_agent::context::{
+    ContextItem, ContextItemKind, ContextLedger, ContextLifecycleState, ContextProtection, ContextRelation,
+    ContextRelationKind, ContextVisibility,
+};
 
 use crate::artifacts::{ArtifactMetadata, ArtifactRecovery};
 use crate::tools::shell::redact_secrets;
@@ -70,16 +73,24 @@ pub struct ExportContextItem {
     pub kind: ContextItemKind,
     /// Item visibility at inspection time.
     pub state: ContextVisibility,
+    /// Lifecycle state independent of request visibility.
+    pub lifecycle: ContextLifecycleState,
     /// Stable policy reason code.
     pub reason_code: String,
     /// Redacted policy explanation.
     pub reason: String,
     /// Replacement context id, when one exists.
     pub replacement: Option<String>,
-    /// Conservative protection projection until explicit lifecycle state is available.
+    /// Whether explicit protection reasons remain.
     pub protected: bool,
+    /// Explicit protection reasons.
+    pub protection: ContextProtection,
+    /// Whether the protection was explicitly released.
+    pub protection_released: bool,
     /// Verification relation, when one exists.
     pub verification: Option<String>,
+    /// All explicit relations known for this item.
+    pub relations: Vec<ContextRelation>,
     /// Whether bounded redacted evidence can be recovered.
     pub recovery_available: bool,
     /// Recovery handle, when available.
@@ -258,17 +269,19 @@ impl ContextExport {
         }
         let _ = writeln!(
             output,
-            "\n## Context items\n\n| ID | Kind | State | Reason | Protection | Recovery | Replacement |\n| --- | --- | --- | --- | --- | --- | --- |"
+            "\n## Context items\n\n| ID | Kind | Visibility | Lifecycle | Reason | Protection | Relations | Recovery | Replacement |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
         );
         for item in &self.items {
             let _ = writeln!(
                 output,
-                "| {} | {} | {} | {} | {} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 markdown_cell(&item.id),
                 item.kind.label(),
                 item.state.label(),
+                item.lifecycle.label(),
                 markdown_cell(&item.reason_code),
-                if item.protected { "yes" } else { "no" },
+                markdown_cell(&protection_label(item)),
+                markdown_cell(&relations_label(&item.relations)),
                 if item.recovery_available { "yes" } else { "no" },
                 markdown_cell(item.replacement.as_deref().unwrap_or("none"))
             );
@@ -322,29 +335,80 @@ pub fn artifact_from_recovery(recovery: ArtifactRecovery, include_body: bool) ->
 
 /// Return the inspection details used by both the table and export.
 pub fn export_item(item: &ContextItem) -> ExportContextItem {
-    let protected = matches!(
-        item.kind,
-        ContextItemKind::Harness
-            | ContextItemKind::ProjectInstruction
-            | ContextItemKind::PinnedFile
-            | ContextItemKind::ToolArchive
-            | ContextItemKind::Summary
-    ) || matches!(item.visibility, ContextVisibility::Pinned | ContextVisibility::Blocked);
+    let relations = item.lifecycle.relations.iter().map(bound_relation).collect::<Vec<_>>();
+    let replacement = relations.iter().find_map(|relation| {
+        matches!(
+            relation.kind,
+            ContextRelationKind::DuplicateOf | ContextRelationKind::SupersededBy | ContextRelationKind::SummarizedBy
+        )
+        .then(|| cap_text(&relation.target_id))
+    });
+    let verification = relations
+        .iter()
+        .find(|relation| relation.is_verification())
+        .map(|relation| {
+            format!(
+                "{} -> {} ({})",
+                cap_text(&relation.id),
+                cap_text(&relation.target_id),
+                relation.status.label()
+            )
+        });
+    let protected = item.lifecycle.is_protected();
     ExportContextItem {
         id: cap_text(&item.id),
         kind: item.kind.clone(),
         state: item.visibility.clone(),
+        lifecycle: item.lifecycle.state,
         reason_code: cap_text(&item.reason_code),
         reason: cap_text(&item.reason),
-        replacement: None,
+        replacement,
         protected,
-        verification: None,
+        protection: item.lifecycle.protection.clone(),
+        protection_released: item.lifecycle.protection_released,
+        verification,
+        relations,
         recovery_available: item.artifact_handle.is_some() || !item.visibility.is_rendered(),
         recovery_handle: item.artifact_handle.as_ref().map(|handle| cap_text(handle)),
         byte_count: item.byte_count,
         token_estimate: item.token_estimate,
         label: cap_text(&item.label),
     }
+}
+
+fn bound_relation(relation: &ContextRelation) -> ContextRelation {
+    ContextRelation {
+        id: cap_text(&relation.id),
+        kind: relation.kind,
+        source_id: cap_text(&relation.source_id),
+        target_id: cap_text(&relation.target_id),
+        status: relation.status,
+    }
+}
+
+fn protection_label(item: &ExportContextItem) -> String {
+    if !item.protected {
+        return if item.protection_released { "released" } else { "none" }.to_string();
+    }
+    item.protection.labels().join(",")
+}
+
+fn relations_label(relations: &[ContextRelation]) -> String {
+    if relations.is_empty() {
+        return "none".to_string();
+    }
+    relations
+        .iter()
+        .map(|relation| {
+            format!(
+                "{}:{}->{}",
+                relation.kind.label(),
+                cap_text(&relation.target_id),
+                relation.status.label()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn redact_projection(message: &ModelProjectionMessage) -> ExportProjectionMessage {
@@ -418,7 +482,9 @@ mod tests {
 
     use thndrs_agent::accounting::{ModelProjectionMessage, ProviderUsageComponents, ProviderUsageRule};
     use thndrs_agent::context::{
-        ContextBudget, DiagnosticSeverity, ModelContextLimits, ModelLimitConfidence, ModelLimitSource,
+        ContextBudget, ContextLifecycle, ContextLifecycleAction, ContextLifecycleState, ContextProtection,
+        ContextProtectionReason, ContextRelation, ContextRelationStatus, DiagnosticSeverity, ModelContextLimits,
+        ModelLimitConfidence, ModelLimitSource,
     };
 
     fn ledger() -> ContextLedger {
@@ -431,6 +497,11 @@ mod tests {
             source: ModelLimitSource::Static,
             confidence: ModelLimitConfidence::ProviderReported,
         };
+        let lifecycle = ContextLifecycle::new(ContextProtection::from_reason(ContextProtectionReason::FailureEvidence))
+            .apply(ContextLifecycleAction::ProposeVerification {
+                relation: ContextRelation::proposed_verification("rel-export", "ctx_tool_1", "ctx_candidate"),
+            })
+            .expect("verification relation");
         let item = ContextItem {
             id: "ctx_tool_1".to_string(),
             kind: ContextItemKind::ToolArchive,
@@ -445,6 +516,7 @@ mod tests {
             visibility: ContextVisibility::Archived,
             reason_code: "budget_eviction".to_string(),
             reason: "archived after the request".to_string(),
+            lifecycle,
         };
         ContextLedger {
             budget: ContextBudget::from_limits(limits, std::slice::from_ref(&item)),
@@ -495,10 +567,17 @@ mod tests {
         assert!(!markdown.contains("source-secret-that-must-not-be-rendered"));
         assert!(json.contains(CONTEXT_EXPORT_SCHEMA_VERSION));
         assert!(json.contains("budget_eviction"));
+        assert!(json.contains("failure_evidence"));
+        assert!(json.contains("verified_by"));
         assert!(markdown.contains("Inclusive input: 106"));
         assert!(markdown.contains("Recovery"));
+        assert!(markdown.contains("Lifecycle"));
+        assert!(markdown.contains("verified_by"));
         let round_trip: ContextExport = serde_json::from_str(&json).expect("round trip");
         assert!(round_trip.items[0].recovery_available);
+        assert!(round_trip.items[0].protected);
+        assert_eq!(round_trip.items[0].lifecycle, ContextLifecycleState::Active);
+        assert_eq!(round_trip.items[0].relations[0].status, ContextRelationStatus::Proposed);
         assert_eq!(
             round_trip.accounting.as_ref().expect("accounting").model_projection,
             Vec::new()

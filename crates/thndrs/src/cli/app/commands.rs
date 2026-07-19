@@ -61,11 +61,17 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         return super::context::handle_context_command(app, rest.trim());
     }
     if let Some((action, rest)) = command.split_once(' ')
-        && matches!(action, "pin" | "drop" | "recover")
+        && matches!(
+            action,
+            "pin" | "drop" | "recover" | "verify" | "verification" | "release"
+        )
     {
         return super::context::handle_context_command(app, &format!("{action} {rest}"));
     }
-    if matches!(command, "pin" | "drop" | "recover") {
+    if matches!(
+        command,
+        "pin" | "drop" | "recover" | "verify" | "verification" | "release"
+    ) {
         return super::context::handle_context_command(app, command);
     }
 
@@ -220,6 +226,9 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         ("model", "switch model"),
         ("reasoning", "set reasoning effort"),
         ("skills", "browse loaded skills"),
+        ("context", "inspect context lifecycle"),
+        ("context verify", "review a verification relation"),
+        ("context release", "explicitly release context protection"),
         ("doctor", "show context health"),
         ("history", "list recent sessions"),
         ("resume", "resume a local session"),
@@ -288,7 +297,7 @@ fn command_contains_api_key_like_argument(command: &str) -> bool {
 fn is_api_key_like(value: &str) -> bool {
     let value = value.trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == '`' || ch == ',' || ch == ';');
     let lower = value.to_ascii_lowercase();
-    if lower.starts_with("ctx_") {
+    if lower.starts_with("ctx_") || lower.starts_with("rel_") {
         return false;
     }
     value.starts_with("sk-")

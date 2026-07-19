@@ -922,13 +922,16 @@ impl App {
                         },
                         TableCellView {
                             text: format!(
-                                "{} / {} reason:{} prot:{} rec:{} repl:{}",
+                                "{} / {} lifecycle:{} reason:{} prot:{} [{}] rec:{} repl:{} verify:{}",
                                 item.kind.label(),
                                 item.visibility.label(),
+                                details.lifecycle.label(),
                                 details.reason_code,
                                 yes_no(details.protected),
+                                context_protection_label(&details),
                                 yes_no(details.recovery_available),
-                                details.replacement.as_deref().unwrap_or("none")
+                                details.replacement.as_deref().unwrap_or("none"),
+                                details.verification.as_deref().unwrap_or("none")
                             ),
                             alignment: ColumnAlignment::Left,
                             width: ColumnWidthPolicy::Percent(26),
@@ -972,13 +975,29 @@ impl App {
         narrow_fallback.extend(ledger.items.iter().take(CONTEXT_INSPECTION_MAX_ITEMS).map(|item| {
             let details = crate::context::export::export_item(item);
             format!(
-                "{} state {} reason {} protected {} recovery {} replacement {}",
+                "{} visibility {} lifecycle {} reason {} protected {} [{}] recovery {} replacement {} relations {}",
                 redact_context_display(&item.id),
                 item.visibility.label(),
+                details.lifecycle.label(),
                 details.reason_code,
                 yes_no(details.protected),
+                context_protection_label(&details),
                 yes_no(details.recovery_available),
-                details.replacement.as_deref().unwrap_or("none")
+                details.replacement.as_deref().unwrap_or("none"),
+                details
+                    .relations
+                    .iter()
+                    .map(|relation| {
+                        format!(
+                            "{}:{}->{}:{}",
+                            relation.kind.label(),
+                            redact_context_display(&relation.id),
+                            redact_context_display(&relation.target_id),
+                            relation.status.label()
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
             )
         }));
         TableView {
@@ -989,7 +1008,7 @@ impl App {
                     width: ColumnWidthPolicy::Percent(34),
                 },
                 TableCellView {
-                    text: "state / reason / protection / recovery".to_string(),
+                    text: "visibility / lifecycle / protection / relations".to_string(),
                     alignment: ColumnAlignment::Left,
                     width: ColumnWidthPolicy::Percent(26),
                 },
@@ -1274,6 +1293,14 @@ fn context_table_row(name: &str, state: &str, tokens: &str, label: &str) -> Vec<
 
 fn redact_context_display(value: &str) -> String {
     utils::truncate_ellipsis(&redact_secrets(value), 160)
+}
+
+fn context_protection_label(item: &crate::context::export::ExportContextItem) -> String {
+    if item.protection_released {
+        return "released".to_string();
+    }
+    let labels = item.protection.labels();
+    if labels.is_empty() { "none".to_string() } else { labels.join(",") }
 }
 
 fn yes_no(value: bool) -> &'static str {

@@ -7,6 +7,7 @@ mod support;
 
 pub mod compaction;
 pub mod control;
+pub mod lifecycle;
 pub mod selection;
 
 pub use compaction::{
@@ -22,7 +23,11 @@ pub use control::{
 pub use control::{
     estimate_tokens, item_id_for_path, item_id_for_session_range, render_ledger_summary, render_model_dashboard,
 };
+pub use lifecycle::{
+    ContextLifecycle, ContextLifecycleAction, ContextLifecycleError, ContextLifecycleState, ContextProtection,
+    ContextProtectionReason, ContextRelation, ContextRelationKind, ContextRelationStatus, relation_id_for,
+};
 pub use selection::{
-    CompactionSummaryCandidate, HarnessCandidate, InstructionCandidate, PinnedCandidate, SelectionInput,
-    SkillCandidate, TranscriptCandidate, UserTurnCandidate, select_context,
+    CompactionSummaryCandidate, HarnessCandidate, InstructionCandidate, PendingPermissionCandidate, PinnedCandidate,
+    SelectionInput, SkillCandidate, TranscriptCandidate, UserTurnCandidate, select_context,
 };

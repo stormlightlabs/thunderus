@@ -204,20 +204,22 @@ links without inferring task completion or command meaning.
 
 **Blocked by:** Ticket 5: Inspect And Export Context Accounting
 
+**Status:** Complete
+
 **Acceptance criteria:**
 
-- [ ] Lifecycle state is separate from request visibility and supports explicit
+- [x] Lifecycle state is separate from request visibility and supports explicit
       duplicate, supersession, summary, verification, archive, and recovery
       relations.
-- [ ] Current user context, explicit constraints, safety state, pending
+- [x] Current user context, explicit constraints, safety state, pending
       permissions, pins, recovery metadata, failures, and unverified write/edit
       evidence receive the specified conservative protection.
-- [ ] A proposed verification relation names the protected evidence and the
+- [x] A proposed verification relation names the protected evidence and the
       candidate result; it changes no protection until approved.
-- [ ] Approval, rejection, release, and recovery append session records and are
+- [x] Approval, rejection, release, and recovery append session records and are
       atomic across failure/resume.
-- [ ] Recency, assistant prose, and command names never release protection.
-- [ ] `/context` and exports explain lifecycle, protection, and verification
+- [x] Recency, assistant prose, and command names never release protection.
+- [x] `/context` and exports explain lifecycle, protection, and verification
       relations.
 
 **Verification:**

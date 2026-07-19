@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::context::{ContextItem, ContextVisibility};
+use crate::context::{ContextItem, ContextLifecycleState, ContextProtection, ContextRelation, ContextVisibility};
 
 /// Version of the conservative serialized-byte token estimator.
 pub const TOKEN_ESTIMATOR_VERSION: &str = "utf8-bytes-divisor-3-overhead-16-v1";
@@ -242,6 +242,15 @@ pub struct ContextItemSnapshot {
     pub reason_code: String,
     /// Redacted human-readable reason.
     pub reason: String,
+    /// Lifecycle state independent of request visibility.
+    #[serde(default)]
+    pub lifecycle: ContextLifecycleState,
+    /// Conservative protection reasons at the final request boundary.
+    #[serde(default)]
+    pub protection: ContextProtection,
+    /// Explicit relations known at the final request boundary.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relations: Vec<ContextRelation>,
 }
 
 impl From<&ContextItem> for ContextItemSnapshot {
@@ -252,6 +261,9 @@ impl From<&ContextItem> for ContextItemSnapshot {
             state: item.visibility.clone(),
             reason_code: item.reason_code.clone(),
             reason: item.reason.clone(),
+            lifecycle: item.lifecycle.state,
+            protection: item.lifecycle.protection.clone(),
+            relations: item.lifecycle.relations.clone(),
         }
     }
 }
@@ -430,6 +442,7 @@ mod tests {
             visibility: ContextVisibility::Visible,
             reason_code: "recent_transcript".to_string(),
             reason: "recent transcript entry".to_string(),
+            lifecycle: crate::context::ContextLifecycle::default(),
         };
         let context = snapshot_context(std::slice::from_ref(&item));
         let accounting = ProviderRequestAccounting::from_serialized_request(
