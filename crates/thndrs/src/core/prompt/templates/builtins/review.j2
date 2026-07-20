@@ -1,0 +1,15 @@
+---
+description: Review code for correctness, safety, and maintainability
+argument-hint: "[scope]"
+---
+Review {{ arguments | default("the current changes", true) }}.
+
+Work from the actual code and tests. Check correctness first, followed by edge
+cases, error handling, security, concurrency, performance, compatibility, and
+test coverage. Keep style comments low priority.
+
+Report findings in severity order with file and line references. For each
+finding, explain the problem, its impact, and a practical fix. Mark downstream
+effects as unverified when the available evidence cannot prove them. End with a
+short note about choices that are working well. If there are no findings, say
+so directly.

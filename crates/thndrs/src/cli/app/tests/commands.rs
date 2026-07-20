@@ -72,7 +72,7 @@ fn session_commands_are_suggested() {
 
     for command in ["history", "resume", "session", "tokens", "debug log"] {
         assert!(
-            suggestions.iter().any(|(suggestion, _)| *suggestion == command),
+            suggestions.iter().any(|suggestion| suggestion.name == command),
             "missing {command}"
         );
     }

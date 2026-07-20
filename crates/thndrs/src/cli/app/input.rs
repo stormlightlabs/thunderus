@@ -292,7 +292,7 @@ pub fn handle_command_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome 
             if count > 0
                 && !command_suggestions_for_app(app)
                     .iter()
-                    .any(|(cmd, _)| *cmd == command_query(app)) =>
+                    .any(|suggestion| suggestion.name == command_query(app)) =>
         {
             KeyOutcome::with(accept_command_suggestion(app))
         }
@@ -778,7 +778,7 @@ pub fn accept_command_suggestion(app: &mut App) -> Option<Msg> {
         PromptAccessory::Commands { selected } => selected.min(suggestions.len() - 1),
         _ => 0,
     };
-    let command = suggestions[selected].0;
+    let command = &suggestions[selected].name;
     let replacement = if app.mode == Mode::Command { format!("{command} ") } else { format!("/{command} ") };
     app.input.set_text(&replacement);
     app.prompt_accessory = PromptAccessory::None;

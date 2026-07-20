@@ -11,6 +11,40 @@
 use super::*;
 use crate::{cli::commands::config::ConfigCommand, mcp};
 
+const COMMANDS: &[(&str, &str)] = &[
+    ("clear", "clear transcript"),
+    ("quit", "exit app"),
+    ("exit", "exit app"),
+    ("help", "show help"),
+    ("bg", "list background processes"),
+    ("model", "switch model"),
+    ("reasoning", "set reasoning effort"),
+    ("skills", "browse loaded skills"),
+    ("context", "inspect context lifecycle"),
+    ("context verify", "review a verification relation"),
+    ("context release", "explicitly release context protection"),
+    ("doctor", "show context health"),
+    ("history", "list recent sessions"),
+    ("resume", "resume a local session"),
+    ("session", "show a local session summary"),
+    ("tokens", "show current session token totals"),
+    ("debug log", "read the current session log"),
+    ("auth status", "show credential sources"),
+    ("config path", "show config paths"),
+    ("config show", "show redacted config"),
+    ("setup", "open setup"),
+    ("login", "provider login"),
+    ("logout", "remove provider credential"),
+];
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandSuggestion {
+    /// Text inserted into command or slash mode.
+    pub name: String,
+    /// Description and optional argument hint shown beside the name.
+    pub detail: String,
+}
+
 /// Route a slash command (the part after `/` or the text after `:`).
 pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     if command_contains_api_key_like_argument(command) {
@@ -211,41 +245,35 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             app.input.clear();
             None
         }
-        _ => None,
+        _ => submit_prompt_template(app, command),
     }
 }
 
-pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str)> {
+pub fn command_suggestions_for_app(app: &App) -> Vec<CommandSuggestion> {
     let query = super::input::command_query(app);
-    let commands = [
-        ("clear", "clear transcript"),
-        ("quit", "exit app"),
-        ("exit", "exit app"),
-        ("help", "show help"),
-        ("bg", "list background processes"),
-        ("model", "switch model"),
-        ("reasoning", "set reasoning effort"),
-        ("skills", "browse loaded skills"),
-        ("context", "inspect context lifecycle"),
-        ("context verify", "review a verification relation"),
-        ("context release", "explicitly release context protection"),
-        ("doctor", "show context health"),
-        ("history", "list recent sessions"),
-        ("resume", "resume a local session"),
-        ("session", "show a local session summary"),
-        ("tokens", "show current session token totals"),
-        ("debug log", "read the current session log"),
-        ("auth status", "show credential sources"),
-        ("config path", "show config paths"),
-        ("config show", "show redacted config"),
-        ("setup", "open setup"),
-        ("login", "provider login"),
-        ("logout", "remove provider credential"),
-    ];
-    commands
-        .into_iter()
-        .filter(|(cmd, _)| cmd.starts_with(&query))
-        .collect()
+    let mut suggestions = COMMANDS
+        .iter()
+        .filter(|(command, _)| command.starts_with(&query))
+        .map(|(command, description)| CommandSuggestion {
+            name: (*command).to_string(),
+            detail: (*description).to_string(),
+        })
+        .collect::<Vec<_>>();
+    suggestions.extend(
+        app.prompt_templates
+            .iter()
+            .filter(|template| {
+                template.name.starts_with(&query) && !COMMANDS.iter().any(|(command, _)| *command == template.name)
+            })
+            .map(|template| {
+                let detail = template.argument_hint.as_ref().map_or_else(
+                    || template.description.clone(),
+                    |hint| format!("{hint} — {}", template.description),
+                );
+                CommandSuggestion { name: template.name.clone(), detail }
+            }),
+    );
+    suggestions
 }
 
 /// Handle a slash command submitted while the agent is working.
@@ -256,6 +284,16 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
 ///
 /// Prefix with `//` to queue a literal slash-prefixed follow-up.
 pub fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
+    if let Some(rendered) = render_prompt_template(app, command) {
+        match rendered {
+            Ok(prompt) => super::input::queue_running_input(app, &prompt),
+            Err(error) => {
+                app.transcript.push(Entry::Error { text: error });
+                app.input.set_text(&format!("/{command}"));
+            }
+        }
+        return None;
+    }
     let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg" | "bg cancel")
         || command.starts_with("bg cancel ")
         || matches!(command, "history" | "tokens" | "debug log")
@@ -270,6 +308,26 @@ pub fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
         text: format!("/{command} is not available while the agent is working; use //{command} to queue it as text"),
     });
     None
+}
+
+fn submit_prompt_template(app: &mut App, command: &str) -> Option<Msg> {
+    let rendered = render_prompt_template(app, command)?;
+    match rendered {
+        Ok(prompt) => super::input::submit_user_turn(app, prompt),
+        Err(error) => {
+            app.transcript.push(Entry::Error { text: error });
+            app.input.set_text(&format!("/{command}"));
+            None
+        }
+    }
+}
+
+fn render_prompt_template(app: &App, command: &str) -> Option<Result<String, String>> {
+    let name_end = command.find(char::is_whitespace).unwrap_or(command.len());
+    let name = &command[..name_end];
+    let arguments = command[name_end..].trim_start();
+    let template = app.prompt_templates.iter().find(|template| template.name == name)?;
+    Some(prompt::templates::render(template, arguments))
 }
 
 fn parse_api_key_provider(input: &str) -> Option<SetupProviderArg> {
@@ -427,7 +485,7 @@ fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
     app.transcript = transcript;
     app.restore_context_state(&records);
     app.last_request_accounting = records.iter().rev().find_map(|record| match record {
-        session::SessionRecord::RequestAccounting { accounting, .. } => Some(accounting.clone()),
+        session::SessionRecord::RequestAccounting { accounting, .. } => Some(accounting.as_ref().clone()),
         _ => None,
     });
     app.session_tokens_in = summary.input_tokens;

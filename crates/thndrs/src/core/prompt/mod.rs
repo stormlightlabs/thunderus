@@ -28,6 +28,7 @@
 //!     context policy when a ledger is attached).
 //! 13. User turn — current prompt text.
 
+pub mod templates;
 #[cfg(test)]
 mod tests;
 

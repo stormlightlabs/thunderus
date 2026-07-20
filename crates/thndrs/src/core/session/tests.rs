@@ -855,7 +855,7 @@ fn request_accounting_record_round_trips_without_payload_content() {
         seq: 7,
         time: "2026-06-29T12:00:09Z".to_string(),
         turn_id: "turn_1".to_string(),
-        accounting,
+        accounting: Box::new(accounting),
     };
     let json = record.to_json().expect("serialize");
     let restored = SessionRecord::from_json(&json).expect("deserialize");

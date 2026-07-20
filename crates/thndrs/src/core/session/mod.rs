@@ -187,7 +187,7 @@ pub enum SessionRecord {
         seq: u64,
         time: String,
         turn_id: String,
-        accounting: ProviderRequestAccounting,
+        accounting: Box<ProviderRequestAccounting>,
     },
     /// A tool call started.
     #[serde(rename = "tool_started")]
@@ -1110,7 +1110,7 @@ impl SessionWriter {
             seq: 0,
             time: datetime::now_iso8601(),
             turn_id: turn_id.to_string(),
-            accounting: accounting.clone(),
+            accounting: Box::new(accounting.clone()),
         })
     }
 

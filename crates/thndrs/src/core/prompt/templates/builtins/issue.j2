@@ -1,0 +1,15 @@
+---
+description: Independently analyze a bug report or feature request
+argument-hint: "<issue-or-url>"
+---
+Analyze this issue: {{ issue | default(arguments, true) }}
+
+Read the complete issue and its comments when they are available. Treat its
+analysis and proposed implementation as claims to verify against the code.
+
+For a bug, reproduce or trace the reported behavior, read the relevant code
+paths, identify the root cause, and propose the smallest complete fix with a
+regression test. For a feature request, establish the current behavior and
+constraints, then propose a concise implementation and name the affected
+files. Report uncertainty and missing access explicitly. Do not implement the
+change unless the user asked for implementation.

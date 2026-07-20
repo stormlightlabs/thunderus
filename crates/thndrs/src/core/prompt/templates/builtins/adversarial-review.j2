@@ -1,0 +1,17 @@
+---
+description: Try to break code by hunting subtle and high-impact failures
+argument-hint: "[scope]"
+---
+Adversarially review {{ arguments | default("the current changes", true) }}.
+
+Assume the change contains a subtle defect and try to prove where it breaks.
+Prioritize exploitable security problems, malformed or hostile input, races,
+resource exhaustion, violated invariants, compatibility failures, and tests
+that pass without protecting the intended contract. Inspect relevant code
+outside the immediate change when it is necessary to validate an execution
+path.
+
+Prefer a small number of well-supported findings over a long list of guesses.
+For each finding, give its severity, file and line, the concrete failure mode,
+why it matters, and the direction of a fix. Label anything that cannot be
+verified from the repository as unverified.

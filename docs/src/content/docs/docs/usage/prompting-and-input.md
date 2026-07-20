@@ -75,6 +75,10 @@ Supported command families include:
 Slash command forms such as `/model` and `/skills` remain accepted for
 compatibility, but `:` command mode is the interactive command entry path.
 
+Prompt templates share the slash-command picker and expand local `.md` or `.j2`
+files into complete prompts. See [Prompt Templates](/docs/usage/prompt-templates/)
+for file locations, MiniJinja variables, arguments, and bundled commands.
+
 ## Context Controls
 
 `/context` opens a bounded ledger of the current working set. It shows stable

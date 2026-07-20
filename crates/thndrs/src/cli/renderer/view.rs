@@ -148,7 +148,7 @@ impl From<&App> for FocusedSurfaceView {
             PromptAccessory::Commands { selected } => {
                 let items = crate::app::command_suggestions_for_app(app)
                     .into_iter()
-                    .map(|(label, detail)| PickerItemView { label: label.to_string(), detail: detail.to_string() })
+                    .map(|suggestion| PickerItemView { label: suggestion.name, detail: suggestion.detail })
                     .collect();
                 FocusedSurfaceView::CommandPicker(PickerView {
                     title: "commands".to_string(),
@@ -789,9 +789,9 @@ impl App {
             PromptAccessory::Commands { selected } => crate::app::command_suggestions_for_app(self)
                 .into_iter()
                 .enumerate()
-                .map(|(index, (label, detail))| PromptSuggestionView {
-                    label: label.to_string(),
-                    detail: detail.to_string(),
+                .map(|(index, suggestion)| PromptSuggestionView {
+                    label: suggestion.name,
+                    detail: suggestion.detail,
                     selected: index == selected,
                     kind: PromptSuggestionKind::Command,
                 })

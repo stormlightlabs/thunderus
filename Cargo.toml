@@ -20,6 +20,7 @@ insta = "1.48.0"
 iocraft = "0.8.3"
 lectito = "0.2"
 markdown = "1.0.0"
+minijinja = { version = "2.21.0", default-features = false, features = ["builtins", "debug", "fuel", "serde"] }
 process-wrap = { version = "9.1", default-features = false, features = ["job-object", "process-group", "std"] }
 regex-lite = "0.1"
 ratatui = { version = "0.30.0", default-features = false }

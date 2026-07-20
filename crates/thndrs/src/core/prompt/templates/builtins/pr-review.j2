@@ -1,0 +1,15 @@
+---
+description: Review a pull request with linked-issue and test context
+argument-hint: "<PR-URL>"
+---
+Review this pull request: {{ url | default(arg1, true) }}
+
+Read the description, comments, commits, changed files, and linked issues using
+read-only repository operations. Inspect related code paths outside the diff
+when they are required to validate behavior. Do not switch branches or modify
+the pull request.
+
+Structure the review as: what it does, findings in severity order, test
+coverage, and open questions that block a merge decision. Ground every finding
+in the code with file and line references. State clearly when no actionable
+problems are found.

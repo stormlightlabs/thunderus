@@ -1,0 +1,15 @@
+---
+description: Audit unreleased changelog coverage against recent work
+argument-hint: "[release-or-range]"
+---
+Audit changelog coverage for {{ arguments | default("changes since the latest release", true) }}.
+
+Use read-only history and diff inspection. Identify the latest relevant release
+or the supplied range, list user-visible changes, and compare them with each
+affected package's unreleased changelog section. Ignore generated-only,
+documentation-only, and release-housekeeping changes unless repository rules
+say otherwise.
+
+Report missing, duplicated, misplaced, or misleading entries. Follow the
+repository's changelog format and attribution rules. Update files only if the
+user has authorized changes and project instructions permit them.

@@ -518,7 +518,7 @@ impl PersistedTurn {
                         seq: 0,
                         time: crate::utils::datetime::now_iso8601(),
                         turn_id: accounting.turn_id.clone(),
-                        accounting: accounting.as_ref().clone(),
+                        accounting: Box::new(accounting.as_ref().clone()),
                     },
                 );
             }

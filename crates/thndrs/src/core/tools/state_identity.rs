@@ -89,7 +89,7 @@ mod tests {
     use super::*;
     use crate::tools::ToolOutput;
 
-    fn request(name: &str, arguments: serde_json::Value) -> ToolUseRequest {
+    fn request(name: &str, arguments: &serde_json::Value) -> ToolUseRequest {
         ToolUseRequest::new(name, arguments.to_string(), "call")
     }
 
@@ -100,7 +100,7 @@ mod tests {
         let identity = identity_for(
             &request(
                 "read_file_range",
-                serde_json::json!({"path":"src/lib.rs","start_line":1,"end_line":1}),
+                &serde_json::json!({"path":"src/lib.rs","start_line":1,"end_line":1}),
             ),
             &output,
             Path::new("/workspace"),
@@ -120,7 +120,7 @@ mod tests {
         let first = identity_for(
             &request(
                 "search_text",
-                serde_json::json!({"glob":"src/**/*.rs","pattern":"needle"}),
+                &serde_json::json!({"glob":"src/**/*.rs","pattern":"needle"}),
             ),
             &output,
             root,
@@ -130,7 +130,7 @@ mod tests {
         let reordered = identity_for(
             &request(
                 "search_text",
-                serde_json::json!({"pattern":"needle","glob":"src/**/*.rs"}),
+                &serde_json::json!({"pattern":"needle","glob":"src/**/*.rs"}),
             ),
             &output,
             root,
@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn commands_are_fresh_after_a_state_epoch_change() {
         let output = ToolOutput::ok("run_shell", vec!["ok".to_string()]);
-        let request = request("run_shell", serde_json::json!({"argv":["cargo","test"]}));
+        let request = request("run_shell", &serde_json::json!({"argv":["cargo","test"]}));
         let before = identity_for(&request, &output, Path::new("."), 3).expect("identity");
         let after = identity_for(&request, &output, Path::new("."), 4).expect("identity");
 

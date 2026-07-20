@@ -1,0 +1,18 @@
+---
+description: Finish the current task and verify the result end to end
+argument-hint: "[instructions]"
+---
+Finish the current task end to end.
+{% if arguments %}
+
+Additional instructions: {{ arguments }}
+{% endif %}
+
+Recover the task and constraints from the conversation and project
+instructions. Complete the remaining in-scope implementation, tests, and
+documentation. Run the narrowest relevant checks followed by the repository's
+required final checks. Review the result for correctness and unintended scope.
+
+Do not commit, push, publish, post comments, or change external state unless the
+user explicitly authorized that action. Report the completed work, exact checks
+run, failures or skipped checks, and any remaining risk.

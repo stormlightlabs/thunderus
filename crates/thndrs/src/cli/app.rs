@@ -370,6 +370,10 @@ pub struct App {
     pub skills: Vec<skills::SkillMetadata>,
     /// Skill discovery diagnostics for ignored malformed skills.
     pub skill_diagnostics: Vec<skills::SkillDiagnostic>,
+    /// Reusable prompt templates exposed through slash-command completion.
+    pub prompt_templates: Vec<prompt::templates::PromptTemplate>,
+    /// Non-fatal diagnostics for malformed or unreadable prompt templates.
+    pub prompt_template_diagnostics: Vec<prompt::templates::PromptTemplateDiagnostic>,
     /// Monotonic UI tick used for lightweight animated affordances.
     pub ui_tick: u64,
     /// When `Some`, the user pressed Ctrl+D once and we are waiting for a
@@ -459,6 +463,7 @@ impl From<&Cli> for App {
         let context_sources = context_inventory.sources;
         let context_diagnostics = context_inventory.diagnostics;
         let skill_inventory = skills::discover(&workspace_root, &value.skill_dirs);
+        let prompt_template_inventory = prompt::templates::discover(&workspace_root);
         let transcript = Vec::new();
         let sessions_dir = value
             .session_dir
@@ -546,6 +551,8 @@ impl From<&Cli> for App {
             last_request_accounting: None,
             skills: skill_inventory.skills,
             skill_diagnostics: skill_inventory.diagnostics,
+            prompt_templates: prompt_template_inventory.templates,
+            prompt_template_diagnostics: prompt_template_inventory.diagnostics,
             ui_tick: 0,
             ctrl_d_pending: None,
             stopping_deadline: None,
@@ -695,6 +702,11 @@ impl App {
             .iter()
             .map(skills::SkillDiagnostic::summary)
             .collect();
+        diagnostics.extend(
+            self.prompt_template_diagnostics
+                .iter()
+                .map(prompt::templates::PromptTemplateDiagnostic::summary),
+        );
         diagnostics.extend(self.config_diagnostics.iter().cloned());
         diagnostics.extend(self.mcp_config_diagnostics.iter().cloned());
         internals::SelfKnowledgeSnapshot::new(
