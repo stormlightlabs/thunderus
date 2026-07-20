@@ -1286,6 +1286,7 @@ fn reader_projects_tool_write_shell_and_status_rows() {
         exit_code: Some(0),
         stdout: vec!["ignored by shell_exec record".to_string()],
         stderr: Vec::new(),
+        output_truncated: false,
         elapsed: Duration::from_millis(123),
         kind: tools::shell::ProcessKind::OneShot,
     };
@@ -2141,6 +2142,7 @@ fn append_shell_exec_preserves_background_start_and_terminal_lifecycle() {
         exit_code: None,
         stdout: vec![],
         stderr: vec![],
+        output_truncated: false,
         elapsed: Duration::from_millis(2),
         kind: tools::shell::ProcessKind::Background,
     };
@@ -2178,6 +2180,7 @@ fn append_shell_exec_persists_metadata() {
         exit_code: Some(0),
         stdout: vec![],
         stderr: vec![],
+        output_truncated: false,
         elapsed: Duration::from_millis(1200),
         kind: tools::shell::ProcessKind::OneShot,
     };
@@ -2236,6 +2239,7 @@ fn append_shell_exec_round_trip_for_timeout() {
         exit_code: None,
         stdout: vec![],
         stderr: vec![],
+        output_truncated: false,
         elapsed: Duration::from_millis(10000),
         kind: tools::shell::ProcessKind::OneShot,
     };
@@ -2274,6 +2278,7 @@ fn shell_exec_record_does_not_store_stdout_stderr() {
         exit_code: Some(0),
         stdout: vec!["SECRET_OUTPUT_LINE".to_string()],
         stderr: vec!["SECRET_STDERR".to_string()],
+        output_truncated: false,
         elapsed: Duration::from_millis(10),
         kind: tools::shell::ProcessKind::OneShot,
     };

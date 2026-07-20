@@ -94,7 +94,7 @@ pub enum ReductionConfigError {
 /// Independently configurable model-projection reduction switches.
 ///
 /// `shadow` records what disabled reducers would have done without changing
-/// the request. The four reducer switches are deliberately separate; there is
+/// the request. The reducer switches are deliberately separate; there is
 /// no bundled quality, balanced, or economy preset. Applied switches default
 /// to `false` so existing provider requests remain unchanged until a user
 /// enables a specific mechanism.
@@ -117,6 +117,15 @@ pub struct ReductionConfig {
     /// supplies a matching tool-specific state fingerprint.
     #[serde(alias = "state_deduplication", alias = "deduplicate_state_identical")]
     pub state_identical: bool,
+    /// Apply application-owned structured projections to completed command
+    /// results when the command adapter can preserve its operational evidence.
+    #[serde(alias = "command_results")]
+    pub command_result: bool,
+    /// Remove oversized failed non-command tool arguments from the active
+    /// request only after the application has persisted bounded recovery
+    /// evidence for that call.
+    #[serde(alias = "failed_tool_inputs")]
+    pub failed_tool_input: bool,
     /// Maximum consecutive blank lines retained when [`Self::blank_run`] is on.
     pub max_blank_lines: usize,
 }
@@ -130,6 +139,8 @@ impl Default for ReductionConfig {
             blank_run: false,
             repeated_line: false,
             state_identical: false,
+            command_result: false,
+            failed_tool_input: false,
             max_blank_lines: 1,
         }
     }
@@ -146,6 +157,8 @@ impl ReductionConfig {
             blank_run: false,
             repeated_line: false,
             state_identical: false,
+            command_result: false,
+            failed_tool_input: false,
             max_blank_lines: 1,
         }
     }
@@ -165,7 +178,7 @@ impl ReductionConfig {
 
     /// Whether any configured reduction can change a model projection.
     pub fn has_applied_reducer(&self) -> bool {
-        self.state_identical || !self.enabled_reducers().is_empty()
+        self.state_identical || self.command_result || self.failed_tool_input || !self.enabled_reducers().is_empty()
     }
 }
 

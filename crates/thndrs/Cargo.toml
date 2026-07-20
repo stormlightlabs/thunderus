@@ -12,7 +12,7 @@ readme = "README.md"
 keywords = ["agent", "ai", "cli", "tui", "mcp"]
 categories = ["command-line-utilities", "development-tools"]
 default-run = "thndrs"
-include = ["/Cargo.toml", "/LICENSE", "/README.md", "/src/**", "/tests/**"]
+include = ["/Cargo.toml", "/LICENSE", "/README.md", "/benches/**", "/src/**", "/tests/**"]
 
 [lib]
 name = "thndrs_lib"
@@ -53,6 +53,11 @@ url.workspace = true
 workspace = true
 
 [dev-dependencies]
+divan.workspace = true
 insta.workspace = true
 tempfile.workspace = true
 vt100.workspace = true
+
+[[bench]]
+name = "command_projection"
+harness = false

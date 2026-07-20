@@ -250,6 +250,7 @@ impl TerminalProcess {
                 .and_then(|status| status.exit_code.map(|code| code as i32)),
             stdout: split_output(&snapshot.output),
             stderr: Vec::new(),
+            output_truncated: snapshot.truncated,
             elapsed: self.start.elapsed(),
             kind: ProcessKind::OneShot,
         }

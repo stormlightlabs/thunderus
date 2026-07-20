@@ -1,0 +1,50 @@
+[
+  {
+    "id": "compiler_middle_error",
+    "command": ["cargo", "check", "-p", "thndrs"],
+    "cwd": "/workspace",
+    "status": "failed",
+    "exit_code": 101,
+    "duration_ms": 240,
+    "truncated": false,
+    "stdout": ["Checking dependencies", "noise before", "noise after"],
+    "stderr": ["warning: unused import: `PathBuf`", "error[E0308]: mismatched types", "  --> crates/thndrs/src/core/tools/parser/mod.rs:42:9", "error: could not compile `thndrs` (lib) due to 1 previous error"],
+    "required": ["warning: unused import", "error[E0308]", "crates/thndrs/src/core/tools/parser/mod.rs:42:9", "error: could not compile"]
+  },
+  {
+    "id": "failing_test_with_repeated_stack_frames",
+    "command": ["cargo", "test", "parser"],
+    "cwd": "/workspace/crates/thndrs",
+    "status": "failed",
+    "exit_code": 101,
+    "duration_ms": 417,
+    "truncated": true,
+    "stdout": ["test parser::retains_middle_failure ... FAILED"],
+    "stderr": ["thread 'parser::retains_middle_failure' panicked at crates/thndrs/src/core/parser/tests.rs:44:5:", "assertion failed: left == right", "   0: crates/thndrs/src/core/parser/tests.rs:44:5", "   1: crates/thndrs/src/core/parser/tests.rs:38:5", "test result: FAILED. 0 passed; 1 failed; 0 ignored"],
+    "required": ["parser::retains_middle_failure", "assertion failed", "crates/thndrs/src/core/parser/tests.rs:44:5", "crates/thndrs/src/core/parser/tests.rs:38:5", "test result: FAILED", "truncated: true"]
+  },
+  {
+    "id": "near_duplicate_diagnostics",
+    "command": ["cargo", "test"],
+    "cwd": "/workspace",
+    "status": "failed",
+    "exit_code": 101,
+    "duration_ms": 199,
+    "truncated": false,
+    "stdout": [],
+    "stderr": ["error[E0308]: expected usize, found u64", "error[E0308]: expected u64, found usize", "test result: FAILED. 0 passed; 1 failed"],
+    "required": ["expected usize, found u64", "expected u64, found usize", "test result: FAILED"]
+  },
+  {
+    "id": "passing_test_receipt",
+    "command": ["cargo", "test", "context"],
+    "cwd": "/workspace",
+    "status": "ok",
+    "exit_code": 0,
+    "duration_ms": 81,
+    "truncated": false,
+    "stdout": ["test context::selects_required_evidence ... ok", "test result: ok. 1 passed; 0 failed"],
+    "stderr": [],
+    "required": ["command: cargo test context", "status: ok", "exit_code: 0", "test result: ok. 1 passed"]
+  }
+]

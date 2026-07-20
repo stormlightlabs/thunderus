@@ -43,6 +43,9 @@ use thndrs_agent::CancelToken;
 use thndrs_agent::{ModelProjectionMessage, ProviderRequestAccounting, ProviderUsageComponents, ProviderUsageRule};
 
 const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_millis(2500));
+const FAILED_TOOL_INPUT_PROJECTION_METHOD: &str = "failed_tool_input_omission";
+const FAILED_TOOL_INPUT_PROJECTION_VERSION: &str = "failed-tool-input-omission-v1";
+const FAILED_TOOL_INPUT_MIN_BYTES: usize = 4 * 1024;
 
 /// Which provider drives this agent run.
 ///
@@ -492,7 +495,7 @@ impl RunHandle {
                     return;
                 }
 
-                let (output, write_result, shell_result) = match approve_tool_request(req, self, cancel) {
+                let (mut output, write_result, shell_result) = match approve_tool_request(req, self, cancel) {
                     ToolPermissionDecision::Allow => dispatch_tool_request(req, self, cancel),
                     ToolPermissionDecision::Reject => (
                         ToolOutput::failed(&req.name, String::from("tool call rejected by ACP client")),
@@ -506,6 +509,17 @@ impl RunHandle {
                 };
                 let status = output.status;
                 let display_output = output.display_lines();
+                if let Some(store) = &self.config.artifact_store {
+                    match store.create_tool_evidence(&format!("tool:{tool_id}"), &display_output) {
+                        Ok(artifact) => {
+                            output.evidence.identity = format!("tool:{tool_id}");
+                            output.evidence.artifact_handle = Some(artifact.metadata.handle);
+                        }
+                        Err(error) => {
+                            tracing::warn!(tool = %req.name, tool_id = %tool_id, %error, "failed to preserve bounded tool evidence")
+                        }
+                    }
+                }
                 if write_result.is_some() && status == ToolStatus::Ok {
                     wrote_file = true;
                 }
@@ -514,6 +528,7 @@ impl RunHandle {
                 let (tool_result, result_content, reduced, projection_decision, state_record) = model_tool_result(
                     &tool_id,
                     &output,
+                    shell_result.as_ref(),
                     &self.config.model_reduction,
                     state_identity,
                     state_protected,
@@ -554,7 +569,7 @@ impl RunHandle {
                     return;
                 }
 
-                let input: serde_json::Value = serde_json::from_str(&req.arguments).unwrap_or(serde_json::Value::Null);
+                let (input, input_reduction) = project_failed_tool_input(req, &output, &self.config.model_reduction);
                 assistant_blocks.push(ProviderContentBlock::ToolUse {
                     id: tool_id.clone(),
                     name: req.name.clone(),
@@ -570,6 +585,9 @@ impl RunHandle {
                     );
                 }
                 pending_reduction_receipts.extend(reduced.receipts);
+                if let Some(receipt) = input_reduction {
+                    pending_reduction_receipts.push(receipt);
+                }
                 tool_results.push(tool_result);
                 response_tool_outputs.push((tool_id, result_content));
             }
@@ -794,7 +812,8 @@ where
 /// dashboard to the model result; shadow-only measurement leaves the model
 /// request unchanged.
 fn model_tool_result(
-    tool_id: &str, output: &ToolOutput, config: &thndrs_agent::context::ReductionConfig,
+    tool_id: &str, output: &ToolOutput, shell_result: Option<&ProcessResult>,
+    config: &thndrs_agent::context::ReductionConfig,
     state_identity: Option<thndrs_agent::context::StateProjectionIdentity>, state_protected: bool,
     state_history: &[thndrs_agent::context::StateProjectionRecord],
 ) -> (
@@ -804,7 +823,32 @@ fn model_tool_result(
     thndrs_agent::context::StateProjectionDecision,
     Option<thndrs_agent::context::StateProjectionRecord>,
 ) {
-    let mut reduced = thndrs_agent::reduce_lines(&format!("tool:{tool_id}"), output.model_lines(), config);
+    let baseline = output.model_lines();
+    let command_projection = shell_result.and_then(|result| {
+        output.evidence.artifact_handle.as_deref().and_then(|handle| {
+            tools::command_projection::project(&format!("tool:{tool_id}"), &baseline, result, handle, config)
+        })
+    });
+    let projection_input = command_projection.as_ref().map_or_else(
+        || baseline.clone(),
+        |projection| {
+            if projection.receipt.mode == thndrs_agent::ContextReductionMode::Applied {
+                projection.lines.clone()
+            } else {
+                baseline.clone()
+            }
+        },
+    );
+    let mut reduced = thndrs_agent::reduce_lines(&format!("tool:{tool_id}"), projection_input, config);
+    if let Some(projection) = command_projection {
+        reduced.receipts.insert(0, projection.receipt.clone());
+        reduced.dashboard.receipts.insert(0, projection.receipt.clone());
+        if projection.receipt.mode == thndrs_agent::ContextReductionMode::Applied {
+            reduced.dashboard.before_bytes = thndrs_agent::measure_lines(&baseline);
+            reduced.dashboard.before_lines = baseline.len();
+            reduced.dashboard.routine_omissions = reduced.dashboard.before_lines.saturating_sub(reduced.lines.len());
+        }
+    }
     let mut state_candidate = thndrs_agent::context::StateProjectionCandidate::new(
         format!("tool:{tool_id}"),
         reduced.lines.clone(),
@@ -843,12 +887,63 @@ fn model_tool_result(
     } else {
         reduced.lines.join("\n")
     };
-    if config.has_applied_reducer() {
+    if reduced
+        .receipts
+        .iter()
+        .any(|receipt| receipt.mode == thndrs_agent::ContextReductionMode::Applied)
+    {
         content.push('\n');
         content.push_str(&reduced.render_dashboard());
     }
     let message = ProviderMessage::tool_result(tool_id, &content, output.status == ToolStatus::Failed);
     (message, content, reduced, projection_decision, state_record)
+}
+
+/// Replace a failed non-command tool's oversized argument body only after the
+/// bounded artifact store has returned a recovery handle. Shell argv remains
+/// untouched: command-aware reduction projects output, never a user command.
+fn project_failed_tool_input(
+    request: &ToolUseRequest, output: &ToolOutput, config: &thndrs_agent::context::ReductionConfig,
+) -> (serde_json::Value, Option<thndrs_agent::ContextReductionReceipt>) {
+    let baseline = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
+    if request.name == tools::shell::NAME
+        || output.status != ToolStatus::Failed
+        || request.arguments.len() < FAILED_TOOL_INPUT_MIN_BYTES
+        || (!config.failed_tool_input && !config.shadow)
+    {
+        return (baseline, None);
+    }
+    let Some(handle) = output.evidence.artifact_handle.as_deref() else {
+        return (baseline, None);
+    };
+
+    let projected = serde_json::json!({
+        "projection": "failed tool arguments omitted after failure; recover bounded redacted evidence from the recorded artifact",
+        "tool_call_id": request.tool_use_id,
+        "recovery_handle": handle,
+        "audit": "original arguments remain in the tool-started audit record"
+    });
+    let after_bytes = serde_json::to_string(&projected).map_or(0, |json| json.len() as u64);
+    let mode = if config.failed_tool_input {
+        thndrs_agent::ContextReductionMode::Applied
+    } else {
+        thndrs_agent::ContextReductionMode::Shadow
+    };
+    let receipt = thndrs_agent::ContextReductionReceipt {
+        item_id: format!("tool_input:{}", request.tool_use_id),
+        method: FAILED_TOOL_INPUT_PROJECTION_METHOD.to_string(),
+        version: FAILED_TOOL_INPUT_PROJECTION_VERSION.to_string(),
+        before_bytes: request.arguments.len() as u64,
+        after_bytes,
+        lossy: true,
+        mode,
+        diagnostic: None,
+    };
+    if mode == thndrs_agent::ContextReductionMode::Applied {
+        (projected, Some(receipt))
+    } else {
+        (baseline, Some(receipt))
+    }
 }
 
 /// Best-effort classifier for prompts that should not finish without a
@@ -2884,7 +2979,7 @@ mod tests {
         let display_before = output.display_lines();
 
         let (message, content, result, decision, _) =
-            model_tool_result("toolu_1", &output, &reduction, None, false, &[]);
+            model_tool_result("toolu_1", &output, None, &reduction, None, false, &[]);
 
         assert_eq!(output.display_lines(), display_before);
         assert_eq!(output.model.lines, vec!["same".to_string(); 10]);
@@ -2902,6 +2997,147 @@ mod tests {
     }
 
     #[test]
+    fn command_projection_retains_operational_failure_evidence_and_recovery() {
+        let process = ProcessResult {
+            process_id: None,
+            command: vec!["cargo".to_string(), "test".to_string()],
+            cwd: PathBuf::from("/workspace"),
+            status: crate::tools::shell::ProcessStatus::Failed,
+            exit_code: Some(101),
+            stdout: vec!["test parser::middle_failure ... FAILED".to_string()],
+            stderr: vec![
+                "warning: unused import".to_string(),
+                "error[E0308]: mismatched types".to_string(),
+                "  --> crates/thndrs/src/core/parser/mod.rs:42:9".to_string(),
+                "test result: FAILED. 0 passed; 1 failed".to_string(),
+            ],
+            output_truncated: true,
+            elapsed: Duration::from_millis(87),
+            kind: crate::tools::shell::ProcessKind::OneShot,
+        };
+        let mut output = process.to_tool_output();
+        output.evidence.artifact_handle = Some("artifact_v1_command_failure".to_string());
+        let mut reduction = thndrs_agent::context::ReductionConfig::disabled();
+        reduction.command_result = true;
+
+        let (message, content, result, _, _) =
+            model_tool_result("toolu_1", &output, Some(&process), &reduction, None, true, &[]);
+
+        for evidence in [
+            "command: cargo test",
+            "working_directory: /workspace",
+            "status: failed",
+            "exit_code: 101",
+            "duration_ms: 87",
+            "truncated: true",
+            "warning: unused import",
+            "error[E0308]",
+            "crates/thndrs/src/core/parser/mod.rs:42:9",
+            "parser::middle_failure",
+            "test result: FAILED",
+            "artifact_v1_command_failure",
+        ] {
+            assert!(content.contains(evidence), "missing {evidence}: {content}");
+        }
+        assert!(result.receipts.iter().any(|receipt| {
+            receipt.method == tools::command_projection::COMMAND_RESULT_PROJECTION_METHOD
+                && receipt.mode == thndrs_agent::ContextReductionMode::Applied
+        }));
+        let value = serde_json::to_value(message).expect("provider message serializes");
+        assert_eq!(value["content"][0]["type"], "tool_result");
+    }
+
+    #[test]
+    fn failed_large_tool_input_requires_artifact_and_never_rewrites_shell_argv() {
+        let request = ToolUseRequest::new(
+            "write_patch",
+            serde_json::json!({ "patch": "x".repeat(FAILED_TOOL_INPUT_MIN_BYTES) }).to_string(),
+            "toolu_1",
+        );
+        let mut output = ToolOutput::failed("write_patch", "patch did not apply");
+        output.evidence.artifact_handle = Some("artifact_v1_failed_patch".to_string());
+        let mut reduction = thndrs_agent::context::ReductionConfig::disabled();
+        reduction.failed_tool_input = true;
+
+        let (projected, receipt) = project_failed_tool_input(&request, &output, &reduction);
+        assert!(!projected.to_string().contains(&"x".repeat(100)));
+        assert_eq!(projected["recovery_handle"], "artifact_v1_failed_patch");
+        assert_eq!(
+            receipt.expect("receipt").mode,
+            thndrs_agent::ContextReductionMode::Applied
+        );
+
+        output.evidence.artifact_handle = None;
+        let (baseline, receipt) = project_failed_tool_input(&request, &output, &reduction);
+        assert!(baseline.to_string().contains(&"x".repeat(100)));
+        assert!(receipt.is_none());
+
+        let shell = ToolUseRequest::new("run_shell", request.arguments, "toolu_2");
+        output.evidence.artifact_handle = Some("artifact_v1_shell".to_string());
+        let (shell_baseline, receipt) = project_failed_tool_input(&shell, &output, &reduction);
+        assert!(shell_baseline.to_string().contains(&"x".repeat(100)));
+        assert!(receipt.is_none());
+    }
+
+    #[test]
+    fn failed_large_tool_input_provider_request_references_recoverable_artifact() {
+        let directory = tempfile::tempdir().expect("temporary artifact directory");
+        let store = crate::artifacts::ArtifactStore::new(directory.path());
+        let request = ToolUseRequest::new(
+            "write_patch",
+            serde_json::json!({ "patch": "x".repeat(FAILED_TOOL_INPUT_MIN_BYTES) }).to_string(),
+            "toolu_1",
+        );
+        let mut output = ToolOutput::failed("write_patch", "patch did not apply");
+        let artifact = store
+            .create_tool_evidence("tool:toolu_1", &output.display_lines())
+            .expect("persist bounded artifact");
+        output.evidence.artifact_handle = Some(artifact.metadata.handle.clone());
+        let mut reduction = thndrs_agent::context::ReductionConfig::disabled();
+        reduction.failed_tool_input = true;
+
+        let (input, receipt) = project_failed_tool_input(&request, &output, &reduction);
+        let provider_request = ProviderMessage::assistant_blocks(vec![ProviderContentBlock::ToolUse {
+            id: request.tool_use_id.clone(),
+            name: request.name,
+            input,
+        }]);
+        let serialized = serde_json::to_value(provider_request).expect("provider request serializes");
+        let projected_input = &serialized["content"][0]["input"];
+
+        assert_eq!(projected_input["recovery_handle"], artifact.metadata.handle);
+        assert!(!serialized.to_string().contains(&"x".repeat(100)));
+        assert_eq!(
+            receipt.expect("applied receipt").mode,
+            thndrs_agent::ContextReductionMode::Applied
+        );
+        let recovery = store.recover(&artifact.metadata.handle).expect("recover artifact");
+        assert!(
+            recovery
+                .content
+                .expect("artifact content")
+                .contains("patch did not apply")
+        );
+    }
+
+    #[test]
+    fn mcp_output_does_not_use_command_projection_without_a_tool_specific_contract() {
+        let mut reduction = thndrs_agent::context::ReductionConfig::disabled();
+        reduction.command_result = true;
+        let output = ToolOutput::ok("mcp__docs__search", vec!["plain MCP response".to_string()]);
+
+        let (_, content, result, _, _) = model_tool_result("toolu_1", &output, None, &reduction, None, false, &[]);
+
+        assert_eq!(content, "plain MCP response");
+        assert!(
+            result
+                .receipts
+                .iter()
+                .all(|receipt| receipt.method != tools::command_projection::COMMAND_RESULT_PROJECTION_METHOD)
+        );
+    }
+
+    #[test]
     fn duplicate_tool_results_keep_provider_structure_and_record_the_canonical_call() {
         let mut reduction = thndrs_agent::context::ReductionConfig::disabled();
         reduction.state_identical = true;
@@ -2909,10 +3145,10 @@ mod tests {
         let output = ToolOutput::ok("read_file_range", vec!["1: first".to_string(), "2: second".to_string()]);
 
         let (_, _, _, first_decision, first_record) =
-            model_tool_result("toolu_1", &output, &reduction, identity.clone(), false, &[]);
+            model_tool_result("toolu_1", &output, None, &reduction, identity.clone(), false, &[]);
         let history = vec![first_record.expect("state record")];
         let (message, content, result, decision, _) =
-            model_tool_result("toolu_2", &output, &reduction, identity, false, &history);
+            model_tool_result("toolu_2", &output, None, &reduction, identity, false, &history);
 
         assert_eq!(first_decision, thndrs_agent::context::StateProjectionDecision::Retained);
         assert_eq!(

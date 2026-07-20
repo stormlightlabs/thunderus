@@ -248,6 +248,8 @@ mod tests {
                     "progress_redraw": false,
                     "blank_run": true,
                     "repeated_line": false,
+                    "command_result": true,
+                    "failed_tool_input": true,
                     "max_blank_lines": 2
                 }
             }"#,
@@ -255,6 +257,8 @@ mod tests {
         .expect("parse reduction config");
 
         assert!(!config.reduction.shadow);
+        assert!(config.reduction.command_result);
+        assert!(config.reduction.failed_tool_input);
         assert_eq!(
             config.reduction.enabled_reducers(),
             vec![ReducerKind::TerminalControl, ReducerKind::BlankRun]

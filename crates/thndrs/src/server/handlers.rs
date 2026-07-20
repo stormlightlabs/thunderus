@@ -472,6 +472,13 @@ impl ServerState {
             .map(|inner| inner.cancelled.contains(session_id))
             .unwrap_or(false)
     }
+
+    fn artifact_store(&self, session_id: &str) -> Option<crate::artifacts::ArtifactStore> {
+        self.config
+            .session_dir
+            .as_ref()
+            .map(|directory| crate::artifacts::ArtifactStore::new(directory.join("artifacts").join(session_id)))
+    }
 }
 
 #[derive(Debug)]
@@ -531,6 +538,12 @@ impl PersistedTurn {
                 );
             }
             AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
+                let artifact = state.artifact_store(session_id).and_then(|store| {
+                    store
+                        .create_tool_evidence(&format!("tool:{id}"), output)
+                        .ok()
+                        .map(|write| write.metadata)
+                });
                 state.append_record(
                     session_id,
                     SessionRecord::ToolFinished {
@@ -544,7 +557,7 @@ impl PersistedTurn {
                             output,
                             crate::artifacts::DEFAULT_MAX_ARTIFACT_BYTES,
                         ),
-                        artifact: None,
+                        artifact,
                         mcp: None,
                     },
                 );
@@ -1290,6 +1303,7 @@ fn process_result_from_terminal(
         exit_code: exit_status.exit_code.and_then(|code| i32::try_from(code).ok()),
         stdout,
         stderr: Vec::new(),
+        output_truncated: output.truncated,
         elapsed,
         kind: ProcessKind::OneShot,
     }
@@ -1346,6 +1360,9 @@ fn run_prompt_turn(
         .with_search_url(state.config.websearch_url.clone())
         .with_reasoning(effort, summary)
         .with_model_reduction(state.config.model_reduction.clone());
+    if let Some(store) = state.artifact_store(session_id) {
+        config = config.with_artifact_store(store);
+    }
     if let Some(mcp_config) = session.mcp_config {
         config = config.with_mcp_manager(Arc::new(McpManager::from_config(&mcp_config)));
     }

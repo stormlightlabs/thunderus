@@ -1421,7 +1421,8 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
         .with_search_url(cli.websearch_url.clone())
         .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
         .with_model_reduction(app.effective_model_reduction())
-        .with_process_registry(app.process_registry.clone());
+        .with_process_registry(app.process_registry.clone())
+        .with_artifact_store(app.artifact_store());
     if let Some(acp_name) = acp::config::parse_model_id(&cli.model) {
         tracing::info!(
             cwd = %config.root.display(),

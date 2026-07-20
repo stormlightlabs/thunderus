@@ -3185,6 +3185,7 @@ dependencies = [
  "agent-client-protocol",
  "clap",
  "crossterm",
+ "divan",
  "futures",
  "http",
  "insta",

@@ -49,7 +49,7 @@ use process_wrap::std::JobObject;
 use process_wrap::std::ProcessGroup;
 use process_wrap::std::{ChildWrapper, CommandWrap};
 
-use super::{MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest, path};
+use super::{MAX_LINE_LEN, MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest, path};
 use crate::app::ToolStatus;
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::utils;
@@ -166,6 +166,8 @@ pub struct ProcessResult {
     pub stdout: Vec<String>,
     /// Captured stderr, line-capped and byte-capped.
     pub stderr: Vec<String>,
+    /// Whether the captured command output was capped or line-truncated.
+    pub output_truncated: bool,
     /// Wall-clock elapsed time.
     pub elapsed: Duration,
     /// Whether this was a one-shot or background process.
@@ -195,6 +197,9 @@ impl ProcessResult {
         if !self.stderr.is_empty() {
             lines.push(String::from("── stderr ──"));
             lines.extend(self.stderr.iter().cloned());
+        }
+        if self.output_truncated && !lines.iter().any(|line| line.contains("output truncated")) {
+            lines.push(String::from("[command output truncated]"));
         }
         lines
     }
@@ -334,7 +339,7 @@ impl TrackedProcess {
     fn snapshot(&self) -> ActiveProcess {
         let result = self.result.lock().ok().and_then(|result| result.clone());
         let output = result.as_ref().map_or_else(
-            || self.output.snapshot(),
+            || self.output.snapshot().0,
             |result| ProcessOutput { stdout: result.stdout.clone(), stderr: result.stderr.clone() },
         );
         ActiveProcess {
@@ -372,23 +377,38 @@ impl ProcessControl {
 struct OutputCapture {
     stdout: Mutex<Vec<u8>>,
     stderr: Mutex<Vec<u8>>,
+    stdout_truncated: std::sync::atomic::AtomicBool,
+    stderr_truncated: std::sync::atomic::AtomicBool,
     readers: AtomicUsize,
 }
 
 impl OutputCapture {
     fn append(&self, stdout: bool, bytes: &[u8]) {
-        let target = if stdout { &self.stdout } else { &self.stderr };
+        let (target, truncated) =
+            if stdout { (&self.stdout, &self.stdout_truncated) } else { (&self.stderr, &self.stderr_truncated) };
         let Ok(mut target) = target.lock() else {
             return;
         };
         let remaining = MAX_OUTPUT_BYTES.saturating_sub(target.len());
+        if bytes.len() > remaining {
+            truncated.store(true, Ordering::SeqCst);
+        }
         target.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
     }
 
-    fn snapshot(&self) -> ProcessOutput {
+    fn snapshot(&self) -> (ProcessOutput, bool) {
         let stdout = self.stdout.lock().map(|bytes| bytes.clone()).unwrap_or_default();
         let stderr = self.stderr.lock().map(|bytes| bytes.clone()).unwrap_or_default();
-        ProcessOutput { stdout: split_and_cap(&stdout), stderr: split_and_cap(&stderr) }
+        let (stdout, stdout_truncated) = split_and_cap(&stdout);
+        let (stderr, stderr_truncated) = split_and_cap(&stderr);
+        (
+            ProcessOutput { stdout, stderr },
+            self.is_truncated() || stdout_truncated || stderr_truncated,
+        )
+    }
+
+    fn is_truncated(&self) -> bool {
+        self.stdout_truncated.load(Ordering::SeqCst) || self.stderr_truncated.load(Ordering::SeqCst)
     }
 }
 
@@ -844,6 +864,7 @@ pub fn run_command_with_registry(
             exit_code: None,
             stdout: Vec::new(),
             stderr: Vec::new(),
+            output_truncated: false,
             elapsed: start.elapsed(),
             kind: ProcessKind::Background,
         });
@@ -939,9 +960,10 @@ fn resolve_cwd(root: &Path, cwd: &Option<PathBuf>) -> Result<PathBuf, String> {
 
 /// Read a piped stream to a capped byte buffer. Runs on a dedicated reader
 /// thread so the main thread can still poll try_wait for timeout/cancellation.
-fn read_to_capped_vec<R: Read>(mut stream: R) -> Vec<u8> {
+fn read_to_capped_vec<R: Read>(mut stream: R) -> CapturedBytes {
     let max_bytes: usize = MAX_OUTPUT_BYTES;
     let mut buf = Vec::with_capacity(4096);
+    let mut truncated = false;
     let mut chunk = [0u8; 4096];
 
     loop {
@@ -952,9 +974,11 @@ fn read_to_capped_vec<R: Read>(mut stream: R) -> Vec<u8> {
                 if remaining == 0 {
                     // Keep draining the pipe after the retained prefix is
                     // full so a verbose child cannot block before it exits.
+                    truncated = true;
                     continue;
                 }
                 let take = n.min(remaining);
+                truncated |= take < n;
                 buf.extend_from_slice(&chunk[..take]);
             }
             Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
@@ -962,19 +986,25 @@ fn read_to_capped_vec<R: Read>(mut stream: R) -> Vec<u8> {
         }
     }
 
-    buf
+    CapturedBytes { bytes: buf, truncated }
+}
+
+struct CapturedBytes {
+    bytes: Vec<u8>,
+    truncated: bool,
 }
 
 /// Split a byte buffer into lines, capping the line count, truncating long
 /// lines, and redacting known secret patterns.
-fn split_and_cap(buf: &[u8]) -> Vec<String> {
+fn split_and_cap(buf: &[u8]) -> (Vec<String>, bool) {
     let content = String::from_utf8_lossy(buf);
-    let mut lines: Vec<String> = content
-        .lines()
-        .map(redact_secrets)
-        .map(|line| utils::truncate_line(&line))
-        .take(MAX_OUTPUT_LINES)
-        .collect();
+    let mut line_truncated = false;
+    let mut lines = Vec::new();
+    for line in content.lines().take(MAX_OUTPUT_LINES) {
+        let line = redact_secrets(line);
+        line_truncated |= line.chars().count() > MAX_LINE_LEN;
+        lines.push(utils::truncate_line(&line));
+    }
 
     let total_lines = content.lines().count();
     if total_lines > MAX_OUTPUT_LINES {
@@ -982,7 +1012,7 @@ fn split_and_cap(buf: &[u8]) -> Vec<String> {
         lines.push(format!("…({extra} more lines)"));
     }
 
-    lines
+    (lines, line_truncated || total_lines > MAX_OUTPUT_LINES)
 }
 
 fn execute_args(
@@ -1067,7 +1097,7 @@ impl BackgroundMonitor {
             WaitOutcome::Timeout => (ProcessStatus::Timeout, None),
             WaitOutcome::Cancelled => (ProcessStatus::Cancelled, None),
         };
-        let captured = output.snapshot();
+        let (captured, output_truncated) = output.snapshot();
         let result = ProcessResult {
             process_id: Some(id),
             command,
@@ -1076,6 +1106,7 @@ impl BackgroundMonitor {
             exit_code,
             stdout: captured.stdout,
             stderr: captured.stderr,
+            output_truncated,
             elapsed: start.elapsed(),
             kind: ProcessKind::Background,
         };
@@ -1220,17 +1251,24 @@ fn run_foreground_command(
         WaitOutcome::Cancelled => (ProcessStatus::Cancelled, None),
     };
 
-    let stdout_buf = stdout_handle.join().unwrap_or_default();
-    let stderr_buf = stderr_handle.join().unwrap_or_default();
-
+    let stdout_capture = stdout_handle
+        .join()
+        .unwrap_or(CapturedBytes { bytes: Vec::new(), truncated: true });
+    let stderr_capture = stderr_handle
+        .join()
+        .unwrap_or(CapturedBytes { bytes: Vec::new(), truncated: true });
+    let (stdout, stdout_truncated) = split_and_cap(&stdout_capture.bytes);
+    let (stderr, stderr_truncated) = split_and_cap(&stderr_capture.bytes);
+    let output_truncated = stdout_capture.truncated || stderr_capture.truncated || stdout_truncated || stderr_truncated;
     Ok(ProcessResult {
         process_id: None,
         command: argv,
         cwd,
         status,
         exit_code,
-        stdout: split_and_cap(&stdout_buf),
-        stderr: split_and_cap(&stderr_buf),
+        stdout,
+        stderr,
+        output_truncated,
         elapsed,
         kind: ProcessKind::OneShot,
     })

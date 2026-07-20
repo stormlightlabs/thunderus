@@ -140,28 +140,28 @@ bounded recovery path.
 
 **Acceptance criteria:**
 
-- [ ] Universal command projection retains command identity, working context,
+- [x] Universal command projection retains command identity, working context,
       status, exit information, duration, warnings/errors, paths/locations,
       failed test names, final summary, truncation, and recovery.
-- [ ] Structured compiler/test formats are parsed only when already available
+- [x] Structured compiler/test formats are parsed only when already available
       from the command path; the reducer does not silently rewrite user command
       arguments.
-- [ ] Successful output can become a bounded receipt without implying that it
+- [x] Successful output can become a bounded receipt without implying that it
       verifies a write or releases protection.
-- [ ] Failed-tool large inputs can leave the active projection only after their
+- [x] Failed-tool large inputs can leave the active projection only after their
       failure, bounded artifact, and audit metadata are preserved.
-- [ ] MCP results use conservative generic reduction unless a tool-specific
+- [x] MCP results use conservative generic reduction unless a tool-specific
       contract supplies stronger invariants.
-- [ ] Middle-error, near-duplicate diagnostic, multi-directory filename, and
+- [x] Middle-error, near-duplicate diagnostic, multi-directory filename, and
       repeated-stack-frame fixtures pass.
 
 **Verification:**
 
-- Frozen command-family evaluator fixtures.
-- Focused parser/reducer and fallback tests.
-- Artifact recovery and provider-request tests.
-- Divan command-projection benchmarks.
-- `cargo test --workspace`
+- [x] Frozen command-family evaluator fixtures.
+- [x] Focused parser/reducer and fallback tests.
+- [x] Artifact recovery and provider-request tests.
+- [x] Divan command-projection benchmarks.
+- [x] `cargo test --workspace`
 
 ## Milestone 3: Add Review-Gated Semantic Compression
 

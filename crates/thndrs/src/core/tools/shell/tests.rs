@@ -271,6 +271,7 @@ fn run_command_caps_output_lines() {
     assert_eq!(result.status, ProcessStatus::Ok);
     assert_eq!(result.stdout.len(), MAX_OUTPUT_LINES + 1);
     assert!(result.stdout.last().unwrap().starts_with("…("));
+    assert!(result.output_truncated);
 }
 
 #[test]
@@ -287,6 +288,7 @@ fn run_command_truncates_long_lines() {
     assert_eq!(result.stdout.len(), 1);
     assert!(result.stdout[0].ends_with("..."));
     assert!(result.stdout[0].chars().count() <= max_len + 3);
+    assert!(result.output_truncated);
 }
 
 #[test]
@@ -311,6 +313,7 @@ fn process_result_summary_includes_command_and_status() {
         exit_code: Some(0),
         stdout: vec![],
         stderr: vec![],
+        output_truncated: false,
         elapsed: Duration::from_millis(500),
         kind: ProcessKind::OneShot,
     };
@@ -331,6 +334,7 @@ fn process_result_to_output_lines_includes_markers() {
         exit_code: Some(0),
         stdout: vec!["out1".to_string(), "out2".to_string()],
         stderr: vec!["err1".to_string()],
+        output_truncated: false,
         elapsed: Duration::from_millis(10),
         kind: ProcessKind::OneShot,
     };
@@ -352,6 +356,7 @@ fn process_result_to_output_lines_omits_empty_streams() {
         exit_code: Some(0),
         stdout: vec![],
         stderr: vec![],
+        output_truncated: false,
         elapsed: Duration::from_millis(10),
         kind: ProcessKind::OneShot,
     };
@@ -369,6 +374,7 @@ fn process_result_to_failed_output_for_timeout() {
         exit_code: None,
         stdout: vec![],
         stderr: vec![],
+        output_truncated: false,
         elapsed: Duration::from_millis(1000),
         kind: ProcessKind::OneShot,
     };
@@ -388,6 +394,7 @@ fn process_result_to_failed_output_for_cancelled() {
         exit_code: None,
         stdout: vec![],
         stderr: vec![],
+        output_truncated: false,
         elapsed: Duration::from_millis(500),
         kind: ProcessKind::OneShot,
     };
@@ -406,6 +413,7 @@ fn process_result_to_failed_output_for_failure() {
         exit_code: Some(1),
         stdout: vec![],
         stderr: vec![],
+        output_truncated: false,
         elapsed: Duration::from_millis(10),
         kind: ProcessKind::OneShot,
     };

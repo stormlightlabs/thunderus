@@ -2339,6 +2339,7 @@ fn background_shell_result_registers_in_process_registry() {
         exit_code: Some(0),
         stdout: vec!["background task done".to_string()],
         stderr: vec![],
+        output_truncated: false,
         elapsed: std::time::Duration::from_millis(100),
         kind: tools::shell::ProcessKind::Background,
     };

@@ -17,6 +17,7 @@
 pub mod shell;
 
 mod atomic_write;
+pub mod command_projection;
 mod create_file;
 mod find_files;
 mod list_searchable_files;
@@ -126,6 +127,9 @@ pub struct AgentRunConfig {
     pub accounting_context: Vec<thndrs_agent::ContextItemSnapshot>,
     /// Independent model-projection reducer configuration.
     pub model_reduction: thndrs_agent::context::ReductionConfig,
+    /// Application-owned bounded artifact store used before a lossy projection
+    /// can replace recoverable tool evidence.
+    pub artifact_store: Option<crate::artifacts::ArtifactStore>,
 }
 
 impl AgentRunConfig {
@@ -143,6 +147,7 @@ impl AgentRunConfig {
             accounting_turn_id: None,
             accounting_context: Vec::new(),
             model_reduction: thndrs_agent::context::ReductionConfig::default(),
+            artifact_store: None,
         }
     }
 
@@ -188,6 +193,12 @@ impl AgentRunConfig {
     /// Attach the independent model-projection reducer configuration.
     pub fn with_model_reduction(mut self, config: thndrs_agent::context::ReductionConfig) -> Self {
         self.model_reduction = config;
+        self
+    }
+
+    /// Attach the application-owned store used for bounded tool-evidence recovery.
+    pub fn with_artifact_store(mut self, store: crate::artifacts::ArtifactStore) -> Self {
+        self.artifact_store = Some(store);
         self
     }
 }
