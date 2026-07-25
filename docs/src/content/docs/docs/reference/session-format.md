@@ -16,8 +16,10 @@ are appended and not rewritten.
   truncation state, and byte count.
 - `context_ledger`, `context_pin`, `context_drop`, and `context_recovery`:
   content-free context working-set and decision evidence.
-- `compaction`: a redacted summary plus covered ranges, hashes, review state,
-  and recovery handles.
+- `compaction`: an approved, redacted range summary with its covered source
+  sequences and hashes, protected facts, prior-summary references, recovery
+  handles, review state, local before/after estimates, provider usage when
+  reported, and native context-edit capability diagnostics.
 - `compaction_review`: the user's approval or rejection of a pending summary,
   keyed by its recovery handle.
 - `user`: user prompt text and turn id.
@@ -42,6 +44,19 @@ are appended and not rewritten.
 
 `file_write` stores operation type, target path, before/after content hashes,
 byte counts, and status. It does not store full file content.
+
+## Compaction Records
+
+A `compaction` record is written only after a typed summary has passed
+validation and any required review has been approved. The typed summary keeps
+the objective, findings, decisions, paths, failures, verification, blockers,
+protected facts, source metadata, and prior-summary ids used to derive it.
+
+The record stores the model-visible redacted summary, rather than the full
+source body. Covered source records remain in the session log. Their ids,
+hashes, and recovery handles allow an inspection surface to identify the source
+range without persisting raw provider payloads. A rejected review creates a
+`compaction_review` record but no `compaction` record.
 
 ## Shell Records
 

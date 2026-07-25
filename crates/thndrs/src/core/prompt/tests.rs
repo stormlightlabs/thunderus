@@ -915,7 +915,7 @@ fn context_projection_renders_pins_as_handles_without_content() {
 
 #[test]
 fn context_projection_renders_compaction_summary_with_range() {
-    let mut summary = CompactionSummaryCandidate::new("sess_1", 12, 47, 200, true);
+    let mut summary = CompactionSummaryCandidate::new("sess_1", 1, 2, 200, true);
     summary.content = Some("Summarized earlier discussion about module layout.".to_string());
     let input = SelectionInput {
         harness: vec![HarnessCandidate::new("base_identity", 100)],
@@ -936,7 +936,7 @@ fn context_projection_renders_compaction_summary_with_range() {
     let prompt = render_system_prompt(&bundle_with_ledger(ledger));
 
     assert!(prompt.contains("<compaction_summary>"));
-    assert!(prompt.contains("summary 12..47"));
+    assert!(prompt.contains("summary 1..2"));
     assert!(prompt.contains("Summarized earlier discussion about module layout."));
 }
 
@@ -1084,7 +1084,7 @@ fn snapshot_context_projection_pins() {
 
 #[test]
 fn snapshot_context_projection_compaction() {
-    let mut summary = CompactionSummaryCandidate::new("sess_1", 12, 47, 200, true);
+    let mut summary = CompactionSummaryCandidate::new("sess_1", 1, 2, 200, true);
     summary.content = Some("Summarized earlier discussion about module layout.".to_string());
     let input = SelectionInput {
         harness: vec![HarnessCandidate::new("base_identity", 100)],

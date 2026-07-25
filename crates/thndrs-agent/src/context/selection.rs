@@ -516,13 +516,15 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
         });
     }
 
-    let omitting_older = should_omit_older_transcript(input, available_input);
     for summary in &input.compaction_summaries {
+        let replaces_range = summary.latest
+            && input
+                .transcript
+                .iter()
+                .any(|candidate| (summary.start_seq..=summary.end_seq).contains(&candidate.seq));
         let visibility = if input.dropped_ids.iter().any(|d| d == &summary.id) {
             ContextVisibility::Dropped
-        } else if !omitting_older {
-            ContextVisibility::Archived
-        } else if summary.latest {
+        } else if replaces_range {
             if estimate_tokens(summary.bytes) as u64 > available_input {
                 diagnostics.push(blocked_oversized(&summary.id, "compaction summary"));
                 ContextVisibility::Blocked
@@ -578,7 +580,7 @@ fn push_transcript(items: &mut Vec<ContextItem>, input: &SelectionInput, availab
     let mut selected: Vec<&TranscriptCandidate> = Vec::new();
     let mut running = consumed;
     for candidate in transcript.iter().rev() {
-        if candidate.ui_only || candidate.streaming {
+        if candidate.ui_only || candidate.streaming || is_covered_by_latest_summary(input, candidate.seq) {
             continue;
         }
         let tokens = estimate_tokens(candidate.bytes) as u64;
@@ -612,6 +614,12 @@ fn push_transcript(items: &mut Vec<ContextItem>, input: &SelectionInput, availab
             )
         } else if input.dropped_ids.iter().any(|d| d == &id) {
             (ContextVisibility::Dropped, "explicit_drop", "explicit drop")
+        } else if is_covered_by_latest_summary(input, candidate.seq) {
+            (
+                ContextVisibility::Archived,
+                "summarized_range",
+                "archived: replaced by approved range summary",
+            )
         } else if selected_seq.contains(&candidate.seq) {
             (
                 ContextVisibility::Visible,
@@ -647,24 +655,12 @@ fn push_transcript(items: &mut Vec<ContextItem>, input: &SelectionInput, availab
     }
 }
 
-/// Whether older transcript turns should be omitted (summarized) this turn.
-///
-/// Omits when a latest compaction summary is available and the transcript
-/// entries' own token cost would exceed the target selection budget.
-///
-/// When omitted, the latest summary stands in for the older transcript detail.
-fn should_omit_older_transcript(input: &SelectionInput, available_input: u64) -> bool {
-    if input.compaction_summaries.iter().all(|s| !s.latest) {
-        return false;
-    }
-    let target = ratio_of(available_input, super::control::TARGET_BUDGET_RATIO);
-    let transcript_tokens: u64 = input
-        .transcript
+/// Whether a latest approved range summary replaces this transcript sequence.
+fn is_covered_by_latest_summary(input: &SelectionInput, sequence: u64) -> bool {
+    input
+        .compaction_summaries
         .iter()
-        .filter(|c| !c.ui_only && !c.streaming)
-        .map(|c| estimate_tokens(c.bytes) as u64)
-        .sum();
-    transcript_tokens > target
+        .any(|summary| summary.latest && (summary.start_seq..=summary.end_seq).contains(&sequence))
 }
 
 /// Slugify a label for use in an id.

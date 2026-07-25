@@ -14,8 +14,9 @@ pub mod selection;
 
 pub use compaction::{
     AutoCompactionDecision, CompactionConfig, CompactionMode, CompactionPolicy, CompactionReview, CompactionRisk,
-    CompactionRiskSignals, ContextConfig, ManualCompactionRequest, preflight_auto_compaction,
-    prepare_manual_compaction,
+    CompactionRiskSignals, ContextConfig, ManualCompactionRequest, ProtectedFact, RANGE_SUMMARY_SCHEMA_VERSION,
+    RangeCompressionInput, RangeCompressionRequest, RangeSource, RangeSummary, RangeSummaryValidationError,
+    preflight_auto_compaction, prepare_manual_compaction, prepare_range_compression, validate_range_summary,
 };
 pub use control::{
     ContextBudget, ContextCounts, ContextDiagnostic, ContextItem, ContextItemKind, ContextLedger, ContextVisibility,

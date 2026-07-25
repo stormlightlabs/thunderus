@@ -350,12 +350,8 @@ fn compact_uses_provider_summary_and_replaces_active_context_only_after_success(
     );
 
     update(&mut app, &Msg::Agent(AgentEvent::Started));
-    update(
-        &mut app,
-        &Msg::Agent(AgentEvent::AssistantDelta(
-            "parser: empty input is rejected".to_string(),
-        )),
-    );
+    let summary = context::range_summary_response(&app, "parser: empty input is rejected");
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
     assert!(app.pending_manual_compaction.is_none());
@@ -366,7 +362,7 @@ fn compact_uses_provider_summary_and_replaces_active_context_only_after_success(
             .all(|entry| !matches!(entry, Entry::User { text } if text.contains("Summarize")))
     );
     assert!(
-        matches!(app.transcript.last(), Some(Entry::Agent { text, .. }) if text == "parser: empty input is rejected")
+        matches!(app.transcript.last(), Some(Entry::Agent { text, .. }) if text.contains("parser: empty input is rejected"))
     );
 }
 
@@ -423,10 +419,8 @@ fn compact_writes_a_recoverable_manual_audit_record() {
         Some(Msg::Agent(AgentEvent::Started))
     );
     update(&mut app, &Msg::Agent(AgentEvent::Started));
-    update(
-        &mut app,
-        &Msg::Agent(AgentEvent::AssistantDelta("parser summary".to_string())),
-    );
+    let summary = context::range_summary_response(&app, "parser summary");
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
     let records = session::SessionReader::read_records(&path);
@@ -434,9 +428,10 @@ fn compact_writes_a_recoverable_manual_audit_record() {
         record,
         session::SessionRecord::Compaction { audit, .. }
             if audit.trigger == session::CompactionTrigger::Manual
-                && audit.summary == "parser summary"
+                && audit.summary.contains("parser summary")
                 && audit.model == cli.model
                 && audit.recovery_handles.len() == 1
+                && audit.typed_summary.is_some()
     )));
     assert!(
         records
@@ -465,10 +460,8 @@ fn risky_compaction_waits_for_review_and_preserves_context_until_approval() {
         Some(Msg::Agent(AgentEvent::Started))
     );
     update(&mut app, &Msg::Agent(AgentEvent::Started));
-    update(
-        &mut app,
-        &Msg::Agent(AgentEvent::AssistantDelta("reviewable summary".to_string())),
-    );
+    let summary = context::range_summary_response(&app, "reviewable summary");
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
     assert!(app.pending_compaction_review.is_some());
@@ -490,8 +483,54 @@ fn risky_compaction_waits_for_review_and_preserves_context_until_approval() {
     );
     assert!(app.transcript.iter().any(|entry| matches!(
         entry,
-        Entry::Agent { text, streaming: false } if text == "reviewable summary"
+        Entry::Agent { text, streaming: false } if text.contains("reviewable summary")
     )));
+}
+
+#[test]
+fn rejected_compaction_keeps_the_projection_and_does_not_append_a_summary_record() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    auth::set_credential(
+        &auth::project_credentials_path(dir.path()),
+        auth::OPENCODE_ZEN_KEY_ENV,
+        "test-zen-key",
+    )
+    .expect("seed credential");
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
+    let mut app = App::from_cli(&cli);
+    let path = app
+        .session_writer
+        .as_ref()
+        .expect("session writer")
+        .path()
+        .to_path_buf();
+    let original = vec![
+        Entry::User { text: "inspect the parser".to_string() },
+        Entry::Tool {
+            name: "read_file".to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["details".to_string()],
+        },
+    ];
+    app.transcript = original.clone();
+
+    assert_eq!(
+        handle_command(&mut app, "compact"),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    let summary = context::range_summary_response(&app, "inspect parser");
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+    handle_command(&mut app, "context review reject");
+
+    assert_eq!(app.transcript[..original.len()], original);
+    assert!(
+        session::SessionReader::read_records(&path)
+            .iter()
+            .all(|record| !matches!(record, session::SessionRecord::Compaction { .. }))
+    );
 }
 
 #[test]
@@ -516,10 +555,8 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
     );
 
     update(&mut app, &Msg::Agent(AgentEvent::Started));
-    update(
-        &mut app,
-        &Msg::Agent(AgentEvent::AssistantDelta("compacted summary".to_string())),
-    );
+    let summary = context::range_summary_response(&app, "compacted summary");
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
     let restart = update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
     assert!(!app.compaction_in_flight());
@@ -528,7 +565,7 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
     assert!(
         app.transcript
             .iter()
-            .any(|entry| matches!(entry, Entry::Agent { text, .. } if text == "compacted summary"))
+            .any(|entry| matches!(entry, Entry::Agent { text, .. } if text.contains("compacted summary")))
     );
     assert!(
         !app.transcript
@@ -549,7 +586,8 @@ fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
         Some(Msg::Agent(AgentEvent::Started))
     );
     update(&mut app, &Msg::Agent(AgentEvent::Started));
-    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta("summary".to_string())));
+    let summary = context::range_summary_response(&app, "summary");
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
 
     let restart = update(&mut app, &Msg::Agent(AgentEvent::Finished));
     assert_eq!(restart, Some(Msg::Agent(AgentEvent::Started)));
@@ -614,10 +652,8 @@ fn auto_compaction_writes_an_automatic_trigger_audit_record() {
         Some(Msg::Agent(AgentEvent::Started))
     );
     update(&mut app, &Msg::Agent(AgentEvent::Started));
-    update(
-        &mut app,
-        &Msg::Agent(AgentEvent::AssistantDelta("auto summary".to_string())),
-    );
+    let summary = context::range_summary_response(&app, "auto summary");
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
     let records = session::SessionReader::read_records(&path);
@@ -625,7 +661,7 @@ fn auto_compaction_writes_an_automatic_trigger_audit_record() {
         record,
         session::SessionRecord::Compaction { audit, .. }
             if audit.trigger == session::CompactionTrigger::Automatic
-                && audit.summary == "auto summary"
+                && audit.summary.contains("auto summary")
     )));
 }
 

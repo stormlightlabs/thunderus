@@ -67,18 +67,22 @@ fn context_ledger(content: &str) -> ContextLedger {
 fn compaction_audit(trigger: CompactionTrigger) -> CompactionAudit {
     CompactionAudit {
         summary: "Kept the build failure and the pending test fix.".to_string(),
+        typed_summary: None,
         covered_start_seq: 12,
         covered_end_seq: 47,
         source_hashes: vec![
             CompactionSourceHash { id: "ctx_transcript_12".to_string(), content_hash: None },
             CompactionSourceHash { id: "ctx_tool_archive_47".to_string(), content_hash: Some(42) },
         ],
+        source_summary_ids: Vec::new(),
         trigger,
         risk: CompactionRisk::High,
         review: Some(CompactionReviewResult::Approved),
         recovery_handles: vec!["session:12..47".to_string()],
         model: "umans-coder".to_string(),
         usage: Some(CompactionTokenUsage { input_tokens: 1_024, output_tokens: 256 }),
+        local_receipt: None,
+        native_context_edit: None,
     }
 }
 

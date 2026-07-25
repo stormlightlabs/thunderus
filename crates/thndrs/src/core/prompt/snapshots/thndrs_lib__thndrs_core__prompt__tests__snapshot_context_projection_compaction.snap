@@ -332,11 +332,11 @@ expression: prompt
       <label>current user turn</label>
     </item>
     <item>
-      <id>ctx_summary_c39f7e1dfbcb2c84</id>
+      <id>ctx_summary_f4547257614d369c</id>
       <kind>summary</kind>
       <visibility>visible</visibility>
       <tokens>83</tokens>
-      <label>summary 12..47</label>
+      <label>summary 1..2</label>
     </item>
     <item>
       <id>ctx_transcript_a987458c47f5ffb9</id>
@@ -361,8 +361,8 @@ expression: prompt
 
 <selected_context>
   <compaction_summary>
-    <id>ctx_summary_c39f7e1dfbcb2c84</id>
-    <label>summary 12..47</label>
+    <id>ctx_summary_f4547257614d369c</id>
+    <label>summary 1..2</label>
     <scope>.</scope>
     <content><![CDATA[Summarized earlier discussion about module layout.]]></content>
   </compaction_summary>

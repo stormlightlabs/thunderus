@@ -4,6 +4,149 @@ use serde::{Deserialize, Serialize};
 
 use super::{ContextBudget, ModelContextLimits, ReductionConfig};
 
+/// Schema version for provider-neutral range summaries.
+pub const RANGE_SUMMARY_SCHEMA_VERSION: u32 = 1;
+
+/// One recoverable source included in a closed compression range.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RangeSource {
+    /// Sequence within the requested closed range.
+    pub sequence: u64,
+    /// Stable id of the original context item.
+    pub id: String,
+    /// Application-computed hash of the rendered source content.
+    pub content_hash: u64,
+    /// Handle for bounded redacted recovery of the original source.
+    pub recovery_handle: String,
+}
+
+/// A fact that may not be lost while replacing a range.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProtectedFact {
+    /// Source item that established this fact.
+    pub source_id: String,
+    /// Exact protected text from that source.
+    pub text: String,
+}
+
+/// Provider-neutral request for a contiguous closed range.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RangeCompressionRequest {
+    /// Configured model that must perform the semantic compression.
+    pub model: String,
+    /// Inclusive first source sequence in the closed range.
+    pub start_seq: u64,
+    /// Inclusive final source sequence in the closed range.
+    pub end_seq: u64,
+    /// What the continuation summary must emphasize.
+    pub focus: String,
+    /// Addressable source metadata, in contiguous source order.
+    pub sources: Vec<RangeSource>,
+    /// Facts the model must copy into its typed result.
+    pub protected_facts: Vec<ProtectedFact>,
+    /// Earlier summaries that this range includes as source material.
+    pub source_summary_ids: Vec<String>,
+    /// Prompt sent to the configured model. This is process-local only.
+    pub prompt: String,
+}
+
+/// Input metadata and process-local content for preparing a range request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RangeCompressionInput {
+    /// Inclusive first source sequence in the closed range.
+    pub start_seq: u64,
+    /// Inclusive final source sequence in the closed range.
+    pub end_seq: u64,
+    /// What the continuation summary must emphasize.
+    pub focus: String,
+    /// Addressable source metadata, in contiguous source order.
+    pub sources: Vec<RangeSource>,
+    /// Facts the model must copy into its typed result.
+    pub protected_facts: Vec<ProtectedFact>,
+    /// Earlier summaries that this range includes as source material.
+    pub source_summary_ids: Vec<String>,
+    /// Source body sent only to the configured model.
+    pub source_text: String,
+}
+
+/// A versioned, typed summary returned by a configured model.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RangeSummary {
+    /// Version of this summary contract.
+    pub schema_version: u32,
+    /// The objective that was active in the covered range.
+    pub objective: String,
+    /// Material findings from the range.
+    pub findings: Vec<String>,
+    /// Decisions that constrain continuation.
+    pub decisions: Vec<String>,
+    /// Relevant repository paths.
+    pub paths: Vec<String>,
+    /// Failures or safety-relevant negative results.
+    pub failures: Vec<String>,
+    /// Verification performed or still required.
+    pub verification: Vec<String>,
+    /// Work that remains blocked or unresolved.
+    pub blockers: Vec<String>,
+    /// Protected facts preserved exactly from the request.
+    pub protected_facts: Vec<ProtectedFact>,
+    /// Source metadata copied from the request.
+    pub sources: Vec<RangeSource>,
+    /// Earlier summaries this summary builds on, when any.
+    #[serde(default)]
+    pub source_summary_ids: Vec<String>,
+}
+
+impl RangeSummary {
+    /// Render the typed result for a future model request without losing its
+    /// field boundaries or provenance.
+    pub fn render_model_text(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_else(|_| self.objective.clone())
+    }
+}
+
+/// Why a provider result cannot replace its covered range.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RangeSummaryValidationError {
+    /// The response was not valid typed-summary JSON.
+    InvalidJson(String),
+    /// The summary used a schema this application does not understand.
+    UnsupportedSchema(u32),
+    /// A required objective was blank.
+    MissingObjective,
+    /// Source metadata did not exactly match the requested range.
+    SourceMetadataMismatch,
+    /// A protected fact was not preserved exactly.
+    MissingProtectedFact(ProtectedFact),
+}
+
+impl std::fmt::Display for RangeSummaryValidationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidJson(error) => write!(
+                formatter,
+                "compaction model returned invalid typed summary JSON: {error}"
+            ),
+            Self::UnsupportedSchema(version) => {
+                write!(formatter, "compaction summary schema version {version} is unsupported")
+            }
+            Self::MissingObjective => write!(formatter, "compaction summary is missing its required objective"),
+            Self::SourceMetadataMismatch => write!(
+                formatter,
+                "compaction summary source metadata does not match the requested range"
+            ),
+            Self::MissingProtectedFact(fact) => write!(
+                formatter,
+                "compaction summary omitted protected fact from {}",
+                fact.source_id
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RangeSummaryValidationError {}
+
 /// User-selected compaction behavior.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -144,6 +287,110 @@ pub fn prepare_manual_compaction(
         ),
         recovery_handle: recovery_handle.to_string(),
     })
+}
+
+/// Build a typed request for one contiguous, closed context range.
+///
+/// This pure prepare step deliberately does not alter the active projection.
+/// Callers validate the returned model response with [`validate_range_summary`]
+/// before recording or applying any replacement.
+pub fn prepare_range_compression(
+    policy: CompactionPolicy, model: &str, input: RangeCompressionInput,
+) -> Result<RangeCompressionRequest, String> {
+    if !policy.allows_manual() {
+        return Err("compaction is disabled by context.compaction.mode".to_string());
+    }
+    if model.trim().is_empty() {
+        return Err("range compression requires a configured model".to_string());
+    }
+    if input.start_seq == 0
+        || input.end_seq < input.start_seq
+        || input.sources.len() != (input.end_seq - input.start_seq + 1) as usize
+    {
+        return Err("range compression requires one contiguous non-empty source range".to_string());
+    }
+    if input.focus.trim().is_empty() {
+        return Err("range compression requires a focus".to_string());
+    }
+    if input
+        .sources
+        .iter()
+        .any(|source| source.id.trim().is_empty() || source.recovery_handle.trim().is_empty())
+    {
+        return Err("range compression sources require ids and recovery handles".to_string());
+    }
+    if input
+        .sources
+        .iter()
+        .enumerate()
+        .any(|(index, source)| source.sequence != input.start_seq + index as u64)
+        || input.sources.iter().enumerate().any(|(index, source)| {
+            input.sources[..index]
+                .iter()
+                .any(|earlier| earlier.id == source.id || earlier.recovery_handle == source.recovery_handle)
+        })
+    {
+        return Err("range compression sources must have unique handles and contiguous sequences".to_string());
+    }
+    if input.protected_facts.iter().any(|fact| {
+        fact.source_id.trim().is_empty()
+            || fact.text.trim().is_empty()
+            || !input.sources.iter().any(|source| source.id == fact.source_id)
+    }) {
+        return Err("protected facts must identify a non-empty fact from a requested source".to_string());
+    }
+    if input.source_text.trim().is_empty() {
+        return Err("there is no closed context range to compress".to_string());
+    }
+    if input.source_summary_ids.iter().any(|id| id.trim().is_empty())
+        || input.source_summary_ids.windows(2).any(|ids| ids[0] >= ids[1])
+    {
+        return Err("source summary ids must be unique, sorted, and non-empty".to_string());
+    }
+
+    let source_metadata = serde_json::to_string(&input.sources).map_err(|error| error.to_string())?;
+    let protected_metadata = serde_json::to_string(&input.protected_facts).map_err(|error| error.to_string())?;
+    let source_summary_metadata =
+        serde_json::to_string(&input.source_summary_ids).map_err(|error| error.to_string())?;
+    Ok(RangeCompressionRequest {
+        model: model.to_string(),
+        start_seq: input.start_seq,
+        end_seq: input.end_seq,
+        focus: input.focus.clone(),
+        sources: input.sources,
+        protected_facts: input.protected_facts,
+        source_summary_ids: input.source_summary_ids,
+        prompt: format!(
+            "Summarize the closed context range for continuation. Return JSON only, matching this exact schema: {{\"schema_version\":{RANGE_SUMMARY_SCHEMA_VERSION},\"objective\":string,\"findings\":[string],\"decisions\":[string],\"paths\":[string],\"failures\":[string],\"verification\":[string],\"blockers\":[string],\"protected_facts\":[{{\"source_id\":string,\"text\":string}}],\"sources\":[{{\"sequence\":number,\"id\":string,\"content_hash\":number,\"recovery_handle\":string}}],\"source_summary_ids\":[string]}}. Do not invent task state. Copy every protected fact, source record, and source-summary id exactly.\n\nFocus: {}\nSources: {source_metadata}\nProtected facts: {protected_metadata}\nSource summaries: {}\n\n<source_context>\n{}\n</source_context>",
+            input.focus, source_summary_metadata, input.source_text
+        ),
+    })
+}
+
+/// Parse and fail closed unless a typed response preserves required evidence.
+pub fn validate_range_summary(
+    request: &RangeCompressionRequest, response: &str,
+) -> Result<RangeSummary, RangeSummaryValidationError> {
+    let summary: RangeSummary =
+        serde_json::from_str(response).map_err(|error| RangeSummaryValidationError::InvalidJson(error.to_string()))?;
+    if summary.schema_version != RANGE_SUMMARY_SCHEMA_VERSION {
+        return Err(RangeSummaryValidationError::UnsupportedSchema(summary.schema_version));
+    }
+    if summary.objective.trim().is_empty() {
+        return Err(RangeSummaryValidationError::MissingObjective);
+    }
+    if summary.sources != request.sources {
+        return Err(RangeSummaryValidationError::SourceMetadataMismatch);
+    }
+    if summary.source_summary_ids != request.source_summary_ids {
+        return Err(RangeSummaryValidationError::SourceMetadataMismatch);
+    }
+    for fact in &request.protected_facts {
+        if !summary.protected_facts.contains(fact) {
+            return Err(RangeSummaryValidationError::MissingProtectedFact(fact.clone()));
+        }
+    }
+    Ok(summary)
 }
 
 impl CompactionPolicy {
@@ -345,6 +592,121 @@ mod tests {
         assert!(request.prompt.contains("fixed the parser"));
         assert!(prepare_manual_compaction(policy, "", "fixed the parser", "session:12..47").is_err());
         assert!(prepare_manual_compaction(policy, "provider/model", "", "session:12..47").is_err());
+    }
+
+    fn range_request() -> RangeCompressionRequest {
+        prepare_range_compression(
+            CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Always },
+            "provider/model",
+            RangeCompressionInput {
+                start_seq: 4,
+                end_seq: 5,
+                focus: "continue the parser repair".to_string(),
+                sources: vec![
+                    RangeSource {
+                        sequence: 4,
+                        id: "ctx:4".to_string(),
+                        content_hash: 4,
+                        recovery_handle: "session:4".to_string(),
+                    },
+                    RangeSource {
+                        sequence: 5,
+                        id: "ctx:5".to_string(),
+                        content_hash: 5,
+                        recovery_handle: "session:5".to_string(),
+                    },
+                ],
+                protected_facts: vec![ProtectedFact {
+                    source_id: "ctx:5".to_string(),
+                    text: "the write remains unverified".to_string(),
+                }],
+                source_summary_ids: vec![],
+                source_text: "user: repair parser\ntool: write failed".to_string(),
+            },
+        )
+        .expect("build range request")
+    }
+
+    #[test]
+    fn typed_range_summary_requires_exact_sources_and_protected_facts() {
+        let request = range_request();
+        let summary = RangeSummary {
+            schema_version: RANGE_SUMMARY_SCHEMA_VERSION,
+            objective: "repair parser".to_string(),
+            findings: vec![],
+            decisions: vec![],
+            paths: vec![],
+            failures: vec!["write failed".to_string()],
+            verification: vec![],
+            blockers: vec![],
+            protected_facts: request.protected_facts.clone(),
+            sources: request.sources.clone(),
+            source_summary_ids: vec![],
+        };
+        let response = serde_json::to_string(&summary).expect("serialize summary");
+        assert_eq!(validate_range_summary(&request, &response), Ok(summary));
+
+        let missing_fact = response.replace("the write remains unverified", "omitted");
+        assert!(matches!(
+            validate_range_summary(&request, &missing_fact),
+            Err(RangeSummaryValidationError::MissingProtectedFact(_))
+        ));
+        let missing_source = response.replace("\"content_hash\":5", "\"content_hash\":6");
+        assert_eq!(
+            validate_range_summary(&request, &missing_source),
+            Err(RangeSummaryValidationError::SourceMetadataMismatch)
+        );
+
+        let mut request_with_summary = request.clone();
+        request_with_summary.source_summary_ids = vec!["ctx_summary_previous".to_string()];
+        assert_eq!(
+            validate_range_summary(&request_with_summary, &response),
+            Err(RangeSummaryValidationError::SourceMetadataMismatch)
+        );
+    }
+
+    #[test]
+    fn range_request_rejects_non_contiguous_or_unrecoverable_sources() {
+        let mut request = range_request();
+        request.sources.pop();
+        assert!(
+            prepare_range_compression(
+                CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Always },
+                "provider/model",
+                RangeCompressionInput {
+                    start_seq: 4,
+                    end_seq: 5,
+                    focus: "focus".to_string(),
+                    sources: request.sources,
+                    protected_facts: vec![],
+                    source_summary_ids: vec![],
+                    source_text: "source".to_string(),
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn range_request_rejects_duplicate_or_out_of_order_source_metadata() {
+        let mut request = range_request();
+        request.sources[1].sequence = 7;
+        assert!(
+            prepare_range_compression(
+                CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Always },
+                "provider/model",
+                RangeCompressionInput {
+                    start_seq: 4,
+                    end_seq: 5,
+                    focus: "focus".to_string(),
+                    sources: request.sources,
+                    protected_facts: vec![],
+                    source_summary_ids: vec![],
+                    source_text: "source".to_string(),
+                },
+            )
+            .is_err()
+        );
     }
 
     fn limits_for(context_window: u64) -> ModelContextLimits {

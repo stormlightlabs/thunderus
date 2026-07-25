@@ -27,7 +27,7 @@ use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
 use crate::{datetime, internals, tools};
 use thndrs_agent::ProviderRequestAccounting;
-use thndrs_agent::context::{ContextItem, ContextLedger};
+use thndrs_agent::context::{ContextItem, ContextLedger, RangeSummary};
 
 pub use contracts::{
     AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,
@@ -714,6 +714,35 @@ pub struct CompactionTokenUsage {
     pub output_tokens: u64,
 }
 
+/// Locally measured effect of replacing one closed context range.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CompactionLocalReceipt {
+    /// Exact rendered bytes before compression.
+    pub before_bytes: usize,
+    /// Exact rendered bytes after compression.
+    pub after_bytes: usize,
+    /// Conservative local estimate before compression.
+    pub before_token_estimate: u64,
+    /// Conservative local estimate after compression.
+    pub after_token_estimate: u64,
+}
+
+/// Provider-native context-editing outcome for a reviewed range decision.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "status")]
+pub enum ProviderContextEdit {
+    /// The adapter did not expose a native editing capability for this request.
+    Unavailable {
+        /// Human-readable capability diagnostic retained with the audit record.
+        diagnostic: String,
+    },
+    /// An adapter applied the already-approved provider-neutral decision.
+    Applied {
+        /// Provider-supplied opaque edit reference.
+        edit_id: String,
+    },
+}
+
 /// Complete durable audit payload for one compaction.
 ///
 /// The summary is intentionally retained because it becomes model-visible
@@ -724,6 +753,9 @@ pub struct CompactionTokenUsage {
 pub struct CompactionAudit {
     /// Summary that replaces the covered range in the active working set.
     pub summary: String,
+    /// Versioned summary contract used to produce `summary`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typed_summary: Option<RangeSummary>,
     /// Inclusive first session sequence replaced by this summary.
     pub covered_start_seq: u64,
     /// Inclusive final session sequence replaced by this summary.
@@ -731,6 +763,9 @@ pub struct CompactionAudit {
     /// Content hashes for covered sources, where known.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_hashes: Vec<CompactionSourceHash>,
+    /// Earlier summaries retained as provenance rather than rewritten prose.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_summary_ids: Vec<String>,
     /// Manual or automatic initiation.
     pub trigger: CompactionTrigger,
     /// Risk classification evaluated before applying the summary.
@@ -746,6 +781,13 @@ pub struct CompactionAudit {
     /// Provider-reported compaction token usage, when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<CompactionTokenUsage>,
+    /// Local before/after measurements for this replacement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_receipt: Option<CompactionLocalReceipt>,
+    /// Provider-native editing capability outcome; it never replaces the
+    /// provider-neutral review and audit decision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_context_edit: Option<ProviderContextEdit>,
 }
 
 impl CompactionAudit {
@@ -753,17 +795,42 @@ impl CompactionAudit {
     fn redacted(&self) -> Self {
         CompactionAudit {
             summary: tools::shell::redact_secrets(&self.summary),
+            typed_summary: self.typed_summary.as_ref().map(redact_range_summary),
             covered_start_seq: self.covered_start_seq,
             covered_end_seq: self.covered_end_seq,
             source_hashes: self.source_hashes.clone(),
+            source_summary_ids: self.source_summary_ids.clone(),
             trigger: self.trigger,
             risk: self.risk,
             review: self.review,
             recovery_handles: self.recovery_handles.clone(),
             model: self.model.clone(),
             usage: self.usage,
+            local_receipt: self.local_receipt,
+            native_context_edit: self.native_context_edit.clone(),
         }
     }
+}
+
+fn redact_range_summary(summary: &RangeSummary) -> RangeSummary {
+    let mut redacted = summary.clone();
+    redacted.objective = tools::shell::redact_secrets(&redacted.objective);
+    for values in [
+        &mut redacted.findings,
+        &mut redacted.decisions,
+        &mut redacted.paths,
+        &mut redacted.failures,
+        &mut redacted.verification,
+        &mut redacted.blockers,
+    ] {
+        for value in values {
+            *value = tools::shell::redact_secrets(value);
+        }
+    }
+    for fact in &mut redacted.protected_facts {
+        fact.text = tools::shell::redact_secrets(&fact.text);
+    }
+    redacted
 }
 
 /// Persisted metadata for a loaded skill reference.

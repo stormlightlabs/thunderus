@@ -65,7 +65,7 @@ Supported command families include:
 | `context pin <id-or-path>`    | Keep one context item visible across turn rebuilds.   |
 | `context drop <id>`           | Exclude one item until it is recovered or reset.      |
 | `context recover <id>`        | Re-enable an item and pin omitted detail when needed. |
-| `context review <approve      | reject>`                                              | Resolve a pending compaction review. |
+| `context review <approve \| reject>` | Resolve a pending compaction review.                  |
 | `context drop --reset`        | Clear all explicit context drops.                     |
 | `doctor`                      | Show setup, context, and budget health.               |
 | `auth status`                 | Show credential source/status without values.         |
@@ -93,11 +93,17 @@ selection; `/context recover <id>` removes that exclusion and pins omitted
 recoverable detail when necessary. `/context drop --reset` clears all explicit
 drops. A failed action leaves the editable prompt unchanged.
 
-`/compact` asks the selected model for a continuation summary. When the covered
-range contains tool output, failures, permissions, or unresolved work, the
-summary waits for `/context review approve` or `/context review reject` before
-changing the active context. The original session records remain available for
-recovery.
+`/compact` asks the selected model for a typed continuation summary of a closed
+transcript range. The response must preserve the source sequence, source hashes,
+recovery handles, protected facts, and any earlier summary references named in
+the request. A malformed or incomplete response is rejected before it changes
+the model-visible projection.
+
+When the covered range contains tool output, failures, permissions, or
+unresolved work, the summary waits for `/context review approve` or `/context
+review reject`. Approval replaces only the covered transcript entries in later
+model requests. Rejection and provider failure preserve the active projection.
+The original session records remain available for recovery.
 
 ## File Mentions
 

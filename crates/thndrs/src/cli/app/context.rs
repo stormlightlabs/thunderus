@@ -33,6 +33,10 @@ pub struct PendingManualCompaction {
     /// The user turn to restart after a successful automatic compaction.
     /// `None` for manual compaction.
     original_user_turn: Option<String>,
+    /// Typed source contract that the configured model response must satisfy.
+    request: agent_context::RangeCompressionRequest,
+    /// Earlier summaries covered by this summary, retained as provenance.
+    source_summary_ids: Vec<String>,
 }
 
 /// A provider-generated summary waiting for the user to approve or reject its
@@ -40,7 +44,7 @@ pub struct PendingManualCompaction {
 #[derive(Clone, Debug)]
 pub struct PendingCompactionReview {
     pending: PendingManualCompaction,
-    summary: String,
+    summary: agent_context::RangeSummary,
 }
 
 impl App {
@@ -904,12 +908,24 @@ pub fn start_compaction(
     let source = render_compaction_source(&original_transcript);
     let policy = app.effective_compaction_policy();
     let covered_start_seq = 1;
-    let covered_end_seq = app
-        .session_writer
-        .as_ref()
-        .map_or(0, |writer| writer.next_sequence().saturating_sub(1));
+    let covered_end_seq = original_transcript.len() as u64;
     let recovery_handle = format!("session:{}:{covered_start_seq}..{covered_end_seq}", app.session_id);
-    let request = match agent_context::prepare_manual_compaction(policy, &app.model, &source, &recovery_handle) {
+    let (sources, protected_facts) = range_sources(&app.session_id, &original_transcript);
+    let source_summary_ids = source_summary_ids(&app.compaction_summaries);
+    let request = match agent_context::prepare_range_compression(
+        policy,
+        &app.model,
+        agent_context::RangeCompressionInput {
+            start_seq: covered_start_seq,
+            end_seq: covered_end_seq,
+            focus: "preserve the task objective, decisions, failures, verification, and blockers for continuation"
+                .to_string(),
+            sources,
+            protected_facts,
+            source_summary_ids: source_summary_ids.clone(),
+            source_text: source,
+        },
+    ) {
         Ok(request) => request,
         Err(message) => {
             app.transcript.push(Entry::Error { text: message });
@@ -922,7 +938,7 @@ pub fn start_compaction(
         }
     };
 
-    let started = match super::input::submit_internal_turn(app, request.prompt) {
+    let started = match super::input::submit_internal_turn(app, request.prompt.clone()) {
         Some(msg) => msg,
         None => {
             app.transcript = original_transcript;
@@ -941,6 +957,8 @@ pub fn start_compaction(
         recovery_handle,
         trigger,
         original_user_turn,
+        request,
+        source_summary_ids,
     });
     Some(started)
 }
@@ -958,7 +976,14 @@ pub fn finish_manual_compaction(app: &mut App) -> Option<Option<Msg>> {
             .push(Entry::Error { text: "compaction model returned no summary".to_string() });
         return Some(None);
     };
-
+    let summary = match agent_context::validate_range_summary(&pending.request, &summary) {
+        Ok(summary) => summary,
+        Err(error) => {
+            restore_failed_compaction(app, pending);
+            app.transcript.push(Entry::Error { text: error.to_string() });
+            return Some(None);
+        }
+    };
     let risk = classify_compaction_risk(&pending.original_transcript);
     let review = if app.effective_compaction_policy().requires_review(match risk {
         session::CompactionRisk::Low => agent_context::CompactionRisk::Low,
@@ -968,27 +993,6 @@ pub fn finish_manual_compaction(app: &mut App) -> Option<Option<Msg>> {
     } else {
         session::CompactionReviewResult::NotRequired
     };
-    let audit = session::CompactionAudit {
-        summary: summary.clone(),
-        covered_start_seq: pending.covered_start_seq,
-        covered_end_seq: pending.covered_end_seq,
-        source_hashes: Vec::new(),
-        trigger: pending.trigger,
-        risk,
-        review: Some(review),
-        recovery_handles: vec![pending.recovery_handle.clone()],
-        model: app.model.clone(),
-        usage: None,
-    };
-    if let Some(writer) = app.session_writer.as_mut()
-        && let Err(error) = writer.append_compaction(&audit)
-    {
-        restore_failed_compaction(app, pending);
-        app.transcript
-            .push(Entry::Error { text: format!("failed to record compaction audit: {error}") });
-        return Some(None);
-    }
-
     match review {
         session::CompactionReviewResult::Pending => {
             let recovery_handle = pending.recovery_handle.clone();
@@ -1002,16 +1006,29 @@ pub fn finish_manual_compaction(app: &mut App) -> Option<Option<Msg>> {
         }
         _ => {
             app.last_compaction_review = Some(review);
-            apply_compaction(app, pending, summary)
+            apply_compaction(app, pending, &summary, review)
         }
     }
 }
 
 /// Apply an approved or review-free summary to the active working set.
 /// FIXME: wrapping an option in an option is awful
-pub fn apply_compaction(app: &mut App, pending: PendingManualCompaction, summary: String) -> Option<Option<Msg>> {
+pub fn apply_compaction(
+    app: &mut App, pending: PendingManualCompaction, summary: &agent_context::RangeSummary,
+    review: session::CompactionReviewResult,
+) -> Option<Option<Msg>> {
     let is_automatic = pending.trigger == session::CompactionTrigger::Automatic;
     let original_user_turn = pending.original_user_turn.clone();
+    let rendered_summary = summary.render_model_text();
+    let audit = compaction_audit(&pending, summary, &rendered_summary, review);
+    if let Some(writer) = app.session_writer.as_mut()
+        && let Err(error) = writer.append_compaction(&audit)
+    {
+        restore_failed_compaction(app, pending);
+        app.transcript
+            .push(Entry::Error { text: format!("failed to record approved compaction audit: {error}") });
+        return Some(None);
+    }
     for candidate in &mut app.compaction_summaries {
         candidate.latest = false;
     }
@@ -1019,10 +1036,10 @@ pub fn apply_compaction(app: &mut App, pending: PendingManualCompaction, summary
         &app.session_id,
         pending.covered_start_seq,
         pending.covered_end_seq,
-        summary.len(),
+        rendered_summary.len(),
         true,
     );
-    summary_candidate.content = Some(summary.clone());
+    summary_candidate.content = Some(rendered_summary.clone());
     app.compaction_summaries.push(summary_candidate);
 
     if is_automatic {
@@ -1032,7 +1049,7 @@ pub fn apply_compaction(app: &mut App, pending: PendingManualCompaction, summary
         app.transcript
             .push(Entry::Status { text: format!("compacted  {}", pending.recovery_handle) });
     }
-    let summary_entry = Entry::Agent { text: summary, streaming: false };
+    let summary_entry = Entry::Agent { text: rendered_summary, streaming: false };
     app.transcript.push(summary_entry.clone());
     if let Some(writer) = app.session_writer.as_mut() {
         let turn_id = format!("turn_{}", app.turn_count);
@@ -1302,7 +1319,11 @@ fn handle_context_export(app: &mut App, input: &str) -> Option<Msg> {
 }
 
 fn handle_context_review(app: &mut App, action: &str) -> Option<Msg> {
-    let Some(pending) = app.pending_compaction_review.as_ref() else {
+    let Some(recovery_handle) = app
+        .pending_compaction_review
+        .as_ref()
+        .map(|pending| pending.pending.recovery_handle.clone())
+    else {
         app.transcript
             .push(Entry::Error { text: "no compaction summary is awaiting review".to_string() });
         return None;
@@ -1316,21 +1337,20 @@ fn handle_context_review(app: &mut App, action: &str) -> Option<Msg> {
             return None;
         }
     };
-    if let Some(writer) = app.session_writer.as_mut()
-        && let Err(error) = writer.append_compaction_review(&pending.pending.recovery_handle, review)
-    {
-        app.transcript
-            .push(Entry::Error { text: format!("failed to record compaction review: {error}") });
-        return None;
-    }
-    let pending = app
-        .pending_compaction_review
-        .take()
-        .expect("review state checked above");
-    app.last_compaction_review = Some(review);
-    app.input.clear();
     if review == session::CompactionReviewResult::Rejected {
-        let recovery_handle = pending.pending.recovery_handle.clone();
+        if let Some(writer) = app.session_writer.as_mut()
+            && let Err(error) = writer.append_compaction_review(&recovery_handle, review)
+        {
+            app.transcript
+                .push(Entry::Error { text: format!("failed to record compaction review: {error}") });
+            return None;
+        }
+        let pending = app
+            .pending_compaction_review
+            .take()
+            .expect("review state checked above");
+        app.last_compaction_review = Some(review);
+        app.input.clear();
         let original_user_turn = pending.pending.original_user_turn.clone();
         restore_failed_compaction(app, pending.pending);
         if let Some(turn) = original_user_turn {
@@ -1340,7 +1360,96 @@ fn handle_context_review(app: &mut App, action: &str) -> Option<Msg> {
             .push(Entry::Status { text: format!("compaction rejected  {recovery_handle}") });
         return None;
     }
-    apply_compaction(app, pending.pending, pending.summary).flatten()
+    let pending = app
+        .pending_compaction_review
+        .take()
+        .expect("review state checked above");
+    app.last_compaction_review = Some(review);
+    app.input.clear();
+    apply_compaction(
+        app,
+        pending.pending,
+        &pending.summary,
+        session::CompactionReviewResult::Approved,
+    )
+    .flatten()
+}
+
+/// Build addressable source metadata and exact protected facts for a closed
+/// transcript range. The source body itself remains process-local.
+fn range_sources(
+    session_id: &str, entries: &[Entry],
+) -> (Vec<agent_context::RangeSource>, Vec<agent_context::ProtectedFact>) {
+    let mut sources = Vec::with_capacity(entries.len());
+    let mut protected_facts = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let sequence = index as u64 + 1;
+        let id = agent_context::item_id_for_session_range(&ContextItemKind::Transcript, session_id, sequence, sequence);
+        let text = render_compaction_entry(entry);
+        sources.push(agent_context::RangeSource {
+            sequence,
+            id: id.clone(),
+            content_hash: tools::hash_content(&text),
+            recovery_handle: format!("session:{session_id}:{sequence}"),
+        });
+        if transcript_protection(entry).is_protected() {
+            protected_facts.push(agent_context::ProtectedFact { source_id: id, text });
+        }
+    }
+    (sources, protected_facts)
+}
+
+fn source_summary_ids(summaries: &[CompactionSummaryCandidate]) -> Vec<String> {
+    let mut ids = summaries
+        .iter()
+        .filter(|summary| summary.latest)
+        .map(|summary| summary.id.clone())
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+/// Build the append-only record only after a summary is valid and approved.
+fn compaction_audit(
+    pending: &PendingManualCompaction, summary: &agent_context::RangeSummary, rendered_summary: &str,
+    review: session::CompactionReviewResult,
+) -> session::CompactionAudit {
+    let source_hashes = pending
+        .request
+        .sources
+        .iter()
+        .map(|source| session::CompactionSourceHash { id: source.id.clone(), content_hash: Some(source.content_hash) })
+        .collect();
+    let before_bytes = render_compaction_source(&pending.original_transcript).len();
+    session::CompactionAudit {
+        summary: rendered_summary.to_string(),
+        typed_summary: Some(summary.clone()),
+        covered_start_seq: pending.covered_start_seq,
+        covered_end_seq: pending.covered_end_seq,
+        source_hashes,
+        source_summary_ids: pending.source_summary_ids.clone(),
+        trigger: pending.trigger,
+        risk: classify_compaction_risk(&pending.original_transcript),
+        review: Some(review),
+        recovery_handles: pending
+            .request
+            .sources
+            .iter()
+            .map(|source| source.recovery_handle.clone())
+            .collect(),
+        model: pending.request.model.clone(),
+        usage: None,
+        local_receipt: Some(session::CompactionLocalReceipt {
+            before_bytes,
+            after_bytes: rendered_summary.len(),
+            before_token_estimate: agent_context::estimate_tokens(before_bytes) as u64,
+            after_token_estimate: agent_context::estimate_tokens(rendered_summary.len()) as u64,
+        }),
+        native_context_edit: Some(session::ProviderContextEdit::Unavailable {
+            diagnostic: "provider adapter does not report native context editing capability".to_string(),
+        }),
+    }
 }
 
 fn transcript_candidate_label(entry: &Entry) -> String {
@@ -1351,6 +1460,17 @@ fn transcript_candidate_label(entry: &Entry) -> String {
         Entry::Tool { name, .. } => format!("tool:{name}"),
         Entry::Status { .. } => "status".to_string(),
         Entry::Error { .. } => "error".to_string(),
+    }
+}
+
+fn render_compaction_entry(entry: &Entry) -> String {
+    match entry {
+        Entry::User { text } => format!("user: {text}"),
+        Entry::Agent { text, .. } => format!("assistant: {text}"),
+        Entry::Reasoning { text, .. } => format!("reasoning: {text}"),
+        Entry::Tool { name, arguments, output, .. } => format!("tool {name} {arguments}: {}", output.join("\n")),
+        Entry::Status { text } => format!("status: {text}"),
+        Entry::Error { text } => format!("error: {text}"),
     }
 }
 
@@ -1431,4 +1551,27 @@ fn classify_compaction_risk(entries: &[Entry]) -> CompactionRisk {
         agent_context::CompactionRisk::Low => session::CompactionRisk::Low,
         agent_context::CompactionRisk::High => session::CompactionRisk::High,
     }
+}
+
+#[cfg(test)]
+pub(crate) fn range_summary_response(app: &App, objective: &str) -> String {
+    let request = &app
+        .pending_manual_compaction
+        .as_ref()
+        .expect("compaction request is pending")
+        .request;
+    serde_json::to_string(&agent_context::RangeSummary {
+        schema_version: agent_context::RANGE_SUMMARY_SCHEMA_VERSION,
+        objective: objective.to_string(),
+        findings: Vec::new(),
+        decisions: Vec::new(),
+        paths: Vec::new(),
+        failures: Vec::new(),
+        verification: Vec::new(),
+        blockers: Vec::new(),
+        protected_facts: request.protected_facts.clone(),
+        sources: request.sources.clone(),
+        source_summary_ids: request.source_summary_ids.clone(),
+    })
+    .expect("serialize typed test summary")
 }
