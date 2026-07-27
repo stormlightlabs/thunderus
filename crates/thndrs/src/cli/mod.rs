@@ -314,6 +314,11 @@ pub struct Cli {
     /// Directory for append-only session JSONL files.
     #[arg(long = "session-dir")]
     pub session_dir: Option<PathBuf>,
+    /// Run without creating a session, session artifacts, or per-session log.
+    ///
+    /// `--no-session` is an alias for this flag.
+    #[arg(long, global = true, visible_alias = "no-session")]
+    pub ephemeral: bool,
     /// Config diagnostics from effective config loading.
     #[arg(skip)]
     pub config_diagnostics: Vec<String>,
@@ -352,6 +357,7 @@ impl Default for Cli {
             print_prompt: false,
             skill_dirs: Vec::new(),
             session_dir: None,
+            ephemeral: false,
             config_diagnostics: Vec::new(),
             config_layers: Vec::new(),
             config_origins: BTreeMap::new(),
@@ -552,6 +558,30 @@ mod tests {
                 stdin_max_bytes: 128,
             }))
         ));
+    }
+
+    #[test]
+    fn ephemeral_flag_applies_to_a_headless_run() {
+        let cli = Cli::try_parse_from(["thndrs", "run", "--ephemeral", "inspect the workspace"])
+            .expect("parse ephemeral run");
+
+        assert!(cli.ephemeral);
+    }
+
+    #[test]
+    fn ephemeral_flag_applies_to_an_interactive_run() {
+        let cli = Cli::try_parse_from(["thndrs", "--ephemeral"]).expect("parse ephemeral interactive run");
+
+        assert!(cli.ephemeral);
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn no_session_alias_enables_ephemeral_mode() {
+        let cli = Cli::try_parse_from(["thndrs", "run", "--no-session", "inspect the workspace"])
+            .expect("parse no-session run");
+
+        assert!(cli.ephemeral);
     }
 
     #[test]

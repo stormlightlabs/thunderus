@@ -447,6 +447,12 @@ fn show_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
 }
 
 fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
+    if app.is_ephemeral() {
+        app.transcript
+            .push(Entry::Error { text: String::from("cannot resume a session in ephemeral mode") });
+        return None;
+    }
+
     let path = match session::resolve_session_file(&app.session_directory(), session_id) {
         Ok(path) => path,
         Err(error) => {

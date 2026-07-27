@@ -66,6 +66,7 @@ fn test_app() -> App {
         print_prompt: false,
         skill_dirs: Vec::new(),
         session_dir: None,
+        ephemeral: false,
         config_diagnostics: Vec::new(),
         config_layers: Vec::new(),
         config_origins: std::collections::BTreeMap::new(),

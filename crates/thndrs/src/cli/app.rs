@@ -92,6 +92,23 @@ pub const VISIBLE_ROWS: usize = 8;
 const LARGE_PICKER_LIMIT: usize = 200;
 const MODEL_PICKER_LIMIT: usize = 50;
 
+/// Whether the application writes a durable local record for the current run.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RunPersistence {
+    /// Keep the append-only session, tool artifacts, and per-session log.
+    #[default]
+    Durable,
+    /// Keep the run in memory and preserve shared settings and prompt history.
+    Ephemeral,
+}
+
+impl RunPersistence {
+    /// Return whether this run avoids per-session filesystem writes.
+    pub const fn is_ephemeral(self) -> bool {
+        matches!(self, Self::Ephemeral)
+    }
+}
+
 /// Semantic run state, used for the status line.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub enum RunState {
@@ -332,6 +349,8 @@ pub enum Msg {
 pub struct App {
     /// Snapshot of the effective CLI config used by command-like TUI flows.
     pub cli: Cli,
+    /// Persistence policy selected for the current interactive or headless run.
+    pub run_persistence: RunPersistence,
     pub session_id: String,
     pub mode: Mode,
     pub run_state: RunState,
@@ -474,12 +493,13 @@ impl From<&Cli> for App {
             .session_dir
             .clone()
             .unwrap_or_else(|| session::sessions_dir(&workspace_root));
+        let run_persistence = if value.ephemeral { RunPersistence::Ephemeral } else { RunPersistence::Durable };
         let session_id = session::generate_session_id();
         let input_history_store = InputHistoryStore::for_workspace(&workspace_root);
         let input_history = input_history_store.load_recent().ok().flatten().unwrap_or_default();
         let (mcp_config_files, mcp_config_diagnostics) = agent_lifecycle::load_mcp_config_audit(&workspace_root);
 
-        let config_meta = {
+        let config_meta = (!run_persistence.is_ephemeral()).then(|| {
             let files: Vec<session::SessionConfigFile> = value
                 .config_layers
                 .iter()
@@ -499,28 +519,32 @@ impl From<&Cli> for App {
                 .collect();
             let diagnostics = value.config_diagnostics.clone();
             let session_dir = Some(sessions_dir.display().to_string());
-            Some(session::SessionConfigMeta {
+            session::SessionConfigMeta {
                 session_dir,
                 files,
                 origins,
                 diagnostics,
                 mcp_files: mcp_config_files.clone(),
                 mcp_diagnostics: mcp_config_diagnostics.clone(),
-            })
-        };
+            }
+        });
 
-        let mut session_writer = session::SessionWriter::create(
-            &sessions_dir,
-            &session_id,
-            &workspace_root.display().to_string(),
-            "scratch",
-            provider_label(&value.model),
-            &value.model,
-            value.websearch.label(),
-            env!("CARGO_PKG_VERSION"),
-            config_meta,
-        )
-        .ok();
+        let mut session_writer = (!run_persistence.is_ephemeral())
+            .then(|| {
+                session::SessionWriter::create(
+                    &sessions_dir,
+                    &session_id,
+                    &workspace_root.display().to_string(),
+                    "scratch",
+                    provider_label(&value.model),
+                    &value.model,
+                    value.websearch.label(),
+                    env!("CARGO_PKG_VERSION"),
+                    config_meta,
+                )
+                .ok()
+            })
+            .flatten();
 
         if let Some(ref mut writer) = session_writer.as_mut()
             && !context_sources.is_empty()
@@ -530,6 +554,7 @@ impl From<&Cli> for App {
 
         let mut app = App {
             cli: cli_snapshot,
+            run_persistence,
             session_id,
             mode: Mode::default(),
             run_state: RunState::default(),
@@ -614,12 +639,29 @@ impl App {
         self.pending_manual_compaction.is_some()
     }
 
-    /// Return the local bounded artifact store for this session workspace.
+    /// Return the local bounded artifact store when this run persists a session.
     ///
     /// The store is deliberately separate from JSONL so session records carry
     /// metadata and handles without making artifact bodies part of replay truth.
-    pub fn artifact_store(&self) -> crate::artifacts::ArtifactStore {
-        crate::artifacts::ArtifactStore::new(self.session_directory().join("artifacts"))
+    pub fn artifact_store(&self) -> Option<crate::artifacts::ArtifactStore> {
+        (!self.run_persistence.is_ephemeral())
+            .then(|| crate::artifacts::ArtifactStore::new(self.session_directory().join("artifacts")))
+    }
+
+    /// Whether this run avoids creating a local session and per-session files.
+    pub const fn is_ephemeral(&self) -> bool {
+        self.run_persistence.is_ephemeral()
+    }
+
+    /// Return the label shown by interactive surfaces for the current run.
+    pub fn run_label(&self) -> &str {
+        if self.is_ephemeral() {
+            "ephemeral"
+        } else if self.session_id.is_empty() {
+            "thndrs"
+        } else {
+            &self.session_id
+        }
     }
 
     /// Render the bounded `/tokens` inspection projection.

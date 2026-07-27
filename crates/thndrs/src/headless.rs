@@ -119,7 +119,9 @@ impl Terminal {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum JsonEvent<'a> {
-    Started,
+    Started {
+        ephemeral: bool,
+    },
     Status {
         message: &'a str,
     },
@@ -193,9 +195,9 @@ enum JsonEvent<'a> {
 }
 
 impl<'a> JsonEvent<'a> {
-    fn from_agent_event(event: &'a app::AgentEvent) -> Self {
+    fn from_agent_event(event: &'a app::AgentEvent, ephemeral: bool) -> Self {
         match event {
-            app::AgentEvent::Started => Self::Started,
+            app::AgentEvent::Started => Self::Started { ephemeral },
             app::AgentEvent::Status(message) => Self::Status { message },
             app::AgentEvent::Usage { input_tokens, output_tokens } => {
                 Self::Usage { input_tokens: *input_tokens, output_tokens: *output_tokens }
@@ -473,7 +475,7 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
                 if terminal.is_some() {
                     finish_output(stdout, &mut output)?;
                 }
-                write_event(stdout, stderr, &event, &mut output)?;
+                write_event(stdout, stderr, &event, &mut output, app.is_ephemeral())?;
                 apply_message(&mut app, Msg::Agent(event));
 
                 if requested_permission {
@@ -554,13 +556,15 @@ fn apply_message(app: &mut App, message: Msg) {
 
 /// Project one agent event to the selected headless output contract.
 fn write_event<Stdout: Write, Stderr: Write>(
-    stdout: &mut Stdout, stderr: &mut Stderr, event: &app::AgentEvent, output: &mut HeadlessOutput,
+    stdout: &mut Stdout, stderr: &mut Stderr, event: &app::AgentEvent, output: &mut HeadlessOutput, ephemeral: bool,
 ) -> Result<()> {
     match output {
         HeadlessOutput::Text { wrote_text, ends_with_newline } => {
             write_text_event(stdout, stderr, event, wrote_text, ends_with_newline)
         }
-        HeadlessOutput::JsonLines => write_jsonl_event(stdout, event).and_then(|()| write_diagnostic(stderr, event)),
+        HeadlessOutput::JsonLines => {
+            write_jsonl_event(stdout, event, ephemeral).and_then(|()| write_diagnostic(stderr, event))
+        }
     }
 }
 
@@ -586,8 +590,9 @@ fn write_text_event<Stdout: Write, Stderr: Write>(
 }
 
 /// Emit one versioned provider-neutral event as a JSON Lines record.
-fn write_jsonl_event<Stdout: Write>(stdout: &mut Stdout, event: &app::AgentEvent) -> Result<()> {
-    let json_event = VersionedJsonEvent { version: JSONL_SCHEMA_VERSION, event: JsonEvent::from_agent_event(event) };
+fn write_jsonl_event<Stdout: Write>(stdout: &mut Stdout, event: &app::AgentEvent, ephemeral: bool) -> Result<()> {
+    let json_event =
+        VersionedJsonEvent { version: JSONL_SCHEMA_VERSION, event: JsonEvent::from_agent_event(event, ephemeral) };
     serde_json::to_writer(&mut *stdout, &json_event)
         .map_err(|error| RunError::new(Exit::Failure, format!("headless JSONL output failed: {error}")))?;
     writeln!(stdout)
@@ -860,7 +865,7 @@ mod tests {
         ];
         let mut stdout = Vec::new();
         for event in &events {
-            write_jsonl_event(&mut stdout, event).expect("serialize JSONL event");
+            write_jsonl_event(&mut stdout, event, false).expect("serialize JSONL event");
         }
 
         let records: Vec<serde_json::Value> = String::from_utf8(stdout)
@@ -926,6 +931,44 @@ mod tests {
         assert!(transcript.iter().any(
             |entry| matches!(entry, app::Entry::Agent { text, streaming: false } if text == "pong from fake ACP agent")
         ));
+    }
+
+    #[test]
+    fn ephemeral_jsonl_run_keeps_the_session_directory_empty() {
+        let temp = tempfile::tempdir().expect("create workspace");
+        let sessions_dir = temp.path().join("sessions");
+        std::fs::create_dir(&sessions_dir).expect("create empty session directory");
+        std::fs::write(temp.path().join("readme.txt"), "alpha\nbeta\n").expect("write fixture");
+        let mut cli = fixture_cli(temp.path(), "fs-read");
+        cli.ephemeral = true;
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        run_with_io(
+            &cli,
+            "read the file",
+            HeadlessOutput::json_lines(),
+            &mut stdout,
+            &mut stderr,
+            &CancelToken::new(),
+        )
+        .expect("ephemeral headless run succeeds");
+
+        let events: Vec<serde_json::Value> = String::from_utf8(stdout)
+            .expect("JSONL output is UTF-8")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("JSONL event parses"))
+            .collect();
+        assert_eq!(
+            events[0],
+            serde_json::json!({"version": 1, "type": "started", "ephemeral": true})
+        );
+        assert!(
+            std::fs::read_dir(&sessions_dir)
+                .expect("read session directory")
+                .next()
+                .is_none()
+        );
     }
 
     #[test]

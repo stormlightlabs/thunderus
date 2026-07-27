@@ -535,8 +535,7 @@ fn finish_tool_output(
 ) -> Option<artifacts::ArtifactMetadata> {
     let artifact = app
         .artifact_store()
-        .create_tool_evidence(&format!("tool:{id}"), output)
-        .ok();
+        .and_then(|store| store.create_tool_evidence(&format!("tool:{id}"), output).ok());
     let safe_output = artifact.as_ref().map_or_else(
         || artifacts::bounded_redacted_lines(output, artifacts::DEFAULT_MAX_ARTIFACT_BYTES),
         |write| write.bounded_lines.clone(),

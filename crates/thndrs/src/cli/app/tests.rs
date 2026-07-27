@@ -55,6 +55,51 @@ fn from_cli_starts_with_fresh_transcript_not_latest_session() {
 }
 
 #[test]
+fn ephemeral_startup_keeps_the_session_directory_empty_and_records_prompt_history() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let sessions_dir = dir.path().join("sessions");
+    std::fs::create_dir(&sessions_dir).expect("create empty session directory");
+    let mut acp_agents = crate::config::AcpAgentsConfig::new();
+    acp_agents.insert("local".to_string(), crate::config::AcpAgentConfig::default());
+    let cli = Cli {
+        cwd: dir.path().to_path_buf(),
+        model: "acp:local".to_string(),
+        session_dir: Some(sessions_dir.clone()),
+        ephemeral: true,
+        acp_agents,
+        ..Cli::default()
+    };
+
+    let mut app = App::from_cli(&cli);
+    app.first_run_recovery = None;
+
+    assert!(app.is_ephemeral());
+    assert_eq!(app.run_label(), "ephemeral");
+    assert!(app.session_writer.is_none());
+    assert!(
+        std::fs::read_dir(&sessions_dir)
+            .expect("read session directory")
+            .next()
+            .is_none()
+    );
+
+    submit_user_turn(&mut app, "remember this prompt".to_string()).expect("start ephemeral turn");
+
+    assert!(
+        std::fs::read_dir(&sessions_dir)
+            .expect("read session directory")
+            .next()
+            .is_none()
+    );
+    assert_eq!(
+        InputHistoryStore::for_workspace(dir.path())
+            .load_recent()
+            .expect("load shared input history"),
+        Some(vec!["remember this prompt".to_string()])
+    );
+}
+
+#[test]
 fn fresh_startup_records_context_without_memory_state() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };

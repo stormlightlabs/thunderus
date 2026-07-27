@@ -29,6 +29,7 @@ fn test_app() -> App {
         print_prompt: false,
         skill_dirs: Vec::new(),
         session_dir: None,
+        ephemeral: false,
         config_diagnostics: Vec::new(),
         config_layers: Vec::new(),
         config_origins: std::collections::BTreeMap::new(),
@@ -116,6 +117,16 @@ fn frame_prompt_rows_adds_complete_composer_border_and_offsets_cursor() {
             .all(|span| span.style.bg == renderer::style::palette().panel_bg),
         "the full composer block should retain its background"
     );
+}
+
+#[test]
+fn frame_prompt_rows_identifies_ephemeral_runs() {
+    let mut app = test_app();
+    app.run_persistence = crate::app::RunPersistence::Ephemeral;
+    let (body_rows, cursor) = prompt_rows_for(&app, 80);
+    let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
+
+    assert!(rows[0].text().contains("ephemeral"));
 }
 
 #[test]

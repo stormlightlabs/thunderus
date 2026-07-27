@@ -558,7 +558,7 @@ impl From<&App> for OrientationBandView {
             },
             OrientationFieldView {
                 label: "session".to_string(),
-                value: if app.session_id.is_empty() { "thndrs".to_string() } else { app.session_id.clone() },
+                value: app.run_label().to_string(),
                 priority: 15,
                 truncate: TruncationPolicy::EllipsizeEnd,
             },

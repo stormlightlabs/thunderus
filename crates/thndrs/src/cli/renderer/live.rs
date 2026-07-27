@@ -165,7 +165,7 @@ pub fn frame_prompt_rows(
     let content_width = super::layout::content_width(width);
 
     let left = "╭─";
-    let session = if app.session_id.is_empty() { "thndrs" } else { &app.session_id };
+    let session = app.run_label();
     let session_budget = content_width.saturating_sub(5).max(1);
     let label = format!(" {} ", utils::truncate_ellipsis(session, session_budget));
     let status_label = app.status_label();

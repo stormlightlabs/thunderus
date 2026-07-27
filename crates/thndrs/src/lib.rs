@@ -947,7 +947,14 @@ fn configured_acp_agent(cli: &Cli, name: &str) -> io::Result<config::AcpAgentCon
     Ok(agent)
 }
 
-fn init_tracing(workspace_root: &Path, session_id: &str) -> Option<Observability> {
+/// Initialize durable session tracing when the current run allows local logs.
+fn init_tracing(
+    workspace_root: &Path, session_id: &str, run_persistence: app::RunPersistence,
+) -> Option<Observability> {
+    if run_persistence.is_ephemeral() {
+        return None;
+    }
+
     let session_log_dir = workspace_root.join(".thndrs").join("logs").join("sessions");
     let daily_log_dir = workspace_root.join(".thndrs").join("logs").join("daily");
     let session_log_path = session_log_dir.join(format!("thndrs-{session_id}.log"));
@@ -1181,7 +1188,7 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
     let tick = tick.max(MIN_RENDER_INTERVAL);
     let mut app = App::from_cli(cli);
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
-    let observability = init_tracing(&workspace_root, &app.session_id);
+    let observability = init_tracing(&workspace_root, &app.session_id, app.run_persistence);
     if cli.verbose
         && let Some(obs) = &observability
     {
@@ -1410,8 +1417,10 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
         .with_search_url(cli.websearch_url.clone())
         .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
         .with_model_reduction(app.effective_model_reduction())
-        .with_process_registry(app.process_registry.clone())
-        .with_artifact_store(app.artifact_store());
+        .with_process_registry(app.process_registry.clone());
+    if let Some(store) = app.artifact_store() {
+        config = config.with_artifact_store(store);
+    }
     if let Some(acp_name) = acp::config::parse_model_id(&cli.model) {
         tracing::info!(
             cwd = %config.root.display(),
@@ -1653,6 +1662,16 @@ mod tests {
         fn handle_navigation(&mut self, _app: &App, _event: &Event) -> bool {
             false
         }
+    }
+
+    #[test]
+    fn ephemeral_runs_do_not_create_per_session_logs() {
+        let temp = tempfile::tempdir().expect("create workspace");
+
+        let observability = init_tracing(temp.path(), "ephemeral", app::RunPersistence::Ephemeral);
+
+        assert!(observability.is_none());
+        assert!(!temp.path().join(".thndrs/logs/sessions/thndrs-ephemeral.log").exists());
     }
 
     fn acp_fixture_cli(cwd: &Path, script: &str) -> Cli {

@@ -90,6 +90,30 @@ fn read_only_session_command_failure_preserves_prompt_draft() {
 }
 
 #[test]
+fn ephemeral_runs_cannot_resume_a_durable_session() {
+    let mut app = fresh_app();
+    app.run_persistence = RunPersistence::Ephemeral;
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)),
+    );
+    for ch in "resume previous".chars() {
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),
+        );
+    }
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+    assert!(app.session_writer.is_none());
+    assert!(
+        matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("ephemeral mode")),
+        "ephemeral mode must reject session resumption"
+    );
+}
+
+#[test]
 fn resume_restores_transcript_and_usage_without_live_run_state() {
     let mut app = fresh_app();
     let sessions_dir = session::sessions_dir(&app.cwd);

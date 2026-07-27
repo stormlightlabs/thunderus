@@ -27,6 +27,7 @@ fn test_app() -> App {
         print_prompt: false,
         skill_dirs: Vec::new(),
         session_dir: None,
+        ephemeral: false,
         config_diagnostics: Vec::new(),
         config_layers: Vec::new(),
         config_origins: std::collections::BTreeMap::new(),
@@ -837,6 +838,21 @@ fn semantic_orientation_has_truncation_metadata() {
             .fields
             .iter()
             .any(|field| field.label == "trust" && field.truncate == TruncationPolicy::Hide)
+    );
+}
+
+#[test]
+fn semantic_orientation_identifies_ephemeral_runs() {
+    let mut app = test_app();
+    app.run_persistence = crate::app::RunPersistence::Ephemeral;
+    let view = RendererView::build(&app, 80, 24);
+
+    assert!(
+        view.semantic
+            .orientation
+            .fields
+            .iter()
+            .any(|field| field.label == "session" && field.value == "ephemeral")
     );
 }
 

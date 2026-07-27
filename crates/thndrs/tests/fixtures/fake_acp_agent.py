@@ -120,6 +120,7 @@ def lifecycle(request_id, _cwd):
 
 
 def cancel(request_id, _cwd):
+    text_update("waiting for cancellation")
     while True:
         message = read_message()
         if message is None:

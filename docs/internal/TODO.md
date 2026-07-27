@@ -147,91 +147,25 @@ reports worker panic, and the TUI, ACP, and server paths retain the owner.
 
 ## PL-2: Run one prompt without the TUI
 
-**What to build:** Add a headless command that runs one coding prompt through
-the normal provider, tool, context, and session paths.
-
-Implemented as `thndrs run <prompt>`. Assistant text streams to stdout;
-lifecycle diagnostics go to stderr. The command exits with `0` on success,
-`1` for a run failure, `2` when setup is required, `3` when it cannot satisfy
-an interactive policy request, and `4` after cancellation.
-
-**Blocked by:** PL-1: Own agent-run completion
-
-**Acceptance criteria:**
-
-- [x] The command accepts a prompt, streams useful text to stdout, and exits
-      with stable success, failure, setup, policy, and cancellation codes.
-- [x] Tool use, retries, context control, and session audit match interactive
-      behavior.
-- [x] Diagnostics never corrupt stdout intended for the result.
-
-**Verification:**
-
-- [x] No-network provider fixtures cover success, tool use, failure, and
-  cancellation.
+Added a headless command that runs one coding prompt through the normal provider,
+tool, context, and session paths.
 
 ## PL-3: Stream headless events as JSONL
 
-**What to build:** Add a machine-readable mode for the headless command using
+Added a machine-readable mode for the headless command using
 the provider-neutral event vocabulary.
-
-Implemented as `thndrs run --jsonl [prompt]`. Each stdout record is one JSON
-object with a schema `version` and provider-neutral `type`; diagnostics remain
-human-readable on stderr.
-
-**Blocked by:** PL-2: Run one prompt without the TUI
-
-**Acceptance criteria:**
-
-- [x] Every stdout line is one versioned JSON object.
-- [x] Text, reasoning, usage, retries, tools, completion, cancellation, and
-      failure have stable event shapes.
-- [x] Human diagnostics remain on stderr.
-
-**Verification:**
-
-- [x] Golden JSONL fixtures cover a complete tool-using run and each terminal
-  outcome.
 
 ## PL-4: Accept piped prompt input
 
-**What to build:** Let the headless command combine bounded stdin content with
-an explicit prompt.
-
-Implemented as `thndrs run [--stdin-max-bytes <bytes>] [prompt]`. A non-terminal
-stdin stream is appended after an explicit prompt with a blank line, or becomes
-the prompt on its own. Interactive stdin is never read. The default limit is
-64 KiB and the maximum configurable limit is 16 MiB.
-
-**Blocked by:** PL-2: Run one prompt without the TUI
-
-**Acceptance criteria:**
-
-- [x] Piped input works with and without an explicit prompt.
-- [x] Interactive terminals are not read until EOF accidentally.
-- [x] Oversized or invalid UTF-8 input fails with an actionable error.
-
-**Verification:**
-
-- [x] CLI tests cover pipes, empty stdin, invalid input, and the configured
-  size limit.
+Lets the headless command combine bounded stdin content with an explicit prompt.
 
 ## PL-5: Run without saving a session
 
-**What to build:** Add an explicit ephemeral mode for headless and interactive
-runs.
-
-**Blocked by:** PL-3: Stream headless events as JSONL
-
-**Acceptance criteria:**
-
-- [ ] Ephemeral runs create no session or per-session log.
-- [ ] Credential, config, and shared prompt-history behavior remains unchanged.
-- [ ] The UI and JSONL stream identify the run as ephemeral.
-
-**Verification:**
-
-- Tests run against an empty session directory and prove it remains empty.
+Added `--ephemeral` (also available as `--no-session`) for interactive and
+headless runs. Ephemeral runs keep their working state in memory and leave
+sessions, session artifacts, and per-session logs untouched. Credential loading,
+configuration, and shared prompt history continue to work; the TUI and JSONL
+`started` event identify the mode.
 
 ## PL-6: Resume sessions from the TUI
 
@@ -384,40 +318,6 @@ Anthropic API
 **Verification:**
 
 - Local fake servers cover both protocols, model loading, and rejected config.
-
-## PL-14: Run stable checks on macOS
-
-**What to build:** Add macOS CI for formatting-independent Rust checks and
-platform-sensitive process, filesystem, session, and terminal behavior.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] CI runs workspace tests and strict Clippy on the supported macOS target.
-- [ ] macOS-specific process-tree, file-permission, and atomic-write behavior
-      is exercised.
-
-**Verification:**
-
-- A green macOS CI run on the candidate revision.
-
-## PL-15: Run stable checks on Windows
-
-**What to build:** Add Windows CI for Rust checks and platform-sensitive
-process, filesystem, session, and terminal behavior.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] CI runs workspace tests and strict Clippy on the supported Windows target.
-- [ ] Windows process-tree, path, replacement, and terminal fallbacks are
-      exercised.
-
-**Verification:**
-
-- A green Windows CI run on the candidate revision.
 
 ## PL-16: Gate project-owned runtime configuration on trust
 

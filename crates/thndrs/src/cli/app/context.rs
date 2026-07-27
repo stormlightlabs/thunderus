@@ -345,9 +345,9 @@ impl App {
             if !handles.insert(handle.to_string()) {
                 continue;
             }
-            let artifact = match store.recover(handle) {
-                Ok(recovery) => artifact_from_recovery(recovery, include_artifacts),
-                Err(_) => ExportArtifact {
+            let artifact = match store.as_ref().and_then(|store| store.recover(handle).ok()) {
+                Some(recovery) => artifact_from_recovery(recovery, include_artifacts),
+                None => ExportArtifact {
                     handle: handle.to_string(),
                     metadata: None,
                     body: None,
@@ -556,6 +556,7 @@ impl App {
     ) -> Result<crate::artifacts::ArtifactRecovery, String> {
         let recovery = self
             .artifact_store()
+            .ok_or_else(|| String::from("ephemeral runs do not retain recoverable context artifacts"))?
             .recover(handle)
             .map_err(|_| format!("artifact `{}` metadata is unavailable", redact_context_display(handle)))?;
         let relation_id =
