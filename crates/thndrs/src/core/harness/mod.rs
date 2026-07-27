@@ -10,13 +10,13 @@ use crate::app::AgentEvent;
 use crate::providers::ProviderMessage;
 use crate::tools::AgentRunConfig;
 
-use thndrs_agent::CancelToken;
+use thndrs_agent::{AgentRun, AgentRunError, CancelToken};
 
 /// Handle returned when a harness turn has started.
 #[derive(Debug)]
 pub struct HarnessHandle {
     /// Stream of semantic agent events.
-    pub events: Receiver<AgentEvent>,
+    pub events: AgentRun<AgentEvent>,
     /// Token that can be cancelled to stop the turn cooperatively.
     pub cancel: CancelToken,
 }
@@ -25,6 +25,75 @@ impl HarnessHandle {
     /// Request cancellation for this turn.
     pub fn request_cancel(&self) {
         self.cancel.cancel();
+    }
+
+    /// Wait for the worker to settle and report a worker panic.
+    pub fn wait(&mut self) -> Result<(), AgentRunError> {
+        self.events.wait()
+    }
+
+    /// Cancel event delivery and wait for the worker to settle.
+    pub fn cancel_and_wait(&mut self) -> Result<(), AgentRunError> {
+        self.events.cancel_and_wait()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_test_receiver(events: Receiver<AgentEvent>, cancel: CancelToken) -> Self {
+        let mut initial = Vec::new();
+        let disconnected = match events.try_recv() {
+            Ok(event) => {
+                initial.push(event);
+                false
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => false,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => true,
+        };
+        initial.extend(events.try_iter());
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut run = AgentRun::spawn(cancel.clone(), move |sender, run_cancel| {
+            for event in initial {
+                let terminal = matches!(
+                    event,
+                    AgentEvent::Finished | AgentEvent::Cancelled | AgentEvent::Failed(_)
+                );
+                if sender.send(event).is_err() {
+                    let _ = ready_tx.send(());
+                    return;
+                }
+                if terminal {
+                    let _ = ready_tx.send(());
+                    return;
+                }
+            }
+            let _ = ready_tx.send(());
+            if disconnected {
+                return;
+            }
+            loop {
+                match events.recv_timeout(std::time::Duration::from_millis(10)) {
+                    Ok(event) => {
+                        let terminal = matches!(
+                            event,
+                            AgentEvent::Finished | AgentEvent::Cancelled | AgentEvent::Failed(_)
+                        );
+                        if sender.send(event).is_err() {
+                            break;
+                        }
+                        if terminal {
+                            break;
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) if run_cancel.is_cancelled() => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                }
+            }
+        });
+        ready_rx.recv().expect("test event bridge should start");
+        if disconnected {
+            run.wait().expect("test event bridge should settle");
+        }
+        Self { events: run, cancel }
     }
 }
 

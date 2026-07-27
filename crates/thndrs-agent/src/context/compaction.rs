@@ -657,7 +657,7 @@ mod tests {
             Err(RangeSummaryValidationError::SourceMetadataMismatch)
         );
 
-        let mut request_with_summary = request.clone();
+        let mut request_with_summary = request;
         request_with_summary.source_summary_ids = vec!["ctx_summary_previous".to_string()];
         assert_eq!(
             validate_range_summary(&request_with_summary, &response),

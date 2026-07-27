@@ -11,8 +11,8 @@ use agent_client_protocol::schema::v1::{
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::mpsc;
 use std::time::Duration;
+use thndrs_agent::AgentRun;
 
 fn collect(handle: RunHandle) -> Vec<AgentEvent> {
     handle.spawn().iter().collect()
@@ -682,7 +682,7 @@ fn acp_session_close_reports_closed_session() {
     assert_eq!(lines, vec!["acp: closed `fake` session external-session-1"]);
 }
 
-fn collect_until_terminal(rx: &mpsc::Receiver<AgentEvent>, timeout: Duration) -> Vec<AgentEvent> {
+fn collect_until_terminal(rx: &AgentRun<AgentEvent>, timeout: Duration) -> Vec<AgentEvent> {
     let mut events = Vec::new();
     loop {
         let event = rx.recv_timeout(timeout).expect("terminal event");

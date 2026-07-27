@@ -36,4 +36,4 @@ pub use replay::{
     ReplayProjection, ReplayReceipt, ReplayReport, ReplayScenario, ReplayTiming, RequiredFact, RequiredFactResult,
     evaluate_fixture, load_fixture, project_fixture, select_items,
 };
-pub use run::AgentRun;
+pub use run::{AgentRun, AgentRunError};

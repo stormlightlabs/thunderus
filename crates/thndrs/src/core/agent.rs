@@ -196,18 +196,17 @@ pub struct RunHandle {
 }
 
 impl RunHandle {
-    /// Spawn the unified agent loop on a background thread and return the receiver.
+    /// Spawn the unified agent loop on an owned background run.
     ///
-    /// The thread closes its sender when done, so the receiver's `try_recv` will
+    /// The thread closes its sender when done, so the run's `try_recv` will
     /// return `Err(Disconnected)` once the run completes.
     ///
-    /// If the receiver is dropped early (e.g. the user cancels), the thread exits
-    /// on the next failed send. The [`CancelToken`] inside the handle can also be
-    /// signalled for cooperative cancellation.
-    pub fn spawn(self) -> Receiver<AgentEvent> {
+    /// Dropping the run requests cooperative cancellation, disconnects event
+    /// delivery, and joins the worker.
+    pub fn spawn(self) -> thndrs_agent::AgentRun<AgentEvent> {
         let cancel = self.cancel.clone();
         tracing::info!(provider = ?self.provider, "starting agent thread");
-        thndrs_agent::AgentRun::spawn(cancel, move |sender, cancel| self.run_agent(&sender, &cancel)).into_events()
+        thndrs_agent::AgentRun::spawn(cancel, move |sender, cancel| self.run_agent(&sender, &cancel))
     }
 
     /// Create a fake-provider run handle.

@@ -1372,19 +1372,19 @@ fn run_prompt_turn(
         messages.push(ProviderMessage::user_blocks(prompt.provider_blocks.clone()));
     }
     let expects_write = prompt_expects_workspace_write(&prompt.text);
-    let handle = run_harness(config, messages, expects_write, prompt.text);
+    let mut handle = run_harness(config, messages, expects_write, prompt.text);
     state.register_turn_cancel_token(session_id, handle.cancel.clone());
     if state.is_cancelled(session_id) {
         handle.cancel.cancel();
     }
 
-    let response = run_prompt_handle(state, session_id, &handle, on_update)?;
+    let response = run_prompt_handle(state, session_id, &mut handle, on_update)?;
     state.clear_turn_cancel_token(session_id);
     Ok(response)
 }
 
 fn run_prompt_handle(
-    state: &ServerState, session_id: &str, handle: &HarnessHandle,
+    state: &ServerState, session_id: &str, handle: &mut HarnessHandle,
     on_update: &mut impl FnMut(SessionUpdateIntent) -> Result<(), String>,
 ) -> Result<PromptResponse, String> {
     let mut persisted = PersistedTurn::new(format!("{session_id}-turn"));
@@ -1397,20 +1397,24 @@ fn run_prompt_handle(
                 }
                 if handle.cancel.is_cancelled() {
                     persisted.finish(state, session_id);
+                    handle.cancel_and_wait().map_err(|error| error.to_string())?;
                     return Ok(PromptResponse::new(StopReason::Cancelled));
                 }
 
                 match event {
                     AgentEvent::Finished => {
                         persisted.finish(state, session_id);
+                        handle.wait().map_err(|error| error.to_string())?;
                         return Ok(PromptResponse::new(StopReason::EndTurn));
                     }
                     AgentEvent::Cancelled => {
                         persisted.finish(state, session_id);
+                        handle.wait().map_err(|error| error.to_string())?;
                         return Ok(PromptResponse::new(StopReason::Cancelled));
                     }
                     AgentEvent::Failed(_) => {
                         persisted.finish(state, session_id);
+                        handle.wait().map_err(|error| error.to_string())?;
                         return Ok(PromptResponse::new(StopReason::Refusal));
                     }
                     _ => (),
@@ -1418,9 +1422,13 @@ fn run_prompt_handle(
             }
             Err(_) if handle.cancel.is_cancelled() => {
                 persisted.finish(state, session_id);
+                handle.wait().map_err(|error| error.to_string())?;
                 return Ok(PromptResponse::new(StopReason::Cancelled));
             }
-            Err(_) => return Err(String::from("prompt turn ended without a terminal event")),
+            Err(_) => {
+                handle.wait().map_err(|error| error.to_string())?;
+                return Err(String::from("prompt turn ended without a terminal event"));
+            }
         }
     }
 }

@@ -30,24 +30,7 @@ callback URLs, or device codes.
 - CI run:
 - Changelog section:
 
-## Follow-Up for V0.2
-
-`thndrs-agent::AgentRun` says it owns the background thread, but it discards the
-`JoinHandle` immediately. Dropping the value neither cancels nor joins the run,
-thread panics cannot be observed, and `into_events` consumes the cancellation
-handle unless the caller cloned it first.
-
-- Evidence: `crates/thndrs-agent/src/run.rs:21` spawns and detaches the thread;
-  the struct stores only a receiver and `CancelToken`.
-- Recommendation: settle the lifecycle contract before expanding this API in
-  v0.2. Either own completion explicitly or describe this as a detached helper
-  and make the cancellation and completion handles difficult to lose. Add drop,
-  panic, and receiver-disconnect tests for the chosen contract.
-
-This is an API and maintainability concern rather than a demonstrated bug in
-the application, which clones the cancellation token before consuming the receiver.
-
-### Maintainability risks
+## Maintainability risks
 
 - All 260 non-merge commits in the available history have one author. This is a
   review and continuity risk even though it says nothing negative about the

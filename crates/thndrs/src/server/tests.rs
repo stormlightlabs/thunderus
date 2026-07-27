@@ -730,7 +730,7 @@ fn execute_prompt_persists_acp_server_turn_records() {
                 .expect("send assistant");
             event_tx.send(AgentEvent::Finished).expect("send finished");
             drop(event_tx);
-            HarnessHandle { events: event_rx, cancel: CancelToken::new() }
+            HarnessHandle::from_test_receiver(event_rx, CancelToken::new())
         },
     )
     .expect("prompt succeeds");
@@ -839,10 +839,10 @@ fn execute_prompt_preserves_update_order() {
                 move |_config, _messages, _expects_write, _prompt| {
                     started_tx.send(()).expect("prompt harness started");
                     let mut guard = event_rx.lock().expect("acquire harness event channel");
-                    HarnessHandle {
-                        events: guard.take().expect("event receiver available"),
-                        cancel: CancelToken::new(),
-                    }
+                    HarnessHandle::from_test_receiver(
+                        guard.take().expect("event receiver available"),
+                        CancelToken::new(),
+                    )
                 },
             )
         })
@@ -922,7 +922,7 @@ fn cancel_session_signals_active_turn_token_but_clears_for_next_prompt() {
             move |_config, _messages, _expects_write, _prompt| {
                 started_tx.send(()).expect("turn started");
                 let mut guard = event_rx.lock().expect("acquire harness event channel");
-                HarnessHandle { events: guard.take().expect("event receiver available"), cancel: token_for_turn }
+                HarnessHandle::from_test_receiver(guard.take().expect("event receiver available"), token_for_turn)
             },
         )
     });
@@ -983,7 +983,7 @@ fn cancelled_prompt_preserves_updates_sent_before_cancellation() {
             move |_config, _messages, _expects_write, _prompt| {
                 started_tx.send(()).expect("turn started");
                 let mut guard = event_rx.lock().expect("acquire harness event channel");
-                HarnessHandle { events: guard.take().expect("event receiver available"), cancel: token_for_turn }
+                HarnessHandle::from_test_receiver(guard.take().expect("event receiver available"), token_for_turn)
             },
         )
     });
@@ -1040,7 +1040,7 @@ fn cancel_session_records_local_session_jsonl_when_enabled() {
             move |_config, _messages, _expects_write, _prompt| {
                 started_tx.send(()).expect("turn started");
                 let mut guard = event_rx.lock().expect("acquire harness event channel");
-                HarnessHandle { events: guard.take().expect("event receiver available"), cancel: token_for_turn }
+                HarnessHandle::from_test_receiver(guard.take().expect("event receiver available"), token_for_turn)
             },
         )
     });
@@ -1184,7 +1184,7 @@ fn execute_prompt_rejects_concurrent_prompts_for_same_session() {
             move |_config, _messages, _expects_write, _prompt| {
                 started_tx.send(()).expect("first harness started");
                 let mut guard = event_rx.lock().expect("acquire harness event channel");
-                HarnessHandle { events: guard.take().expect("event receiver available"), cancel: CancelToken::new() }
+                HarnessHandle::from_test_receiver(guard.take().expect("event receiver available"), CancelToken::new())
             },
         )
     });

@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -76,11 +76,10 @@ impl RunHandle {
         self
     }
 
-    /// Spawn an ACP run and return the normal agent event receiver.
-    pub fn spawn(self) -> Receiver<AgentEvent> {
-        let (tx, rx) = mpsc::channel::<AgentEvent>();
-        thread::spawn(move || run(&self, &tx));
-        rx
+    /// Spawn an ACP run and return an owned agent event stream.
+    pub fn spawn(self) -> thndrs_agent::AgentRun<AgentEvent> {
+        let cancel = self.cancel.clone();
+        thndrs_agent::AgentRun::spawn(cancel, move |tx, _cancel| run(&self, &tx))
     }
 }
 

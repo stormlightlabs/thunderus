@@ -99,7 +99,7 @@ enum AcpEventWrite {
 
 /// State carried by the main loop for a single agent run.
 struct AgentSlot {
-    receiver: mpsc::Receiver<app::AgentEvent>,
+    receiver: thndrs_agent::AgentRun<app::AgentEvent>,
     cancel: CancelToken,
     steering: mpsc::Sender<String>,
 }
@@ -737,7 +737,7 @@ fn run_acp_smoke<W: io::Write>(cli: &Cli, name: &str, prompt: &str, writer: &mut
             .with_mcp_diagnostics(effective_mcp.diagnostics);
     }
     let rx = handle.spawn();
-    for event in rx {
+    for event in rx.iter() {
         match write_acp_event(writer, event)? {
             AcpEventWrite::Continue => {}
             AcpEventWrite::Finished => {
@@ -1377,8 +1377,16 @@ fn drain_agent_events<S: InteractiveSurface>(
             }
             Err(mpsc::TryRecvError::Empty) => break,
             Err(mpsc::TryRecvError::Disconnected) => {
+                let worker_result = slot.receiver.wait();
                 *agent = None;
-                if app.run_state == RunState::Stopping {
+                if let Err(error) = worker_result {
+                    handle_msg(
+                        app,
+                        Msg::Agent(app::AgentEvent::Failed(format!("agent worker failed: {error}"))),
+                        surface,
+                    )?;
+                    changed = true;
+                } else if app.run_state == RunState::Stopping {
                     handle_msg(app, Msg::Agent(app::AgentEvent::Cancelled), surface)?;
                     changed = true;
                 }
@@ -1565,9 +1573,12 @@ fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
             }
         }
         RunState::Idle | RunState::Error(_) => {
-            if let Some(slot) = agent.take() {
+            if let Some(mut slot) = agent.take() {
                 tracing::info!("cancelling dropped agent slot");
                 slot.cancel.cancel();
+                if let Err(error) = slot.receiver.wait() {
+                    tracing::error!(%error, "agent worker failed while settling");
+                }
             }
         }
     }
@@ -1580,6 +1591,13 @@ mod tests {
     use prompt::PromptBundle;
     use std::path::{Path, PathBuf};
     use std::process::Command;
+
+    fn test_agent_slot(
+        receiver: mpsc::Receiver<app::AgentEvent>, cancel: CancelToken, steering: mpsc::Sender<String>,
+    ) -> AgentSlot {
+        let handle = harness::HarnessHandle::from_test_receiver(receiver, cancel);
+        AgentSlot { receiver: handle.events, cancel: handle.cancel, steering }
+    }
 
     fn snapshot_bundle() -> PromptBundle {
         let source = ContextSource {
@@ -2318,7 +2336,7 @@ for line in sys.stdin:
         let (event_tx, event_rx) = mpsc::channel();
         drop(event_tx);
         let (steering_tx, steering_rx) = mpsc::channel();
-        let slot = AgentSlot { receiver: event_rx, cancel: CancelToken::new(), steering: steering_tx };
+        let slot = test_agent_slot(event_rx, CancelToken::new(), steering_tx);
 
         flush_steering(&mut app, &Some(slot));
 
@@ -2341,7 +2359,7 @@ for line in sys.stdin:
         let (_event_tx, event_rx) = mpsc::channel();
         let (steering_tx, _steering_rx) = mpsc::channel();
         let cancel = CancelToken::new();
-        let mut agent = Some(AgentSlot { receiver: event_rx, cancel: cancel.clone(), steering: steering_tx });
+        let mut agent = Some(test_agent_slot(event_rx, cancel.clone(), steering_tx));
 
         manage_agent_lifecycle(&app, &mut agent);
 
@@ -2361,12 +2379,36 @@ for line in sys.stdin:
         let (event_tx, event_rx) = mpsc::channel();
         drop(event_tx);
         let (steering_tx, _steering_rx) = mpsc::channel();
-        let mut agent = Some(AgentSlot { receiver: event_rx, cancel: CancelToken::new(), steering: steering_tx });
+        let mut agent = Some(test_agent_slot(event_rx, CancelToken::new(), steering_tx));
         let mut surface = TestSurface::default();
         drain_agent_events(&mut app, &mut agent, &mut surface, &None).expect("drain events");
 
         assert!(agent.is_none(), "disconnected slot should be cleared");
         assert_eq!(app.run_state, RunState::Idle);
+    }
+
+    #[test]
+    fn panicked_agent_worker_becomes_a_visible_failure() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.run_state = RunState::Working;
+        let receiver = thndrs_agent::AgentRun::spawn(CancelToken::new(), |_sender, _cancel| {
+            panic!("test worker panic");
+        });
+        assert!(receiver.recv().is_err(), "worker should disconnect its event stream");
+        let cancel = receiver.cancel().clone();
+        let (steering_tx, _steering_rx) = mpsc::channel();
+        let mut agent = Some(AgentSlot { receiver, cancel, steering: steering_tx });
+        let mut surface = TestSurface::default();
+
+        drain_agent_events(&mut app, &mut agent, &mut surface, &None).expect("drain events");
+
+        assert!(agent.is_none());
+        assert!(matches!(
+            app.transcript.last(),
+            Some(app::Entry::Error { text }) if text.contains("agent worker failed")
+        ));
     }
 
     #[test]
@@ -2381,7 +2423,7 @@ for line in sys.stdin:
                 .expect("queue event");
         }
         let (steering_tx, _steering_rx) = mpsc::channel();
-        let mut agent = Some(AgentSlot { receiver: event_rx, cancel: CancelToken::new(), steering: steering_tx });
+        let mut agent = Some(test_agent_slot(event_rx, CancelToken::new(), steering_tx));
         let mut surface = TestSurface::default();
         let changed = drain_agent_events(&mut app, &mut agent, &mut surface, &None).expect("drain events");
 
@@ -2561,7 +2603,7 @@ for line in sys.stdin:
             .push(app::Entry::User { text: "in-flight turn".to_string() });
 
         let (steering_tx, _steering_rx) = mpsc::channel();
-        let existing = AgentSlot { receiver: mpsc::channel().1, cancel: CancelToken::new(), steering: steering_tx };
+        let existing = test_agent_slot(mpsc::channel().1, CancelToken::new(), steering_tx);
         let mut agent = Some(existing);
         maybe_spawn_agent(&mut app, &mut agent);
 
