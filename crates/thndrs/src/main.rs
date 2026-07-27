@@ -10,6 +10,6 @@ fn main() {
     };
     if let Err(err) = thndrs_lib::run(&cli) {
         eprintln!("thndrs: {err}");
-        std::process::exit(1);
+        std::process::exit(thndrs_lib::exit_code(&err));
     }
 }

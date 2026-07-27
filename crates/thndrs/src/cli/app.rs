@@ -35,7 +35,7 @@ pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecover
 
 use input::{
     handle_key, handle_mouse, offline_model_picker_items, open_model_picker, open_reasoning_effort_picker,
-    open_skill_picker, submit_user_turn,
+    open_skill_picker,
 };
 use onboarding::{
     PendingSetupReasoningEffort, advance_after_setup_model_config, handle_first_run_key, poll_chatgpt_oauth_on_tick,
@@ -73,6 +73,11 @@ use crate::providers::{codex, opencode, umans};
 use crate::thndrs_core::auth;
 use crate::tools::shell::ProcessRegistry;
 use crate::{config, fuzzy, internals, prompt, session, skills, tools, utils};
+
+/// Cancel an ACP permission request from an application adapter without UI input.
+pub(crate) use agent_lifecycle::cancel_pending_permission;
+/// Submit a user turn from an application adapter without synthesizing key input.
+pub(crate) use input::submit_user_turn;
 
 /// How long a Ctrl+D quit confirmation stays armed.
 const QUIT_CONFIRM_TIMEOUT_MS: u64 = 3_000;

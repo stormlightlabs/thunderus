@@ -21,6 +21,7 @@ name = "thndrs_lib"
 agent-client-protocol.workspace = true
 clap.workspace = true
 crossterm.workspace = true
+ctrlc.workspace = true
 futures.workspace = true
 http.workspace = true
 iocraft.workspace = true

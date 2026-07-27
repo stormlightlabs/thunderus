@@ -11,6 +11,7 @@ pub mod agent;
 #[path = "core/session/mod.rs"]
 pub mod session;
 
+mod headless;
 #[path = "core/mod.rs"]
 mod thndrs_core;
 
@@ -72,7 +73,6 @@ use cli::{
     commands::debug::DebugCommand,
     commands::mcp::McpCommand,
     commands::session::{SessionCommand, SessionDataFormat},
-    commands::skills::SkillsCommand,
 };
 use mcp::manager::McpManager;
 use prompt::PromptBundle;
@@ -89,12 +89,20 @@ const MAX_AGENT_EVENTS_PER_RENDER: usize = 256;
 /// Buffer one complete terminal transaction so CRLF scrollback commits cannot
 /// be line-buffered and shown before their replacement frame.
 const TERMINAL_WRITE_BUFFER_CAPACITY: usize = 64 * 1024;
-
 enum AcpEventWrite {
     Continue,
     Finished,
     Cancelled,
     Failed(String),
+}
+
+/// Process exit code for a [`run`] error.
+///
+/// Headless prompt runs reserve `0` for success, `1` for failures, `2` for
+/// setup errors, `3` for policy errors, and `4` for cancellation. Other
+/// application errors use `1`.
+pub fn exit_code(error: &io::Error) -> i32 {
+    headless::exit_code(error)
 }
 
 /// State carried by the main loop for a single agent run.
@@ -214,42 +222,19 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
 
 fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
     match command {
-        Command::Setup(command) => run_setup_command(cli, command),
-        Command::Login(command) => run_login_command(cli, command),
-        Command::Logout(command) => run_logout_command(cli, command),
-        Command::Auth { command } => run_auth_command(cli, command),
-        Command::Doctor(command) => run_doctor_command(cli, command),
-        Command::Config { command } => run_config_command(cli, command),
+        Command::Setup(command) => commands::setup::run(cli, command),
+        Command::Login(command) => commands::auth::run_login(cli, command),
+        Command::Logout(command) => commands::auth::run_logout(cli, command),
+        Command::Auth { command } => commands::auth::run_auth(cli, command),
+        Command::Doctor(command) => commands::doctor::run(cli, command),
+        Command::Config { command } => commands::config::run(cli, command),
         Command::Acp { command } => run_acp_command(cli, command),
         Command::Mcp { command } => run_mcp_command(cli, command),
-        Command::Skills { command } => run_skills_command(cli, command),
+        Command::Skills { command } => commands::skills::run(cli, command),
+        Command::Run(command) => headless::run_command(cli, command),
         Command::Session { command } => run_session_command(cli, command),
         Command::Debug { command } => run_debug_command(cli, command),
     }
-}
-
-fn run_setup_command(_cli: &Cli, _command: &commands::setup::SetupCommand) -> io::Result<()> {
-    cli::commands::setup::run(_cli, _command)
-}
-
-fn run_login_command(_cli: &Cli, _command: &commands::auth::LoginCommand) -> io::Result<()> {
-    cli::commands::auth::run_login(_cli, _command)
-}
-
-fn run_logout_command(_cli: &Cli, _command: &commands::auth::LogoutCommand) -> io::Result<()> {
-    cli::commands::auth::run_logout(_cli, _command)
-}
-
-fn run_auth_command(_cli: &Cli, _command: &commands::auth::AuthCommand) -> io::Result<()> {
-    cli::commands::auth::run_auth(_cli, _command)
-}
-
-fn run_doctor_command(_cli: &Cli, _command: &commands::doctor::DoctorCommand) -> io::Result<()> {
-    cli::commands::doctor::run(_cli, _command)
-}
-
-fn run_config_command(_cli: &Cli, _command: &commands::config::ConfigCommand) -> io::Result<()> {
-    cli::commands::config::run(_cli, _command)
 }
 
 fn load_mcp_manager_for_workspace(workspace: &Path) -> io::Result<Arc<McpManager>> {
@@ -274,10 +259,6 @@ fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()> {
         McpCommand::Tools { name } => run_mcp_tools(cli, name, &mut lock),
         McpCommand::Call { server, tool, json } => run_mcp_call(cli, server, tool, json, &mut lock),
     }
-}
-
-fn run_skills_command(cli: &Cli, command: &SkillsCommand) -> io::Result<()> {
-    cli::commands::skills::run(cli, command)
 }
 
 fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {

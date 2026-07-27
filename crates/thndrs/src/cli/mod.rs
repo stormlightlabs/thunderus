@@ -229,6 +229,8 @@ pub enum Command {
         #[command(subcommand)]
         command: commands::skills::SkillsCommand,
     },
+    /// Run one coding prompt without opening the terminal interface.
+    Run(commands::run::RunCommand),
     /// Inspect local append-only session history.
     #[command(alias = "sessions")]
     Session {
@@ -525,6 +527,16 @@ mod tests {
         assert!(!cli.verbose);
         assert_eq!(cli.theme, Theme::EldritchMinimal);
         assert!(cli.skill_dirs.is_empty());
+    }
+
+    #[test]
+    fn run_command_accepts_one_prompt() {
+        let cli = Cli::try_parse_from(["thndrs", "run", "inspect the current workspace"]).expect("parse run");
+
+        assert!(matches!(
+            cli.command,
+            Some(Command::Run(commands::run::RunCommand { prompt })) if prompt == "inspect the current workspace"
+        ));
     }
 
     #[test]

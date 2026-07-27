@@ -150,19 +150,24 @@ reports worker panic, and the TUI, ACP, and server paths retain the owner.
 **What to build:** Add a headless command that runs one coding prompt through
 the normal provider, tool, context, and session paths.
 
+Implemented as `thndrs run <prompt>`. Assistant text streams to stdout;
+lifecycle diagnostics go to stderr. The command exits with `0` on success,
+`1` for a run failure, `2` when setup is required, `3` when it cannot satisfy
+an interactive policy request, and `4` after cancellation.
+
 **Blocked by:** PL-1: Own agent-run completion
 
 **Acceptance criteria:**
 
-- [ ] The command accepts a prompt, streams useful text to stdout, and exits
+- [x] The command accepts a prompt, streams useful text to stdout, and exits
       with stable success, failure, setup, policy, and cancellation codes.
-- [ ] Tool use, retries, context control, and session audit match interactive
+- [x] Tool use, retries, context control, and session audit match interactive
       behavior.
-- [ ] Diagnostics never corrupt stdout intended for the result.
+- [x] Diagnostics never corrupt stdout intended for the result.
 
 **Verification:**
 
-- No-network provider fixtures cover success, tool use, failure, and
+- [x] No-network provider fixtures cover success, tool use, failure, and
   cancellation.
 
 ## PL-3: Stream headless events as JSONL

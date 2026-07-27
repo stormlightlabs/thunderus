@@ -13,6 +13,7 @@ repository = "https://github.com/stormlightlabs/thunderus"
 agent-client-protocol = "1.0.1"
 clap = { version = "4.6.1", features = ["derive"] }
 crossterm = "0.29.0"
+ctrlc = "3.4.8"
 divan = "0.1.21"
 futures = "0.3"
 http = "1"
