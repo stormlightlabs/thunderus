@@ -120,7 +120,6 @@ def lifecycle(request_id, _cwd):
 
 
 def cancel(request_id, _cwd):
-    text_update("waiting")
     while True:
         message = read_message()
         if message is None:
@@ -128,6 +127,10 @@ def cancel(request_id, _cwd):
         if message.get("method") == "session/cancel":
             response(request_id, {"stopReason": "cancelled"})
             return
+
+
+def failure(request_id, _cwd):
+    error(request_id, "fixture prompt failure")
 
 
 def permission(request_id, _cwd):
@@ -309,6 +312,7 @@ def main():
             scripts = {
                 "lifecycle": lifecycle,
                 "cancel": cancel,
+                "failure": failure,
                 "permission": permission,
                 "fs-read": fs_read,
                 "fs-write": fs_write,

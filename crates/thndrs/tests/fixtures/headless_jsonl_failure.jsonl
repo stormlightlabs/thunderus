@@ -1,0 +1,7 @@
+{"version":1,"type":"started"}
+{"version":1,"type":"status","message":"acp: starting `local` with python3 <fake-acp-agent> failure"}
+{"version":1,"type":"status","message":"acp stderr: fake-agent stderr diagnostic"}
+{"version":1,"type":"status","message":"acp: connected to fake-acp-agent 0.0.0"}
+{"version":1,"type":"status","message":"acp: session fake-session-1"}
+{"version":1,"type":"acp_session","agent_name":"local","session_id":"fake-session-1","protocol_version":"ProtocolVersion(1)"}
+{"version":1,"type":"failed","message":"ACP agent `local` failed: fixture prompt failure"}

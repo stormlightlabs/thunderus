@@ -175,18 +175,22 @@ an interactive policy request, and `4` after cancellation.
 **What to build:** Add a machine-readable mode for the headless command using
 the provider-neutral event vocabulary.
 
+Implemented as `thndrs run --jsonl [prompt]`. Each stdout record is one JSON
+object with a schema `version` and provider-neutral `type`; diagnostics remain
+human-readable on stderr.
+
 **Blocked by:** PL-2: Run one prompt without the TUI
 
 **Acceptance criteria:**
 
-- [ ] Every stdout line is one versioned JSON object.
-- [ ] Text, reasoning, usage, retries, tools, completion, cancellation, and
+- [x] Every stdout line is one versioned JSON object.
+- [x] Text, reasoning, usage, retries, tools, completion, cancellation, and
       failure have stable event shapes.
-- [ ] Human diagnostics remain on stderr.
+- [x] Human diagnostics remain on stderr.
 
 **Verification:**
 
-- Golden JSONL fixtures cover a complete tool-using run and each terminal
+- [x] Golden JSONL fixtures cover a complete tool-using run and each terminal
   outcome.
 
 ## PL-4: Accept piped prompt input
@@ -194,18 +198,23 @@ the provider-neutral event vocabulary.
 **What to build:** Let the headless command combine bounded stdin content with
 an explicit prompt.
 
+Implemented as `thndrs run [--stdin-max-bytes <bytes>] [prompt]`. A non-terminal
+stdin stream is appended after an explicit prompt with a blank line, or becomes
+the prompt on its own. Interactive stdin is never read. The default limit is
+64 KiB and the maximum configurable limit is 16 MiB.
+
 **Blocked by:** PL-2: Run one prompt without the TUI
 
 **Acceptance criteria:**
 
-- [ ] Piped input works with and without an explicit prompt.
-- [ ] Interactive terminals are not read until EOF accidentally.
-- [ ] Oversized or invalid UTF-8 input fails with an actionable error.
+- [x] Piped input works with and without an explicit prompt.
+- [x] Interactive terminals are not read until EOF accidentally.
+- [x] Oversized or invalid UTF-8 input fails with an actionable error.
 
 **Verification:**
 
-- CLI tests cover pipes, empty stdin, invalid input, and the configured size
-  limit.
+- [x] CLI tests cover pipes, empty stdin, invalid input, and the configured
+  size limit.
 
 ## PL-5: Run without saving a session
 

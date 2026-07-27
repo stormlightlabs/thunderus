@@ -1,13 +1,47 @@
 //! Black-box coverage for the headless `run` command.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 use tempfile::tempdir;
+use thndrs_lib::session;
+
+fn headless_command(workspace: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new(thndrs_binary());
+    command.arg("--cwd").arg(workspace).args(args);
+    command
+}
+
+fn run_with_piped_input(workspace: &Path, args: &[&str], input: &[u8]) -> Output {
+    let mut child = headless_command(workspace, args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start headless command");
+    child
+        .stdin
+        .take()
+        .expect("pipe standard input")
+        .write_all(input)
+        .expect("write piped input");
+    child.wait_with_output().expect("wait for headless command")
+}
+
+fn assert_user_prompt(workspace: &Path, expected: &str) {
+    let files = session::list_session_files(&workspace.join(".thndrs").join("sessions"));
+    assert_eq!(files.len(), 1);
+    let transcript = session::SessionReader::read_transcript(&files[0]);
+    assert!(
+        transcript
+            .iter()
+            .any(|entry| matches!(entry, thndrs_lib::app::Entry::User { text } if text == expected))
+    );
+}
 
 fn write_fixture_config(workspace: &Path, script: &str) {
     let config_dir = workspace.join(".thndrs");
@@ -46,10 +80,7 @@ fn run_streams_assistant_text_to_stdout_and_diagnostics_to_stderr() {
     let workspace = tempdir().expect("create workspace");
     write_fixture_config(workspace.path(), "lifecycle");
 
-    let output = Command::new(thndrs_binary())
-        .arg("--cwd")
-        .arg(workspace.path())
-        .args(["run", "reply"])
+    let output = headless_command(workspace.path(), &["run", "reply"])
         .output()
         .expect("run headless command");
 
@@ -67,6 +98,71 @@ fn run_streams_assistant_text_to_stdout_and_diagnostics_to_stderr() {
     assert!(diagnostics.contains("thndrs run: started"));
     assert!(diagnostics.contains("thndrs run: finished"));
     assert!(!diagnostics.contains("pong from fake ACP agent"));
+}
+
+#[test]
+fn run_jsonl_streams_versioned_events_without_human_output_on_stdout() {
+    let workspace = tempdir().expect("create workspace");
+    write_fixture_config(workspace.path(), "lifecycle");
+
+    let output = headless_command(workspace.path(), &["run", "--jsonl", "reply"])
+        .output()
+        .expect("run JSONL headless command");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    let events: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("stdout line is JSON"))
+        .collect();
+    assert!(events.iter().all(|event| event["version"] == 1));
+    assert!(events.iter().any(|event| event["type"] == "text"));
+    assert!(events.iter().any(|event| event["type"] == "completed"));
+    assert!(!stdout.contains("thndrs run:"));
+    assert!(
+        String::from_utf8(output.stderr)
+            .expect("stderr is UTF-8")
+            .contains("thndrs run: finished")
+    );
+}
+
+#[test]
+fn run_uses_piped_input_with_and_without_a_prompt_argument() {
+    let stdin_only_workspace = tempdir().expect("create stdin-only workspace");
+    write_fixture_config(stdin_only_workspace.path(), "lifecycle");
+    let output = run_with_piped_input(stdin_only_workspace.path(), &["run"], b"inspect the pipe");
+    assert!(output.status.success());
+    assert_user_prompt(stdin_only_workspace.path(), "inspect the pipe");
+
+    let combined_workspace = tempdir().expect("create combined workspace");
+    write_fixture_config(combined_workspace.path(), "lifecycle");
+    let output = run_with_piped_input(combined_workspace.path(), &["run", "inspect this"], b"and this");
+    assert!(output.status.success());
+    assert_user_prompt(combined_workspace.path(), "inspect this\n\nand this");
+}
+
+#[test]
+fn run_rejects_empty_invalid_and_oversized_piped_input() {
+    for (args, input, expected) in [
+        (vec!["run"], Vec::new(), "standard input was empty"),
+        (vec!["run"], vec![0xff], "must be valid UTF-8"),
+        (
+            vec!["run", "--stdin-max-bytes", "4"],
+            b"12345".to_vec(),
+            "exceeds --stdin-max-bytes=4",
+        ),
+    ] {
+        let workspace = tempdir().expect("create workspace");
+        write_fixture_config(workspace.path(), "lifecycle");
+        let output = run_with_piped_input(workspace.path(), &args, &input);
+
+        assert_eq!(output.status.code(), Some(1));
+        assert!(
+            String::from_utf8(output.stderr)
+                .expect("stderr is UTF-8")
+                .contains(expected)
+        );
+    }
 }
 
 #[cfg(unix)]

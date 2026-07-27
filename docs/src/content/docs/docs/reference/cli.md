@@ -43,6 +43,24 @@ Supported API-key setup and login providers include `umans`, `opencode-go`, and
 flow and store refreshable credentials in `~/.thndrs/auth.json`, not in
 `.thndrs/credentials.env`.
 
+### Headless Run
+
+`thndrs run [--jsonl] [--stdin-max-bytes <bytes>] [prompt]` runs one prompt
+through the same provider, tool, context, and session paths as the TUI without
+opening an interface.
+
+- Without `--jsonl`, assistant text streams to stdout and lifecycle diagnostics
+  stream to stderr. The command exits with `0` on success, `1` for a run
+  failure, `2` when setup is required, `3` when a permission request requires
+  the TUI, and `4` after cancellation.
+- `--jsonl` emits one versioned JSON object per stdout line. Records use stable,
+  provider-neutral types for text, reasoning, usage, retries, tool activity,
+  and terminal outcomes. Human diagnostics remain on stderr.
+- When stdin is piped, its UTF-8 content is used as the prompt or appended after
+  an explicit prompt with a blank line. Terminal stdin is not read. The input
+  limit defaults to 64 KiB; `--stdin-max-bytes` accepts values from 1 byte to
+  16 MiB.
+
 ### ACP (Agent Context Protocol)
 
 ACP agents are selected in the TUI with `--model acp:<name>`. They are

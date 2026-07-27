@@ -4,27 +4,36 @@
 //! command output, cooperative cancellation, and terminal exit codes local to
 //! the non-interactive `thndrs run` surface.
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+use serde::Serialize;
 use thndrs_agent::CancelToken;
 
 use crate::app::{self, App, Msg, RunState, update};
 use crate::cli::Cli;
-use crate::cli::commands::run::RunCommand;
+use crate::cli::commands::run::{DEFAULT_STDIN_MAX_BYTES, RunCommand};
 use crate::maybe_spawn_agent;
 
 /// Frequency at which the headless runner observes Ctrl-C while waiting for an
 /// agent event.
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
 const EXIT_FAILURE: i32 = 1;
 const EXIT_SETUP: i32 = 2;
 const EXIT_POLICY: i32 = 3;
 const EXIT_CANCELLED: i32 = 4;
+const JSONL_SCHEMA_VERSION: u8 = 1;
+
+/// Largest permitted standard-input limit, so a malformed invocation
+/// cannot turn the headless command into an unbounded memory read.
+const MAX_STDIN_MAX_BYTES: usize = 16 * 1024 * 1024;
 
 static CANCELLATION: OnceLock<Mutex<Option<CancelToken>>> = OnceLock::new();
-static CTRL_C_HANDLER: OnceLock<Result<(), String>> = OnceLock::new();
+static CTRL_C_HANDLER: OnceLock<std::result::Result<(), String>> = OnceLock::new();
+
+type Result<T> = std::result::Result<T, RunError>;
 
 /// Terminal classification for a headless prompt run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,6 +52,27 @@ impl Exit {
             Self::Policy => EXIT_POLICY,
             Self::Cancelled => EXIT_CANCELLED,
         }
+    }
+}
+
+/// Headless output protocol and text-stream state for one run.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HeadlessOutput {
+    Text { wrote_text: bool, ends_with_newline: bool },
+    JsonLines,
+}
+
+impl HeadlessOutput {
+    const fn from_jsonl(jsonl: bool) -> Self {
+        if jsonl { Self::json_lines() } else { Self::text() }
+    }
+
+    const fn text() -> Self {
+        Self::Text { wrote_text: false, ends_with_newline: false }
+    }
+
+    const fn json_lines() -> Self {
+        Self::JsonLines
     }
 }
 
@@ -67,6 +97,193 @@ impl std::fmt::Display for RunError {
 
 impl std::error::Error for RunError {}
 
+/// Terminal event observed on the shared application event stream.
+enum Terminal {
+    Finished,
+    Failed(String),
+    Cancelled,
+}
+
+impl Terminal {
+    fn from_event(event: &app::AgentEvent) -> Option<Self> {
+        match event {
+            app::AgentEvent::Finished => Some(Self::Finished),
+            app::AgentEvent::Failed(message) => Some(Self::Failed(message.clone())),
+            app::AgentEvent::Cancelled => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+}
+
+/// Provider-neutral event projection with stable JSON Lines names.
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum JsonEvent<'a> {
+    Started,
+    Status {
+        message: &'a str,
+    },
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+    },
+    RequestAccounting {
+        turn_id: &'a str,
+        request_id: &'a str,
+        attempt: u32,
+        provider: &'a str,
+        model: &'a str,
+        serialized_bytes: u64,
+        estimated_input_tokens: Option<u64>,
+        provider_input_tokens: Option<u64>,
+        provider_output_tokens: Option<u64>,
+    },
+    #[serde(rename = "text")]
+    AssistantDelta {
+        text: &'a str,
+    },
+    #[serde(rename = "reasoning")]
+    ReasoningDelta {
+        text: &'a str,
+    },
+    ToolStarted {
+        id: &'a str,
+        name: &'a str,
+        arguments: &'a str,
+    },
+    ToolFinished {
+        id: &'a str,
+        status: &'static str,
+        output: &'a [String],
+    },
+    StateProjection {
+        id: &'a str,
+        decision: &'static str,
+        related_id: Option<&'a str>,
+    },
+    ModelMetadata {
+        entries: &'a [(String, String)],
+    },
+    Retrying {
+        attempt: u32,
+        max_attempts: u32,
+        delay_ms: u64,
+        error: &'a str,
+    },
+    PermissionRequested {
+        tool_call_id: &'a str,
+        title: &'a str,
+        selected: usize,
+        options: Vec<JsonPermissionOption<'a>>,
+    },
+    PermissionResolved {
+        tool_call_id: &'a str,
+        outcome: &'a str,
+    },
+    AcpSession {
+        agent_name: &'a str,
+        session_id: &'a str,
+        protocol_version: &'a str,
+    },
+    Completed,
+    Failed {
+        message: &'a str,
+    },
+    Cancelled,
+}
+
+impl<'a> JsonEvent<'a> {
+    fn from_agent_event(event: &'a app::AgentEvent) -> Self {
+        match event {
+            app::AgentEvent::Started => Self::Started,
+            app::AgentEvent::Status(message) => Self::Status { message },
+            app::AgentEvent::Usage { input_tokens, output_tokens } => {
+                Self::Usage { input_tokens: *input_tokens, output_tokens: *output_tokens }
+            }
+            app::AgentEvent::RequestAccounting(accounting) => Self::RequestAccounting {
+                turn_id: &accounting.turn_id,
+                request_id: &accounting.request_id,
+                attempt: accounting.attempt,
+                provider: &accounting.provider,
+                model: &accounting.model,
+                serialized_bytes: accounting.serialized_bytes.value,
+                estimated_input_tokens: accounting.estimated_input_tokens.value,
+                provider_input_tokens: accounting
+                    .provider_usage
+                    .as_ref()
+                    .and_then(|usage| usage.components.input_tokens),
+                provider_output_tokens: accounting
+                    .provider_usage
+                    .as_ref()
+                    .and_then(|usage| usage.components.output_tokens),
+            },
+            app::AgentEvent::AssistantDelta(text) => Self::AssistantDelta { text },
+            app::AgentEvent::ReasoningDelta(text) => Self::ReasoningDelta { text },
+            app::AgentEvent::ToolStarted { id, name, arguments } => Self::ToolStarted { id, name, arguments },
+            app::AgentEvent::ToolFinished { id, output, status, .. } => {
+                Self::ToolFinished { id, status: status.label(), output }
+            }
+            app::AgentEvent::StateProjectionDecision { id, decision } => {
+                let (decision, related_id) = match decision {
+                    thndrs_agent::context::StateProjectionDecision::Retained => ("retained", None),
+                    thndrs_agent::context::StateProjectionDecision::DuplicateOf { canonical_id } => {
+                        ("duplicate_of", Some(canonical_id.as_str()))
+                    }
+                    thndrs_agent::context::StateProjectionDecision::Supersedes { previous_id } => {
+                        ("supersedes", Some(previous_id.as_str()))
+                    }
+                };
+                Self::StateProjection { id, decision, related_id }
+            }
+            app::AgentEvent::ModelMetadataLoaded(entries) => Self::ModelMetadata { entries },
+            app::AgentEvent::Retrying { attempt, max_attempts, delay_ms, error } => {
+                Self::Retrying { attempt: *attempt, max_attempts: *max_attempts, delay_ms: *delay_ms, error }
+            }
+            app::AgentEvent::PermissionRequest(permission) => Self::PermissionRequested {
+                tool_call_id: &permission.tool_call_id,
+                title: &permission.title,
+                selected: permission.selected,
+                options: permission
+                    .options
+                    .iter()
+                    .map(|option| JsonPermissionOption {
+                        id: &option.id,
+                        name: &option.name,
+                        kind: option.kind.label(),
+                    })
+                    .collect(),
+            },
+            app::AgentEvent::PermissionResolved { tool_call_id, outcome } => {
+                Self::PermissionResolved { tool_call_id, outcome }
+            }
+            app::AgentEvent::AcpSession(metadata) => Self::AcpSession {
+                agent_name: &metadata.agent_name,
+                session_id: &metadata.acp_session_id,
+                protocol_version: &metadata.protocol_version,
+            },
+            app::AgentEvent::Finished => Self::Completed,
+            app::AgentEvent::Failed(message) => Self::Failed { message },
+            app::AgentEvent::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+/// Versioned JSON Lines record emitted by the headless event stream.
+#[derive(Serialize)]
+struct VersionedJsonEvent<'a> {
+    version: u8,
+    #[serde(flatten)]
+    event: JsonEvent<'a>,
+}
+
+/// Stable permission-option projection for a headless JSON event.
+#[derive(Serialize)]
+struct JsonPermissionOption<'a> {
+    id: &'a str,
+    name: &'a str,
+    kind: &'static str,
+}
+
 /// Process exit code for an application error.
 ///
 /// Headless prompt runs reserve `0` for success, `1` for failures, `2` for
@@ -82,6 +299,8 @@ pub fn exit_code(error: &io::Error) -> i32 {
 
 /// Run one prompt through the normal application lifecycle without terminal UI.
 pub fn run_command(cli: &Cli, command: &RunCommand) -> io::Result<()> {
+    let stdin = io::stdin();
+    let prompt = resolve_prompt(command, &mut stdin.lock(), stdin.is_terminal()).map_err(io::Error::other)?;
     let cancellation = CancelToken::new();
     install_cancellation_handler(cancellation.clone())?;
 
@@ -89,7 +308,8 @@ pub fn run_command(cli: &Cli, command: &RunCommand) -> io::Result<()> {
     let stderr = io::stderr();
     let result = run_with_io(
         cli,
-        &command.prompt,
+        &prompt,
+        HeadlessOutput::from_jsonl(command.jsonl),
         &mut stdout.lock(),
         &mut stderr.lock(),
         &cancellation,
@@ -127,14 +347,74 @@ fn clear_cancellation_handler() {
     }
 }
 
+/// Resolve the prompt from an optional argument and bounded piped input.
+///
+/// Interactive standard input is intentionally never read: without a prompt,
+/// callers must pipe data instead.
+fn resolve_prompt<Input: Read>(command: &RunCommand, input: &mut Input, input_is_terminal: bool) -> Result<String> {
+    let piped = (!input_is_terminal)
+        .then(|| read_piped_input(input, command.stdin_max_bytes))
+        .transpose()?;
+
+    match (command.prompt.as_deref(), piped.as_deref()) {
+        (Some(prompt), Some(piped)) if !piped.is_empty() => Ok(format!("{prompt}\n\n{piped}")),
+        (Some(prompt), _) => Ok(prompt.to_string()),
+        (None, Some(piped)) if !piped.is_empty() => Ok(piped.to_string()),
+        (None, Some(_)) => Err(RunError::new(
+            Exit::Failure,
+            "standard input was empty; pass a prompt or pipe non-empty UTF-8 input",
+        )),
+        (None, None) => Err(RunError::new(
+            Exit::Failure,
+            "pass a prompt or pipe non-empty UTF-8 input; interactive standard input is not read",
+        )),
+    }
+}
+
+/// Read at most one byte beyond the configured standard-input limit.
+fn read_piped_input<Input: Read>(input: &mut Input, max_bytes: usize) -> Result<String> {
+    if max_bytes == 0 || max_bytes > MAX_STDIN_MAX_BYTES {
+        return Err(RunError::new(
+            Exit::Failure,
+            format!(
+                "--stdin-max-bytes must be between 1 and {MAX_STDIN_MAX_BYTES} bytes (default: {DEFAULT_STDIN_MAX_BYTES})"
+            ),
+        ));
+    }
+    let bytes_to_read = max_bytes.checked_add(1).ok_or_else(|| {
+        RunError::new(
+            Exit::Failure,
+            "--stdin-max-bytes is too large to enforce a bounded standard-input read",
+        )
+    })?;
+    let mut bytes = Vec::with_capacity(bytes_to_read.min(DEFAULT_STDIN_MAX_BYTES));
+    input
+        .take(u64::try_from(bytes_to_read).map_err(|_| {
+            RunError::new(
+                Exit::Failure,
+                "--stdin-max-bytes is too large to enforce a bounded standard-input read",
+            )
+        })?)
+        .read_to_end(&mut bytes)
+        .map_err(|error| RunError::new(Exit::Failure, format!("failed to read piped standard input: {error}")))?;
+    if bytes.len() > max_bytes {
+        return Err(RunError::new(
+            Exit::Failure,
+            format!("piped standard input exceeds --stdin-max-bytes={max_bytes}"),
+        ));
+    }
+    String::from_utf8(bytes).map_err(|_| RunError::new(Exit::Failure, "piped standard input must be valid UTF-8"))
+}
+
 /// Run a prompt with caller-owned output streams and cancellation control.
 ///
 /// This builds the same [`App`] and submits the same user turn as the TUI. It
 /// only changes the projection: assistant text goes to `stdout`; all lifecycle
 /// information goes to `stderr`.
 fn run_with_io<Stdout: Write, Stderr: Write>(
-    cli: &Cli, prompt: &str, stdout: &mut Stdout, stderr: &mut Stderr, cancellation: &CancelToken,
-) -> Result<(), RunError> {
+    cli: &Cli, prompt: &str, mut output: HeadlessOutput, stdout: &mut Stdout, stderr: &mut Stderr,
+    cancellation: &CancelToken,
+) -> Result<()> {
     let mut app = App::from_cli(cli);
     if let Some(recovery) = &app.first_run_recovery {
         return Err(RunError::new(
@@ -156,7 +436,6 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
     apply_message(&mut app, started);
 
     let mut agent = None;
-    let mut output = Output::default();
     let mut cancellation_requested = false;
     let mut policy_error = None;
 
@@ -273,35 +552,51 @@ fn apply_message(app: &mut App, message: Msg) {
     }
 }
 
-/// Terminal event observed on the shared application event stream.
-enum Terminal {
-    Finished,
-    Failed(String),
-    Cancelled,
-}
-
-impl Terminal {
-    fn from_event(event: &app::AgentEvent) -> Option<Self> {
-        match event {
-            app::AgentEvent::Finished => Some(Self::Finished),
-            app::AgentEvent::Failed(message) => Some(Self::Failed(message.clone())),
-            app::AgentEvent::Cancelled => Some(Self::Cancelled),
-            _ => None,
+/// Project one agent event to the selected headless output contract.
+fn write_event<Stdout: Write, Stderr: Write>(
+    stdout: &mut Stdout, stderr: &mut Stderr, event: &app::AgentEvent, output: &mut HeadlessOutput,
+) -> Result<()> {
+    match output {
+        HeadlessOutput::Text { wrote_text, ends_with_newline } => {
+            write_text_event(stdout, stderr, event, wrote_text, ends_with_newline)
         }
+        HeadlessOutput::JsonLines => write_jsonl_event(stdout, event).and_then(|()| write_diagnostic(stderr, event)),
     }
 }
 
-/// Text-stream state used to terminate a partial assistant response cleanly.
-#[derive(Default)]
-struct Output {
-    wrote_text: bool,
-    ends_with_newline: bool,
+/// Project one event as interactive-style text.
+fn write_text_event<Stdout: Write, Stderr: Write>(
+    stdout: &mut Stdout, stderr: &mut Stderr, event: &app::AgentEvent, wrote_text: &mut bool,
+    ends_with_newline: &mut bool,
+) -> Result<()> {
+    match event {
+        app::AgentEvent::AssistantDelta(text) => {
+            stdout
+                .write_all(text.as_bytes())
+                .and_then(|()| stdout.flush())
+                .map_err(|error| RunError::new(Exit::Failure, format!("headless output failed: {error}")))?;
+            *wrote_text = *wrote_text || !text.is_empty();
+            if !text.is_empty() {
+                *ends_with_newline = text.ends_with('\n');
+            }
+            Ok(())
+        }
+        _ => write_diagnostic(stderr, event),
+    }
 }
 
-/// Project one agent event to headless output streams.
-fn write_event<Stdout: Write, Stderr: Write>(
-    stdout: &mut Stdout, stderr: &mut Stderr, event: &app::AgentEvent, output: &mut Output,
-) -> Result<(), RunError> {
+/// Emit one versioned provider-neutral event as a JSON Lines record.
+fn write_jsonl_event<Stdout: Write>(stdout: &mut Stdout, event: &app::AgentEvent) -> Result<()> {
+    let json_event = VersionedJsonEvent { version: JSONL_SCHEMA_VERSION, event: JsonEvent::from_agent_event(event) };
+    serde_json::to_writer(&mut *stdout, &json_event)
+        .map_err(|error| RunError::new(Exit::Failure, format!("headless JSONL output failed: {error}")))?;
+    writeln!(stdout)
+        .and_then(|()| stdout.flush())
+        .map_err(|error| RunError::new(Exit::Failure, format!("headless output failed: {error}")))
+}
+
+/// Write human lifecycle diagnostics without mixing them into machine output.
+fn write_diagnostic<Stderr: Write>(stderr: &mut Stderr, event: &app::AgentEvent) -> Result<()> {
     match event {
         app::AgentEvent::Started => writeln!(stderr, "thndrs run: started"),
         app::AgentEvent::Status(message) => writeln!(stderr, "thndrs run: {message}"),
@@ -315,17 +610,7 @@ fn write_event<Stdout: Write, Stderr: Write>(
                 accounting.serialized_bytes.value
             )
         }
-        app::AgentEvent::AssistantDelta(text) => {
-            stdout
-                .write_all(text.as_bytes())
-                .and_then(|()| stdout.flush())
-                .map_err(|error| RunError::new(Exit::Failure, format!("headless output failed: {error}")))?;
-            output.wrote_text = output.wrote_text || !text.is_empty();
-            if !text.is_empty() {
-                output.ends_with_newline = text.ends_with('\n');
-            }
-            Ok(())
-        }
+        app::AgentEvent::AssistantDelta(_) => Ok(()),
         app::AgentEvent::ReasoningDelta(text) => writeln!(stderr, "thndrs run: reasoning: {text}"),
         app::AgentEvent::ToolStarted { id, name, .. } => writeln!(stderr, "thndrs run: tool started: {name}#{id}"),
         app::AgentEvent::ToolFinished { id, status, .. } => {
@@ -362,11 +647,11 @@ fn write_event<Stdout: Write, Stderr: Write>(
     .map_err(|error| RunError::new(Exit::Failure, format!("headless output failed: {error}")))
 }
 
-/// Finish a streamed assistant response on its own terminal line.
-fn finish_output<Stdout: Write>(stdout: &mut Stdout, output: &mut Output) -> Result<(), RunError> {
-    if output.wrote_text && !output.ends_with_newline {
+/// Finish a text response on its own terminal line, then flush the output stream.
+fn finish_output<Stdout: Write>(stdout: &mut Stdout, output: &mut HeadlessOutput) -> Result<()> {
+    if let HeadlessOutput::Text { wrote_text: true, ends_with_newline: false } = output {
         writeln!(stdout).map_err(|error| RunError::new(Exit::Failure, format!("headless output failed: {error}")))?;
-        output.ends_with_newline = true;
+        *output = HeadlessOutput::Text { wrote_text: true, ends_with_newline: true };
     }
     stdout
         .flush()
@@ -376,7 +661,7 @@ fn finish_output<Stdout: Write>(stdout: &mut Stdout, output: &mut Output) -> Res
 #[cfg(test)]
 mod tests {
     use std::io;
-    use std::io::Write;
+    use std::io::{Cursor, Write};
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -384,9 +669,13 @@ mod tests {
 
     use thndrs_agent::CancelToken;
 
-    use super::{EXIT_CANCELLED, EXIT_FAILURE, EXIT_POLICY, EXIT_SETUP, Exit, exit_code, run_with_io};
+    use super::{
+        EXIT_CANCELLED, EXIT_FAILURE, EXIT_POLICY, EXIT_SETUP, Exit, HeadlessOutput, exit_code, resolve_prompt,
+        run_with_io, write_jsonl_event,
+    };
     use crate::app;
     use crate::cli::Cli;
+    use crate::cli::commands::run::RunCommand;
     use crate::{config, session};
 
     #[derive(Clone)]
@@ -413,6 +702,62 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    struct CancellingWriter {
+        bytes: Vec<u8>,
+        cancellation: CancelToken,
+        cancellation_requested: bool,
+    }
+
+    impl CancellingWriter {
+        fn new(cancellation: CancelToken) -> Self {
+            Self { bytes: Vec::new(), cancellation, cancellation_requested: false }
+        }
+
+        fn into_bytes(self) -> Vec<u8> {
+            self.bytes
+        }
+    }
+
+    impl Write for CancellingWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.bytes.write(buffer)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if !self.cancellation_requested {
+                self.cancellation.cancel();
+                self.cancellation_requested = true;
+            }
+            Ok(())
+        }
+    }
+
+    struct NeverRead;
+
+    impl io::Read for NeverRead {
+        fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("interactive input must not be read"))
+        }
+    }
+
+    fn run_command(prompt: Option<&str>, stdin_max_bytes: usize) -> RunCommand {
+        RunCommand { prompt: prompt.map(str::to_string), jsonl: false, stdin_max_bytes }
+    }
+
+    fn assert_jsonl_fixture(stdout: Vec<u8>, workspace: &Path, expected: &str) {
+        let actual = String::from_utf8(stdout).expect("JSONL output is UTF-8");
+        for line in actual.lines() {
+            let event: serde_json::Value = serde_json::from_str(line).expect("stdout line is JSON");
+            assert_eq!(event["version"], 1, "JSONL event uses the current schema version");
+        }
+        let canonical_workspace = workspace.canonicalize().expect("canonical workspace path");
+        let normalized = actual
+            .replace(&fixture_agent().display().to_string(), "<fake-acp-agent>")
+            .replace(&canonical_workspace.display().to_string(), "<workspace>")
+            .replace(&workspace.display().to_string(), "<workspace>");
+        assert_eq!(normalized, expected);
     }
 
     fn fixture_agent() -> PathBuf {
@@ -452,13 +797,114 @@ mod tests {
     }
 
     #[test]
+    fn resolves_piped_input_with_and_without_a_prompt_argument() {
+        let mut input = Cursor::new("from standard input");
+        assert_eq!(
+            resolve_prompt(&run_command(Some("inspect this"), 64), &mut input, false)
+                .expect("combine prompt and input"),
+            "inspect this\n\nfrom standard input"
+        );
+
+        let mut input = Cursor::new("from standard input");
+        assert_eq!(
+            resolve_prompt(&run_command(None, 64), &mut input, false).expect("use piped prompt"),
+            "from standard input"
+        );
+    }
+
+    #[test]
+    fn does_not_read_interactive_standard_input() {
+        let mut input = NeverRead;
+        assert_eq!(
+            resolve_prompt(&run_command(Some("inspect this"), 64), &mut input, true).expect("use prompt argument"),
+            "inspect this"
+        );
+
+        let error = resolve_prompt(&run_command(None, 64), &mut input, true)
+            .expect_err("missing interactive prompt is actionable");
+        assert!(error.message.contains("interactive standard input is not read"));
+    }
+
+    #[test]
+    fn rejects_empty_invalid_and_oversized_piped_input() {
+        let mut empty = Cursor::new("");
+        let error = resolve_prompt(&run_command(None, 64), &mut empty, false).expect_err("empty input is rejected");
+        assert!(error.message.contains("standard input was empty"));
+
+        let mut invalid = Cursor::new(vec![0xff]);
+        let error = resolve_prompt(&run_command(None, 64), &mut invalid, false).expect_err("invalid UTF-8 is rejected");
+        assert!(error.message.contains("valid UTF-8"));
+
+        let mut oversized = Cursor::new("12345");
+        let error =
+            resolve_prompt(&run_command(None, 4), &mut oversized, false).expect_err("oversized input is rejected");
+        assert!(error.message.contains("--stdin-max-bytes=4"));
+
+        let mut input = Cursor::new("prompt");
+        let error =
+            resolve_prompt(&run_command(None, 0), &mut input, false).expect_err("zero-byte input limit is rejected");
+        assert!(error.message.contains("between 1 and"));
+    }
+
+    #[test]
+    fn jsonl_has_stable_reasoning_usage_and_retry_shapes() {
+        let events = [
+            app::AgentEvent::ReasoningDelta("checking context".to_string()),
+            app::AgentEvent::Usage { input_tokens: 13, output_tokens: 5 },
+            app::AgentEvent::Retrying {
+                attempt: 2,
+                max_attempts: 3,
+                delay_ms: 250,
+                error: "temporary failure".to_string(),
+            },
+        ];
+        let mut stdout = Vec::new();
+        for event in &events {
+            write_jsonl_event(&mut stdout, event).expect("serialize JSONL event");
+        }
+
+        let records: Vec<serde_json::Value> = String::from_utf8(stdout)
+            .expect("JSONL output is UTF-8")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("JSONL line parses"))
+            .collect();
+        assert_eq!(
+            records[0],
+            serde_json::json!({"version": 1, "type": "reasoning", "text": "checking context"})
+        );
+        assert_eq!(
+            records[1],
+            serde_json::json!({"version": 1, "type": "usage", "input_tokens": 13, "output_tokens": 5})
+        );
+        assert_eq!(
+            records[2],
+            serde_json::json!({
+                "version": 1,
+                "type": "retrying",
+                "attempt": 2,
+                "max_attempts": 3,
+                "delay_ms": 250,
+                "error": "temporary failure"
+            })
+        );
+    }
+
+    #[test]
     fn streams_assistant_text_and_records_the_normal_session_audit() {
         let temp = tempfile::tempdir().expect("create workspace");
         let cli = fixture_cli(temp.path(), "lifecycle");
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        run_with_io(&cli, "reply", &mut stdout, &mut stderr, &CancelToken::new()).expect("headless run succeeds");
+        run_with_io(
+            &cli,
+            "reply",
+            HeadlessOutput::text(),
+            &mut stdout,
+            &mut stderr,
+            &CancelToken::new(),
+        )
+        .expect("headless run succeeds");
 
         assert_eq!(
             String::from_utf8(stdout).expect("stdout is UTF-8"),
@@ -490,10 +936,128 @@ mod tests {
         let mut stdout = shared.clone();
         let mut stderr = shared.clone();
 
-        run_with_io(&cli, "reply", &mut stdout, &mut stderr, &CancelToken::new()).expect("headless run succeeds");
+        run_with_io(
+            &cli,
+            "reply",
+            HeadlessOutput::text(),
+            &mut stdout,
+            &mut stderr,
+            &CancelToken::new(),
+        )
+        .expect("headless run succeeds");
 
         let output = String::from_utf8(shared.bytes()).expect("shared output is UTF-8");
         assert!(output.contains("pong from fake ACP agent\nthndrs run: finished\n"));
+    }
+
+    #[test]
+    fn jsonl_lifecycle_matches_the_golden_fixture() {
+        let temp = tempfile::tempdir().expect("create workspace");
+        let cli = fixture_cli(temp.path(), "lifecycle");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        run_with_io(
+            &cli,
+            "reply",
+            HeadlessOutput::json_lines(),
+            &mut stdout,
+            &mut stderr,
+            &CancelToken::new(),
+        )
+        .expect("headless run succeeds");
+
+        assert_jsonl_fixture(
+            stdout,
+            temp.path(),
+            include_str!("../tests/fixtures/headless_jsonl_lifecycle.jsonl"),
+        );
+        assert!(
+            String::from_utf8(stderr)
+                .expect("stderr is UTF-8")
+                .contains("thndrs run: finished")
+        );
+    }
+
+    #[test]
+    fn jsonl_tool_run_matches_the_golden_fixture() {
+        let temp = tempfile::tempdir().expect("create workspace");
+        std::fs::write(temp.path().join("readme.txt"), "alpha\nbeta\n").expect("write fixture");
+        let cli = fixture_cli(temp.path(), "fs-read");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        run_with_io(
+            &cli,
+            "read the file",
+            HeadlessOutput::json_lines(),
+            &mut stdout,
+            &mut stderr,
+            &CancelToken::new(),
+        )
+        .expect("headless tool run succeeds");
+
+        assert_jsonl_fixture(
+            stdout,
+            temp.path(),
+            include_str!("../tests/fixtures/headless_jsonl_tool.jsonl"),
+        );
+        assert!(
+            !String::from_utf8(stderr)
+                .expect("stderr is UTF-8")
+                .contains("read: alpha")
+        );
+    }
+
+    #[test]
+    fn jsonl_failure_matches_the_golden_fixture() {
+        let temp = tempfile::tempdir().expect("create workspace");
+        let cli = fixture_cli(temp.path(), "failure");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let error = run_with_io(
+            &cli,
+            "reply",
+            HeadlessOutput::json_lines(),
+            &mut stdout,
+            &mut stderr,
+            &CancelToken::new(),
+        )
+        .expect_err("fixture provider fails");
+
+        assert_eq!(error.exit, Exit::Failure);
+        assert_jsonl_fixture(
+            stdout,
+            temp.path(),
+            include_str!("../tests/fixtures/headless_jsonl_failure.jsonl"),
+        );
+    }
+
+    #[test]
+    fn jsonl_cancellation_matches_the_golden_fixture() {
+        let temp = tempfile::tempdir().expect("create workspace");
+        let cli = fixture_cli(temp.path(), "cancel");
+        let cancellation = CancelToken::new();
+        let mut stdout = CancellingWriter::new(cancellation.clone());
+        let mut stderr = Vec::new();
+
+        let error = run_with_io(
+            &cli,
+            "wait",
+            HeadlessOutput::json_lines(),
+            &mut stdout,
+            &mut stderr,
+            &cancellation,
+        )
+        .expect_err("cancelled run does not succeed");
+
+        assert_eq!(error.exit, Exit::Cancelled);
+        assert_jsonl_fixture(
+            stdout.into_bytes(),
+            temp.path(),
+            include_str!("../tests/fixtures/headless_jsonl_cancelled.jsonl"),
+        );
     }
 
     #[test]
@@ -504,8 +1068,15 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        run_with_io(&cli, "read the file", &mut stdout, &mut stderr, &CancelToken::new())
-            .expect("headless tool run succeeds");
+        run_with_io(
+            &cli,
+            "read the file",
+            HeadlessOutput::text(),
+            &mut stdout,
+            &mut stderr,
+            &CancelToken::new(),
+        )
+        .expect("headless tool run succeeds");
 
         let result = String::from_utf8(stdout).expect("stdout is UTF-8");
         let diagnostics = String::from_utf8(stderr).expect("stderr is UTF-8");
@@ -531,6 +1102,7 @@ mod tests {
         let setup = run_with_io(
             &Cli { cwd: temp.path().to_path_buf(), ..Cli::default() },
             "reply",
+            HeadlessOutput::text(),
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
@@ -542,8 +1114,15 @@ mod tests {
 
         let mut cli = fixture_cli(temp.path(), "lifecycle");
         cli.acp_agents.get_mut("local").expect("fixture agent").command = "thndrs-missing-provider".to_string();
-        let failure = run_with_io(&cli, "reply", &mut stdout, &mut stderr, &CancelToken::new())
-            .expect_err("missing provider executable fails");
+        let failure = run_with_io(
+            &cli,
+            "reply",
+            HeadlessOutput::text(),
+            &mut stdout,
+            &mut stderr,
+            &CancelToken::new(),
+        )
+        .expect_err("missing provider executable fails");
         assert_eq!(failure.exit.code(), EXIT_FAILURE);
     }
 
@@ -554,8 +1133,15 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        let error = run_with_io(&cli, "write the file", &mut stdout, &mut stderr, &CancelToken::new())
-            .expect_err("permission cannot be answered headlessly");
+        let error = run_with_io(
+            &cli,
+            "write the file",
+            HeadlessOutput::text(),
+            &mut stdout,
+            &mut stderr,
+            &CancelToken::new(),
+        )
+        .expect_err("permission cannot be answered headlessly");
 
         assert_eq!(error.exit.code(), EXIT_POLICY);
         assert!(stdout.is_empty());
@@ -579,8 +1165,15 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        let error = run_with_io(&cli, "wait", &mut stdout, &mut stderr, &cancellation)
-            .expect_err("cancelled run does not succeed");
+        let error = run_with_io(
+            &cli,
+            "wait",
+            HeadlessOutput::text(),
+            &mut stdout,
+            &mut stderr,
+            &cancellation,
+        )
+        .expect_err("cancelled run does not succeed");
         canceller.join().expect("canceller joins");
 
         assert_eq!(error.exit.code(), EXIT_CANCELLED);

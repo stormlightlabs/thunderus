@@ -1,0 +1,8 @@
+{"version":1,"type":"started"}
+{"version":1,"type":"status","message":"acp: starting `local` with python3 <fake-acp-agent> lifecycle"}
+{"version":1,"type":"status","message":"acp stderr: fake-agent stderr diagnostic"}
+{"version":1,"type":"status","message":"acp: connected to fake-acp-agent 0.0.0"}
+{"version":1,"type":"status","message":"acp: session fake-session-1"}
+{"version":1,"type":"acp_session","agent_name":"local","session_id":"fake-session-1","protocol_version":"ProtocolVersion(1)"}
+{"version":1,"type":"text","text":"pong from fake ACP agent"}
+{"version":1,"type":"completed"}

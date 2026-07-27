@@ -1,0 +1,10 @@
+{"version":1,"type":"started"}
+{"version":1,"type":"status","message":"acp: starting `local` with python3 <fake-acp-agent> fs-read"}
+{"version":1,"type":"status","message":"acp stderr: fake-agent stderr diagnostic"}
+{"version":1,"type":"status","message":"acp: connected to fake-acp-agent 0.0.0"}
+{"version":1,"type":"status","message":"acp: session fake-session-1"}
+{"version":1,"type":"acp_session","agent_name":"local","session_id":"fake-session-1","protocol_version":"ProtocolVersion(1)"}
+{"version":1,"type":"tool_started","id":"acp-read-<workspace>/readme.txt","name":"acp.fs.read_text_file","arguments":"{\"path\":\"<workspace>/readme.txt\",\"line\":1,\"limit\":5}"}
+{"version":1,"type":"tool_finished","id":"acp-read-<workspace>/readme.txt","status":"ok","output":["read <workspace>/readme.txt (10 bytes)"]}
+{"version":1,"type":"text","text":"read: alpha\nbeta"}
+{"version":1,"type":"completed"}

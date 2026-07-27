@@ -535,7 +535,22 @@ mod tests {
 
         assert!(matches!(
             cli.command,
-            Some(Command::Run(commands::run::RunCommand { prompt })) if prompt == "inspect the current workspace"
+            Some(Command::Run(commands::run::RunCommand { prompt: Some(prompt), jsonl: false, .. }))
+                if prompt == "inspect the current workspace"
+        ));
+    }
+
+    #[test]
+    fn run_command_accepts_jsonl_without_a_positional_prompt() {
+        let cli = Cli::try_parse_from(["thndrs", "run", "--jsonl", "--stdin-max-bytes", "128"]).expect("parse run");
+
+        assert!(matches!(
+            cli.command,
+            Some(Command::Run(commands::run::RunCommand {
+                prompt: None,
+                jsonl: true,
+                stdin_max_bytes: 128,
+            }))
         ));
     }
 
