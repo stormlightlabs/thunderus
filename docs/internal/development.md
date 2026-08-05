@@ -47,38 +47,26 @@ of work on capable resources.
 - Use explicit pane or agent identifiers for automation. Visual focus is for
   the human and can change at any time.
 
-## A Bounded Agent Loop
+## Agent Loop
 
-1. Inspect the current workspace and decide whether another process is
-   necessary.
-2. Open a sibling pane in the same working directory without stealing focus.
-3. Start one agent or command and record its pane identifier.
-4. Give an agent a narrow prompt that names the deliverable and verification.
-5. Wait for meaningful state or output instead of continuously polling.
-6. Inspect the worker's result and the shared working tree.
-7. Run only the checks needed to establish correctness.
-8. Continue the same worker when context is useful; otherwise stop it and close
-   the pane.
+1. Inspect the workspace and define one deliverable.
+2. Open one worker pane without stealing focus and record its ID.
+3. Give the worker the deliverable, constraints, and focused check.
+4. Wait for useful output, then review the files it changed.
+5. Run the smallest check that proves the change.
+6. Reuse the worker when its context helps; otherwise close the pane.
 
-The orchestrator reviews outcomes rather than accepting an agent's claim that
-the task is complete. Repository state and command results are the source of
-truth.
+The user may change Git state during the task. Track files from tool calls and
+worker reports; use Git only as read-only supporting evidence.
 
 ## Herdr
 
-Herdr adds workspaces, tabs, stable pane identifiers, and semantic agent states
-to normal terminal panes. Use its `agent` commands for recognized coding agents
-and its `pane` commands for shells, servers, tests, and other processes.
-
-When controlling Herdr from inside one of its panes, first verify that the
-integration environment is present:
+Use `agent` commands for recognized agents and `pane` commands for other
+processes. Verify control first:
 
 ```sh
 test "${HERDR_ENV:-}" = 1
 ```
-
-Discover commands with targeted help. Running bare `herdr` launches or attaches
-the interface, so do not use it for command discovery.
 
 ```sh
 herdr --help
@@ -86,20 +74,11 @@ herdr pane --help
 herdr agent --help
 ```
 
-Create a sibling pane without moving the human's focus, then use the pane
-identifier returned by Herdr:
-
 ```sh
 herdr pane split --current --direction right --cwd "$PWD" --no-focus
 herdr agent start worker --kind codex --pane w1:p2
 herdr agent prompt worker "Fix the failing parser test. Keep the change local and run the focused test." --wait --timeout 120000
 ```
-
-Replace `w1:p2` with the identifier returned by `pane split`. Prefer explicit
-identifiers such as `w1`, `w1:t1`, and `w1:p2`; use `--current` only when the
-current pane is intentionally the target.
-
-Inspect an agent through the lifecycle-aware commands:
 
 ```sh
 herdr agent get worker
@@ -107,66 +86,41 @@ herdr agent read worker
 herdr agent wait worker --timeout 120000
 ```
 
-For ordinary commands, use pane controls:
+For ordinary commands:
 
 ```sh
 herdr pane run w1:p3 -- cargo test -p thndrs-agent parser
 herdr pane read w1:p3 --source recent-unwrapped
 ```
 
-Herdr reports agents as `idle`, `working`, `blocked`, `done`, or `unknown`.
-`blocked` means the worker needs inspection. `unknown` does not mean the work is
-finished. If an alternate-screen application has no recoverable history, ask
-the worker for a short result in its terminal or, when durable output is truly
-needed, a temporary Markdown file.
+Inspect `blocked`; do not treat `unknown` as complete. If alternate-screen
+history is missing, ask the worker for a short result.
 
 ## tmux
 
-tmux is widely available and reliable for shells and long-running processes,
-but it does not know whether a coding agent is working, blocked, or done. The
-orchestrator must infer lifecycle from the process and its output.
-
-Create a detached sibling pane in the current directory and capture its stable
-pane identifier:
+tmux does not report agent state. Capture the pane ID and bounded output.
 
 ```sh
 worker_pane=$(tmux split-window -h -d -c "#{pane_current_path}" -P -F '#{pane_id}')
 tmux send-keys -t "$worker_pane" 'codex' Enter
 ```
 
-Target later interaction and inspection by that identifier:
-
 ```sh
 tmux send-keys -t "$worker_pane" 'Run the focused parser test and summarize the result.' Enter
 tmux capture-pane -p -t "$worker_pane" -S -200
-```
-
-Use `split-window -v` for a pane below the current one. Keep captures bounded;
-`-S -200` reads recent history instead of dumping the entire pane. When the
-process is no longer needed, confirm the identifier and close only that pane:
-
-```sh
 tmux kill-pane -t "$worker_pane"
 ```
 
-Sending text and `Enter` separately is safer when the target program has its
-own input editor. Do not enable pane synchronization for agent work: the same
-prompt or command could be sent to every pane.
+Send text and `Enter` separately for programs with their own input editor. Do
+not synchronize agent panes.
 
 ## Zellij
 
-Zellij provides discoverable keybindings, named panes, layouts, and stable pane
-identifiers. Like tmux, it manages terminals rather than agent lifecycle.
-
-Open a named pane in the current directory and run a command directly:
+Zellij provides named panes and layouts but does not report agent state.
 
 ```sh
 zellij action new-pane --direction right --cwd "$PWD" --name tests -- cargo test -p thndrs-agent parser
 ```
-
-The command prints the created pane identifier. For an interactive worker, omit
-the command after `--` and start the agent in the new shell. Use the action
-commands to inspect and target the session:
 
 ```sh
 zellij action list-panes
@@ -174,23 +128,15 @@ zellij action send-keys --pane-id terminal_2 'Ctrl c'
 zellij action close-pane --pane-id terminal_2
 ```
 
-Prefer pane identifiers for cleanup. `close-pane` without `--pane-id` closes
-the focused pane, which is fragile when a human is navigating the session.
-Avoid synchronized input for the same reason as tmux.
-
-For recurring arrangements, use a checked-in Zellij layout only when the
-layout itself is stable and valuable. A one-off task is usually clearer as one
-or two explicit `new-pane` commands.
+`close-pane` without an ID closes the focused pane. Avoid synchronized input.
 
 ## Choosing a Tool
 
-| Need                                               | Best fit       |
-| -------------------------------------------------- | -------------- |
-| Start, prompt, wait for, and inspect coding agents | Herdr          |
-| Portable terminal multiplexing on an existing host | tmux           |
-| Interactive layouts with discoverable controls     | Zellij         |
-| One short command or one agent                     | No multiplexer |
+| Need                                | Use            |
+| ----------------------------------- | -------------- |
+| Agent lifecycle and stable pane IDs | Herdr          |
+| Portable terminal multiplexing      | tmux           |
+| Named interactive layouts           | Zellij         |
+| One short command or agent          | No multiplexer |
 
-A multiplexer should reduce coordination cost. If maintaining the layout,
-reading several transcripts, or managing machine load takes more attention than
-the task itself, return to one process and one bounded deliverable.
+If the layout costs more attention than the task, return to one process.

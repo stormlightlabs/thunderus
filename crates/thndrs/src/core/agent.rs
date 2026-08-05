@@ -951,9 +951,31 @@ fn project_failed_tool_input(
 
 /// Best-effort classifier for prompts that should not finish without a
 /// workspace write. This is intentionally narrow: it requires both a file-ish
-/// reference and an edit/action verb.
+/// reference and an edit/action verb, unless the prompt explicitly disallows
+/// file changes.
 pub fn prompt_expects_workspace_write(prompt: &str) -> bool {
     let lower = prompt.to_ascii_lowercase();
+    if [
+        "read-only",
+        "read only",
+        "do not edit",
+        "don't edit",
+        "do not modify",
+        "don't modify",
+        "do not write",
+        "don't write",
+        "without editing",
+        "without modifying",
+        "without writing",
+        "no edits",
+        "no file changes",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    {
+        return false;
+    }
+
     let fileish = lower.contains(".md")
         || lower.contains(".rs")
         || lower.contains(".toml")
@@ -2842,6 +2864,13 @@ mod tests {
     fn prompt_expects_workspace_write_ignores_plain_file_questions() {
         assert!(!prompt_expects_workspace_write("what does TODO.md contain?"));
         assert!(!prompt_expects_workspace_write("summarize the project architecture"));
+    }
+
+    #[test]
+    fn prompt_expects_workspace_write_ignores_explicit_read_only_instructions() {
+        assert!(!prompt_expects_workspace_write(
+            "Review the changes and tell me what should be shortened. Do not edit files."
+        ));
     }
 
     #[test]

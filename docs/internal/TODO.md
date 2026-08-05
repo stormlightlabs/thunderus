@@ -87,9 +87,9 @@ path.
 - [ ] ChatGPT Codex browser OAuth, explicit device-code OAuth, cancellation,
       expired/revoked credential recovery, and transient service failure are
       exercised without recording tokens, account identifiers, or OAuth URLs.
-- [ ] Umans hidden credential entry, environment override behavior, rejected-key
-      recovery, and transient service failure are exercised without recording
-      credentials.
+- [ ] OpenCode Zen and OpenCode Go credential entry, environment overrides,
+      rejected-key recovery, and transient service failure are exercised
+      without recording credentials.
 - [ ] Each provider completes a bounded edit, uses local tools, runs verification,
       exposes inspectable output, and resumes the resulting session.
 - [ ] Session inspection, export, logs, diagnostics, and prompt inspection are
@@ -509,30 +509,3 @@ read-only subagents
 
 - Temporary-repository tests cover success, cancellation, dirty state, and
   cleanup failure.
-
-## PL-27: Keep long-running transcripts responsive
-
-**What to build:** Keep composing, steering, scrolling, and tool progress
-responsive as a conversation and its tool history grow.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] The composer remains usable while the agent is working and accepts an
-      explicit queued steering or cancellation request.
-- [ ] One stable tool row moves from running to completed or failed without
-      duplicating intermediate transcript entries.
-- [ ] Routine successful reads and searches are collapsed by default; edits,
-      failures, and permission requests remain prominent.
-- [ ] Tool rows use short human labels, with arguments and bounded output
-      available on demand.
-- [ ] Long transcripts do not make input or scrolling noticeably slower.
-- [ ] New output follows automatically only while the user is already at the
-      bottom of the transcript.
-
-**Verification:**
-
-- State and renderer tests cover working-state input, tool-row updates,
-  collapsed detail, scroll anchoring, and a large bounded transcript.
-- A real-terminal smoke checks typing and scrolling during a tool-heavy run.

@@ -128,6 +128,19 @@ fn failed_provider_restores_input() {
 }
 
 #[test]
+fn failed_provider_preserves_draft_typed_during_run() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("hello world");
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.input = PromptInput::from("draft follow-up");
+
+    update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
+
+    assert_eq!(app.input.as_str(), "draft follow-up");
+    assert_eq!(app.run_state, RunState::Error("boom".to_string()));
+}
+
+#[test]
 fn finished_clears_last_input() {
     let mut app = fresh_app();
     app.input = PromptInput::from("test prompt");

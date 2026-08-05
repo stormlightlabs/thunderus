@@ -123,12 +123,64 @@ The current interaction model has several likely sources of friction:
   TUI session picker;
 - diff detail exists, but review is not yet a complete workflow with an
   explicit read-only review command and structured findings;
+- tool calls are visible, but compact summaries do not always explain their
+  state or effect well enough for an orchestrator to decide whether to wait,
+  inspect, steer, or stop;
 - tests prove components, but there is no short dogfood protocol that records
   where real work becomes slower or less trustworthy than Codex or Pi.
 
 These are hypotheses, not a license for a visual rewrite. Begin with a bounded
 side-by-side workflow study. Fix observed interaction breaks in vertical slices
 and retain the current quiet visual language where it works.
+
+### Study result
+
+The study used one 40x67 Herdr worker pane from the repository root. Prompts
+contained no secrets. thndrs ran Luna at xhigh in ephemeral TUI and headless
+modes. Codex used the current durable session. Pi ran Luna at xhigh with
+`--print --no-session`.
+
+| Harness | Command or session |
+| --- | --- |
+| thndrs TUI | `THNDRS_REASONING_EFFORT=xhigh target/debug/thndrs --cwd <repo> --model chatgpt-codex/gpt-5.6-luna --ephemeral` |
+| thndrs headless | Same options followed by `run --ephemeral '<bounded prompt>'` |
+| Codex | Current durable Codex session with its host-selected model |
+| Pi | `pi --provider openai-codex --model gpt-5.6-luna --thinking xhigh --print --no-session '<bounded prompt>'` |
+
+| Workflow | Result |
+| --- | --- |
+| Orientation and follow-up | Codex retained context across steering. A loosely bounded thndrs headless audit grew past 200 KB before interruption; a one-tool retry finished in seven seconds at about 92 KB. |
+| Edit, review, and verify | Pi made a bounded fix. Codex reviewed the changed files and repeated its tests. thndrs exposed the transcript but not a complete change-review workflow. |
+| Failure and steering | Text remained editable during a thndrs run, but provider failure replaced a live draft with the submitted prompt. The fix now preserves a non-empty draft. Pi print mode gave no useful progress signal before completion. |
+| Interrupt and resume | `Ctrl-C` stopped the headless run cleanly. Ephemeral thndrs and no-session Pi had nothing to resume; Codex retained the conversation. |
+| Read-only delegation | thndrs misclassified an explicit no-edit review as unfinished edit work. The fix now honors explicit read-only instructions. |
+
+Ranked friction:
+
+1. Explicit read-only instructions could be treated as edit work. Fixed and
+   repeated in a focused test and the TUI.
+2. Failure recovery overwrote a draft typed during the run. Fixed and covered
+   by a deterministic lifecycle test.
+3. Tool calls were visible, but a rename repeatedly appeared as
+   `diff after +0 -114`. The files were intact; the orchestrator still had to
+   inspect them to rule out a destructive edit.
+4. Alternate-screen ownership weakens native selection, search, copy, and
+   scrollback.
+5. A loosely bounded headless run consumed time and context without a clear
+   stopping signal. The bounded retry did not reproduce it.
+6. Pi print mode was silent for about three minutes.
+7. Queued text is not inspectable or editable, and change review is incomplete.
+
+An orchestrator needs a compact account of what the agent is doing and whether
+to wait, inspect, steer, or stop. Keep tool calls transparent, but collapse
+routine completed reads and searches. Keep edits, failures, permissions,
+long-running commands, and unexpected scope prominent. Bounded arguments and
+output remain available on demand.
+
+Process cleanup worked, but the orchestrator had to notice completion and close
+its pane. Usage visibility stopped at request consumption; no harness showed
+remaining account capacity. The top three findings were repeated under the
+same terminal, cwd, model, and session policy.
 
 ## User Stories
 
@@ -160,6 +212,9 @@ and retain the current quiet visual language where it works.
   an item before delivery.
 - A user can inspect changes, verification, failures, and full bounded tool
   evidence without leaving the current task.
+- Tool activity stays transparent without becoming an event dump: active and
+  consequential calls remain prominent, routine completed calls collapse, and
+  bounded details are available on demand.
 - A user can find and resume a recent valid session from the TUI without losing
   the current draft.
 - Cancellation, provider failure, pending permission, active model, cwd,

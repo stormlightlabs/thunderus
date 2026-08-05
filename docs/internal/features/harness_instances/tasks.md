@@ -25,20 +25,22 @@ gaps.
 
 **Acceptance criteria:**
 
-- [ ] The study covers orientation/follow-up, edit/review/verify,
+- [x] The study covers orientation/follow-up, edit/review/verify,
       failure/steering, interrupt/resume, and read-only delegation.
-- [ ] Findings record commands, terminal dimensions, model, cwd, and session
+- [x] Findings record commands, terminal dimensions, model, cwd, and session
       policy without storing sensitive prompts or credentials.
-- [ ] Every finding names lost time, lost evidence, unclear state, or failed
+- [x] Every finding names lost time, lost evidence, unclear state, or failed
       control rather than visual preference alone.
-- [ ] The ledger evaluates native selection/search/scrollback, queued-input
+- [x] The ledger evaluates native selection/search/scrollback, queued-input
       management, change review, session recovery, usage visibility, and
       process cleanup.
-- [ ] The owner ranks the small set of gaps that prevent daily use.
+- [x] The owner ranks the small set of gaps that prevent daily use.
 
 **Verification:**
 
 - Repeat the top three findings and confirm they are reproducible.
+
+**Result:** Recorded in the plan's daily-driver study result.
 
 ### Ticket 2: Define The Harness Instance Contract
 
@@ -85,18 +87,18 @@ and session-readiness bar as ChatGPT Codex.
 
 **Acceptance criteria:**
 
-- [ ] First-run setup presents ChatGPT Codex, OpenCode Zen, and OpenCode Go;
+- [x] First-run setup presents ChatGPT Codex, OpenCode Zen, and OpenCode Go;
       Umans is absent.
-- [ ] Existing Umans configuration fails with one actionable unsupported-route
+- [x] Existing Umans configuration fails with one actionable unsupported-route
       message and does not silently select another provider.
-- [ ] Stored Umans credentials are not read for runs, displayed, migrated, or
+- [x] Stored Umans credentials are not read for runs, displayed, migrated, or
       deleted automatically.
-- [ ] OpenCode credential setup, validation, cancellation, rejected-key
+- [x] OpenCode credential setup, validation, cancellation, rejected-key
       recovery, model discovery, and reasoning controls have deterministic
       coverage.
-- [ ] Public documentation and release smokes name ChatGPT Codex and OpenCode as
+- [x] Public documentation and release smokes name ChatGPT Codex and OpenCode as
       the supported provider routes.
-- [ ] Dead Umans adapter/auth/model code is removed after all callers and docs
+- [x] Dead Umans adapter/auth/model code is removed after all callers and docs
       migrate, without changing provider-neutral library APIs.
 
 **Verification:**
@@ -288,16 +290,24 @@ instance from transcript-oriented detail surfaces.
 **Exit criterion:** The owner completes the study workflows without a remaining
 high-severity friction item.
 
-### Ticket 11: Fix Transcript Ownership And Terminal Navigation
+### Ticket 11: Keep The Transcript Informative And Navigable
 
-**What to build:** Implement the smallest terminal-ownership change that closes
-the study's scrollback, selection, search, copy, and resize findings.
+**What to build:** Keep tool activity understandable during a run, then make the
+smallest terminal-ownership change that closes the study's scrollback,
+selection, search, copy, and resize findings.
 
 **Blocked by:** Ticket 1: Run The Daily-Driver Workflow Study
 
 **Acceptance criteria:**
 
 - [ ] The design is justified by reproduced study evidence.
+- [ ] Active tool calls show a stable name and state. Edits, failures,
+      permission requests, long-running commands, and unexpected scope remain
+      prominent.
+- [ ] Routine successful reads and searches collapse after completion. Bounded
+      arguments and output remain available on demand.
+- [ ] Tool summaries describe the actual effect and never turn an unknown diff
+      into a deletion count.
 - [ ] Completed rows are stable and searchable/selectable through the chosen
       terminal workflow.
 - [ ] Prompt, streaming rows, focused surfaces, and cursor redraw without
@@ -307,7 +317,9 @@ the study's scrollback, selection, search, copy, and resize findings.
 
 **Verification:**
 
-- Semantic frame tests, bounded PTY tests, and repetition of affected workflows.
+- State and semantic-frame tests cover tool-row transitions, collapsed detail,
+  bounded output, and accurate edit summaries. Bounded PTY tests repeat the
+  affected navigation and long-transcript workflows.
 
 ### Ticket 12: Make Queued Input Inspectable And Editable
 

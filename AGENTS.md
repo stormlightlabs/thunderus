@@ -5,7 +5,9 @@ project instructions, local tools, and durable sessions.
 
 ## Development
 
-The working tree is user-owned. Treat Git as read-only unless a user requests a Git operation.
+The working tree is user-owned. Treat Git as read-only unless a user requests a Git
+operation. The user may change Git state while agents work. Track files changed by
+your own actions so do not use Git status as the sole record of agent work.
 
 ## Workspace
 
@@ -55,4 +57,6 @@ cargo clippy --workspace
 cargo test --workspace
 ```
 
-Public documentation changes require `pnpm --dir docs build`.
+Documentation in the doc site changes require `pnpm --dir docs build`.
+
+Root level & `docs/internal` files don't require a docs build.

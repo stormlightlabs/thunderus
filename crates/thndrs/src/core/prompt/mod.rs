@@ -89,7 +89,7 @@ impl PromptFragment {
 ///
 /// Each field is a separate piece of model context. The [`std::fmt::Display`]
 /// implementation renders the full system prompt text;
-/// [`lower_to_umans_messages`] converts it to provider-compatible messages.
+/// [`lower_to_provider_messages`] converts it to provider-compatible messages.
 #[derive(Clone, Debug)]
 pub struct PromptBundle {
     /// Ordered prompt fragments: base identity, communication style, action
@@ -394,7 +394,7 @@ fn push_item_meta(out: &mut String, indent: usize, item: &ContextItem) {
 /// alternating user/assistant messages.
 ///
 /// The final message is the current user turn.
-pub fn lower_to_umans_messages(bundle: &PromptBundle) -> Vec<ProviderMessage> {
+pub fn lower_to_provider_messages(bundle: &PromptBundle) -> Vec<ProviderMessage> {
     let mut messages = vec![ProviderMessage::user(&render_system_prompt(bundle))];
 
     for entry in &bundle.transcript_tail {

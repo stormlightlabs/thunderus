@@ -203,8 +203,13 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             cancel_pending_permission(app);
             app.transcript.push(Entry::Error { text: msg.clone() });
             app.run_state = RunState::Error(msg);
-            if !manual_compaction && let Some(input) = app.last_input.take() {
-                app.input.set_text(&input);
+            if !manual_compaction {
+                let submitted_input = app.last_input.take();
+                if app.input.is_empty()
+                    && let Some(input) = submitted_input
+                {
+                    app.input.set_text(&input);
+                }
             }
             persist_last_entry(app);
             open_credential_recovery_after_rejection(app);

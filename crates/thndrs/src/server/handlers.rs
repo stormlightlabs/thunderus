@@ -1367,7 +1367,7 @@ fn run_prompt_turn(
         config = config.with_mcp_manager(Arc::new(McpManager::from_config(&mcp_config)));
     }
     let bundle = prompt::PromptBundle::new(&config.root, &config.model, config.search_mode, &[], &[], "");
-    let mut messages = crate::prompt::lower_to_umans_messages(&bundle);
+    let mut messages = crate::prompt::lower_to_provider_messages(&bundle);
     if !prompt.provider_blocks.is_empty() {
         messages.push(ProviderMessage::user_blocks(prompt.provider_blocks.clone()));
     }

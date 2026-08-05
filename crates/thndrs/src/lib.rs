@@ -191,7 +191,7 @@ pub fn run(cli: &Cli) -> io::Result<()> {
 /// the output is stable for snapshot testing.
 pub fn render_print_prompt(bundle: &PromptBundle) -> String {
     let system_prompt = prompt::render_system_prompt(bundle);
-    let messages = prompt::lower_to_umans_messages(bundle);
+    let messages = prompt::lower_to_provider_messages(bundle);
     let tool_catalog = prompt::render_tool_catalog(bundle);
     let mut out = String::new();
 
@@ -1487,7 +1487,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
         let metadata = session::PromptMetadata::from_bundle(&bundle);
         let _ = writer.append_prompt_metadata(&turn_id, &metadata);
     }
-    let messages = prompt::lower_to_umans_messages(&bundle);
+    let messages = prompt::lower_to_provider_messages(&bundle);
     let expects_write = agent::prompt_expects_workspace_write(&prompt);
     let (steering_tx, steering_rx) = mpsc::channel();
     let turn = harness::HarnessTurn::provider_with_steering(config, messages, expects_write, steering_rx).start();
@@ -1529,7 +1529,7 @@ fn preflight_requires_auto_compaction(app: &App, bundle: &PromptBundle) -> bool 
     }
     let provider = acp::config::provider_label(&app.model);
     let (limits, _) = agent_context::ModelContextLimits::resolve(provider, &app.model, None, None);
-    let messages = prompt::lower_to_umans_messages(bundle);
+    let messages = prompt::lower_to_provider_messages(bundle);
     let bytes = messages.iter().map(|message| message.as_text().len()).sum::<usize>();
     let estimate = agent_context::estimate_tokens(bytes) as u64;
     matches!(

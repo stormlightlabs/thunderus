@@ -125,7 +125,7 @@ For the human provider gate:
 
 - [ ] ChatGPT Codex browser OAuth, explicit device-code OAuth, cancellation,
       expired or revoked credential recovery, and transient service failure work.
-- [ ] Umans hidden credential entry, `UMANS_API_KEY` override behavior,
+- [ ] OpenCode Zen and OpenCode Go credential entry, environment overrides,
       rejected-key recovery, and transient service failure work.
 - [ ] Each first-class provider completes one bounded coding task, uses approved
       local tools, runs verification, exposes inspectable output, and resumes the
@@ -136,7 +136,8 @@ Record only redacted results:
 - Clean-home preparation:
 - Setup and diagnostics:
 - ChatGPT Codex smoke:
-- Umans smoke:
+- OpenCode Zen smoke:
+- OpenCode Go smoke:
 - Terminal review:
 - Session and redaction review:
 

@@ -330,9 +330,9 @@ fn unavailable_history_reuse_includes_truncated_content() {
 }
 
 #[test]
-fn lower_to_umans_produces_messages() {
+fn lower_to_provider_produces_messages() {
     let bundle = test_bundle();
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     assert!(!messages.is_empty());
     assert_eq!(messages[0].role, "user");
     assert!(messages[0].as_text().contains("thndrs"));
@@ -343,19 +343,19 @@ fn lower_to_umans_produces_messages() {
 }
 
 #[test]
-fn lower_to_umans_includes_transcript_tail() {
+fn lower_to_provider_includes_transcript_tail() {
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![
         Entry::User { text: "what is this?".to_string() },
         Entry::Agent { text: "a repo".to_string(), streaming: false },
     ];
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     assert!(messages.len() >= 3);
 }
 
 #[test]
-fn lower_to_umans_excludes_streaming_deltas() {
+fn lower_to_provider_excludes_streaming_deltas() {
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![
         Entry::User { text: "hi".to_string() },
@@ -364,7 +364,7 @@ fn lower_to_umans_excludes_streaming_deltas() {
         Entry::Agent { text: "done".to_string(), streaming: false },
     ];
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     let all_content: String = messages.iter().map(|m| m.as_text()).collect();
     assert!(
         !all_content.contains("partial"),
@@ -381,7 +381,7 @@ fn lower_to_umans_excludes_streaming_deltas() {
 }
 
 #[test]
-fn lower_to_umans_excludes_running_tools() {
+fn lower_to_provider_excludes_running_tools() {
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![
         Entry::User { text: "hi".to_string() },
@@ -399,7 +399,7 @@ fn lower_to_umans_excludes_running_tools() {
         },
     ];
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     let all_content: String = messages.iter().map(|m| m.as_text()).collect();
     assert!(
         !all_content.contains("find_files#0"),
@@ -412,7 +412,7 @@ fn lower_to_umans_excludes_running_tools() {
 }
 
 #[test]
-fn lower_to_umans_excludes_status_entries() {
+fn lower_to_provider_excludes_status_entries() {
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![
         Entry::Status { text: "loaded context".to_string() },
@@ -420,7 +420,7 @@ fn lower_to_umans_excludes_status_entries() {
         Entry::Error { text: "boom".to_string() },
     ];
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     let all_content: String = messages.iter().map(|m| m.as_text()).collect();
     assert!(
         !all_content.contains("loaded context"),
@@ -677,7 +677,7 @@ fn lowering_includes_agents_md_in_system_message() {
         byte_count: 30,
     }];
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     assert!(!messages.is_empty());
     assert_eq!(messages[0].role, "user");
     assert!(
@@ -709,7 +709,7 @@ fn lowering_multi_turn_transcript_tail() {
     ];
     bundle.user_turn = "now read it".to_string();
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     assert_eq!(messages.len(), 7, "expected system + 5 transcript + user turn");
     assert_eq!(messages[0].role, "user");
     assert!(messages[0].as_text().contains("thndrs"));
@@ -731,7 +731,7 @@ fn lowering_tool_entry_becomes_user_message_with_output() {
         output: vec!["src/main.rs".to_string(), "src/lib.rs".to_string()],
     }];
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     let tool_msg = messages
         .iter()
         .find(|m| m.as_text().contains("find_files#0"))
@@ -752,7 +752,7 @@ fn lowering_tool_with_empty_output_notes_no_output() {
         output: Vec::new(),
     }];
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     let tool_msg = messages
         .iter()
         .find(|m| m.as_text().contains("search_text#0"))
@@ -774,7 +774,7 @@ fn lowering_reasoning_entry_becomes_assistant_message() {
         Entry::Agent { text: "final answer".to_string(), streaming: false },
     ];
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     let reasoning_msg = messages
         .iter()
         .find(|m| m.as_text().contains("thinking step"))
@@ -788,7 +788,7 @@ fn lowering_empty_user_turn_omits_trailing_message() {
     let mut bundle = test_bundle();
     bundle.user_turn = String::new();
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     assert_eq!(
         messages.len(),
         1,
@@ -807,7 +807,7 @@ fn lowering_role_sequence_is_correct() {
     ];
     bundle.user_turn = "q2".to_string();
 
-    let messages = lower_to_umans_messages(&bundle);
+    let messages = lower_to_provider_messages(&bundle);
     let roles: Vec<&str> = messages.iter().map(|m| m.role.as_str()).collect();
     assert_eq!(roles, vec!["user", "user", "assistant", "user"]);
 }
