@@ -26,19 +26,17 @@ choose a provider and model before submitting a coding prompt. After setup,
 `--model` overrides that selection for one run.
 
 ```sh
-thndrs --model umans-coder
+thndrs --model opencode/big-pickle
 ```
 
 Built-in provider model prefixes include:
 
 - `chatgpt-codex/<model-id>`, for ChatGPT-backed Codex
-- `umans-coder`
-- `umans-glm-5.2`
 - `opencode/<model-id>`, for OpenCode Zen
 - `opencode-go/<model-id>`, for OpenCode Go
 
-ChatGPT Codex and Umans are the first-class v0.1 workflows. OpenCode providers
-and configured ACP agents are advanced integrations.
+ChatGPT Codex and OpenCode are the supported built-in workflows. Configured
+ACP agents remain available as advanced integrations.
 
 ## Web Searching
 
@@ -71,7 +69,9 @@ with an application-owned transcript.
 Page Up and Page Down scroll by a page; Alt+Up and Alt+Down scroll by a line;
 Ctrl+Home and Ctrl+End jump to the oldest entry and the live tail.
 
-Use `--mouse` to enable transcript wheel scrolling and mouse navigation in pickers.
+Mouse capture is enabled by default for transcript wheel scrolling and mouse
+navigation in pickers.
 
-Use `--no-mouse` to disable capture. Most terminal emulators let you hold a modifier
-while selecting text when capture is enabled.
+Use `--no-mouse` to preserve native terminal selection and scrollback. Most
+terminal emulators let you hold a modifier while selecting text when capture is
+enabled.

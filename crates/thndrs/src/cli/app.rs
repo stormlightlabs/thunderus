@@ -69,7 +69,7 @@ use crate::cli::git::{self, GitStatusSummary};
 use crate::cli::input::history::{INPUT_HISTORY_LIMIT, InputHistoryStore};
 use crate::cli::{Cli, MIN_TICK_RATE_MS, ReasoningEffort, Theme, WebSearchMode};
 use crate::input::PromptInput;
-use crate::providers::{codex, opencode, umans};
+use crate::providers::{codex, opencode};
 use crate::thndrs_core::auth;
 use crate::tools::shell::ProcessRegistry;
 use crate::{config, fuzzy, internals, prompt, session, skills, tools, utils};

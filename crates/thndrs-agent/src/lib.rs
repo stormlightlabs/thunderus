@@ -9,6 +9,7 @@ pub mod budget;
 pub mod cancel;
 pub mod context;
 pub mod contracts;
+pub mod instances;
 pub mod replay;
 pub mod run;
 
@@ -29,6 +30,14 @@ pub use context::reduction::{measure_lines, reduce_lines, reduce_projection, ren
 pub use contracts::{
     AgentEvent, AgentMessage, AgentTurn, RetryPolicy, ToolDefinition, ToolDisplayProjection, ToolEvidenceKind,
     ToolEvidenceMetadata, ToolModelProjection, ToolOutput, ToolPermissionDecision, ToolStatus, ToolUseRequest,
+};
+pub use instances::{
+    AccountCapacitySnapshot, AccountCapacityWindow, CapacityField, CapacityProvider, ChangeHandle, ChangedPath,
+    DelegationBudget, InstanceAuthority, InstanceBounds, InstanceContractError, InstanceId, InstanceIdentity,
+    InstanceLifecycle, InstanceModel, InstanceOutcome, InstanceSessionPolicy, InstanceSettings, InstanceSpecification,
+    InstanceStatus, MAX_INSTANCE_CHANGED_PATHS, MAX_INSTANCE_EVIDENCE, MAX_INSTANCE_OUTPUT_BYTES,
+    MAX_INSTANCE_RETAINED_EVENTS, MAX_INSTANCE_RUNTIME_MS, MAX_INSTANCE_SUMMARY_BYTES, MAX_INSTANCE_TOOL_CALLS,
+    ReasoningSetting, SearchSetting, SemanticEvidence, SessionHandle, SettledInstanceResult, WriteApproval,
 };
 pub use replay::{
     BaselinePolicy, CandidatePolicy, ProjectionReport, RecordedProviderUsage, RecoveryCase, RecoveryOutcome,

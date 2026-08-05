@@ -886,14 +886,9 @@ pub fn open_skill_picker(app: &mut App) {
 }
 
 pub fn offline_model_picker_items() -> Vec<PickerItem> {
-    umans::known_models()
+    opencode::known_models()
         .into_iter()
         .map(|model| PickerItem::new(model.id, model.description))
-        .chain(
-            opencode::known_models()
-                .into_iter()
-                .map(|model| PickerItem::new(model.id, model.description)),
-        )
         .chain(
             codex::known_models()
                 .into_iter()

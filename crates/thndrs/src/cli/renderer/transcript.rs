@@ -598,7 +598,11 @@ impl App {
         let snapshot = self.self_knowledge_snapshot();
         let sections = snapshot.startup_sections();
         let context_lines = self.startup_section_lines(&sections, "Context");
-        let diagnostics = self.startup_section_lines(&sections, "Diagnostics");
+        let diagnostics = self
+            .startup_section_lines(&sections, "Diagnostics")
+            .into_iter()
+            .skip(self.skill_diagnostics.len())
+            .collect::<Vec<_>>();
 
         let mut rows = Vec::new();
         push_banner_brand_row(&mut rows, theme);
@@ -621,11 +625,14 @@ impl App {
         push_banner_readiness_row(&mut rows, &context_text, &context_path, context_ready, theme);
 
         let skill_count = snapshot.inventory.references.skills.len();
-        let skills_text = match skill_count {
+        let mut skills_text = match skill_count {
             0 => "No skills available".to_string(),
             1 => "1 skill available".to_string(),
             count => format!("{count} skills available"),
         };
+        if !self.skill_diagnostics.is_empty() {
+            skills_text.push_str(&format!(" · {} skipped", self.skill_diagnostics.len()));
+        }
         push_banner_readiness_row(&mut rows, &skills_text, "skills", skill_count > 0, theme);
 
         let search_mode = snapshot.runtime.provider.search.mode.as_str();

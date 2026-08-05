@@ -32,7 +32,8 @@ Provider credentials can also be managed directly:
 
 ```sh
 thndrs setup --provider chatgpt-codex
-thndrs setup --provider umans
+thndrs setup --provider opencode-zen
+thndrs setup --provider opencode-go
 thndrs auth status
 ```
 

@@ -122,5 +122,6 @@ closes the active surface before it affects the prompt.
 `Ctrl+O` opens the highest-priority available detail: failed tool output,
 truncated tool output, latest edit/diff detail, then latest warning or error.
 
-Mouse capture is disabled by default. Native terminal selection and scrollback
-remain available unless mouse support is explicitly enabled for overlay testing.
+Mouse capture is enabled by default so wheel input scrolls the transcript instead
+of being interpreted as prompt-history navigation. Use `--no-mouse` to preserve
+native terminal selection and scrollback.

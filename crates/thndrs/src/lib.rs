@@ -186,7 +186,7 @@ pub fn run(cli: &Cli) -> io::Result<()> {
 /// Render the `--print-prompt` debug view as a string.
 ///
 /// Produces a human-readable dump of the assembled prompt bundle: system prompt,
-/// tool catalog, lowered Umans messages, and environment metadata. Secrets
+/// tool catalog, lowered provider messages, and environment metadata. Secrets
 /// (`sk-` prefixed values) are redacted. The date is replaced with `[date]` so
 /// the output is stable for snapshot testing.
 pub fn render_print_prompt(bundle: &PromptBundle) -> String {
@@ -1416,6 +1416,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
     let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch)
         .with_search_url(cli.websearch_url.clone())
         .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
+        .with_extra_read_roots(app.skills.iter().map(|skill| skill.root.clone()).collect())
         .with_model_reduction(app.effective_model_reduction())
         .with_process_registry(app.process_registry.clone());
     if let Some(store) = app.artifact_store() {
@@ -1602,7 +1603,7 @@ mod tests {
             fragments: prompt::default_fragments(),
             environment: prompt::EnvironmentMetadata {
                 cwd: "/repo".to_string(),
-                model: "umans-coder".to_string(),
+                model: "opencode/big-pickle".to_string(),
                 search_mode: WebSearchMode::DuckDuckGo,
                 date: "2026-06-29".to_string(),
             },
@@ -1806,7 +1807,7 @@ for line in sys.stdin:
             config::ConfigOrigin { source: config::ConfigSource::CliFlag, detail: "--model".to_string() },
         );
         let cli = Cli {
-            model: "umans-glm-5.2".to_string(),
+            model: "opencode/gpt-5.6-luna".to_string(),
             websearch: WebSearchMode::Searxng,
             websearch_url: Some("http://127.0.0.1:8080".to_string()),
             session_dir: Some(PathBuf::from("/repo/custom-sessions")),
@@ -1825,8 +1826,8 @@ for line in sys.stdin:
         let output = render_print_prompt_config(&cli, Path::new("/repo"));
 
         assert!(output.contains("=== Effective Config ==="));
-        assert!(output.contains("provider: umans"));
-        assert!(output.contains("model: umans-glm-5.2"));
+        assert!(output.contains("provider: opencode-zen"));
+        assert!(output.contains("model: opencode/gpt-5.6-luna"));
         assert!(output.contains("search: searxng"));
         assert!(output.contains("workspace: /repo"));
         assert!(output.contains("session_dir: /repo/custom-sessions"));
@@ -1838,8 +1839,8 @@ for line in sys.stdin:
 
 
 === Effective Config ===
-  provider: umans
-  model: umans-glm-5.2
+  provider: opencode-zen
+  model: opencode/gpt-5.6-luna
   search: searxng
   workspace: /repo
   session_dir: /repo/custom-sessions
@@ -2032,8 +2033,8 @@ for line in sys.stdin:
             "session-new",
             "/repo",
             "Latest Work",
-            "umans",
-            "umans-coder",
+            "opencode-zen",
+            "opencode/big-pickle",
             "none",
             "0.1.0",
             None,
@@ -2051,7 +2052,7 @@ for line in sys.stdin:
 
         assert!(list_output.contains("session-new"));
         assert!(list_output.contains("Latest Work"));
-        assert!(list_output.contains("umans-coder"));
+        assert!(list_output.contains("opencode/big-pickle"));
         assert!(list_output.contains("in 7 out 11"));
         assert!(latest_output.contains("id: session-new"));
         assert!(latest_output.contains("title: Latest Work"));
@@ -2067,8 +2068,8 @@ for line in sys.stdin:
             "session-old",
             "/repo",
             "Old",
-            "umans",
-            "umans-coder",
+            "opencode-zen",
+            "opencode/big-pickle",
             "none",
             "0.1.0",
             None,
@@ -2080,8 +2081,8 @@ for line in sys.stdin:
             "session-new",
             "/repo",
             "New",
-            "umans",
-            "umans-coder",
+            "opencode-zen",
+            "opencode/big-pickle",
             "none",
             "0.1.0",
             None,
@@ -2105,8 +2106,8 @@ for line in sys.stdin:
             "session-show",
             "/repo",
             "Show",
-            "umans",
-            "umans-coder",
+            "opencode-zen",
+            "opencode/big-pickle",
             "none",
             "0.1.0",
             None,
@@ -2139,8 +2140,8 @@ for line in sys.stdin:
             "session-inspect",
             "/repo",
             "Inspect",
-            "umans",
-            "umans-coder",
+            "opencode-zen",
+            "opencode/big-pickle",
             "none",
             "0.1.0",
             None,
@@ -2181,8 +2182,8 @@ for line in sys.stdin:
             "session-log",
             "/repo",
             "Log",
-            "umans",
-            "umans-coder",
+            "opencode-zen",
+            "opencode/big-pickle",
             "none",
             "0.1.0",
             None,
@@ -2480,17 +2481,9 @@ for line in sys.stdin:
 
     #[test]
     fn maybe_spawn_agent_auto_compacts_oversized_turn_instead_of_spawning() {
-        let workspace = tempfile::tempdir().expect("create authenticated workspace");
-        crate::thndrs_core::auth::set_credential(
-            &crate::thndrs_core::auth::project_credentials_path(workspace.path()),
-            crate::thndrs_core::auth::UMANS_API_KEY_ENV,
-            "test-umans-key",
-        )
-        .expect("seed test credential");
         let mut config = config::Config::default();
         config.context.compaction.mode = agent_context::CompactionMode::Auto;
         let cli = Cli {
-            cwd: workspace.path().to_path_buf(),
             model: "fake-agent".to_string(),
             config_layers: vec![config::LoadedConfigLayer {
                 source: config::ConfigSource::ProjectFile,

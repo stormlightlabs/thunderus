@@ -1,4 +1,4 @@
-//! Unified agent loop for both the fake provider and the Umans provider.
+//! Unified agent loop for the built-in provider routes.
 //!
 //! The loop runs on a background thread and sends [`AgentEvent`]s through a
 //! channel. The TUI drains them with `try_recv`, keeping the UI responsive.
@@ -10,10 +10,8 @@
 //!    tool-use requests.
 //! 3. Each tool-use request is dispatched via [`tools::dispatch_full`] and the
 //!    result is emitted as a `ToolFinished` event appended to the transcript.
-//! 4. For the Umans provider, tool results are fed back into the next turn:
-//!    after each dispatched tool batch, the assistant message (with `tool_use`
-//!    blocks) and the user message (with `tool_result` blocks) are appended to
-//!    the message history, and the provider is re-requested.
+//! 4. Provider tool results are fed back into the next turn using the provider's
+//!    native continuation format.
 //! 5. The loop enforces bounded tool-budget continuations to prevent recursive
 //!    or unbounded tool-call loops while still allowing longer useful runs.
 //! 6. Cancellation is cooperative: the loop checks the shared [`CancelToken`]
@@ -37,7 +35,7 @@ use crate::providers::{
     ProviderContentBlock, ProviderContinuation, ProviderError, ProviderMessage, ProviderTurn, StreamFormat,
     StreamingProvider, StreamingRequest,
 };
-use crate::providers::{anthropic, codex, openai, opencode, umans};
+use crate::providers::{anthropic, codex, openai, opencode};
 use crate::tools::{self, AgentRunConfig, ToolOutput, ToolUseRequest, WriteResult, shell::ProcessResult};
 use thndrs_agent::CancelToken;
 use thndrs_agent::{ModelProjectionMessage, ProviderRequestAccounting, ProviderUsageComponents, ProviderUsageRule};
@@ -49,14 +47,14 @@ const FAILED_TOOL_INPUT_MIN_BYTES: usize = 4 * 1024;
 
 /// Which provider drives this agent run.
 ///
-/// The live app usually uses Umans or OpenCode Go. The fake provider is kept
-/// for deterministic offline smoke tests.
+/// The live app uses ChatGPT Codex or OpenCode. The fake provider is kept for
+/// deterministic offline smoke tests.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderKind {
     /// Deterministic fake provider, i.e. no network, scripted events.
     Fake,
-    /// Umans Code provider
-    Umans,
+    /// Unsupported or unrecognized provider route.
+    Unsupported,
     /// OpenCode Go provider.
     OpenCodeGo,
     /// OpenCode Zen provider.
@@ -76,14 +74,14 @@ impl ProviderKind {
         } else if codex::is_model_id(model) {
             ProviderKind::ChatGptCodex
         } else {
-            ProviderKind::Umans
+            ProviderKind::Unsupported
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
             ProviderKind::Fake => "fake",
-            ProviderKind::Umans => "umans",
+            ProviderKind::Unsupported => "unsupported",
             ProviderKind::OpenCodeGo => "opencode-go",
             ProviderKind::OpenCodeZen => "opencode-zen",
             ProviderKind::ChatGptCodex => "chatgpt-codex",
@@ -254,7 +252,7 @@ impl RunHandle {
         self
     }
 
-    /// The unified agent loop. Dispatches to the fake or Umans provider, handles
+    /// The unified agent loop. Dispatches to a built-in provider, handles
     /// tool-use requests, enforces the per-turn cap, and checks cancellation
     /// cooperatively.
     fn run_agent(&self, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
@@ -265,7 +263,13 @@ impl RunHandle {
 
         match self.provider {
             ProviderKind::Fake => self.run_fake(tx, cancel),
-            ProviderKind::Umans => self.run_provider::<umans::UmansClient>(tx, cancel),
+            ProviderKind::Unsupported => {
+                let _ = send(
+                    tx,
+                    AgentEvent::Failed(crate::cli::commands::setup::UNSUPPORTED_PROVIDER_ROUTE_MESSAGE.to_string()),
+                    cancel,
+                );
+            }
             ProviderKind::OpenCodeGo => self.run_provider::<opencode::OpenCodeGoClient>(tx, cancel),
             ProviderKind::OpenCodeZen => self.run_provider::<opencode::zen::OpenCodeZenClient>(tx, cancel),
             ProviderKind::ChatGptCodex => self.run_provider::<codex::ChatGptCodexClient>(tx, cancel),
@@ -1048,6 +1052,7 @@ fn dispatch_tool_request(
         cancel,
         &search_config,
         handle.config.process_registry.as_ref(),
+        &handle.config.extra_read_roots,
     )
 }
 
@@ -2061,24 +2066,24 @@ mod tests {
                 code: 503,
                 body: "temporarily unavailable".to_string(),
             })
-            .is_retryable::<umans::UmansClient>()
+            .is_retryable::<opencode::OpenCodeGoClient>()
         );
         assert!(
             ProviderAttemptError::Stream("stream read error: connection lost".to_string())
-                .is_retryable::<umans::UmansClient>()
+                .is_retryable::<opencode::OpenCodeGoClient>()
         );
         assert!(
             !ProviderAttemptError::Request(providers::ProviderError::Status {
                 code: 401,
                 body: "unauthorized".to_string()
             })
-            .is_retryable::<umans::UmansClient>()
+            .is_retryable::<opencode::OpenCodeGoClient>()
         );
         assert!(
             !ProviderAttemptError::Stream(
                 "provider stopped at max_tokens (32768) before producing assistant text".to_string()
             )
-            .is_retryable::<umans::UmansClient>()
+            .is_retryable::<opencode::OpenCodeGoClient>()
         );
     }
 
@@ -2327,7 +2332,7 @@ mod tests {
     }
 
     #[test]
-    fn collect_umans_event_reconstructs_streamed_tool_input_json() {
+    fn collect_anthropic_event_reconstructs_streamed_tool_input_json() {
         let (tx, _rx) = mpsc::channel();
         let cancel = CancelToken::new();
         let mut state = AnthropicStreamState::default();
@@ -2387,7 +2392,7 @@ mod tests {
     }
 
     #[test]
-    fn collect_umans_event_tracks_provider_side_content_blocks() {
+    fn collect_anthropic_event_tracks_provider_side_content_blocks() {
         let (tx, _rx) = mpsc::channel();
         let cancel = CancelToken::new();
         let mut state = AnthropicStreamState::default();
@@ -2568,7 +2573,7 @@ mod tests {
         )
         .expect_err("malformed payload should fail");
         assert!(malformed.contains("malformed provider stream payload"));
-        assert!(!ProviderAttemptError::Stream(malformed).is_retryable::<umans::UmansClient>());
+        assert!(!ProviderAttemptError::Stream(malformed).is_retryable::<opencode::OpenCodeGoClient>());
     }
 
     #[test]
@@ -2746,7 +2751,7 @@ mod tests {
         )
         .expect_err("malformed payload should fail");
         assert!(malformed.contains("malformed provider stream payload"));
-        assert!(!ProviderAttemptError::Stream(malformed).is_retryable::<umans::UmansClient>());
+        assert!(!ProviderAttemptError::Stream(malformed).is_retryable::<opencode::OpenCodeGoClient>());
     }
 
     #[test]
@@ -2853,7 +2858,7 @@ mod tests {
             ProviderKind::for_model("chatgpt-codex/gpt-5.5"),
             ProviderKind::ChatGptCodex
         );
-        assert_eq!(ProviderKind::for_model("big-pickle"), ProviderKind::Umans);
+        assert_eq!(ProviderKind::for_model("big-pickle"), ProviderKind::Unsupported);
     }
 
     #[test]

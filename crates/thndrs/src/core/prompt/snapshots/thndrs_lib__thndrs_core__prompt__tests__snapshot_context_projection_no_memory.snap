@@ -184,7 +184,7 @@ expression: prompt
 
 <environment>
   <workspace><![CDATA[/repo]]></workspace>
-  <model><![CDATA[umans-coder]]></model>
+  <model><![CDATA[opencode/big-pickle]]></model>
   <search>duckduckgo</search>
   <date>2026-06-29</date>
 </environment>
@@ -242,10 +242,6 @@ expression: prompt
       <path>docs/src/content/docs/docs/usage/skills.md</path>
     </doc>
     <doc>
-      <topic>Umans provider</topic>
-      <path>docs/src/content/docs/docs/providers/umans.md</path>
-    </doc>
-    <doc>
       <topic>OpenCode Go provider</topic>
       <path>docs/src/content/docs/docs/providers/opencode-go.md</path>
     </doc>
@@ -270,8 +266,8 @@ expression: prompt
     <workspace>/repo</workspace>
     <renderer_mode>direct-inline</renderer_mode>
     <provider>
-      <name>umans</name>
-      <model>umans-coder</model>
+      <name>opencode-zen</name>
+      <model>opencode/big-pickle</model>
       <search>
         <mode>duckduckgo</mode>
         <backend>duckduckgo: DuckDuckGo HTML search</backend>

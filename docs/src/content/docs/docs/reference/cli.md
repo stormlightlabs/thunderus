@@ -10,14 +10,15 @@ title: "CLI Reference"
 - `--websearch-url <url>`: SearXNG HTTP(S) base URL when `searxng` is selected.
 - `--verbose`: show diagnostic transcript rows such as provider events and log paths.
 - `--theme <eldritch-minimal|iceberg-dark|catppuccin-mocha>`: UI color theme.
-- `--mouse`: enable terminal mouse capture for overlay mouse events.
+- `--mouse`: enable terminal mouse capture for transcript scrolling and overlay events (the default).
+- `--no-mouse`: disable capture for native terminal selection and scrollback.
 - `--print-prompt`: print the assembled prompt bundle and exit without calling the provider.
 
 ## Commands
 
 ### Auth
 
-- `thndrs setup [--provider <umans|opencode-go|opencode-zen|chatgpt-codex>]`: choose a provider, verify or establish its credential, and apply that provider's initial model when writing a config file. API-key providers use hidden key entry; `chatgpt-codex` uses ChatGPT OAuth. Use `/model`, `--model`, or configuration to select another model.
+- `thndrs setup [--provider <chatgpt-codex|opencode-zen|opencode-go>]`: choose a provider, verify or establish its credential, and apply that provider's initial model when writing a config file. API-key providers use hidden key entry; `chatgpt-codex` uses ChatGPT OAuth. Use `/model`, `--model`, or configuration to select another model.
 - `thndrs setup --global`: prefer the user config and credential store.
 - `thndrs setup --project`: prefer the workspace config and credential store.
 - `thndrs login <provider>`: replace or renew a provider credential. API-key providers use hidden input and explicit confirmation.
@@ -38,10 +39,11 @@ Inside the TUI, `/context` inspects the active context working set and
 Use `/context pin <id-or-path>`, `/context drop <id>`, `/context recover <id>`,
 and `/context review <approve|reject>` for task-local context control.
 
-Supported API-key setup and login providers include `umans`, `opencode-go`, and
-`opencode-zen`. ChatGPT Codex setup and login share the ChatGPT-backed OAuth
-flow and store refreshable credentials in `~/.thndrs/auth.json`, not in
-`.thndrs/credentials.env`.
+Supported setup and login providers are ChatGPT Codex, OpenCode Zen, and
+OpenCode Go. API-key providers use hidden input. ChatGPT Codex setup and login
+use OAuth and store refreshable credentials in `~/.thndrs/auth.json`, not in
+`.thndrs/credentials.env`. Retired provider configurations fail with an
+actionable unsupported-route diagnostic.
 
 ### Headless Run
 

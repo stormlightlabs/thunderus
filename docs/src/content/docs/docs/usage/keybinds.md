@@ -110,8 +110,8 @@ Available after running `:model`.
 
 ## Mouse
 
-Mouse capture is disabled by default. Run with `--mouse` to enable transcript
-and picker scrolling:
+Mouse capture is enabled by default for transcript and picker scrolling. Run with
+`--no-mouse` to preserve native terminal selection and scrollback:
 
 | Action        | Description                                           |
 | ------------- | ----------------------------------------------------- |

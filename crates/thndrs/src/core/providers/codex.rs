@@ -917,6 +917,42 @@ mod tests {
     }
 
     #[test]
+    fn codex_streaming_policy_allows_luna_xhigh_initial_gap_but_bounds_stalls() {
+        const RECOMMENDED_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+        let client = ChatGptCodexClient::new(BASE_URL, test_auth());
+        let timeouts = client.agent.config().timeouts();
+
+        assert_eq!(
+            timeouts.recv_response,
+            Some(RECOMMENDED_RESPONSE_TIMEOUT),
+            "Luna xhigh needs a finite five-minute initial response-header grace period"
+        );
+        assert_eq!(
+            timeouts.recv_body,
+            Some(providers::PROVIDER_STREAM_IDLE_TIMEOUT),
+            "a response that has started must still fail after the finite body-idle bound"
+        );
+        assert!(timeouts.global.is_none(), "do not impose a total SSE lifetime");
+        assert!(
+            timeouts.per_call.is_none(),
+            "do not impose a redirect-call deadline on SSE"
+        );
+    }
+
+    #[test]
+    fn codex_liveness_events_cover_initial_and_reasoning_gaps() {
+        assert_eq!(
+            parse_responses_sse_event(r#"{"type":"response.in_progress"}"#),
+            vec![ResponsesSseEvent::ResponseStatus("in_progress".to_string())]
+        );
+        assert_eq!(
+            parse_responses_sse_event(r#"{"type":"response.reasoning_summary_text.delta","delta":"still thinking"}"#),
+            vec![ResponsesSseEvent::ReasoningDelta("still thinking".to_string())]
+        );
+    }
+
+    #[test]
     fn authentication_probe_uses_the_authenticated_models_catalog() {
         let fixture = ModelsFixture::respond("200 OK", r#"{"object":"list","data":[]}"#);
         let result = ChatGptCodexClient::new(&fixture.base_url, test_auth()).probe_authentication();
@@ -1078,7 +1114,7 @@ mod tests {
     #[test]
     fn display_model_id_uses_short_codex_prefix_only_for_codex_models() {
         assert_eq!(display_model_id("chatgpt-codex/gpt-5.6-terra"), "codex/gpt-5.6-terra");
-        assert_eq!(display_model_id("umans/default"), "umans/default");
+        assert_eq!(display_model_id("legacy/default"), "legacy/default");
     }
 
     #[test]

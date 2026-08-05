@@ -212,15 +212,10 @@ impl StreamingProvider for OpenCodeGoClient {
     }
 
     fn metadata_loaded_event(&self, metadata: &Self::Metadata) -> Option<AgentEvent> {
-        let mut items: Vec<(String, String)> = providers::umans::known_models()
+        let mut items: Vec<(String, String)> = providers::opencode::zen::known_models()
             .into_iter()
             .map(|model| (model.id.to_string(), model.description.to_string()))
             .collect();
-        items.extend(
-            providers::opencode::zen::known_models()
-                .into_iter()
-                .map(|model| (model.id.to_string(), model.description.to_string())),
-        );
         items.extend(model_picker_items(metadata));
         items.extend(
             providers::chatgpt_codex::known_models()

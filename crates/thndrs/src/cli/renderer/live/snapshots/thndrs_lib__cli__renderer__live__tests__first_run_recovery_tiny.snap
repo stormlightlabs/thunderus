@@ -2,6 +2,6 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: rendered
 ---
-│   ╭ setup · umans · cre… ╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ setup · umans · cre… ╮
+│   ╭ setup · opencode-go… ╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ setup · opencode-go… ╮
 │   │    … 3 above · 1 below ·…│  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  … 3 above · 1 below ·… [fg=#ebfafa bg=#212337 b]=│
 │   ╰──────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────╯

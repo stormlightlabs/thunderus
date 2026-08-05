@@ -636,7 +636,7 @@ fn acp_mcp_config_rejects_unsupported_transport_without_leaking_env() {
 fn state_for_tests(cwd: PathBuf, session_dir: Option<PathBuf>) -> ServerState {
     ServerState::new(ServerConfig::new(
         cwd,
-        String::from("umans-coder"),
+        String::from("opencode/big-pickle"),
         String::from("duckduckgo"),
         session_dir,
     ))

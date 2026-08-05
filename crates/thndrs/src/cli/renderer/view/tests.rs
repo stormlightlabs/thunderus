@@ -897,7 +897,7 @@ fn semantic_setup_surface_projects_selection_and_masks_credentials() {
     }
 
     app.first_run_recovery = Some(FirstRunRecovery {
-        provider: Some(SetupProviderArg::Umans),
+        provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::EnterKey,
         pending_provider_prompt: false,
         selected: 0,
@@ -907,10 +907,10 @@ fn semantic_setup_surface_projects_selection_and_masks_credentials() {
     let view = RendererView::build(&app, 80, 24);
     match &view.semantic.focused_surface {
         FocusedSurfaceView::SetupForm(form) => {
-            assert_eq!(form.fields[0].label, "umans API key");
+            assert_eq!(form.fields[0].label, "opencode-go API key");
             assert_eq!(form.fields[0].value, "[hidden]");
             assert!(form.fields[0].secret);
-            assert!(form.details.iter().any(|detail| detail.contains("Umans Code key")));
+            assert!(form.details.iter().any(|detail| detail.contains("Input is hidden")));
             assert!(!format!("{form:?}").contains("sk-view-secret"));
         }
         surface => panic!("expected setup surface, got {surface:?}"),

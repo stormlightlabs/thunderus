@@ -23,7 +23,6 @@ const DOCUMENTATION_MAP: &[DocumentationEntry] = &[
     DocumentationEntry { topic: "prompt assembly", path: "docs/src/content/docs/docs/concepts/prompt-assembly.md" },
     DocumentationEntry { topic: "project context", path: "docs/src/content/docs/docs/usage/project-context.md" },
     DocumentationEntry { topic: "skills", path: "docs/src/content/docs/docs/usage/skills.md" },
-    DocumentationEntry { topic: "Umans provider", path: "docs/src/content/docs/docs/providers/umans.md" },
     DocumentationEntry { topic: "OpenCode Go provider", path: "docs/src/content/docs/docs/providers/opencode-go.md" },
     DocumentationEntry { topic: "OpenCode Zen provider", path: "docs/src/content/docs/docs/providers/opencode-zen.md" },
     DocumentationEntry { topic: "ChatGPT Codex provider", path: "docs/src/content/docs/docs/providers/chatgpt.md" },
@@ -438,7 +437,7 @@ mod tests {
         model: &str, search_mode: WebSearchMode, prompt_fragments: Vec<String>, context_sources: &[ContextSource],
         tools: &[ToolDefinition], skills: &[SkillMetadata], diagnostics: &[SkillDiagnostic],
     ) -> SelfKnowledgeSnapshot {
-        let provider = ProviderSnapshot::new("umans", model, search_mode);
+        let provider = ProviderSnapshot::new("opencode-zen", model, search_mode);
         let runtime = RuntimeSnapshot::new(
             provider,
             "/repo",
@@ -475,7 +474,7 @@ mod tests {
         let rendered = snapshot.render_model_visible();
 
         assert!(rendered.contains("<thndrs_self_knowledge>"));
-        assert!(rendered.contains("<name>umans</name>"));
+        assert!(rendered.contains("<name>opencode-zen</name>"));
         assert!(rendered.contains("<renderer_mode>direct-inline</renderer_mode>"));
         assert!(rendered.contains("docs/src/content/docs/docs/reference/cli.md"));
         assert!(rendered.contains("<fragment>base_identity</fragment>"));

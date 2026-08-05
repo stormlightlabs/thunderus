@@ -52,7 +52,7 @@ use crate::search::SearchConfig;
 pub const MAX_TOOL_ITERATIONS: usize = 8;
 
 /// Maximum number of automatic tool-budget continuations per user turn.
-pub const MAX_TOOL_CONTINUATIONS: usize = 3;
+pub const MAX_TOOL_CONTINUATIONS: usize = 7;
 
 /// Default maximum number of results from a search or list operation.
 pub const MAX_RESULTS: usize = 100;
@@ -94,11 +94,13 @@ pub use thndrs_agent::{ToolBudgetDecision, ToolIterationBudget};
 pub use registry::ProviderSchemaFormat;
 pub(crate) use state_identity::identity_for as state_identity_for;
 
-/// Configuration for an agent run, shared by the fake and Umans providers.
+/// Configuration for an agent run, shared by fake and built-in providers.
 #[derive(Clone, Debug)]
 pub struct AgentRunConfig {
     /// Workspace root for tool containment and file reads.
     pub root: PathBuf,
+    /// Additional read-only roots advertised for discovered skills.
+    pub extra_read_roots: Vec<PathBuf>,
     /// Selected model name.
     pub model: String,
     /// Web search mode.
@@ -136,6 +138,7 @@ impl AgentRunConfig {
     pub fn new(root: PathBuf, model: String, search_mode: WebSearchMode) -> Self {
         AgentRunConfig {
             root,
+            extra_read_roots: Vec::new(),
             model,
             search_mode,
             search_url: None,
@@ -161,6 +164,14 @@ impl AgentRunConfig {
     /// Apply the configured SearXNG base URL for this run.
     pub fn with_search_url(mut self, search_url: Option<String>) -> Self {
         self.search_url = search_url;
+        self
+    }
+
+    /// Allow reads from application-discovered skill roots.
+    pub fn with_extra_read_roots(mut self, mut roots: Vec<PathBuf>) -> Self {
+        roots.sort();
+        roots.dedup();
+        self.extra_read_roots = roots;
         self
     }
 
@@ -300,7 +311,7 @@ pub fn provider_tool_catalog_schemas(defs: &[ToolDefinition], format: ProviderSc
 /// for the `tools` field of a `/v1/messages` request. Each entry carries
 /// `name`, `description`, and `input_schema`.
 ///
-/// Send this schema every provider turn. Umans does not expose explicit
+/// Send this schema every provider turn. Built-in providers do not expose explicit
 /// reusable-history or prompt-cache behavior for tool definitions, so we do
 /// not rely on hidden provider state for them.
 pub fn tool_catalog_schemas(defs: &[ToolDefinition]) -> serde_json::Value {
@@ -349,19 +360,19 @@ pub fn dispatch_full_with_search(
 pub fn dispatch_full_with_cancel_and_search(
     request: &ToolUseRequest, root: &Path, cancel: &CancelToken, search: &SearchConfig,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
-    dispatch_full_with_cancel_and_search_and_registry(request, root, cancel, search, None)
+    dispatch_full_with_cancel_and_search_and_registry(request, root, cancel, search, None, &[])
 }
 
 /// Dispatch a request with cancellation, search settings, and an optional
 /// application-owned background-process registry.
 pub fn dispatch_full_with_cancel_and_search_and_registry(
     request: &ToolUseRequest, root: &Path, cancel: &CancelToken, search: &SearchConfig,
-    process_registry: Option<&shell::ProcessRegistry>,
+    process_registry: Option<&shell::ProcessRegistry>, extra_read_roots: &[PathBuf],
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     let execution = if request.name == shell::NAME {
         shell::execute_request_with_cancel_and_registry(request, root, cancel, process_registry)
     } else {
-        let context = registry::ToolContext::with_search(root, search);
+        let context = registry::ToolContext::with_search(root, search).with_extra_read_roots(extra_read_roots);
         registry::execute(request, &context)
     };
     (execution.output, execution.write_result, execution.shell_result)
@@ -396,21 +407,21 @@ pub fn dispatch_runtime_full_with_cancel_and_search(
     request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>, cancel: &CancelToken,
     search: &SearchConfig,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
-    dispatch_runtime_full_with_cancel_and_search_and_registry(request, root, mcp_manager, cancel, search, None)
+    dispatch_runtime_full_with_cancel_and_search_and_registry(request, root, mcp_manager, cancel, search, None, &[])
 }
 
 /// Dispatch through MCP or built-ins with cancellation, search settings, and
 /// an optional application-owned background-process registry.
 pub fn dispatch_runtime_full_with_cancel_and_search_and_registry(
     request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>, cancel: &CancelToken,
-    search: &SearchConfig, process_registry: Option<&shell::ProcessRegistry>,
+    search: &SearchConfig, process_registry: Option<&shell::ProcessRegistry>, extra_read_roots: &[PathBuf],
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     if request.name.starts_with("mcp__")
         && let Some(manager) = mcp_manager
     {
         return (manager.call_tool(request), None, None);
     }
-    dispatch_full_with_cancel_and_search_and_registry(request, root, cancel, search, process_registry)
+    dispatch_full_with_cancel_and_search_and_registry(request, root, cancel, search, process_registry, extra_read_roots)
 }
 
 /// Return searchable file paths for UI features that need file selection.
@@ -737,9 +748,9 @@ mod tests {
     }
 
     #[test]
-    fn tool_budget_exhausts_after_three_auto_continuations() {
-        let mut budget = ToolIterationBudget::new(2, 3);
-        for _ in 0..3 {
+    fn tool_budget_exhausts_after_seven_auto_continuations() {
+        let mut budget = ToolIterationBudget::new(2, 7);
+        for _ in 0..7 {
             budget.record_tool_batch();
             budget.record_tool_batch();
             assert_eq!(
@@ -752,7 +763,38 @@ mod tests {
         budget.record_tool_batch();
         assert_eq!(
             budget.before_provider_request(),
-            ToolBudgetDecision::Exhausted { segment_iterations: 2, total_batches: 8, continuations_used: 3 }
+            ToolBudgetDecision::Exhausted { segment_iterations: 2, total_batches: 16, continuations_used: 7 }
+        );
+    }
+
+    #[test]
+    fn tool_budget_exhausts_at_exactly_64_batches_not_32() {
+        let mut budget = ToolIterationBudget::new(MAX_TOOL_ITERATIONS, MAX_TOOL_CONTINUATIONS);
+
+        for batch in 0..64 {
+            assert!(!matches!(
+                budget.before_provider_request(),
+                ToolBudgetDecision::Exhausted { .. }
+            ));
+            budget.record_tool_batch();
+
+            if batch == 31 {
+                assert_eq!(budget.total_batches(), 32);
+                assert_eq!(
+                    budget.before_provider_request(),
+                    ToolBudgetDecision::ContinueAfterBudgetMessage
+                );
+                assert_eq!(budget.continuations_used(), 4);
+            }
+        }
+
+        assert_eq!(
+            budget.before_provider_request(),
+            ToolBudgetDecision::Exhausted {
+                segment_iterations: MAX_TOOL_ITERATIONS,
+                total_batches: 64,
+                continuations_used: MAX_TOOL_CONTINUATIONS,
+            }
         );
     }
 }

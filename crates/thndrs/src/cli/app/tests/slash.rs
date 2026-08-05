@@ -6,14 +6,14 @@ use std::path::Path;
 fn with_isolated_setup_env<T>(home: &Path, f: impl FnOnce() -> T) -> T {
     let _guard = crate::test_env::lock();
     let old_home = std::env::var_os("HOME");
-    let old_umans = std::env::var_os(thndrs_core::auth::UMANS_API_KEY_ENV);
+    let old_umans = std::env::var_os("UMANS_API_KEY");
     let old_opencode = std::env::var_os(thndrs_core::auth::OPENCODE_GO_KEY_ENV);
     let old_opencode_zen = std::env::var_os(thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
     let old_chatgpt = std::env::var_os(thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
 
     unsafe {
         std::env::set_var("HOME", home);
-        std::env::remove_var(thndrs_core::auth::UMANS_API_KEY_ENV);
+        std::env::remove_var("UMANS_API_KEY");
         std::env::remove_var(thndrs_core::auth::OPENCODE_GO_KEY_ENV);
         std::env::remove_var(thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
         std::env::remove_var(thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
@@ -28,9 +28,9 @@ fn with_isolated_setup_env<T>(home: &Path, f: impl FnOnce() -> T) -> T {
             std::env::remove_var("HOME");
         }
         if let Some(value) = old_umans {
-            std::env::set_var(thndrs_core::auth::UMANS_API_KEY_ENV, value);
+            std::env::set_var("UMANS_API_KEY", value);
         } else {
-            std::env::remove_var(thndrs_core::auth::UMANS_API_KEY_ENV);
+            std::env::remove_var("UMANS_API_KEY");
         }
         if let Some(value) = old_opencode {
             std::env::set_var(thndrs_core::auth::OPENCODE_GO_KEY_ENV, value);
@@ -182,7 +182,10 @@ fn slash_auth_config_and_doctor_append_redacted_output() {
 
     app.input = PromptInput::from("/auth status");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(matches!(app.transcript.last(), Some(Entry::Status { text }) if text.contains("umans")));
+    assert!(matches!(
+        app.transcript.last(),
+        Some(Entry::Status { text }) if text.contains("chatgpt-codex") && text.contains("opencode-zen")
+    ));
 
     app.input = PromptInput::from("/config path");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -759,14 +762,16 @@ fn slash_command_rejects_api_key_like_extra_argument() {
 }
 
 #[test]
-fn slash_logout_requires_confirmation_surface() {
+fn slash_logout_rejects_retired_umans_provider() {
     let mut app = fresh_app();
     app.input = PromptInput::from("/logout umans");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    let recovery = app.first_run_recovery.as_ref().expect("logout recovery");
-    assert_eq!(recovery.stage, RecoveryStage::LogoutConfirm);
-    assert_eq!(recovery.provider, Some(SetupProviderArg::Umans));
+    assert!(app.first_run_recovery.is_none());
+    assert!(matches!(
+        app.transcript.last(),
+        Some(Entry::Error { text }) if text.contains("no longer supported")
+    ));
 }
 
 #[test]
@@ -815,7 +820,7 @@ fn slash_setup_uses_chatgpt_provider_aware_recovery_for_chatgpt_model() {
 }
 
 #[test]
-fn slash_setup_writes_project_model_and_prompts_for_api_key() {
+fn slash_setup_selects_opencode_zen_and_prompts_for_api_key() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let home = dir.path().join("home");
     std::fs::create_dir_all(&home).expect("create home");
@@ -827,11 +832,12 @@ fn slash_setup_writes_project_model_and_prompts_for_api_key() {
         app.input = PromptInput::from("/setup");
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
         let recovery = app.first_run_recovery.as_ref().expect("credential entry");
         assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
-        assert_eq!(recovery.provider, Some(SetupProviderArg::Umans));
+        assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
         assert!(app.model.is_empty(), "authentication precedes model selection");
     });
 }

@@ -802,6 +802,33 @@ mod tests {
     }
 
     #[test]
+    fn mouse_wheel_scrolls_transcript_without_recalling_prompt_history() {
+        let cli = Cli { model: "fake-agent".to_string(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.first_run_recovery = None;
+        app.input_history.push("previous prompt".to_string());
+        app.input.insert_str("current draft");
+        app.transcript = (0..20)
+            .map(|index| Entry::Status { text: format!("entry {index}") })
+            .collect();
+
+        let mut viewport = AlternateViewport::default();
+        viewport.build_frame(&app, 80, 12);
+        let event = Event::Mouse(crossterm::event::MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        assert!(viewport.handle_navigation(&app, &event));
+        assert!(matches!(viewport.state(), ViewportState::Anchored(_)));
+        assert_eq!(app.input.as_str(), "current draft");
+        assert_eq!(app.history_cursor, None);
+    }
+
+    #[test]
     fn submitted_entry_does_not_move_an_anchored_reader() {
         let mut app = App::from_cli(&Cli::default());
         app.session_writer = None;

@@ -68,8 +68,9 @@ impl FirstRunRecovery {
     pub fn setup(default_provider: SetupProviderArg) -> Self {
         let selected = match default_provider {
             SetupProviderArg::ChatgptCodex => 0,
-            SetupProviderArg::Umans => 1,
-            SetupProviderArg::OpencodeGo | SetupProviderArg::OpencodeZen => 2,
+            SetupProviderArg::OpencodeZen => 1,
+            SetupProviderArg::OpencodeGo => 2,
+            SetupProviderArg::Umans => 0,
         };
         Self {
             provider: Some(default_provider),
@@ -85,6 +86,17 @@ impl FirstRunRecovery {
         Self {
             provider: Some(provider),
             stage: RecoveryStage::MissingCredential,
+            pending_provider_prompt,
+            selected: 0,
+            secret_input: String::new(),
+            chatgpt_oauth: None,
+        }
+    }
+
+    pub fn unsupported_route(pending_provider_prompt: bool) -> Self {
+        Self {
+            provider: Some(SetupProviderArg::Umans),
+            stage: RecoveryStage::UnsupportedRoute,
             pending_provider_prompt,
             selected: 0,
             secret_input: String::new(),
@@ -131,7 +143,8 @@ impl FirstRunRecovery {
 
     pub fn action_count(&self) -> usize {
         match self.stage {
-            RecoveryStage::ChooseProvider => 3,
+            RecoveryStage::ChooseProvider => 4,
+            RecoveryStage::UnsupportedRoute => 2,
             RecoveryStage::ModelSelection => self.app_model_selection_count(),
             RecoveryStage::ModelConfigScope => 4,
             RecoveryStage::MissingCredential => {
@@ -216,6 +229,8 @@ pub enum RecoveryStage {
     ModelConfigScope,
     /// Choose a model after provider authentication succeeds.
     ModelSelection,
+    /// A configured model belongs to a retired or unknown built-in route.
+    UnsupportedRoute,
     /// Selected provider is missing an API-key credential.
     MissingCredential,
     /// Hidden API-key entry is active.
@@ -242,6 +257,7 @@ impl RecoveryStage {
     pub fn label(self) -> &'static str {
         match self {
             RecoveryStage::ChooseProvider => "choose provider",
+            RecoveryStage::UnsupportedRoute => "unsupported provider route",
             RecoveryStage::ModelSelection => "choose model",
             RecoveryStage::ModelConfigScope => "model scope",
             RecoveryStage::MissingCredential => "authentication required",
@@ -310,6 +326,7 @@ pub fn provider_for_model(model: &str) -> SetupProviderArg {
 
 pub fn provider_authenticated(provider: SetupProviderArg, cwd: &std::path::Path) -> bool {
     match provider {
+        SetupProviderArg::Umans => false,
         SetupProviderArg::ChatgptCodex => chatgpt_codex_auth_available_locally(),
         _ => match provider.api_key_env_var() {
             Some(env_var) => auth::credential_source(env_var, cwd).is_some(),
@@ -339,11 +356,19 @@ pub fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
         return Some(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
     }
 
+    if app.model.starts_with("fake-agent") {
+        return None;
+    }
+
     if let Some(acp_name) = crate::acp::config::parse_model_id(&app.model) {
         if app.cli.acp_agents.contains_key(acp_name) {
             return None;
         }
         return Some(FirstRunRecovery::acp_missing(true));
+    }
+
+    if crate::cli::commands::setup::model_uses_unsupported_route(&app.model) {
+        return Some(FirstRunRecovery::unsupported_route(true));
     }
 
     let provider = provider_for_model(&app.model);
@@ -458,6 +483,14 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
         }
         RecoveryStage::ModelSelection => select_setup_model(app, &recovery),
         RecoveryStage::ModelConfigScope => configure_setup_model_scope(app, &recovery),
+        RecoveryStage::UnsupportedRoute => match recovery.selected {
+            0 => app.first_run_recovery = Some(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex)),
+            1 => {
+                app.quit = true;
+                return Some(Msg::Quit);
+            }
+            _ => {}
+        },
         RecoveryStage::MissingCredential if recovery.provider == Some(SetupProviderArg::ChatgptCodex) => {
             match recovery.selected {
                 0 => start_chatgpt_browser_oauth_recovery(app),
@@ -743,8 +776,11 @@ pub fn setup_model_options(provider: SetupProviderArg) -> Vec<PickerItem> {
         .into_iter()
         .filter(|item| provider_for_model(&item.label) == provider)
         .collect();
-    if !options.iter().any(|item| item.label == provider.default_model()) {
-        options.insert(0, PickerItem::new(provider.default_model(), "provider setup model"));
+    let default_model = provider.default_model();
+    if let Some(index) = options.iter().position(|item| item.label == default_model) {
+        options.swap(0, index);
+    } else {
+        options.insert(0, PickerItem::new(default_model, "provider setup model"));
     }
     options
 }
@@ -1204,7 +1240,8 @@ fn select_setup_model(app: &mut App, recovery: &FirstRunRecovery) {
 fn first_run_provider(selected: usize) -> Option<SetupProviderArg> {
     match selected {
         0 => Some(SetupProviderArg::ChatgptCodex),
-        1 => Some(SetupProviderArg::Umans),
+        1 => Some(SetupProviderArg::OpencodeZen),
+        2 => Some(SetupProviderArg::OpencodeGo),
         _ => None,
     }
 }

@@ -15,11 +15,30 @@ use crate::context;
 use crate::thndrs_core::auth;
 use crate::{config, providers};
 
+/// One recovery route for configurations that name a retired provider.
+pub const UNSUPPORTED_PROVIDER_ROUTE_MESSAGE: &str = "unsupported provider route: the configured provider is no longer supported; choose ChatGPT Codex, OpenCode Zen, or OpenCode Go with `thndrs setup --provider <provider>`. Existing retired-provider credentials are left untouched.";
+
+/// Return the actionable error used for every retired or unknown provider route.
+pub fn unsupported_provider_route_error() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, UNSUPPORTED_PROVIDER_ROUTE_MESSAGE)
+}
+
+/// Whether a model cannot be dispatched by a supported built-in or ACP route.
+pub fn model_uses_unsupported_route(model: &str) -> bool {
+    let model = model.trim();
+    !model.is_empty()
+        && !model.starts_with("fake-agent")
+        && crate::acp::config::parse_model_id(model).is_none()
+        && !providers::opencode::is_model_id(model)
+        && !providers::chatgpt_codex::is_model_id(model)
+}
+
 /// Providers supported by first-run setup and login commands.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 pub enum SetupProviderArg {
-    /// Umans Code provider.
+    /// Retired Umans route kept only so old command/config values can produce
+    /// the same unsupported-route diagnostic without touching credentials.
     Umans,
     /// OpenCode Go provider.
     OpencodeGo,
@@ -46,6 +65,8 @@ impl SetupProviderArg {
 /// Authentication mechanism used by a setup provider.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderAuthKind {
+    /// Retired provider route with no credential access.
+    Unsupported,
     /// Provider uses a single API key stored in a credential env file.
     ApiKey { env_var: &'static str },
     /// Provider uses ChatGPT OAuth credentials stored in `~/.thndrs/auth.json`.
@@ -85,17 +106,17 @@ pub struct ProviderMetadata {
 }
 
 impl SetupProviderArg {
-    /// All built-in setup providers in default prompt order.
-    pub const ALL: [Self; 4] = [Self::OpencodeZen, Self::ChatgptCodex, Self::Umans, Self::OpencodeGo];
+    /// All supported setup providers in default prompt order.
+    pub const ALL: [Self; 3] = [Self::ChatgptCodex, Self::OpencodeZen, Self::OpencodeGo];
 
     /// Provider metadata.
     pub const fn metadata(self) -> ProviderMetadata {
         match self {
             Self::Umans => ProviderMetadata {
                 label: "umans",
-                default_model: "umans-coder",
-                auth_kind: ProviderAuthKind::ApiKey { env_var: auth::UMANS_API_KEY_ENV },
-                setup_summary: "Umans Code uses a UMANS_API_KEY from app.umans.ai, stored only in a thndrs credential store.",
+                default_model: "",
+                auth_kind: ProviderAuthKind::Unsupported,
+                setup_summary: "This provider route is no longer supported; existing credentials are left untouched.",
             },
             Self::OpencodeGo => ProviderMetadata {
                 label: "opencode-go",
@@ -126,8 +147,8 @@ impl SetupProviderArg {
     /// Required API-key environment variable for API-key providers.
     pub fn api_key_env_var(self) -> Option<&'static str> {
         match self.metadata().auth_kind {
+            ProviderAuthKind::Unsupported | ProviderAuthKind::ChatGptOAuth { .. } => None,
             ProviderAuthKind::ApiKey { env_var } => Some(env_var),
-            ProviderAuthKind::ChatGptOAuth { .. } => None,
         }
     }
 
@@ -189,17 +210,22 @@ where
     O: Fn(&Path) -> ProviderCredentialHealth,
 {
     let workspace = context::discover_workspace_root(&cli.cwd);
-    let inferred_provider = (!cli.model.trim().is_empty()).then(|| SetupProviderArg::for_model(&cli.model));
+    let inferred_provider = (!cli.model.trim().is_empty())
+        .then(|| SetupProviderArg::for_model(&cli.model))
+        .filter(|provider| *provider != SetupProviderArg::Umans);
     let provider = match command.provider {
         Some(provider) => provider,
         None if interactive => prompt_provider(writer, inferred_provider)?,
         None => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "non-interactive setup needs --provider <chatgpt-codex|umans|opencode-zen|opencode-go> or --model <model-id>",
+                "non-interactive setup needs --provider <chatgpt-codex|opencode-zen|opencode-go> or --model <model-id>",
             ));
         }
     };
+    if provider == SetupProviderArg::Umans {
+        return Err(unsupported_provider_route_error());
+    }
     let chatgpt_auth_status = (provider == SetupProviderArg::ChatgptCodex).then(chatgpt_setup_auth_status);
     let auth_status = chatgpt_auth_status
         .map(|status| status.label().to_string())
@@ -344,10 +370,9 @@ fn prompt_provider<W: Write>(
         return Ok(default_provider);
     }
     match answer {
-        "1" | "opencode-zen" => Ok(SetupProviderArg::OpencodeZen),
-        "2" | "chatgpt-codex" => Ok(SetupProviderArg::ChatgptCodex),
-        "3" | "umans" => Ok(SetupProviderArg::Umans),
-        "4" | "opencode-go" => Ok(SetupProviderArg::OpencodeGo),
+        "1" | "chatgpt-codex" => Ok(SetupProviderArg::ChatgptCodex),
+        "2" | "opencode-zen" => Ok(SetupProviderArg::OpencodeZen),
+        "3" | "opencode-go" => Ok(SetupProviderArg::OpencodeGo),
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "expected provider number or provider name",
@@ -378,6 +403,7 @@ fn write_provider_choices<W: Write>(writer: &mut W, default_provider: Option<Set
 
 fn auth_status(provider: SetupProviderArg, workspace: &std::path::Path) -> String {
     match provider.metadata().auth_kind {
+        ProviderAuthKind::Unsupported => "unsupported".to_string(),
         ProviderAuthKind::ApiKey { env_var } => auth::credential_source(env_var, workspace)
             .map(|source| source.label().to_string())
             .unwrap_or_else(|| "missing".to_string()),
@@ -590,10 +616,10 @@ mod tests {
 
     #[test]
     fn provider_metadata_models_auth_kinds() {
-        assert_eq!(SetupProviderArg::ALL[0], SetupProviderArg::OpencodeZen);
+        assert_eq!(SetupProviderArg::ALL[0], SetupProviderArg::ChatgptCodex);
         assert_eq!(
             SetupProviderArg::Umans.metadata().auth_kind,
-            ProviderAuthKind::ApiKey { env_var: auth::UMANS_API_KEY_ENV }
+            ProviderAuthKind::Unsupported
         );
         assert_eq!(
             SetupProviderArg::ChatgptCodex.metadata().auth_kind,
@@ -661,12 +687,12 @@ mod tests {
         fs::create_dir_all(&home).expect("home");
         auth::set_credential(
             &auth::project_credentials_path(&workspace),
-            auth::UMANS_API_KEY_ENV,
+            auth::OPENCODE_GO_KEY_ENV,
             "rejected-key",
         )
         .expect("credential");
         let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
-        let command = SetupCommand { provider: Some(SetupProviderArg::Umans), global: false, project: false };
+        let command = SetupCommand { provider: Some(SetupProviderArg::OpencodeGo), global: false, project: false };
         let mut output = Vec::new();
 
         let error = with_home(&home, || {
@@ -684,7 +710,7 @@ mod tests {
         let output = String::from_utf8(output).expect("utf8");
 
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
-        assert!(error.to_string().contains("thndrs login umans"));
+        assert!(error.to_string().contains("thndrs login opencode-go"));
         assert!(!output.contains("next: thndrs"));
         assert!(!workspace.join(".thndrs/config.toml").exists());
     }
@@ -698,12 +724,12 @@ mod tests {
         fs::create_dir_all(&home).expect("home");
         auth::set_credential(
             &auth::project_credentials_path(&workspace),
-            auth::UMANS_API_KEY_ENV,
+            auth::OPENCODE_GO_KEY_ENV,
             "unverified-key",
         )
         .expect("credential");
         let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
-        let command = SetupCommand { provider: Some(SetupProviderArg::Umans), global: false, project: false };
+        let command = SetupCommand { provider: Some(SetupProviderArg::OpencodeGo), global: false, project: false };
         let mut output = Vec::new();
 
         let error = with_home(&home, || {
@@ -721,7 +747,7 @@ mod tests {
         let output = String::from_utf8(output).expect("utf8");
 
         assert_eq!(error.kind(), io::ErrorKind::ConnectionAborted);
-        assert!(error.to_string().contains("could not verify umans credentials"));
+        assert!(error.to_string().contains("could not verify opencode-go credentials"));
         assert!(!output.contains("next: thndrs"));
         assert!(!workspace.join(".thndrs/config.toml").exists());
     }
@@ -735,13 +761,13 @@ mod tests {
         fs::create_dir_all(&workspace).expect("workspace");
         fs::create_dir_all(&home).expect("home");
         let old_home = std::env::var_os("HOME");
-        let old_key = std::env::var_os(auth::UMANS_API_KEY_ENV);
+        let old_key = std::env::var_os(auth::OPENCODE_GO_KEY_ENV);
         unsafe {
             std::env::set_var("HOME", &home);
-            std::env::set_var(auth::UMANS_API_KEY_ENV, "rejected-environment-key");
+            std::env::set_var(auth::OPENCODE_GO_KEY_ENV, "rejected-environment-key");
         }
         let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
-        let command = SetupCommand { provider: Some(SetupProviderArg::Umans), global: false, project: false };
+        let command = SetupCommand { provider: Some(SetupProviderArg::OpencodeGo), global: false, project: false };
         let mut output = Vec::new();
 
         let error = run_with_writer(
@@ -762,15 +788,15 @@ mod tests {
                 std::env::remove_var("HOME");
             }
             if let Some(key) = old_key {
-                std::env::set_var(auth::UMANS_API_KEY_ENV, key);
+                std::env::set_var(auth::OPENCODE_GO_KEY_ENV, key);
             } else {
-                std::env::remove_var(auth::UMANS_API_KEY_ENV);
+                std::env::remove_var(auth::OPENCODE_GO_KEY_ENV);
             }
         }
 
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
-        assert!(error.to_string().contains("replace or unset UMANS_API_KEY"));
-        assert!(error.to_string().contains("thndrs login umans"));
+        assert!(error.to_string().contains("replace or unset OPENCODE_GO_KEY"));
+        assert!(error.to_string().contains("thndrs login opencode-go"));
         assert!(!String::from_utf8(output).expect("utf8").contains("next: thndrs"));
         assert!(!workspace.join(".thndrs/config.toml").exists());
     }

@@ -1,6 +1,5 @@
 ---
 source: crates/thndrs/src/lib.rs
-assertion_line: 1715
 expression: output
 ---
 === System Prompt ===
@@ -186,7 +185,7 @@ expression: output
 
 <environment>
   <workspace><![CDATA[/repo]]></workspace>
-  <model><![CDATA[umans-coder]]></model>
+  <model><![CDATA[opencode/big-pickle]]></model>
   <search>duckduckgo</search>
   <date>2026-06-29</date>
 </environment>
@@ -244,10 +243,6 @@ expression: output
       <path>docs/src/content/docs/docs/usage/skills.md</path>
     </doc>
     <doc>
-      <topic>Umans provider</topic>
-      <path>docs/src/content/docs/docs/providers/umans.md</path>
-    </doc>
-    <doc>
       <topic>OpenCode Go provider</topic>
       <path>docs/src/content/docs/docs/providers/opencode-go.md</path>
     </doc>
@@ -272,8 +267,8 @@ expression: output
     <workspace>/repo</workspace>
     <renderer_mode>direct-inline</renderer_mode>
     <provider>
-      <name>umans</name>
-      <model>umans-coder</model>
+      <name>opencode-zen</name>
+      <model>opencode/big-pickle</model>
       <search>
         <mode>duckduckgo</mode>
         <backend>duckduckgo: DuckDuckGo HTML search</backend>
@@ -683,7 +678,7 @@ Build with cargo. Run tests with cargo test.
 
 === Environment ===
   cwd: /repo
-  model: umans-coder
+  model: opencode/big-pickle
   search: duckduckgo
   date: [date]
   context_sources: 1

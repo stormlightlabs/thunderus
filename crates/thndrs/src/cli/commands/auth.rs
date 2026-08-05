@@ -80,6 +80,9 @@ pub enum ProviderCredentialHealth {
 pub fn run_login(cli: &Cli, command: &LoginCommand) -> io::Result<()> {
     let stdout = io::stdout();
     let mut writer = stdout.lock();
+    if command.provider == SetupProviderArg::Umans {
+        return Err(super::setup::unsupported_provider_route_error());
+    }
     require_interactive("login")?;
 
     if command.provider == SetupProviderArg::ChatgptCodex {
@@ -147,6 +150,9 @@ pub fn run_login(cli: &Cli, command: &LoginCommand) -> io::Result<()> {
 pub fn run_logout(cli: &Cli, command: &LogoutCommand) -> io::Result<()> {
     let stdout = io::stdout();
     let mut writer = stdout.lock();
+    if command.provider == SetupProviderArg::Umans {
+        return Err(super::setup::unsupported_provider_route_error());
+    }
     require_interactive("logout")?;
 
     if command.provider == SetupProviderArg::ChatgptCodex {
@@ -225,6 +231,7 @@ pub fn run_auth(cli: &Cli, command: &AuthCommand) -> io::Result<()> {
 pub fn write_auth_status<W: Write>(workspace: &Path, writer: &mut W) -> io::Result<()> {
     for provider in SetupProviderArg::ALL {
         let source = match provider.metadata().auth_kind {
+            ProviderAuthKind::Unsupported => String::from("unsupported"),
             ProviderAuthKind::ApiKey { env_var } => auth::credential_source(env_var, workspace)
                 .map(|source| source.label().to_string())
                 .unwrap_or_else(|| String::from("missing")),
@@ -265,7 +272,7 @@ fn store_api_key_credential(
 /// not send a user to replace a credential during an outage.
 pub fn check_provider_key(provider: SetupProviderArg, api_key: &str) -> ProviderCredentialHealth {
     let result = match provider {
-        SetupProviderArg::Umans => crate::providers::umans::probe_api_key(api_key),
+        SetupProviderArg::Umans => return ProviderCredentialHealth::Unavailable,
         SetupProviderArg::OpencodeGo => crate::providers::opencode::probe_go_api_key(api_key),
         SetupProviderArg::OpencodeZen => crate::providers::opencode::probe_zen_api_key(api_key),
         SetupProviderArg::ChatgptCodex => return ProviderCredentialHealth::Rejected,
@@ -283,7 +290,7 @@ pub fn check_chatgpt_codex_auth(workspace: &Path) -> ProviderCredentialHealth {
 /// Validate a provider key without persisting provider payloads.
 pub fn validate_provider_key(provider: SetupProviderArg, api_key: &str) -> Result<(), String> {
     match provider {
-        SetupProviderArg::Umans => crate::providers::umans::validate_api_key(api_key),
+        SetupProviderArg::Umans => Err(super::setup::UNSUPPORTED_PROVIDER_ROUTE_MESSAGE.to_string()),
         SetupProviderArg::OpencodeGo => crate::providers::opencode::validate_go_api_key(api_key),
         SetupProviderArg::OpencodeZen => crate::providers::opencode::validate_zen_api_key(api_key),
         SetupProviderArg::ChatgptCodex => Err("ChatGPT Codex uses OAuth login, not API-key validation".to_string()),
@@ -316,6 +323,7 @@ pub fn credential_rejected_error_for_source(provider: SetupProviderArg, source: 
         let env_var = match provider.metadata().auth_kind {
             ProviderAuthKind::ApiKey { env_var } => env_var,
             ProviderAuthKind::ChatGptOAuth { env_override } => env_override,
+            ProviderAuthKind::Unsupported => return super::setup::unsupported_provider_route_error(),
         };
         return io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -362,10 +370,7 @@ pub fn prompt_scope<W: Write>(writer: &mut W) -> io::Result<CredentialScope> {
 
 /// Read an API key from the terminal without echoing typed characters.
 pub fn read_hidden_api_key<W: Write>(writer: &mut W, provider: SetupProviderArg) -> io::Result<String> {
-    let label = match provider {
-        SetupProviderArg::Umans => "Umans Code API key".to_string(),
-        _ => format!("{} API key", provider.label()),
-    };
+    let label = format!("{} API key", provider.label());
     write!(writer, "Enter {label} (input hidden): ")?;
     writer.flush()?;
     enable_raw_mode()?;
@@ -514,11 +519,12 @@ mod tests {
 
     #[test]
     fn environment_credential_rejection_explains_precedence() {
-        let error = credential_rejected_error_for_source(SetupProviderArg::Umans, auth::CredentialSource::Environment);
+        let error =
+            credential_rejected_error_for_source(SetupProviderArg::OpencodeGo, auth::CredentialSource::Environment);
 
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
-        assert!(error.to_string().contains("replace or unset UMANS_API_KEY"));
-        assert!(error.to_string().contains("thndrs login umans"));
+        assert!(error.to_string().contains("replace or unset OPENCODE_GO_KEY"));
+        assert!(error.to_string().contains("thndrs login opencode-go"));
     }
 
     #[test]
@@ -531,8 +537,8 @@ mod tests {
         let error = store_api_key_credential(
             CredentialScope::Project,
             &workspace,
-            SetupProviderArg::Umans,
-            auth::UMANS_API_KEY_ENV,
+            SetupProviderArg::OpencodeGo,
+            auth::OPENCODE_GO_KEY_ENV,
             "rejected-key",
             ProviderCredentialHealth::Rejected,
         )
@@ -548,7 +554,7 @@ mod tests {
         let workspace = tmp.path();
         auth::set_credential(
             &auth::project_credentials_path(workspace),
-            auth::UMANS_API_KEY_ENV,
+            auth::OPENCODE_GO_KEY_ENV,
             "sk-secret-value",
         )
         .expect("store credential");
@@ -557,8 +563,8 @@ mod tests {
         write_auth_status(workspace, &mut output).expect("status");
         let output = String::from_utf8(output).expect("utf8");
 
-        assert!(output.contains("umans\tproject credentials"));
-        assert!(output.contains("opencode-go\tmissing"));
+        assert!(output.contains("chatgpt-codex\t"));
+        assert!(output.contains("opencode-go\tproject credentials"));
         assert!(output.contains("opencode-zen\tmissing"));
         assert!(!output.contains("sk-secret-value"));
     }

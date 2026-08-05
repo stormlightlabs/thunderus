@@ -59,6 +59,10 @@ pub enum ConfigError {
     InvalidConfig { key: String, message: String },
     #[error("conflicting CLI flags: --mouse and --no-mouse cannot both be set")]
     ConflictingMouseFlags,
+    #[error(
+        "unsupported provider route: the configured provider is no longer supported; choose ChatGPT Codex, OpenCode Zen, or OpenCode Go with `thndrs setup --provider <provider>`. Existing retired-provider credentials are left untouched."
+    )]
+    UnsupportedProviderRoute,
 }
 
 /// Configuration for one external ACP agent.
@@ -801,7 +805,7 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         reasoning_effort: Some(ReasoningEffort::default()),
         reasoning_summary: Some(ReasoningSummary::default()),
         tick_rate_ms: Some(DEFAULT_TICK_RATE_MS),
-        mouse: Some(false),
+        mouse: Some(true),
         verbose: Some(false),
         theme: Some(Theme::default()),
         skill_dirs: Vec::new(),

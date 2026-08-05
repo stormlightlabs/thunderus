@@ -608,9 +608,12 @@ fn is_credential_rejection(message: &str) -> bool {
     message.starts_with("authentication failed (http 401)")
         || message.starts_with("authentication failed (http 403)")
         || message.starts_with("authentication failed:")
-        || message.starts_with("umans authentication failed (http 401)")
-        || message.starts_with("umans authentication failed (http 403)")
-        || message.starts_with("umans authentication failed:")
+        || message.starts_with("opencode go authentication failed (http 401)")
+        || message.starts_with("opencode go authentication failed (http 403)")
+        || message.starts_with("opencode go authentication failed:")
+        || message.starts_with("opencode zen authentication failed (http 401)")
+        || message.starts_with("opencode zen authentication failed (http 403)")
+        || message.starts_with("opencode zen authentication failed:")
 }
 
 fn active_environment_credential(provider: SetupProviderArg, workspace: &std::path::Path) -> Option<&'static str> {
@@ -636,7 +639,9 @@ mod tests {
     #[test]
     fn credential_rejection_detection_ignores_auth_words_in_server_errors() {
         assert!(is_credential_rejection("authentication failed (HTTP 401)"));
-        assert!(is_credential_rejection("Umans authentication failed: invalid token"));
+        assert!(is_credential_rejection(
+            "OpenCode Go authentication failed: invalid key"
+        ));
         assert!(!is_credential_rejection(
             "server error (HTTP 500): upstream authentication failed while validating its own service"
         ));

@@ -233,15 +233,10 @@ impl StreamingProvider for OpenCodeZenClient {
     }
 
     fn metadata_loaded_event(&self, metadata: &Self::Metadata) -> Option<AgentEvent> {
-        let mut items: Vec<(String, String)> = providers::umans::known_models()
+        let mut items: Vec<(String, String)> = known_models()
             .into_iter()
             .map(|model| (model.id.to_string(), model.description.to_string()))
             .collect();
-        items.extend(
-            known_models()
-                .into_iter()
-                .map(|model| (model.id.to_string(), model.description.to_string())),
-        );
         items.extend(
             providers::opencode::go::known_models()
                 .into_iter()

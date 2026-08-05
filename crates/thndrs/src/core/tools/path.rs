@@ -7,8 +7,8 @@ use std::{
 ///
 /// The root is canonicalized to resolve symlinks (e.g. macOS `/var` → `/private/var`).
 ///
-/// The candidate path is made absolute against the canonical root (if relative)
-/// and normalized lexically.
+/// The candidate path is made absolute against the canonical root (if relative),
+/// normalized lexically, and resolved through its nearest existing ancestor.
 ///
 ///  `.` and `..` are resolved without touching the filesystem so non-existent paths
 /// (e.g. files about to be created) are handled correctly.
@@ -16,7 +16,12 @@ pub fn is_within_root(path: &Path, root: &Path) -> bool {
     let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let absolute = if path.is_absolute() { path.to_path_buf() } else { canonical_root.join(path) };
     let normalized = lexical_normalize(&absolute);
-    normalized.starts_with(&canonical_root)
+    let Some(existing) = nearest_existing_ancestor(&normalized) else {
+        return normalized.starts_with(&canonical_root);
+    };
+    existing
+        .canonicalize()
+        .is_ok_and(|canonical_existing| canonical_existing.starts_with(&canonical_root))
 }
 
 /// Normalize a relative path against a root, then verify containment.

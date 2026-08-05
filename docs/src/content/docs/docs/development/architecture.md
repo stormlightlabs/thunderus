@@ -47,7 +47,8 @@ placement, and viewport navigation testable without terminal I/O.
 
 ## Provider Client
 
-Umans and OpenCode Go are concrete provider clients behind a small streaming
+ChatGPT Codex, OpenCode Zen, and OpenCode Go are concrete provider clients behind a small
+streaming
 provider trait. The agent loop derives one tool catalog from the registry and
 passes it to each provider request. Anthropic-compatible routes receive
 `name`/`description`/`input_schema` entries; OpenAI-compatible routes convert

@@ -547,6 +547,22 @@ fn snapshot_startup_banner_with_context_and_diagnostics() {
 }
 
 #[test]
+fn banner_keeps_skill_diagnostics_out_of_the_attention_block() {
+    let _guard = crate::test_env::lock();
+    let mut app = test_app();
+    app.skill_diagnostics = vec![SkillDiagnostic {
+        path: std::path::PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
+        message: "invalid YAML frontmatter".to_string(),
+    }];
+
+    let rendered = render_banner_styled(&app, 80);
+
+    assert!(rendered.contains("skills available · 1 skipped"));
+    assert!(!rendered.contains("ATTENTION"));
+    assert!(!rendered.contains("invalid YAML frontmatter"));
+}
+
+#[test]
 fn banner_context_section_shows_agents_md_not_full_path() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
@@ -597,7 +613,7 @@ fn banner_context_section_keeps_truncated_source_compact() {
 }
 
 #[test]
-fn banner_diagnostics_section_shortens_home_paths() {
+fn banner_keeps_skipped_skill_diagnostics_compact() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
     let home = std::env::var_os("HOME")
@@ -612,12 +628,12 @@ fn banner_diagnostics_section_shortens_home_paths() {
     let rendered = render_banner_styled(&app, 80);
 
     assert!(
-        rendered.contains("~/.thndrs/skills/bad/SKILL.md"),
-        "Diagnostics section should shorten HOME paths:\n{rendered}"
+        rendered.contains("1 skipped"),
+        "banner should summarize skipped skills:\n{rendered}"
     );
     assert!(
         !rendered.contains(&home_path.display().to_string()),
-        "Diagnostics section should not show the full HOME path:\n{rendered}"
+        "banner should leave diagnostic paths to /skills:\n{rendered}"
     );
 }
 

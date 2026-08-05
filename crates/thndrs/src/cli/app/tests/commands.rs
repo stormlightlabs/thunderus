@@ -122,8 +122,8 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
         "session-resume",
         &app.cwd.display().to_string(),
         "Saved work",
-        "umans",
-        "umans-coder",
+        "opencode-go",
+        "opencode/big-pickle",
         "none",
         "0.1.0",
         None,
@@ -342,13 +342,13 @@ fn model_command_opens_picker_and_selects_model() {
     assert!(app.picker.is_some());
 
     if let Some(picker) = app.picker.as_mut() {
-        picker.query = "glm-5.2".to_string();
+        picker.query = "opencode/gpt-5.6-luna".to_string();
         picker.refresh_matches();
     }
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(app.prompt_accessory, PromptAccessory::ReasoningEffort);
-    assert_eq!(app.model, "umans-glm-5.2");
+    assert_eq!(app.model, "opencode/gpt-5.6-luna");
     assert!(app.picker.is_some());
 }
 

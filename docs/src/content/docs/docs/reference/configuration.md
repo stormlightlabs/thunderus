@@ -57,7 +57,7 @@ provider-specific names.
 | `websearch`         | `duckduckgo`, `searxng`, or `none` | `duckduckgo`                        | Application-owned web-search backend.                                    |
 | `websearch_url`     | HTTP(S) URL                        | unset                               | Required SearXNG base URL; loopback/private hosts are allowed.            |
 | `reasoning_effort`  | model-specific:    | `auto`                              | Reasoning control; unsupported choices fail locally.                      |
-|                     | `auto`, `on`,      |                                     | Umans uses `on`/`none`; supported GPT/Claude routes expose effort levels. |
+|                     | `auto`, `on`,      |                                     | Supported providers expose model-specific effort levels.                 |
 |                     | `none`, `minimal`, |                                     |                                                                           |
 |                     | `low`–`max`        |                                     |                                                                           |
 | `reasoning_summary` | `off`, `auto`      | `off`                               | Whether GPT-5.6 summaries are shown.                                      |
@@ -65,7 +65,7 @@ provider-specific names.
 | `theme`             | `eldritch-minimal` | `eldritch-minimal`                  | UI color theme.                                                           |
 |                     | `iceberg-dark`     |                                     |                                                                           |
 |                     | `catppuccin-mocha` |                                     |                                                                           |
-| `mouse`             | boolean            | `false`                             | Enable focused terminal mouse capture.                                    |
+| `mouse`             | boolean            | `true`                              | Enable focused terminal mouse capture.                                    |
 | `verbose`           | boolean            | `false`                             | Show diagnostic transcript rows.                                          |
 | `skill_dirs`        | array of paths     | `[]`                                | Additional local skill discovery roots.                                   |
 | `session_dir`       | path               | `.thndrs/sessions` in the workspace | Directory for append-only session JSONL files.                            |
@@ -83,7 +83,7 @@ entries, then CLI `--skill-dir` entries.
 
 ```toml
 # Setup records the initial provider and model. Uncomment to override it.
-# model = "umans-coder"
+# model = "opencode/big-pickle"
 websearch = "duckduckgo"
 # Required when websearch = "searxng".
 # websearch_url = "http://127.0.0.1:8080"
@@ -91,7 +91,7 @@ reasoning_effort = "auto"
 reasoning_summary = "off"
 tick_rate_ms = 33
 theme = "eldritch-minimal"
-mouse = false
+mouse = true
 verbose = false
 skill_dirs = ["vendor/agent-skills"]
 session_dir = ".thndrs/sessions"
@@ -114,7 +114,7 @@ These settings are intentionally CLI-only:
 
 - `--cwd`: one-run workspace override.
 - `--print-prompt`: print prompt assembly and exit.
-- `--no-mouse`: one-run override for `mouse = false`.
+- `--no-mouse`: one-run override for `mouse = false`, preserving native terminal selection and scrollback.
 
 `cwd` is not a TOML or environment key because it controls which project config
 file is discovered. Use `default_workspace` for a persistent workspace default,

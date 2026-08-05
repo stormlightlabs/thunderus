@@ -293,9 +293,9 @@ fn static_status_row_uses_codex_model_label_and_shows_reasoning_when_supported()
 }
 
 #[test]
-fn static_status_row_shows_umans_reasoning_toggle() {
+fn static_status_row_shows_opencode_reasoning_toggle() {
     let mut app = test_app();
-    app.model = "umans-glm-5.2".to_string();
+    app.model = "opencode/gpt-5.6-luna".to_string();
     app.cli.reasoning_effort = crate::cli::ReasoningEffort::On;
 
     let text = static_status_row(&app, 128).text();
@@ -434,8 +434,8 @@ fn snapshot_model_picker() {
     let mut app = test_app();
     app.picker = Some(PickerState::new(
         vec![
-            PickerItem::new("umans-coder", "Recommended route to Kimi K2.7-Code"),
-            PickerItem::new("umans-glm-5.2", "Largest context window"),
+            PickerItem::new("opencode/big-pickle", "Recommended route to Kimi K2.7-Code"),
+            PickerItem::new("opencode/gpt-5.6-luna", "Largest context window"),
         ],
         50,
     ));
@@ -494,9 +494,9 @@ fn snapshot_command_suggestions() {
 #[test]
 fn snapshot_first_run_recovery_normal() {
     let mut app = test_app();
-    app.model = "umans-coder".to_string();
+    app.model = "opencode/big-pickle".to_string();
     app.first_run_recovery = Some(FirstRunRecovery {
-        provider: Some(SetupProviderArg::Umans),
+        provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::MissingCredential,
         pending_provider_prompt: true,
         selected: 0,
@@ -528,9 +528,9 @@ fn snapshot_first_run_recovery_narrow() {
 #[test]
 fn snapshot_first_run_recovery_tiny() {
     let mut app = test_app();
-    app.model = "umans-coder".to_string();
+    app.model = "opencode/big-pickle".to_string();
     app.first_run_recovery = Some(FirstRunRecovery {
-        provider: Some(SetupProviderArg::Umans),
+        provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::ConfirmStore,
         pending_provider_prompt: true,
         selected: 1,

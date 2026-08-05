@@ -4,6 +4,6 @@ expression: frame.render_styled()
 ---
 │   │  MODELS                                                         option 2/2    # [-]=   [fg=#3b4261]=│   [fg=#f1fc79 b]=MODELS [-]=                                                          [fg=#6473b7]=option 2/2 [-]=  
 │   │  filter: type to filter                                                       # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=filter: type to filter [-]=                                                    [-]=  
-│   │    umans-coder  Recommended route to Kimi K2.7-…                              # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  umans-coder  Recommended route to Kimi K2.7-… [-]=                           [-]=  
-│   │  ❯ umans-glm-5.2  Largest context window                                      # [-]=   [fg=#3b4261]=│   [fg=#ebfafa b]=❯ umans-glm-5.2  Largest context window [-]=                                   [-]=  
+│   │    opencode/big-pickle  Recommended route to Kimi K2.7-…                      # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  opencode/big-pickle  Recommended route to Kimi K2.7-… [-]=                   [-]=  
+│   │  ❯ opencode/gpt-5.6-luna  Largest context window                              # [-]=   [fg=#3b4261]=│   [fg=#ebfafa b]=❯ opencode/gpt-5.6-luna  Largest context window [-]=                           [-]=  
 │   │  Enter select · Esc close                                                     # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=Enter select · Esc close [-]=                                                  [-]=

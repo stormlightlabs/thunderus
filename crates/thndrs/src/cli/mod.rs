@@ -58,8 +58,8 @@ pub enum WebSearchMode {
 /// Requested reasoning control for a provider model.
 ///
 /// The exact choices are model-specific. [`Auto`](Self::Auto) delegates to the
-/// provider default, while [`On`](Self::On) and [`None`](Self::None) are used by
-/// providers such as Umans that expose a reasoning toggle rather than a depth.
+/// provider default, while [`On`](Self::On) and [`None`](Self::None) support
+/// models that expose a reasoning toggle rather than a depth.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReasoningEffort {
@@ -290,14 +290,15 @@ pub struct Cli {
     #[arg(long, default_value_t = DEFAULT_TICK_RATE_MS)]
     pub tick_rate_ms: u64,
     /// Disable mouse capture in the alternate-screen interface.
+    ///
+    /// Use this for native terminal selection and scrollback.
     #[arg(long, default_value_t = false, conflicts_with = "mouse")]
     pub no_mouse: bool,
-    /// Enable terminal mouse capture for overlay mouse events.
+    /// Enable terminal mouse capture for transcript scrolling and overlay events.
     ///
-    /// Enables transcript wheel scrolling and overlay mouse navigation. Most
-    /// terminals retain a modifier-assisted text selection gesture while mouse
-    /// capture is active.
-    #[arg(long, default_value_t = false, conflicts_with = "no_mouse")]
+    /// Mouse capture is enabled by default. Most terminals retain a
+    /// modifier-assisted text selection gesture while capture is active.
+    #[arg(long, default_value_t = true, conflicts_with = "no_mouse")]
     pub mouse: bool,
     /// Show diagnostic transcript rows such as provider events and log paths.
     #[arg(long, default_value_t = false)]
@@ -351,7 +352,7 @@ impl Default for Cli {
             reasoning_summary: ReasoningSummary::default(),
             tick_rate_ms: DEFAULT_TICK_RATE_MS,
             no_mouse: false,
-            mouse: false,
+            mouse: true,
             verbose: false,
             theme: Theme::default(),
             print_prompt: false,
@@ -415,8 +416,15 @@ impl Cli {
             configured_default_workspace.as_path()
         };
         Ok(
-            config::load_effective(initial_workspace, env_vars)
-                .map(|effective| cli.with_effective(effective, &matches)),
+            config::load_effective(initial_workspace, env_vars).and_then(|effective| {
+                let cli = cli.with_effective(effective, &matches);
+                if commands::setup::model_uses_unsupported_route(&cli.model)
+                    && !is_explicit_setup_recovery(&cli, &matches)
+                {
+                    return Err(config::ConfigError::UnsupportedProviderRoute);
+                }
+                Ok(cli)
+            }),
         )
     }
 
@@ -505,6 +513,17 @@ impl Cli {
     }
 }
 
+fn is_explicit_setup_recovery(cli: &Cli, matches: &clap::ArgMatches) -> bool {
+    if is_command_line(matches, "model") {
+        return true;
+    }
+    matches!(
+        &cli.command,
+        Some(Command::Setup(commands::setup::SetupCommand { provider: Some(provider), .. }))
+            if *provider != commands::setup::SetupProviderArg::Umans
+    )
+}
+
 fn is_command_line(matches: &clap::ArgMatches, id: &str) -> bool {
     matches.value_source(id) == Some(ValueSource::CommandLine)
 }
@@ -529,7 +548,7 @@ mod tests {
         assert_eq!(cli.websearch, WebSearchMode::DuckDuckGo);
         assert_eq!(cli.tick_rate_ms, DEFAULT_TICK_RATE_MS);
         assert!(!cli.no_mouse);
-        assert!(!cli.mouse);
+        assert!(cli.mouse);
         assert!(!cli.verbose);
         assert_eq!(cli.theme, Theme::EldritchMinimal);
         assert!(cli.skill_dirs.is_empty());
@@ -591,7 +610,7 @@ mod tests {
         fs::create_dir_all(workspace.join(".thndrs")).expect("create .thndrs dir");
         fs::write(
             workspace.join(".thndrs").join("config.toml"),
-            "model = \"config-model\"\nwebsearch = \"duckduckgo\"\ntick_rate_ms = 250\nverbose = false\ntheme = \"eldritch-minimal\"\n",
+            "model = \"config-model\"\nwebsearch = \"duckduckgo\"\ntick_rate_ms = 250\nverbose = false\ntheme = \"eldritch-minimal\"\nmouse = false\n",
         )
         .expect("write config");
 
@@ -602,6 +621,7 @@ mod tests {
             "--verbose",
             "--theme",
             "catppuccin-mocha",
+            "--mouse",
         ])
         .unwrap();
         let effective = config::load_effective(workspace, &[]).expect("load effective");
@@ -612,6 +632,7 @@ mod tests {
         assert_eq!(cli.tick_rate_ms, 250);
         assert!(cli.verbose);
         assert_eq!(cli.theme, Theme::CatppuccinMocha);
+        assert!(cli.mouse);
         assert_eq!(
             cli.config_origins.get("model"),
             Some(&config::ConfigOrigin { source: config::ConfigSource::CliFlag, detail: "--model".to_string() })
@@ -655,7 +676,7 @@ mod tests {
         fs::create_dir_all(workspace.join(".thndrs")).expect("create project config dir");
         fs::write(
             workspace.join(".thndrs").join("config.toml"),
-            "model = \"project-model\"\n",
+            "model = \"opencode/big-pickle\"\n",
         )
         .expect("write project config");
 
@@ -665,7 +686,7 @@ mod tests {
             .expect("load config");
 
         assert_eq!(cli.cwd, workspace);
-        assert_eq!(cli.model, "project-model");
+        assert_eq!(cli.model, "opencode/big-pickle");
         assert_eq!(
             cli.config_origins.get("model"),
             Some(&config::ConfigOrigin {

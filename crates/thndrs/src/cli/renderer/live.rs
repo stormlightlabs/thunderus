@@ -7,7 +7,7 @@
 mod tests;
 
 use crate::app::{App, Entry, Mode, PromptState, RecoveryStage, ToolStatus};
-use crate::providers::{codex, umans};
+use crate::providers::codex;
 use crate::renderer::cursor::{prompt_cursor, prompt_rows};
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::style::{CellStyle, Color, Span};
@@ -486,7 +486,7 @@ fn compact_token_status(app: &App) -> String {
 }
 
 fn supports_reasoning_status(model: &str) -> bool {
-    codex::supports_reasoning_effort(model) || umans::reasoning_options(model).len() > 1
+    codex::supports_reasoning_effort(model) || crate::providers::reasoning_options(model).len() > 1
 }
 
 fn mention_styled_spans(line: &str, text_style: CellStyle, mention_style: CellStyle, _bg: Color) -> Vec<Span> {

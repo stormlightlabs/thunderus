@@ -1744,7 +1744,7 @@ mod tests {
     fn state() -> ServerState {
         ServerState::new(ServerConfig::new(
             PathBuf::from("/tmp/workspace"),
-            String::from("umans-coder"),
+            String::from("opencode/big-pickle"),
             String::from("duckduckgo"),
             None,
         ))
@@ -1887,7 +1887,7 @@ mod tests {
             &workspace_path.display().to_string(),
             "Saved Session",
             "thndrs",
-            "umans-coder",
+            "opencode/big-pickle",
             "auto",
             env!("CARGO_PKG_VERSION"),
             None,
@@ -1904,7 +1904,7 @@ mod tests {
             .expect("append assistant");
         let state = ServerState::new(ServerConfig::new(
             workspace_path.clone(),
-            "umans-coder".to_string(),
+            "opencode/big-pickle".to_string(),
             "duckduckgo".to_string(),
             Some(session_dir.path().to_path_buf()),
         ));
@@ -1968,7 +1968,7 @@ mod tests {
             &workspace_path.display().to_string(),
             "Resume Session",
             "thndrs",
-            "umans-coder",
+            "opencode/big-pickle",
             "auto",
             env!("CARGO_PKG_VERSION"),
             None,
@@ -1977,7 +1977,7 @@ mod tests {
         drop(writer);
         let state = ServerState::new(ServerConfig::new(
             workspace_path.clone(),
-            "umans-coder".to_string(),
+            "opencode/big-pickle".to_string(),
             "duckduckgo".to_string(),
             Some(session_dir.path().to_path_buf()),
         ));

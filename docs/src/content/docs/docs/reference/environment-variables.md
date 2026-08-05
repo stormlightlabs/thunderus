@@ -34,7 +34,7 @@ still override environment variables.
 Examples:
 
 ```sh
-export THNDRS_MODEL=umans-coder
+export THNDRS_MODEL=opencode/big-pickle
 export THNDRS_WEBSEARCH=duckduckgo
 export THNDRS_WEBSEARCH_URL=http://127.0.0.1:8080
 export THNDRS_VERBOSE=on
@@ -72,14 +72,6 @@ refreshable credentials in `~/.thndrs/auth.json`. The
 `CHATGPT_CODEX_ACCESS_TOKEN` environment variable is only a process-local
 override for automation and debugging.
 
-### `UMANS_API_KEY`
-
-API key used by the Umans provider.
-
-```sh
-export UMANS_API_KEY=sk-...
-```
-
 ### `OPENCODE_GO_KEY`
 
 API key used by the OpenCode Go provider.
@@ -113,8 +105,8 @@ This value is used only for the current process and is not written to
 `thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` to
 create or refresh local ChatGPT OAuth credentials.
 
-Do not use TOML keys such as `umans_api_key`, `auth_token`, `secret`, or
-`password`. Secret-shaped TOML keys are rejected; provider code owns provider
+Do not use TOML keys such as `provider_api_key`, `auth_token`, `secret`,
+or `password`. Secret-shaped TOML keys are rejected; provider code owns provider
 secret loading and redaction.
 
 [^1]: Boolean values accept `1`, `0`, `true`, `false`, `yes`, `no`, `on`, and `off`, case-insensitively.

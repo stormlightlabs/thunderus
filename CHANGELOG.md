@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- Provider-neutral context accounting with exact serialized bytes,
+  conservative token estimates, provider-reported usage, cache components,
+  and explicit measurement provenance.
+- Separate durable-evidence, user-display, and model-projection contracts for
+  tool results, with bounded redacted artifacts and recovery handles.
+- Inspectable context lifecycle, protection, verification, reduction receipts,
+  and deterministic JSON and Markdown exports.
+- Preservation-tested terminal, repetition, duplicate-evidence, and command
+  result reducers with frozen replay fixtures and projection benchmarks.
+- Review-gated range compression with source provenance, protected-fact
+  preservation, atomic rejection, and bounded recovery.
+
 ## v0.1.0
 
 This release introduces `thndrs` as experimental pre-1.0 software. Its CLI,
@@ -47,4 +63,4 @@ pre-1.0 release line.
   queued steering/follow-up summaries while a turn is running.
 - Redacted diagnostics, prompt inspection, configuration provenance, and
   session inspection/export.
-- Web search tool with configurable backend (DuckDuckGo or SearXNG)
+- Web search tool with configurable backend (DuckDuckGo or SearXNG).

@@ -18,7 +18,8 @@ different model.
 
 ```sh
 thndrs setup --provider chatgpt-codex
-thndrs setup --provider umans
+thndrs setup --provider opencode-zen
+thndrs setup --provider opencode-go
 ```
 
 To point `thndrs` at a different workspace:

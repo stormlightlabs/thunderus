@@ -12,7 +12,7 @@ fn test_bundle() -> PromptBundle {
         fragments: default_fragments(),
         environment: EnvironmentMetadata {
             cwd: "/repo".to_string(),
-            model: "umans-coder".to_string(),
+            model: "opencode/big-pickle".to_string(),
             search_mode: WebSearchMode::DuckDuckGo,
             date: "2026-06-29".to_string(),
         },
@@ -29,8 +29,8 @@ fn test_bundle() -> PromptBundle {
 
 fn ledger_limits() -> ModelContextLimits {
     ModelContextLimits {
-        provider: "umans".to_string(),
-        model: "umans-coder".to_string(),
+        provider: "opencode-zen".to_string(),
+        model: "opencode/big-pickle".to_string(),
         context_window: 200_000,
         max_completion_tokens: 8_192,
         recommended_completion_tokens: 4_096,
@@ -121,7 +121,7 @@ fn self_knowledge_fragment_points_to_local_truth() {
 
 #[test]
 fn environment_metadata_rounds_date() {
-    let env = EnvironmentMetadata::new(Path::new("/repo"), "umans-coder", WebSearchMode::DuckDuckGo);
+    let env = EnvironmentMetadata::new(Path::new("/repo"), "opencode/big-pickle", WebSearchMode::DuckDuckGo);
     assert_eq!(env.date.len(), 10, "date should be YYYY-MM-DD");
     assert!(env.date.starts_with("20"), "date should be in the 2000s");
 }
@@ -186,8 +186,8 @@ fn system_prompt_includes_stable_self_description_and_docs_map() {
 
     assert!(prompt.contains("<thndrs_self_knowledge>"));
     assert!(prompt.contains("<name>thndrs</name>"));
-    assert!(prompt.contains("<name>umans</name>"));
-    assert!(prompt.contains("<model>umans-coder</model>"));
+    assert!(prompt.contains("<name>opencode-zen</name>"));
+    assert!(prompt.contains("<model>opencode/big-pickle</model>"));
     assert!(prompt.contains("<workspace>/repo</workspace>"));
     assert!(prompt.contains("<mode>duckduckgo</mode>"));
     assert!(prompt.contains("<url_reader>read_url fetches public HTTP(S) and extracts HTML with Lectito</url_reader>"));
@@ -514,7 +514,7 @@ fn render_tool_catalog_produces_json() {
 fn build_prompt_bundle_assembles_all_parts() {
     let bundle = PromptBundle::new(
         Path::new("/repo"),
-        "umans-coder",
+        "opencode/big-pickle",
         WebSearchMode::DuckDuckGo,
         &[],
         &[Entry::User { text: "test".to_string() }],
@@ -541,7 +541,7 @@ fn build_prompt_bundle_assembles_all_parts() {
         bundle.fragments.iter().any(|f| f.content.contains("<self_knowledge>")),
         "should have a self_knowledge fragment"
     );
-    assert_eq!(bundle.environment.model, "umans-coder");
+    assert_eq!(bundle.environment.model, "opencode/big-pickle");
     assert!(!bundle.tool_catalog.is_empty());
     assert_eq!(bundle.user_turn, "hello");
 }

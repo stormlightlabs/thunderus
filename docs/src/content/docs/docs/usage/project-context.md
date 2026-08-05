@@ -118,7 +118,7 @@ by other local agent tools:
 <!-- TODO: this is a little out of date -->
 
 ```text
-[Runtime] umans | umans-coder | search duckduckgo | direct-inline
+[Runtime] chatgpt-codex | chatgpt-codex/gpt-5.6-sol | search duckduckgo | direct-inline
 [Context] /repo/AGENTS.md
 [Search] duckduckgo...
 [Skills] inspect-project, release-notes

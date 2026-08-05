@@ -30,8 +30,8 @@ fn from_cli_starts_with_fresh_transcript_not_latest_session() {
         "session-old",
         "/repo",
         "old",
-        "umans",
-        "umans-coder",
+        "opencode-go",
+        "opencode/big-pickle",
         "none",
         "0.1.0",
         None,
@@ -123,8 +123,8 @@ fn from_cli_does_not_scan_session_history() {
         "session-old",
         "/repo",
         "old",
-        "umans",
-        "umans-coder",
+        "opencode-go",
+        "opencode/big-pickle",
         "none",
         "0.1.0",
         None,
@@ -134,7 +134,7 @@ fn from_cli_does_not_scan_session_history() {
         .append_entry(&Entry::User { text: String::from("old session prompt") }, "turn_1")
         .expect("append old entry");
 
-    let cli = Cli { cwd: dir.path().to_path_buf(), model: "umans-coder".to_string(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let app = App::from_cli(&cli);
 
     assert!(app.input_history.is_empty());
@@ -262,8 +262,8 @@ fn submit_user_turn_records_mcp_config_change_before_user() {
     std::fs::create_dir_all(dir.path().join(".thndrs")).expect("create thndrs dir");
     auth::set_credential(
         &auth::project_credentials_path(dir.path()),
-        auth::UMANS_API_KEY_ENV,
-        "test-umans-key",
+        auth::OPENCODE_GO_KEY_ENV,
+        "test-opencode-key",
     )
     .expect("seed test credential");
     auth::set_credential(
@@ -282,7 +282,7 @@ fn submit_user_turn_records_mcp_config_change_before_user() {
     )
     .expect("write mcp config");
 
-    let cli = Cli { cwd: dir.path().to_path_buf(), model: "umans-coder".to_string(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = with_home(&home, || App::from_cli(&cli));
     app.first_run_recovery = None;
     let previous_hash = app.mcp_config_files[0].sha256.clone();
@@ -1004,15 +1004,15 @@ fn missing_provider_credential_opens_recovery_and_preserves_prompt() {
         assert!(app.transcript.is_empty());
         let recovery = app.first_run_recovery.as_ref().expect("recovery");
         assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
-        assert_eq!(recovery.provider, Some(SetupProviderArg::Umans));
+        assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
     });
 }
 
 #[test]
-fn umans_setup_cancellation_keeps_prompt_draft_and_discards_secret_buffer() {
+fn opencode_setup_cancellation_keeps_prompt_draft_and_discards_secret_buffer() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("draft while setting up Umans");
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, true));
+    app.input = PromptInput::from("draft while setting up OpenCode Go");
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     for ch in "sk-cancelled-key".chars() {
@@ -1023,21 +1023,21 @@ fn umans_setup_cancellation_keeps_prompt_draft_and_discards_secret_buffer() {
     let recovery = app
         .first_run_recovery
         .as_ref()
-        .expect("Umans recovery remains available");
+        .expect("OpenCode recovery remains available");
     assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
     assert!(recovery.secret_input.is_empty());
-    assert_eq!(app.input.as_str(), "draft while setting up Umans");
+    assert_eq!(app.input.as_str(), "draft while setting up OpenCode Go");
     assert!(!format!("{app:?}").contains("sk-cancelled-key"));
 }
 
 #[test]
-fn umans_provider_failure_is_actionable_and_restores_prompt_draft() {
+fn opencode_provider_failure_is_actionable_and_restores_prompt_draft() {
     with_provider_env_removed(|| {
         let mut app = fresh_app();
-        app.model = "umans-coder".to_string();
+        app.model = "opencode/big-pickle".to_string();
         app.cli.model = app.model.clone();
         app.first_run_recovery = None;
-        let prompt = "make the bounded Umans change";
+        let prompt = "make the bounded OpenCode change";
 
         assert_eq!(
             submit_user_turn(&mut app, prompt.to_string()),
@@ -1047,14 +1047,16 @@ fn umans_provider_failure_is_actionable_and_restores_prompt_draft() {
         update(
             &mut app,
             &Msg::Agent(AgentEvent::Failed(
-                "Umans authentication failed (HTTP 401); check UMANS_API_KEY or run `thndrs login umans`".to_string(),
+                "OpenCode Zen authentication failed (HTTP 401); check OPENCODE_ZEN_KEY or run `thndrs login opencode-go`"
+                    .to_string(),
             )),
         );
 
         assert_eq!(
             app.run_state,
             RunState::Error(
-                "Umans authentication failed (HTTP 401); check UMANS_API_KEY or run `thndrs login umans`".to_string()
+                "OpenCode Zen authentication failed (HTTP 401); check OPENCODE_ZEN_KEY or run `thndrs login opencode-go`"
+                    .to_string()
             )
         );
         assert_eq!(app.input.as_str(), prompt);
@@ -1062,12 +1064,12 @@ fn umans_provider_failure_is_actionable_and_restores_prompt_draft() {
             app.first_run_recovery
                 .as_ref()
                 .map(|recovery| (recovery.provider, recovery.stage)),
-            Some((Some(SetupProviderArg::Umans), RecoveryStage::EnterKey))
+            Some((Some(SetupProviderArg::OpencodeZen), RecoveryStage::EnterKey))
         );
         assert!(
             app.transcript
                 .iter()
-                .any(|entry| matches!(entry, Entry::Status { text } if text.contains("/login umans")))
+                .any(|entry| matches!(entry, Entry::Status { text } if text.contains("/login opencode-zen")))
         );
     });
 }
@@ -1076,28 +1078,29 @@ fn umans_provider_failure_is_actionable_and_restores_prompt_draft() {
 fn rejected_environment_credential_names_the_override_without_opening_login() {
     with_provider_env_removed(|| {
         unsafe {
-            std::env::set_var(auth::UMANS_API_KEY_ENV, "rejected-environment-key");
+            std::env::set_var(auth::OPENCODE_ZEN_KEY_ENV, "rejected-environment-key");
         }
         let mut app = fresh_app();
-        app.model = "umans-coder".to_string();
+        app.model = "opencode/big-pickle".to_string();
         app.cli.model = app.model.clone();
         app.first_run_recovery = None;
 
         assert_eq!(
-            submit_user_turn(&mut app, "make the bounded Umans change".to_string()),
+            submit_user_turn(&mut app, "make the bounded OpenCode change".to_string()),
             Some(Msg::Agent(AgentEvent::Started))
         );
         update(&mut app, &Msg::Agent(AgentEvent::Started));
         update(
             &mut app,
             &Msg::Agent(AgentEvent::Failed(
-                "Umans authentication failed (HTTP 403); check UMANS_API_KEY or run `thndrs login umans`".to_string(),
+                "OpenCode Zen authentication failed (HTTP 403); check OPENCODE_ZEN_KEY or run `thndrs login opencode-go`"
+                    .to_string(),
             )),
         );
 
         assert!(app.first_run_recovery.is_none());
         assert!(app.transcript.iter().any(|entry| {
-            matches!(entry, Entry::Status { text } if text.contains("UMANS_API_KEY takes precedence"))
+            matches!(entry, Entry::Status { text } if text.contains("OPENCODE_ZEN_KEY takes precedence"))
         }));
         assert!(
             !app.transcript
@@ -1111,7 +1114,7 @@ fn rejected_environment_credential_names_the_override_without_opening_login() {
 fn rejected_credential_failure_is_persisted_before_opening_login_recovery() {
     with_provider_env_removed(|| {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cli = Cli { cwd: dir.path().to_path_buf(), model: "umans-coder".to_string(), ..Cli::default() };
+        let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.first_run_recovery = None;
         let session_path = app
@@ -1124,7 +1127,8 @@ fn rejected_credential_failure_is_persisted_before_opening_login_recovery() {
         update(
             &mut app,
             &Msg::Agent(AgentEvent::Failed(
-                "Umans authentication failed (HTTP 401); check UMANS_API_KEY or run `thndrs login umans`".to_string(),
+                "OpenCode Zen authentication failed (HTTP 401); check OPENCODE_ZEN_KEY or run `thndrs login opencode-go`"
+                    .to_string(),
             )),
         );
 
@@ -1136,7 +1140,7 @@ fn rejected_credential_failure_is_persisted_before_opening_login_recovery() {
             app.first_run_recovery
                 .as_ref()
                 .map(|recovery| (recovery.provider, recovery.stage)),
-            Some((Some(SetupProviderArg::Umans), RecoveryStage::EnterKey))
+            Some((Some(SetupProviderArg::OpencodeZen), RecoveryStage::EnterKey))
         );
     });
 }
@@ -1166,7 +1170,7 @@ fn fresh_setup_authenticates_before_model_selection_and_retains_draft() {
         );
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-        for ch in "test-umans-key".chars() {
+        for ch in "test-opencode-key".chars() {
             update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
         }
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -1179,7 +1183,7 @@ fn fresh_setup_authenticates_before_model_selection_and_retains_draft() {
             Some(RecoveryStage::ModelSelection)
         );
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(app.model, "umans-coder");
+        assert_eq!(app.model, "opencode/big-pickle");
         assert_eq!(app.input.as_str(), "draft before setup");
     });
 }
@@ -1254,7 +1258,7 @@ fn recovery_enter_key_stores_project_credential_without_transcript_secret() {
         let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.session_writer = None;
-        app.first_run_recovery = Some(FirstRunRecovery::login(SetupProviderArg::Umans));
+        app.first_run_recovery = Some(FirstRunRecovery::login(SetupProviderArg::OpencodeGo));
 
         for ch in "sk-secret-from-test".chars() {
             update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
@@ -1266,7 +1270,7 @@ fn recovery_enter_key_stores_project_credential_without_transcript_secret() {
 
         let stored = auth::read_credentials(&auth::project_credentials_path(dir.path())).expect("read credentials");
         assert_eq!(
-            stored.get(auth::UMANS_API_KEY_ENV).map(String::as_str),
+            stored.get(auth::OPENCODE_GO_KEY_ENV).map(String::as_str),
             Some("sk-secret-from-test")
         );
         let transcript = format!("{:?}", app.transcript);
@@ -1277,7 +1281,7 @@ fn recovery_enter_key_stores_project_credential_without_transcript_secret() {
 #[test]
 fn recovery_actions_handle_switch_instructions_continue_and_quit() {
     let mut app = fresh_app();
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, true));
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -1286,7 +1290,7 @@ fn recovery_actions_handle_switch_instructions_continue_and_quit() {
 
     app.prompt_accessory = PromptAccessory::None;
     app.picker = None;
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, true));
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -1295,7 +1299,7 @@ fn recovery_actions_handle_switch_instructions_continue_and_quit() {
         Some(RecoveryStage::Instructions)
     );
 
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, true));
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
     for _ in 0..3 {
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     }
@@ -1309,7 +1313,7 @@ fn recovery_actions_handle_switch_instructions_continue_and_quit() {
         Entry::Status { text } if text.contains("setup required before submitting")
     )));
 
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, false));
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, false));
     for _ in 0..3 {
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     }
@@ -1319,7 +1323,7 @@ fn recovery_actions_handle_switch_instructions_continue_and_quit() {
         "manual setup can be skipped without submitting a prompt"
     );
 
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, false));
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, false));
     for _ in 0..4 {
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     }
@@ -1654,10 +1658,15 @@ fn chatgpt_browser_oauth_escape_cancels_without_writing_credentials() {
 fn offline_model_picker_includes_provider_expansion_models() {
     let items = offline_model_picker_items();
 
-    for model in ["umans-coder", "umans-kimi-k2.7", "umans-glm-5.2", "umans-flash"] {
+    for model in [
+        "opencode/big-pickle",
+        "opencode/gpt-5.6-sol",
+        "opencode/gpt-5.6-luna",
+        "opencode-go/deepseek-v4-flash",
+    ] {
         assert!(
             items.iter().any(|item| item.label == model),
-            "missing Umans model {model}"
+            "missing OpenCode model {model}"
         );
     }
     assert!(!items.iter().any(|item| item.label == "umans-glm-5.1"));
@@ -2715,7 +2724,7 @@ fn model_metadata_event_updates_model_picker_items() {
     handle_agent_event(
         &mut app,
         AgentEvent::ModelMetadataLoaded(vec![(
-            "umans-test".to_string(),
+            "opencode/test".to_string(),
             "provider · ctx 1M · out 32k · tools · reasoning".to_string(),
         )]),
     );
@@ -2723,7 +2732,7 @@ fn model_metadata_event_updates_model_picker_items() {
     open_model_picker(&mut app);
 
     let picker = app.picker.as_ref().expect("model picker");
-    assert_eq!(picker.matches[0].label, "umans-test");
+    assert_eq!(picker.matches[0].label, "opencode/test");
     assert_eq!(
         picker.matches[0].detail,
         "provider · ctx 1M · out 32k · tools · reasoning"

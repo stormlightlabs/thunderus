@@ -33,7 +33,7 @@ diff detail:
 │   │    ↑/↓ scroll · Esc close                        │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  ↑/↓ scroll · Esc close                         [fg=#ebfafa bg=#212337 b]=│
 │   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯
 setup form:
-│   ╭ setup · Umans · credential entry · focus: i… ╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ setup · Umans · credential entry · focus: i… ╮
+│   ╭ setup · OpenCode Go · credential entry · fo… ╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ setup · OpenCode Go · credential entry · fo… ╮
 │   │    ! credential is required                      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#f16c75 bg=#212337]=  ! credential is required                       [fg=#ebfafa bg=#212337 b]=│
 │   │    … 2 rows below                                │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 2 rows below                                 [fg=#ebfafa bg=#212337 b]=│
 │   │    submit · cancel · Esc cancel                  │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  submit · cancel · Esc cancel                   [fg=#ebfafa bg=#212337 b]=│

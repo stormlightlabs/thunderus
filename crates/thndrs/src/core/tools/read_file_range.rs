@@ -20,7 +20,17 @@ pub struct ReadFileRangeInput {
 /// (defaults to `start_line + 20`). Enforces workspace-root containment and
 /// line-length caps.
 pub fn exec(path: &Path, root: &Path, start_line: u32, end_line: Option<u32>) -> ToolOutput {
-    if !super::path::is_within_root(path, root) {
+    exec_with_extra_read_roots(path, root, &[], start_line, end_line)
+}
+
+fn exec_with_extra_read_roots(
+    path: &Path, root: &Path, extra_read_roots: &[PathBuf], start_line: u32, end_line: Option<u32>,
+) -> ToolOutput {
+    if !super::path::is_within_root(path, root)
+        && !extra_read_roots
+            .iter()
+            .any(|extra_root| super::path::is_within_root(path, extra_root))
+    {
         return ToolOutput::failed(
             "read_file_range",
             format!("path escapes workspace root: {}", path.display()),
@@ -107,14 +117,17 @@ pub fn parse_arguments(arguments: &str) -> Result<ReadFileRangeInput, ToolError>
 /// Execute a registry request for `read_file_range`.
 pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     match parse_arguments(&request.arguments) {
-        Ok(input) => ToolExecution::output(exec_input(&input, ctx.root)),
+        Ok(input) => ToolExecution::output(exec_input(&input, ctx)),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
     }
 }
 
-fn exec_input(input: &ReadFileRangeInput, root: &Path) -> ToolOutput {
-    let path = super::path::resolve_within_root(root, &input.path).unwrap_or_else(|_| PathBuf::from(&input.path));
-    exec(&path, root, input.start_line, input.end_line)
+fn exec_input(input: &ReadFileRangeInput, ctx: &ToolContext<'_>) -> ToolOutput {
+    let path = super::path::resolve_within_root(ctx.root, &input.path).unwrap_or_else(|_| PathBuf::from(&input.path));
+    if ctx.extra_read_roots.is_empty() {
+        return exec(&path, ctx.root, input.start_line, input.end_line);
+    }
+    exec_with_extra_read_roots(&path, ctx.root, &ctx.extra_read_roots, input.start_line, input.end_line)
 }
 
 #[cfg(test)]
@@ -168,6 +181,31 @@ mod tests {
         assert_eq!(input.path, "");
         assert_eq!(input.start_line, 1);
         assert_eq!(input.end_line, None);
+    }
+
+    #[test]
+    fn registry_execute_reads_from_extra_root() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let skill = tempfile::tempdir().expect("skill root");
+        let skill_path = skill.path().join("SKILL.md");
+        std::fs::write(&skill_path, "skill instructions\n").expect("write skill");
+        let request = ToolUseRequest::new(
+            NAME.to_string(),
+            serde_json::json!({
+                "path": skill_path,
+                "start_line": 1,
+                "end_line": 1,
+            })
+            .to_string(),
+            "call_1".to_string(),
+        );
+        let context =
+            tools::registry::ToolContext::new(workspace.path()).with_extra_read_roots(&[skill.path().to_path_buf()]);
+
+        let output = tools::registry::execute(&request, &context).output;
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert_eq!(output.display.lines, vec!["1: skill instructions"]);
     }
 
     #[test]

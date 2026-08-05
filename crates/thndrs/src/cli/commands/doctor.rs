@@ -133,7 +133,6 @@ fn gather_doctor_report(cli: &Cli) -> DoctorReport {
 
 fn collect_credential_statuses(workspace: &Path) -> Vec<DoctorCredential> {
     [
-        ("umans", auth::UMANS_API_KEY_ENV),
         ("opencode-go", auth::OPENCODE_GO_KEY_ENV),
         ("opencode-zen", auth::OPENCODE_ZEN_KEY_ENV),
     ]
@@ -149,7 +148,6 @@ fn collect_credential_statuses(workspace: &Path) -> Vec<DoctorCredential> {
 
 fn required_credential_env_for_provider(provider: &str) -> Option<&'static str> {
     match provider {
-        "umans" => Some(auth::UMANS_API_KEY_ENV),
         "opencode-go" => Some(auth::OPENCODE_GO_KEY_ENV),
         "opencode-zen" => Some(auth::OPENCODE_ZEN_KEY_ENV),
         _ => None,
@@ -465,6 +463,8 @@ mod tests {
             &[
                 ("HOME", Some(workspace_path)),
                 ("UMANS_API_KEY", Some("sk-very-secret-umans")),
+                ("OPENCODE_GO_KEY", Some("sk-go-secret")),
+                ("OPENCODE_ZEN_KEY", Some("sk-zen-secret")),
             ],
             || {
                 run_with_output(&[
@@ -472,7 +472,7 @@ mod tests {
                     "--cwd",
                     workspace_path,
                     "--model",
-                    "umans-coder",
+                    "opencode/big-pickle",
                     "doctor",
                     "--json",
                 ])
@@ -482,9 +482,9 @@ mod tests {
         assert_eq!(error_kind, None);
         assert!(!output.contains("sk-very-secret-umans"));
         let report: DoctorReport = serde_json::from_str(&output).expect("valid JSON");
-        assert_eq!(report.model, "umans-coder");
-        assert_eq!(report.provider.as_deref(), Some("umans"));
-        assert_eq!(report.credentials[0].provider, "umans");
+        assert_eq!(report.model, "opencode/big-pickle");
+        assert_eq!(report.provider.as_deref(), Some("opencode-zen"));
+        assert_eq!(report.credentials[0].provider, "opencode-go");
         assert!(matches!(
             report.credentials[0].source.as_str(),
             "environment" | "project credentials" | "global credentials"
@@ -547,21 +547,21 @@ mod tests {
                 "--cwd",
                 workspace_path,
                 "--model",
-                "umans-coder",
+                "opencode/big-pickle",
                 "doctor",
                 "--json",
             ])
         });
 
         let report: DoctorReport = serde_json::from_str(&output).expect("doctor json");
-        assert_eq!(report.provider.as_deref(), Some("umans"));
+        assert_eq!(report.provider.as_deref(), Some("opencode-zen"));
         assert_eq!(
             report.blocking_issues,
-            vec!["missing credential for model provider umans: UMANS_API_KEY"]
+            vec!["missing credential for model provider opencode-zen: OPENCODE_ZEN_KEY"]
         );
         assert_eq!(
             report.setup_hint.as_deref(),
-            Some("run `thndrs setup --provider umans` or `thndrs login umans`")
+            Some("run `thndrs setup --provider opencode-zen` or `thndrs login opencode-zen`")
         );
         assert_eq!(error_kind, Some(io::ErrorKind::PermissionDenied));
     }
@@ -584,7 +584,7 @@ mod tests {
                     "--cwd",
                     workspace_path,
                     "--model",
-                    "umans-coder",
+                    "opencode/big-pickle",
                     "doctor",
                     "--json",
                 ])
@@ -597,7 +597,6 @@ mod tests {
         assert!(!output.contains("zen-secret"));
         let report: DoctorReport = serde_json::from_str(&output).expect("doctor json");
         assert!(report.credentials.iter().all(|cred| cred.source != "environment"
-            || cred.provider == "umans"
             || cred.provider == "opencode-go"
             || cred.provider == "opencode-zen"));
         assert!(
@@ -662,14 +661,18 @@ mod tests {
         std::fs::write(workspace.path().join(".thndrs/mcp.toml"), invalid_mcp).expect("write invalid mcp");
 
         let (_, error_kind) = with_env_vars(
-            &[("HOME", Some(workspace_path)), ("UMANS_API_KEY", Some("sk-umans"))],
+            &[
+                ("HOME", Some(workspace_path)),
+                ("UMANS_API_KEY", Some("sk-umans")),
+                ("OPENCODE_ZEN_KEY", Some("sk-zen")),
+            ],
             || {
                 run_with_output(&[
                     "thndrs",
                     "--cwd",
                     workspace_path,
                     "--model",
-                    "umans-coder",
+                    "opencode/big-pickle",
                     "doctor",
                     "--json",
                 ])

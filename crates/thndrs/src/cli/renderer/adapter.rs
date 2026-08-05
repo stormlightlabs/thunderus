@@ -1015,7 +1015,7 @@ mod tests {
                 FocusedSurfaceView::SetupForm(SetupFormView {
                     title: "setup".to_string(),
                     stage: "credential entry".to_string(),
-                    status: "Umans · credential entry".to_string(),
+                    status: "OpenCode Go · credential entry".to_string(),
                     details: vec!["Input is hidden.".to_string()],
                     fields: vec![SetupFieldView {
                         label: "credential".to_string(),

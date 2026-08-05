@@ -1,7 +1,7 @@
 //! Prompt assembly and context contract.
 //!
 //! Builds a structured [`PromptBundle`] from app state, then lowers it into
-//! Umans Anthropic-compatible messages. The bundle is data, not ad hoc string
+//! provider-compatible messages. The bundle is data, not ad hoc string
 //! concatenation, so it can be inspected, tested, and serialized.
 //!
 //! ## Fragment Ordering
@@ -51,8 +51,8 @@ use thndrs_agent::context::{ContextItem, ContextLedger};
 /// Whether the provider supports reusable history / prompt caching for
 /// AGENTS.md content.
 ///
-/// Umans does not currently expose explicit reusable-history or prompt-cache
-/// behavior, so the default is [`HistoryReuse::Unavailable`], which always
+/// Built-in providers do not share one reusable-history or prompt-cache
+/// contract, so the default is [`HistoryReuse::Unavailable`], which always
 /// includes the active size-capped AGENTS.md content.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 pub enum HistoryReuse {
@@ -89,7 +89,7 @@ impl PromptFragment {
 ///
 /// Each field is a separate piece of model context. The [`std::fmt::Display`]
 /// implementation renders the full system prompt text;
-/// [`lower_to_umans_messages`] converts it to Anthropic-compatible messages.
+/// [`lower_to_umans_messages`] converts it to provider-compatible messages.
 #[derive(Clone, Debug)]
 pub struct PromptBundle {
     /// Ordered prompt fragments: base identity, communication style, action
@@ -387,7 +387,7 @@ fn push_item_meta(out: &mut String, indent: usize, item: &ContextItem) {
     }
 }
 
-/// Lower a [`PromptBundle`] into Umans Anthropic-compatible messages.
+/// Lower a [`PromptBundle`] into provider-compatible messages.
 ///
 /// The first message is a `user` message containing the system prompt (base +
 /// policy + environment + project context). The transcript tail follows as

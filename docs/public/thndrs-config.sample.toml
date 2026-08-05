@@ -3,12 +3,12 @@
 # Do not put provider API keys, tokens, passwords, or other secrets here.
 
 # Setup records the initial provider and model. Uncomment to override it.
-# model = "umans-coder"
+# model = "opencode/big-pickle"
 websearch = "duckduckgo"
 # websearch_url = "http://127.0.0.1:8080" # required for SearXNG
 tick_rate_ms = 33
 theme = "eldritch-minimal"
-mouse = false
+mouse = true
 verbose = false
 
 skill_dirs = ["vendor/agent-skills"]

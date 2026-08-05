@@ -89,7 +89,6 @@ export default defineConfig({
           label: "Providers",
           collapsed: true,
           items: [
-            { label: "Umans", slug: "docs/providers/umans" },
             { label: "OpenCode Go", slug: "docs/providers/opencode-go" },
             { label: "OpenCode Zen", slug: "docs/providers/opencode-zen" },
             { label: "ChatGPT Codex", slug: "docs/providers/chatgpt" },

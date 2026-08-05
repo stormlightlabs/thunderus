@@ -30,9 +30,6 @@ use sha2::Digest;
 
 use crate::utils;
 
-/// Environment variable name for the Umans API key.
-pub const UMANS_API_KEY_ENV: &str = "UMANS_API_KEY";
-
 /// Environment variable name for the OpenCode Go API key.
 pub const OPENCODE_GO_KEY_ENV: &str = "OPENCODE_GO_KEY";
 

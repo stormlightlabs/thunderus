@@ -27,13 +27,11 @@ pub fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
 
 pub fn with_provider_env_removed<T>(f: impl FnOnce() -> T) -> T {
     let _guard = crate::test_env::lock();
-    let old_umans = std::env::var_os(auth::UMANS_API_KEY_ENV);
-    let old_opencode = std::env::var_os(auth::OPENCODE_GO_KEY_ENV);
+    let old_opencode_go = std::env::var_os(auth::OPENCODE_GO_KEY_ENV);
     let old_opencode_zen = std::env::var_os(auth::OPENCODE_ZEN_KEY_ENV);
     let old_chatgpt = std::env::var_os(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
 
     unsafe {
-        std::env::remove_var(auth::UMANS_API_KEY_ENV);
         std::env::remove_var(auth::OPENCODE_GO_KEY_ENV);
         std::env::remove_var(auth::OPENCODE_ZEN_KEY_ENV);
         std::env::remove_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
@@ -42,12 +40,7 @@ pub fn with_provider_env_removed<T>(f: impl FnOnce() -> T) -> T {
     let result = f();
 
     unsafe {
-        if let Some(value) = old_umans {
-            std::env::set_var(auth::UMANS_API_KEY_ENV, value);
-        } else {
-            std::env::remove_var(auth::UMANS_API_KEY_ENV);
-        }
-        if let Some(value) = old_opencode {
+        if let Some(value) = old_opencode_go {
             std::env::set_var(auth::OPENCODE_GO_KEY_ENV, value);
         } else {
             std::env::remove_var(auth::OPENCODE_GO_KEY_ENV);
@@ -70,14 +63,12 @@ pub fn with_provider_env_removed<T>(f: impl FnOnce() -> T) -> T {
 pub fn with_setup_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
     let _guard = crate::test_env::lock();
     let old_home = std::env::var_os("HOME");
-    let old_umans = std::env::var_os(auth::UMANS_API_KEY_ENV);
-    let old_opencode = std::env::var_os(auth::OPENCODE_GO_KEY_ENV);
+    let old_opencode_go = std::env::var_os(auth::OPENCODE_GO_KEY_ENV);
     let old_opencode_zen = std::env::var_os(auth::OPENCODE_ZEN_KEY_ENV);
     let old_chatgpt = std::env::var_os(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
 
     unsafe {
         std::env::set_var("HOME", home);
-        std::env::remove_var(auth::UMANS_API_KEY_ENV);
         std::env::remove_var(auth::OPENCODE_GO_KEY_ENV);
         std::env::remove_var(auth::OPENCODE_ZEN_KEY_ENV);
         std::env::remove_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
@@ -92,8 +83,7 @@ pub fn with_setup_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
             std::env::remove_var("HOME");
         }
         for (name, value) in [
-            (auth::UMANS_API_KEY_ENV, old_umans),
-            (auth::OPENCODE_GO_KEY_ENV, old_opencode),
+            (auth::OPENCODE_GO_KEY_ENV, old_opencode_go),
             (auth::OPENCODE_ZEN_KEY_ENV, old_opencode_zen),
             (auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV, old_chatgpt),
         ] {
@@ -117,8 +107,8 @@ pub fn fresh_app() -> App {
     let cwd = dir.path().to_path_buf();
     auth::set_credential(
         &auth::project_credentials_path(&cwd),
-        auth::UMANS_API_KEY_ENV,
-        "test-umans-key",
+        auth::OPENCODE_GO_KEY_ENV,
+        "test-opencode-key",
     )
     .expect("seed test credential");
     auth::set_credential(
@@ -128,7 +118,7 @@ pub fn fresh_app() -> App {
     )
     .expect("seed test Zen credential");
     let _kept = dir.keep();
-    let cli = Cli { cwd, model: "umans-coder".to_string(), ..Cli::default() };
+    let cli = Cli { cwd, model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
     app.session_writer = None;
     app.first_run_recovery = None;

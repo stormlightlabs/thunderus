@@ -123,32 +123,42 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     }
     if let Some(rest) = command.strip_prefix("login ") {
         app.input.clear();
-        match parse_api_key_provider(rest.trim()) {
-            Some(provider) => {
-                app.first_run_recovery = Some(FirstRunRecovery::login(provider));
-            }
-            None => app.transcript.push(Entry::Error {
-                text: String::from("usage: /login <umans|opencode-go|opencode-zen|chatgpt-codex>"),
+        match rest.trim() {
+            "umans" => app.transcript.push(Entry::Error {
+                text: crate::cli::commands::setup::UNSUPPORTED_PROVIDER_ROUTE_MESSAGE.to_string(),
             }),
+            provider => match parse_api_key_provider(provider) {
+                Some(provider) => {
+                    app.first_run_recovery = Some(FirstRunRecovery::login(provider));
+                }
+                None => app.transcript.push(Entry::Error {
+                    text: String::from("usage: /login <opencode-go|opencode-zen|chatgpt-codex>"),
+                }),
+            },
         }
         return None;
     }
     if let Some(rest) = command.strip_prefix("logout ") {
         app.input.clear();
-        match parse_api_key_provider(rest.trim()) {
-            Some(SetupProviderArg::ChatgptCodex) => {
-                app.transcript.push(Entry::Status {
-                    text: String::from(
-                        "ChatGPT Codex logout is CLI-only; run `thndrs logout chatgpt-codex` outside the TUI",
-                    ),
-                });
-            }
-            Some(provider) => {
-                app.first_run_recovery = Some(FirstRunRecovery::logout(provider));
-            }
-            None => app.transcript.push(Entry::Error {
-                text: String::from("usage: /logout <umans|opencode-go|opencode-zen|chatgpt-codex>"),
+        match rest.trim() {
+            "umans" => app.transcript.push(Entry::Error {
+                text: crate::cli::commands::setup::UNSUPPORTED_PROVIDER_ROUTE_MESSAGE.to_string(),
             }),
+            provider => match parse_api_key_provider(provider) {
+                Some(SetupProviderArg::ChatgptCodex) => {
+                    app.transcript.push(Entry::Status {
+                        text: String::from(
+                            "ChatGPT Codex logout is CLI-only; run `thndrs logout chatgpt-codex` outside the TUI",
+                        ),
+                    });
+                }
+                Some(provider) => {
+                    app.first_run_recovery = Some(FirstRunRecovery::logout(provider));
+                }
+                None => app.transcript.push(Entry::Error {
+                    text: String::from("usage: /logout <opencode-go|opencode-zen|chatgpt-codex>"),
+                }),
+            },
         }
         return None;
     }
@@ -232,16 +242,14 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             None
         }
         "login" => {
-            app.transcript.push(Entry::Error {
-                text: String::from("usage: /login <umans|opencode-go|opencode-zen|chatgpt-codex>"),
-            });
+            app.transcript
+                .push(Entry::Error { text: String::from("usage: /login <opencode-go|opencode-zen|chatgpt-codex>") });
             app.input.clear();
             None
         }
         "logout" => {
-            app.transcript.push(Entry::Error {
-                text: String::from("usage: /logout <umans|opencode-go|opencode-zen|chatgpt-codex>"),
-            });
+            app.transcript
+                .push(Entry::Error { text: String::from("usage: /logout <opencode-go|opencode-zen|chatgpt-codex>") });
             app.input.clear();
             None
         }
@@ -332,7 +340,6 @@ fn render_prompt_template(app: &App, command: &str) -> Option<Result<String, Str
 
 fn parse_api_key_provider(input: &str) -> Option<SetupProviderArg> {
     match input {
-        "umans" => Some(SetupProviderArg::Umans),
         "opencode-go" => Some(SetupProviderArg::OpencodeGo),
         "opencode-zen" => Some(SetupProviderArg::OpencodeZen),
         "chatgpt-codex" => Some(SetupProviderArg::ChatgptCodex),
@@ -363,7 +370,6 @@ fn is_api_key_like(value: &str) -> bool {
         || lower.contains("apikey=")
         || lower.contains("opencode_go_key=")
         || lower.contains("opencode_zen_key=")
-        || lower.contains("umans_api_key=")
         || lower.contains("access_token=")
         || lower.contains("refresh_token=")
         || lower.contains("device_auth_id=")

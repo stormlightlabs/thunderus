@@ -23,7 +23,7 @@ fn bundle_with_context() -> PromptBundle {
     };
     PromptBundle::new(
         Path::new("/repo"),
-        "umans-coder",
+        "opencode/big-pickle",
         WebSearchMode::DuckDuckGo,
         &[source],
         &[],
@@ -52,8 +52,8 @@ fn context_item(content: &str) -> ContextItem {
 
 fn context_ledger(content: &str) -> ContextLedger {
     let limits = ModelContextLimits {
-        provider: "umans".to_string(),
-        model: "umans-coder".to_string(),
+        provider: "opencode-zen".to_string(),
+        model: "opencode/big-pickle".to_string(),
         context_window: 200_000,
         max_completion_tokens: 8_192,
         recommended_completion_tokens: 4_096,
@@ -79,7 +79,7 @@ fn compaction_audit(trigger: CompactionTrigger) -> CompactionAudit {
         risk: CompactionRisk::High,
         review: Some(CompactionReviewResult::Approved),
         recovery_handles: vec!["session:12..47".to_string()],
-        model: "umans-coder".to_string(),
+        model: "opencode/big-pickle".to_string(),
         usage: Some(CompactionTokenUsage { input_tokens: 1_024, output_tokens: 256 }),
         local_receipt: None,
         native_context_edit: None,
@@ -90,7 +90,7 @@ fn compaction_audit(trigger: CompactionTrigger) -> CompactionAudit {
 fn from_bundle_captures_model_and_search_mode() {
     let bundle = bundle_with_context();
     let meta = PromptMetadata::from_bundle(&bundle);
-    assert_eq!(meta.model, "umans-coder");
+    assert_eq!(meta.model, "opencode/big-pickle");
     assert_eq!(meta.search_mode, "duckduckgo");
 }
 
@@ -121,7 +121,7 @@ fn from_bundle_captures_self_knowledge_inputs_without_content() {
     let bundle = bundle_with_context();
     let meta = PromptMetadata::from_bundle(&bundle);
 
-    assert_eq!(meta.provider, "umans");
+    assert_eq!(meta.provider, "opencode-zen");
     assert_eq!(meta.renderer_mode, "direct-inline");
     assert!(meta.prompt_fragments.contains(&"base_identity".to_string()));
     assert!(
@@ -160,7 +160,7 @@ fn from_bundle_captures_transcript_tail_size_and_user_turn() {
     ];
     let bundle = PromptBundle::new(
         Path::new("/repo"),
-        "umans-coder",
+        "opencode/big-pickle",
         WebSearchMode::DuckDuckGo,
         &[],
         &transcript,
@@ -175,7 +175,7 @@ fn from_bundle_captures_transcript_tail_size_and_user_turn() {
 fn from_bundle_empty_user_turn_records_false() {
     let bundle = PromptBundle::new(
         Path::new("/repo"),
-        "umans-coder",
+        "opencode/big-pickle",
         WebSearchMode::DuckDuckGo,
         &[],
         &[],
@@ -220,7 +220,7 @@ fn json_round_trip_truncated_context() {
     };
     let bundle = PromptBundle::new(
         Path::new("/repo"),
-        "umans-glm-5.2",
+        "opencode/gpt-5.6-luna",
         WebSearchMode::Searxng,
         &[source],
         &[],
@@ -285,8 +285,8 @@ fn session_record_json_round_trip_session_meta() {
         session_id: "test-1".to_string(),
         cwd: "/repo".to_string(),
         title: "scratch".to_string(),
-        provider: "umans".to_string(),
-        model: "umans-coder".to_string(),
+        provider: "opencode-zen".to_string(),
+        model: "opencode/big-pickle".to_string(),
         websearch: "duckduckgo".to_string(),
         app_version: "0.1.0".to_string(),
         config: None,
@@ -306,8 +306,8 @@ fn session_record_session_meta_persists_config_session_dir() {
         session_id: "test-1".to_string(),
         cwd: "/repo".to_string(),
         title: "scratch".to_string(),
-        provider: "umans".to_string(),
-        model: "umans-coder".to_string(),
+        provider: "opencode-zen".to_string(),
+        model: "opencode/big-pickle".to_string(),
         websearch: "duckduckgo".to_string(),
         app_version: "0.1.0".to_string(),
         config: Some(SessionConfigMeta {
@@ -363,7 +363,7 @@ fn session_record_session_meta_persists_effective_config_metadata() {
         session_id: "test-1".to_string(),
         cwd: "/repo".to_string(),
         title: "scratch".to_string(),
-        provider: "umans".to_string(),
+        provider: "opencode-zen".to_string(),
         model: "env-model".to_string(),
         websearch: "duckduckgo".to_string(),
         app_version: "0.1.0".to_string(),
@@ -401,8 +401,8 @@ fn session_record_session_meta_persists_mcp_config_metadata() {
         session_id: "test-1".to_string(),
         cwd: "/repo".to_string(),
         title: "scratch".to_string(),
-        provider: "umans".to_string(),
-        model: "umans-coder".to_string(),
+        provider: "opencode-zen".to_string(),
+        model: "opencode/big-pickle".to_string(),
         websearch: "duckduckgo".to_string(),
         app_version: "0.1.0".to_string(),
         config: Some(SessionConfigMeta {
@@ -464,8 +464,8 @@ fn session_config_metadata_does_not_include_provider_secret_values() {
         session_id: "test-1".to_string(),
         cwd: "/repo".to_string(),
         title: "scratch".to_string(),
-        provider: "umans".to_string(),
-        model: "umans-coder".to_string(),
+        provider: "opencode-zen".to_string(),
+        model: "opencode/big-pickle".to_string(),
         websearch: "duckduckgo".to_string(),
         app_version: "0.1.0".to_string(),
         config: Some(SessionConfigMeta {
@@ -786,7 +786,7 @@ fn reader_skips_corrupt_optional_compaction_fields_and_keeps_other_records() {
     }
     .to_json()
     .expect("serialize last record");
-    let malformed = r#"{"type":"compaction","schema_version":1,"seq":1,"time":"2026-07-10T12:00:01Z","audit":{"summary":"summary","covered_start_seq":1,"covered_end_seq":3,"trigger":"automatic","risk":"low","model":"umans-coder","usage":"not an object"}}"#;
+    let malformed = r#"{"type":"compaction","schema_version":1,"seq":1,"time":"2026-07-10T12:00:01Z","audit":{"summary":"summary","covered_start_seq":1,"covered_end_seq":3,"trigger":"automatic","risk":"low","model":"opencode/big-pickle","usage":"not an object"}}"#;
 
     std::fs::write(&path, format!("{first}\n{malformed}\n{last}\n")).expect("write session");
 
@@ -909,7 +909,7 @@ fn session_record_json_round_trip_failed() {
         seq: 7,
         time: "2026-06-29T12:00:09Z".to_string(),
         turn_id: "turn_1".to_string(),
-        error: "UMANS_API_KEY is not set".to_string(),
+        error: "OPENCODE_ZEN_KEY is not set".to_string(),
     };
     let json = record.to_json().expect("serialize");
     let restored = SessionRecord::from_json(&json).expect("deserialize");
@@ -994,8 +994,8 @@ fn writer_creates_file_and_appends_records() {
         "test-session",
         "/repo",
         "scratch",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1024,8 +1024,8 @@ fn writer_creates_session_file_in_custom_session_dir() {
         "custom-session",
         "/repo",
         "scratch",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         Some(SessionConfigMeta { session_dir: Some(custom_dir.display().to_string()), ..SessionConfigMeta::default() }),
@@ -1105,8 +1105,8 @@ fn writer_appends_context_metadata() {
         "ctx-session",
         "/repo",
         "scratch",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1137,8 +1137,8 @@ fn context_metadata_write_read_round_trip() {
         "ctx-rt-session",
         "/repo",
         "scratch",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1206,8 +1206,8 @@ fn reader_reconstructs_transcript() {
         "replay-session",
         "/repo",
         "scratch",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1244,8 +1244,8 @@ fn reader_projects_tool_write_shell_and_status_rows() {
         "projection-session",
         "/repo",
         "scratch",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1378,8 +1378,8 @@ fn reader_preserves_record_order() {
         "order-session",
         "/repo",
         "scratch",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1417,8 +1417,8 @@ fn reader_reads_title_from_session_meta() {
         "title-session",
         "/repo",
         "my title",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1440,8 +1440,8 @@ fn reader_reads_latest_renamed_title() {
         "rename-session",
         "/repo",
         "original",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1473,8 +1473,8 @@ fn list_session_files_returns_jsonl_sorted_newest_first() {
         "older",
         "/repo",
         "first",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1488,8 +1488,8 @@ fn list_session_files_returns_jsonl_sorted_newest_first() {
         "newer",
         "/repo",
         "second",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1516,8 +1516,8 @@ fn list_session_titles_returns_titles_newest_first() {
         "s1",
         "/repo",
         "first session",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1531,8 +1531,8 @@ fn list_session_titles_returns_titles_newest_first() {
         "s2",
         "/repo",
         "second session",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1553,8 +1553,8 @@ fn latest_session_file_returns_newest() {
         "old",
         "/repo",
         "old",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1566,8 +1566,8 @@ fn latest_session_file_returns_newest() {
         "new",
         "/repo",
         "new",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,
@@ -1679,8 +1679,8 @@ fn test_writer(dir: &Path, name: &str) -> SessionWriter {
         name,
         "/repo",
         "test",
-        "umans",
-        "umans-coder",
+        "opencode-zen",
+        "opencode/big-pickle",
         "duckduckgo",
         "0.1.0",
         None,

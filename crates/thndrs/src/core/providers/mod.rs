@@ -17,7 +17,7 @@ pub const PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Bound the wait for a provider to begin its HTTP response.
-pub const PROVIDER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+pub const PROVIDER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// Bound one stalled read from a streaming provider response.
 ///
@@ -29,7 +29,6 @@ pub mod anthropic;
 pub mod codex;
 pub mod openai;
 pub mod opencode;
-pub mod umans;
 
 pub use codex as chatgpt_codex;
 pub use opencode::zen as opencode_zen;
@@ -65,7 +64,7 @@ pub fn reasoning_options(model: &str) -> Vec<ReasoningEffort> {
     } else if codex::is_model_id(model) {
         codex::reasoning_options(model)
     } else {
-        umans::reasoning_options(model)
+        vec![ReasoningEffort::Auto]
     }
 }
 
@@ -237,13 +236,10 @@ pub enum StreamFormat {
     ChatGptCodexResponses,
 }
 
-/// A structured content block in the provider-neutral Anthropic-style message
-/// format.
+/// A structured content block in the provider-neutral message format.
 ///
-/// New provider routes can either use this directly or convert from it at their
-/// boundary. Umans currently sends it to `/v1/messages`; a future OpenAI
-/// compatible route should convert this shape into chat-completions messages
-/// instead of mixing both wire formats in the agent loop.
+/// Provider routes can use this directly or convert it at their request
+/// boundary. The agent loop does not depend on a provider wire format.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProviderContentBlock {
@@ -263,7 +259,7 @@ pub enum ProviderContentBlock {
         /// Must match the `id` of the originating `tool_use` block.
         tool_use_id: String,
         content: String,
-        /// Umans/Anthropic accept `is_error` as a bool.
+        /// Anthropic-compatible APIs accept `is_error` as a bool.
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
     },

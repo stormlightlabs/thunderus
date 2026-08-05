@@ -621,7 +621,7 @@ fn effective_config_defaults_when_no_files() {
     assert_eq!(effective.config.model, None);
     assert_eq!(effective.config.websearch, Some(WebSearchMode::DuckDuckGo));
     assert_eq!(effective.config.tick_rate_ms, Some(DEFAULT_TICK_RATE_MS));
-    assert_eq!(effective.config.mouse, Some(false));
+    assert_eq!(effective.config.mouse, Some(true));
     assert_eq!(effective.config.verbose, Some(false));
     assert_eq!(effective.config.theme, Some(Theme::EldritchMinimal));
     assert_eq!(

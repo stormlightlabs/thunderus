@@ -1040,25 +1040,20 @@ fn setup_details(recovery: &FirstRunRecovery) -> Vec<String> {
         RecoveryStage::ModelConfigScope => {
             details.push("Optionally save the selected model to project or global config.".to_string())
         }
+        RecoveryStage::UnsupportedRoute => {
+            details.push(crate::cli::commands::setup::UNSUPPORTED_PROVIDER_ROUTE_MESSAGE.to_string())
+        }
         RecoveryStage::MissingCredential => match recovery.provider {
             Some(SetupProviderArg::ChatgptCodex) => details.push(
                 "Browser PKCE is the default. Device code is an explicit headless route; neither asks for an API key."
                     .to_string(),
             ),
-            Some(SetupProviderArg::Umans) => details.push(
-                "Create a Umans Code API key at app.umans.ai, enter it hidden, then choose global or project storage."
-                    .to_string(),
-            ),
             _ => details
                 .push("The credential stays hidden and is written only after an explicit scope choice.".to_string()),
         },
-        RecoveryStage::EnterKey => match recovery.provider {
-            Some(SetupProviderArg::Umans) => details.push(
-                "Input is hidden. Enter stores the Umans Code key at the chosen scope; Esc preserves the draft."
-                    .to_string(),
-            ),
-            _ => details.push("Input is hidden. Enter continues; Esc preserves the draft.".to_string()),
-        },
+        RecoveryStage::EnterKey => {
+            details.push("Input is hidden. Enter continues; Esc preserves the draft.".to_string())
+        }
         RecoveryStage::ConfirmStore => details.push("Choose where the credential may be stored.".to_string()),
         RecoveryStage::Instructions => details.push(setup_instruction(recovery).to_string()),
         RecoveryStage::ChatGptOAuthRequesting => {
@@ -1109,9 +1104,11 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
     let labels: Vec<String> = match recovery.stage {
         RecoveryStage::ChooseProvider => vec![
             "ChatGPT Codex".to_string(),
-            "Umans".to_string(),
+            "OpenCode Zen".to_string(),
+            "OpenCode Go".to_string(),
             "show setup instructions".to_string(),
         ],
+        RecoveryStage::UnsupportedRoute => vec!["switch provider/model".to_string(), "quit".to_string()],
         RecoveryStage::ModelSelection => recovery
             .provider
             .map(crate::app::setup_model_options)
@@ -1137,10 +1134,7 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
                 ]
             } else {
                 vec![
-                    match recovery.provider {
-                        Some(SetupProviderArg::Umans) => "enter Umans API key".to_string(),
-                        _ => "enter API key".to_string(),
-                    },
+                    "enter API key".to_string(),
                     "switch model/provider".to_string(),
                     "show setup instructions".to_string(),
                     "continue without setup".to_string(),
@@ -1187,15 +1181,12 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
 
 fn setup_instruction(recovery: &FirstRunRecovery) -> &'static str {
     match recovery.provider {
-        Some(arg) => match arg {
-            SetupProviderArg::ChatgptCodex => {
-                "Run `thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` outside the TUI."
-            }
-            SetupProviderArg::Umans => {
-                "Create a key at app.umans.ai, then run `thndrs login umans`; thndrs stores it in credentials.env, never TOML."
-            }
-            _ => "Run `thndrs setup` or `thndrs login <provider>` outside the TUI.",
-        },
+        Some(SetupProviderArg::ChatgptCodex) => {
+            "Run `thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` outside the TUI."
+        }
+        Some(SetupProviderArg::Umans) => crate::cli::commands::setup::UNSUPPORTED_PROVIDER_ROUTE_MESSAGE,
+        Some(_) => "Run `thndrs setup` or `thndrs login <provider>` outside the TUI.",
+
         None => "Advanced providers remain available through `thndrs setup` or ACP configuration.",
     }
 }
@@ -1203,6 +1194,11 @@ fn setup_instruction(recovery: &FirstRunRecovery) -> &'static str {
 fn setup_field(recovery: &FirstRunRecovery) -> (String, String, bool) {
     match recovery.stage {
         RecoveryStage::ChooseProvider => ("provider".to_string(), "choose provider".to_string(), false),
+        RecoveryStage::UnsupportedRoute => (
+            "provider".to_string(),
+            "choose a supported provider or model".to_string(),
+            false,
+        ),
         RecoveryStage::ModelSelection => (
             "model".to_string(),
             recovery
