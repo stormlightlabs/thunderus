@@ -265,9 +265,15 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
 
 pub fn command_suggestions_for_app(app: &App) -> Vec<CommandSuggestion> {
     let query = super::input::command_query(app);
+    all_command_suggestions_for_app(app)
+        .into_iter()
+        .filter(|suggestion| suggestion.name.starts_with(&query))
+        .collect()
+}
+
+pub fn all_command_suggestions_for_app(app: &App) -> Vec<CommandSuggestion> {
     let mut suggestions = COMMANDS
         .iter()
-        .filter(|(command, _)| command.starts_with(&query))
         .map(|(command, description)| CommandSuggestion {
             name: (*command).to_string(),
             detail: (*description).to_string(),
@@ -276,9 +282,7 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<CommandSuggestion> {
     suggestions.extend(
         app.prompt_templates
             .iter()
-            .filter(|template| {
-                template.name.starts_with(&query) && !COMMANDS.iter().any(|(command, _)| *command == template.name)
-            })
+            .filter(|template| !COMMANDS.iter().any(|(command, _)| *command == template.name))
             .map(|template| {
                 let detail = template.argument_hint.as_ref().map_or_else(
                     || template.description.clone(),

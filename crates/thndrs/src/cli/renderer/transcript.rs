@@ -201,7 +201,8 @@ impl ToolBlockView<'_> {
         let status_style = CellStyle::new().fg(status_color).bg(self.bg);
         let muted_style = CellStyle::new().fg(p.subtext0).bg(self.bg);
         let gutter_style = CellStyle::new().fg(p.overlay0).bg(self.bg);
-        let rail_style = CellStyle::new().fg(p.yellow).bg(self.bg);
+        let rail_color = if self.status == ToolStatus::Running { p.yellow } else { p.overlay0 };
+        let rail_style = CellStyle::new().fg(rail_color).bg(self.bg);
         let content_width = self.body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
         let tool_content_width = content_width.saturating_sub(utils::text_width(GUTTER));
 
@@ -248,7 +249,7 @@ impl ToolBlockView<'_> {
             }
         }
         let output_details = (self.status == ToolStatus::Ok && !self.output.is_empty())
-            .then(|| format!("{} lines · Ctrl+O details", self.output.len()));
+            .then(|| format!("{} lines · Ctrl+O actions", self.output.len()));
         if let Some(details) = output_details.as_ref()
             && !header_spans.is_empty()
         {
@@ -296,12 +297,11 @@ impl ToolBlockView<'_> {
             return rows;
         }
 
+        let preview = tool_output_preview(self.status, self.output);
         match lang {
             Some(lang_str) => {
-                let joined: String = self
-                    .output
+                let joined: String = preview
                     .iter()
-                    .take(MAX_TOOL_OUTPUT_LINES)
                     .map(|line| {
                         let line = super::path_display::transcript_line(line, self.cwd);
                         format!("{line}\n")
@@ -323,7 +323,7 @@ impl ToolBlockView<'_> {
                 }
             }
             None => {
-                for line in self.output.iter().take(MAX_TOOL_OUTPUT_LINES) {
+                for line in &preview {
                     let line = super::path_display::transcript_line(line, self.cwd);
                     let content_style = if is_section_header(&line) {
                         CellStyle::new().fg(p.overlay1).bg(self.bg).bold()
@@ -342,15 +342,15 @@ impl ToolBlockView<'_> {
             }
         }
 
-        if self.output.len() > MAX_TOOL_OUTPUT_LINES {
+        let stored_lines = meaningful_output_count(self.status, self.output);
+        let preview_limit = if self.status == ToolStatus::Running { 2 } else { MAX_TOOL_OUTPUT_LINES };
+        if stored_lines > preview_limit {
             rows.push(Row::padded(
                 vec![
                     Span::styled(ENTRY_RAIL, rail_style),
                     Span::styled(
                         format!(
-                            "   │ … ({} lines stored, {} shown here) · Ctrl+O details",
-                            self.output.len(),
-                            MAX_TOOL_OUTPUT_LINES
+                            "   │ … ({stored_lines} meaningful lines stored, {preview_limit} shown here) · Ctrl+O actions"
                         ),
                         muted_style,
                     ),
@@ -927,23 +927,25 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path, tool
 
     match entry {
         Entry::User { text } => {
-            let rail_style = CellStyle::new().fg(p.blue).bg(bg).bold();
+            let rail_style = CellStyle::new().fg(p.overlay0).bg(bg).bold();
             let label_style = CellStyle::new().fg(p.blue).bg(bg).bold();
-            let text_style = CellStyle::new().fg(p.subtext0).bg(bg).italic();
+            let text_style = CellStyle::new().fg(p.subtext0).bg(bg);
             let mut rows = LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
                 .build(user_label, text);
             rows.push(Row::blank(width, CellStyle::new().bg(bg)));
             rows
         }
-        Entry::Agent { text, .. } => {
-            let rail_style = CellStyle::new().fg(p.green).bg(bg).bold();
+        Entry::Agent { text, streaming } => {
+            let rail_color = if *streaming { p.green } else { p.overlay0 };
+            let rail_style = CellStyle::new().fg(rail_color).bg(bg).bold();
             let label_style = CellStyle::new().fg(p.green).bg(bg).bold();
             assistant_block_rows(text, rail_style, label_style, bg, width, railed_body_width)
         }
         Entry::Reasoning { text, streaming } => {
-            let rail_style = CellStyle::new().fg(p.mauve).bg(bg).bold();
+            let rail_color = if *streaming { p.mauve } else { p.overlay0 };
+            let rail_style = CellStyle::new().fg(rail_color).bg(bg).bold();
             let label_style = CellStyle::new().fg(p.overlay1).bg(bg);
-            let text_style = CellStyle::new().fg(p.subtext0).bg(bg).italic();
+            let text_style = CellStyle::new().fg(p.subtext0).bg(bg);
             let label = if *streaming { "Thinking ·" } else { "Thinking ✓" };
             LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
                 .build_compact(label, text)
@@ -1180,6 +1182,31 @@ fn flush_plain_markdown_lines(
                 ));
             }
         }
+    }
+}
+
+fn meaningful_output_count(status: ToolStatus, output: &[String]) -> usize {
+    if status == ToolStatus::Running {
+        output.iter().filter(|line| !line.trim().is_empty()).count()
+    } else {
+        output.len()
+    }
+}
+
+fn tool_output_preview(status: ToolStatus, output: &[String]) -> Vec<String> {
+    if status == ToolStatus::Running {
+        output
+            .iter()
+            .filter(|line| !line.trim().is_empty())
+            .rev()
+            .take(2)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    } else {
+        output.iter().take(MAX_TOOL_OUTPUT_LINES).cloned().collect()
     }
 }
 

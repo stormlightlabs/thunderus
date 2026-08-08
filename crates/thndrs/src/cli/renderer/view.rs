@@ -102,6 +102,7 @@ pub enum FocusedSurfaceView {
     Help(HelpView),
     ToolDetail(ToolDetailView),
     DiffDetail(DiffDetailView),
+    TranscriptDetail(TranscriptDetailView),
     TranscriptLens {
         selected_entry: Option<usize>,
         scroll: usize,
@@ -131,27 +132,65 @@ impl From<&App> for FocusedSurfaceView {
             return FocusedSurfaceView::SetupForm(form);
         }
         if app.detail_pane.open
-            && let Some(Entry::Tool { name, status, output, .. }) = app.transcript.get(app.detail_pane.entry_index)
+            && let Some(entry) = app.transcript.get(app.detail_pane.entry_index)
         {
-            return FocusedSurfaceView::ToolDetail(ToolDetailView {
-                entry_index: app.detail_pane.entry_index,
-                title: name.clone(),
-                status: *status,
-                scroll: app.detail_pane.scroll,
-                output: output.clone(),
-            });
+            match entry {
+                Entry::Tool { name, status, output, .. } => {
+                    if let Some(summary) = DiffSummaryView::build(output) {
+                        return FocusedSurfaceView::DiffDetail(DiffDetailView { summary, lines: output.clone() });
+                    }
+                    return FocusedSurfaceView::ToolDetail(ToolDetailView {
+                        entry_index: app.detail_pane.entry_index,
+                        title: name.clone(),
+                        status: *status,
+                        scroll: app.detail_pane.scroll,
+                        output: output.clone(),
+                    });
+                }
+                Entry::Reasoning { text, .. } => {
+                    return FocusedSurfaceView::TranscriptDetail(TranscriptDetailView {
+                        entry_index: app.detail_pane.entry_index,
+                        title: "reasoning".to_string(),
+                        scroll: app.detail_pane.scroll,
+                        body: text.lines().map(str::to_string).collect(),
+                    });
+                }
+                Entry::Error { text } => {
+                    return FocusedSurfaceView::TranscriptDetail(TranscriptDetailView {
+                        entry_index: app.detail_pane.entry_index,
+                        title: "error".to_string(),
+                        scroll: app.detail_pane.scroll,
+                        body: text.lines().map(str::to_string).collect(),
+                    });
+                }
+                _ => {}
+            }
         }
         match app.prompt_accessory {
             PromptAccessory::Help => {
                 FocusedSurfaceView::Help(HelpView { queue_target_toggle: matches!(app.run_state, RunState::Working) })
             }
             PromptAccessory::Commands { selected } => {
-                let items = crate::app::command_suggestions_for_app(app)
-                    .into_iter()
-                    .map(|suggestion| PickerItemView { label: suggestion.name, detail: suggestion.detail })
-                    .collect();
+                let (title, items) = if app.action_palette_open {
+                    (
+                        "actions",
+                        crate::app::action_registry_for_app(app)
+                            .matches(&app.input.text(), crate::app::VISIBLE_ROWS * 4)
+                            .into_iter()
+                            .map(|item| PickerItemView { label: item.label, detail: item.detail })
+                            .collect(),
+                    )
+                } else {
+                    (
+                        "commands",
+                        crate::app::command_suggestions_for_app(app)
+                            .into_iter()
+                            .map(|suggestion| PickerItemView { label: suggestion.name, detail: suggestion.detail })
+                            .collect(),
+                    )
+                };
                 FocusedSurfaceView::CommandPicker(PickerView {
-                    title: "commands".to_string(),
+                    title: title.to_string(),
                     query: app.input.text(),
                     selected,
                     items,
@@ -170,9 +209,52 @@ impl From<&App> for FocusedSurfaceView {
                 .render_picker_surface("skills")
                 .map_or(FocusedSurfaceView::None, FocusedSurfaceView::CommandPicker),
             PromptAccessory::Context => FocusedSurfaceView::StructuredTable(app.render_context_table()),
+            PromptAccessory::Changes { scroll } => FocusedSurfaceView::TranscriptDetail(TranscriptDetailView {
+                entry_index: usize::MAX,
+                title: "workspace changes · read-only review · ↑/↓ scroll · Esc close".to_string(),
+                scroll,
+                body: render_change_review(app),
+            }),
+            PromptAccessory::Queue { selected } => FocusedSurfaceView::CommandPicker(PickerView {
+                title: "queue · Enter edit · Tab retarget · Ctrl+↑/↓ reorder · Ctrl+Enter send now · Del remove"
+                    .to_string(),
+                query: String::new(),
+                selected,
+                items: app
+                    .queued_steering
+                    .iter()
+                    .map(|text| PickerItemView { label: text.clone(), detail: "steering".to_string() })
+                    .chain(
+                        app.queued_followups
+                            .iter()
+                            .map(|text| PickerItemView { label: text.clone(), detail: "follow-up".to_string() }),
+                    )
+                    .collect(),
+            }),
             _ => FocusedSurfaceView::None,
         }
     }
+}
+
+fn render_change_review(app: &App) -> Vec<String> {
+    let Some(review) = &app.change_review else {
+        return vec!["not a git workspace".to_string()];
+    };
+    if review.files.is_empty() {
+        return vec!["working tree clean".to_string()];
+    }
+    let mut lines = vec![format!(
+        "{} files  +{} -{}{}",
+        review.files.len(),
+        review.added,
+        review.removed,
+        if review.truncated { "  · bounded preview" } else { "" }
+    )];
+    for file in &review.files {
+        lines.push(format!("{}  +{} -{}", file.file, file.added, file.removed));
+        lines.extend(file.diff.iter().cloned());
+    }
+    lines
 }
 
 /// A semantic ACP permission decision surface.
@@ -616,6 +698,15 @@ pub struct ToolDetailView {
     pub output: Vec<String>,
 }
 
+/// Detail surface for reasoning and error transcript entries.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TranscriptDetailView {
+    pub entry_index: usize,
+    pub title: String,
+    pub scroll: usize,
+    pub body: Vec<String>,
+}
+
 /// Unified-diff detail surface.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiffDetailView {
@@ -746,12 +837,14 @@ impl LiveView {
         let accessory_rows = match &semantic.focused_surface {
             FocusedSurfaceView::ToolDetail(_)
             | FocusedSurfaceView::DiffDetail(_)
+            | FocusedSurfaceView::TranscriptDetail(_)
             | FocusedSurfaceView::TranscriptLens { .. } => Vec::new(),
             _ => super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS),
         };
         let detail_pane = match &semantic.focused_surface {
             FocusedSurfaceView::ToolDetail(_)
             | FocusedSurfaceView::DiffDetail(_)
+            | FocusedSurfaceView::TranscriptDetail(_)
             | FocusedSurfaceView::TranscriptLens { .. } => super::adapter::render_surface(&SurfaceRenderInput::new(
                 &semantic.focused_surface,
                 &SurfaceThemeView::new(),
@@ -786,6 +879,19 @@ impl App {
 
     fn render_prompt_suggestions(&self) -> Vec<PromptSuggestionView> {
         match self.prompt_accessory {
+            PromptAccessory::Commands { selected } if self.action_palette_open => {
+                crate::app::action_registry_for_app(self)
+                    .matches(&self.input.text(), crate::app::VISIBLE_ROWS * 4)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, item)| PromptSuggestionView {
+                        label: item.label,
+                        detail: item.detail,
+                        selected: index == selected,
+                        kind: PromptSuggestionKind::Command,
+                    })
+                    .collect()
+            }
             PromptAccessory::Commands { selected } => crate::app::command_suggestions_for_app(self)
                 .into_iter()
                 .enumerate()

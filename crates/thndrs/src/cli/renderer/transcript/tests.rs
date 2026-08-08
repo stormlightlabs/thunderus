@@ -61,6 +61,7 @@ fn test_app() -> App {
         tick_rate_ms: 100,
         no_mouse: false,
         mouse: false,
+        notifications: false,
         verbose: false,
         theme: Theme::EldritchMinimal,
         print_prompt: false,
@@ -352,6 +353,43 @@ fn snapshot_tool_running_partial_output() {
 }
 
 #[test]
+fn running_tool_preview_keeps_only_last_two_meaningful_lines() {
+    let entry = Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: "{}".to_string(),
+        status: ToolStatus::Running,
+        output: vec![
+            "first".to_string(),
+            String::new(),
+            "second".to_string(),
+            "   ".to_string(),
+            "last".to_string(),
+        ],
+    };
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(!rendered.contains("first"));
+    assert!(rendered.contains("second"));
+    assert!(rendered.contains("last"));
+    assert!(rendered.contains("3 meaningful lines stored, 2 shown here"));
+}
+
+#[test]
+fn settled_prose_uses_plain_text_and_neutral_role_rail() {
+    let entry = Entry::User { text: "a settled prompt".to_string() };
+    let rows = ctx(80).rows_for_entry(&entry);
+    let text_style = rows
+        .iter()
+        .flat_map(|row| &row.spans)
+        .find(|span| span.text.contains("a settled prompt"))
+        .expect("prompt text span")
+        .style;
+
+    assert!(!text_style.italic);
+    assert!(render_entry_styled(&entry, 80).contains("fg=#3b4261"));
+}
+
+#[test]
 fn snapshot_tool_ok_normal() {
     let entry = Entry::Tool {
         name: "search_text".to_string(),
@@ -377,7 +415,7 @@ fn settled_tool_collapses_output_behind_detail_affordance() {
     let rendered = render_entry_styled(&entry, 80);
 
     assert!(
-        rendered.contains("Ctrl+O details"),
+        rendered.contains("Ctrl+O actions"),
         "settled tool should advertise detail: {rendered}"
     );
     assert!(

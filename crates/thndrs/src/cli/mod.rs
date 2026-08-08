@@ -7,6 +7,7 @@ pub mod app;
 pub mod commands;
 pub mod git;
 pub mod input;
+pub mod local;
 pub mod renderer;
 
 use std::collections::BTreeMap;
@@ -296,10 +297,12 @@ pub struct Cli {
     pub no_mouse: bool,
     /// Enable terminal mouse capture for transcript scrolling and overlay events.
     ///
-    /// Mouse capture is enabled by default. Most terminals retain a
-    /// modifier-assisted text selection gesture while capture is active.
-    #[arg(long, default_value_t = true, conflicts_with = "no_mouse")]
+    /// Disabled by default so native terminal selection and scrollback work.
+    #[arg(long, default_value_t = false, conflicts_with = "no_mouse")]
     pub mouse: bool,
+    /// Emit terminal notifications when a run completes or needs attention.
+    #[arg(long, default_value_t = false)]
+    pub notifications: bool,
     /// Show diagnostic transcript rows such as provider events and log paths.
     #[arg(long, default_value_t = false)]
     pub verbose: bool,
@@ -352,7 +355,8 @@ impl Default for Cli {
             reasoning_summary: ReasoningSummary::default(),
             tick_rate_ms: DEFAULT_TICK_RATE_MS,
             no_mouse: false,
-            mouse: true,
+            mouse: false,
+            notifications: false,
             verbose: false,
             theme: Theme::default(),
             print_prompt: false,
@@ -474,6 +478,10 @@ impl Cli {
             config.verbose = Some(true);
             insert_cli_origin(&mut origins, "verbose", "--verbose");
         }
+        if is_command_line(matches, "notifications") {
+            config.notifications = Some(true);
+            insert_cli_origin(&mut origins, "notifications", "--notifications");
+        }
         if is_command_line(matches, "skill_dirs") && !self.skill_dirs.is_empty() {
             config
                 .skill_dirs
@@ -500,6 +508,7 @@ impl Cli {
         self.reasoning_summary = config.reasoning_summary.unwrap_or(defaults.reasoning_summary);
         self.tick_rate_ms = config.tick_rate_ms.unwrap_or(defaults.tick_rate_ms);
         self.mouse = config.mouse.unwrap_or(defaults.mouse);
+        self.notifications = config.notifications.unwrap_or(defaults.notifications);
         self.verbose = config.verbose.unwrap_or(defaults.verbose);
         self.theme = config.theme.unwrap_or(defaults.theme);
         self.skill_dirs = config.skill_dirs;
@@ -548,7 +557,8 @@ mod tests {
         assert_eq!(cli.websearch, WebSearchMode::DuckDuckGo);
         assert_eq!(cli.tick_rate_ms, DEFAULT_TICK_RATE_MS);
         assert!(!cli.no_mouse);
-        assert!(cli.mouse);
+        assert!(!cli.mouse);
+        assert!(!cli.notifications);
         assert!(!cli.verbose);
         assert_eq!(cli.theme, Theme::EldritchMinimal);
         assert!(cli.skill_dirs.is_empty());

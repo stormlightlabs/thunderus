@@ -468,3 +468,56 @@ fn skills_command_surfaces_activation_reference_diagnostics() {
         Entry::Agent { text, streaming: false } if text.contains("# Example Skill")
     )));
 }
+
+#[test]
+fn ctrl_o_opens_searchable_typed_action_palette_without_prompt_text() {
+    let mut app = fresh_app();
+
+    update(&mut app, &key(KeyCode::Char('o'), KeyModifiers::CONTROL));
+
+    assert!(app.action_palette_open);
+    assert!(app.input.is_empty());
+    let actions = action_registry_for_app(&app).items;
+    assert!(actions.iter().any(|item| item.action == Action::Model));
+    assert!(actions.iter().any(|item| item.action == Action::Reasoning));
+    assert!(actions.iter().any(|item| item.action == Action::Skills));
+    assert!(actions.iter().any(|item| item.action == Action::Files));
+    assert!(actions.iter().any(|item| item.action == Action::Help));
+    assert!(actions.iter().any(|item| item.action == Action::Detail));
+    assert!(
+        actions
+            .iter()
+            .any(|item| matches!(&item.action, Action::Command(name) if name == "status"))
+    );
+}
+
+#[test]
+fn slash_routes_to_action_palette_without_inserting_trigger() {
+    let mut app = fresh_app();
+
+    update(&mut app, &key(KeyCode::Char('/'), KeyModifiers::NONE));
+
+    assert!(app.action_palette_open);
+    assert_eq!(app.mode, Mode::Command);
+    assert!(app.input.is_empty());
+}
+
+#[test]
+fn enter_expands_selected_reasoning_and_error_details() {
+    let mut app = fresh_app();
+    app.transcript = vec![
+        Entry::Reasoning { text: "why this works".to_string(), streaming: false },
+        Entry::Error { text: "something failed".to_string() },
+    ];
+
+    app.transcript_selection = Some(0);
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.detail_pane.open);
+    assert_eq!(app.detail_pane.entry_index, 0);
+
+    app.detail_pane.open = false;
+    app.transcript_selection = Some(1);
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.detail_pane.open);
+    assert_eq!(app.detail_pane.entry_index, 1);
+}

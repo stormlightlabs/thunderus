@@ -440,6 +440,24 @@ fn env_loads_boolean_mouse() {
 }
 
 #[test]
+fn env_loads_boolean_notifications() {
+    let mut origins = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    let config = load_env(
+        &[("THNDRS_NOTIFICATIONS".to_string(), "yes".to_string())],
+        &mut origins,
+        &mut diagnostics,
+    )
+    .unwrap();
+
+    assert_eq!(config.notifications, Some(true));
+    assert_eq!(
+        origins.get("notifications"),
+        Some(&ConfigOrigin { source: ConfigSource::Environment, detail: "THNDRS_NOTIFICATIONS".to_string() })
+    );
+}
+
+#[test]
 fn env_boolean_case_insensitive() {
     let mut o = BTreeMap::new();
     let mut d = Vec::new();
@@ -621,7 +639,7 @@ fn effective_config_defaults_when_no_files() {
     assert_eq!(effective.config.model, None);
     assert_eq!(effective.config.websearch, Some(WebSearchMode::DuckDuckGo));
     assert_eq!(effective.config.tick_rate_ms, Some(DEFAULT_TICK_RATE_MS));
-    assert_eq!(effective.config.mouse, Some(true));
+    assert_eq!(effective.config.mouse, Some(false));
     assert_eq!(effective.config.verbose, Some(false));
     assert_eq!(effective.config.theme, Some(Theme::EldritchMinimal));
     assert_eq!(
@@ -1047,6 +1065,6 @@ websearch=Some(Searxng)
 verbose=Some(true)
 session_dir_suffix=.thndrs/sessions
 layers=[("project", ".thndrs/config.toml")]
-origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml"), ("websearch_url", "default", "default")]
+origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("notifications", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml"), ("websearch_url", "default", "default")]
 "###);
 }

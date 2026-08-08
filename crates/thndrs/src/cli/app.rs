@@ -29,7 +29,10 @@ pub use context::start_auto_compaction;
 use input::accept_model_suggestion;
 
 pub use commands::command_suggestions_for_app;
-pub use input::{FilePickerSource, Mode, PickerItem, PickerState, PromptAccessory};
+pub use input::{
+    Action, ActionItem, ActionRegistry, FilePickerSource, Mode, PickerItem, PickerState, PromptAccessory,
+    action_registry_for_app, next_detail_target, open_action_palette, open_entry_detail,
+};
 pub use onboarding::setup_model_options;
 pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryStage};
 
@@ -65,7 +68,7 @@ use crate::acp::config::provider_label;
 use crate::acp::permissions::{PendingPermission, PermissionDecision};
 use crate::cli::commands::auth::CredentialScope;
 use crate::cli::commands::setup::SetupProviderArg;
-use crate::cli::git::{self, GitStatusSummary};
+use crate::cli::git::{self, GitChangeReview, GitStatusSummary};
 use crate::cli::input::history::{INPUT_HISTORY_LIMIT, InputHistoryStore};
 use crate::cli::{Cli, MIN_TICK_RATE_MS, ReasoningEffort, Theme, WebSearchMode};
 use crate::input::PromptInput;
@@ -217,12 +220,11 @@ impl QueueTarget {
     }
 }
 
-/// Lines to render when a tool detail pane is open.
+/// Scrollable detail surface for one transcript entry.
 ///
-/// The detail pane expands a transcript [`Entry::Tool`] into a scrollable
-/// surface so the user can read full tool output without leaving the TUI.
-/// It tracks which transcript entry (by index) is expanded and the current
-/// scroll offset within that entry's rendered output rows.
+/// The detail pane expands tool output, reasoning, diff, or error text without
+/// leaving the TUI. It tracks which transcript entry (by index) is expanded
+/// and the current scroll offset within that entry's rendered rows.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DetailPane {
     /// Index into `app.transcript` for the expanded tool entry.
@@ -344,6 +346,8 @@ pub enum Msg {
     Agent(AgentEvent),
     /// Updated git working tree summary from the background watcher.
     GitStatusChanged(Option<GitStatusSummary>),
+    /// Run an explicit argv-based command with the local user's permissions.
+    DirectShell(String),
 }
 
 /// The full application state used to draw the screen.
@@ -457,6 +461,10 @@ pub struct App {
     pending_setup_reasoning_effort: Option<PendingSetupReasoningEffort>,
     /// Active fuzzy picker state, used by file and model pickers.
     pub picker: Option<PickerState>,
+    /// Whether the command-shaped accessory is currently the unified action palette.
+    pub action_palette_open: bool,
+    /// Transcript entry selected by viewport navigation, when any.
+    pub transcript_selection: Option<usize>,
     /// Inline prompt accessory rendered above the input.
     pub prompt_accessory: PromptAccessory,
     /// Focused first-run or credential recovery surface.
@@ -469,6 +477,16 @@ pub struct App {
     pub queued_steering: Vec<String>,
     /// Follow-up prompts to submit as new turns after the active run completes.
     pub queued_followups: Vec<String>,
+    /// Read-only snapshot shown by the workspace change review surface.
+    pub change_review: Option<GitChangeReview>,
+    /// Whether the wide-layout current-directory session sidebar is visible.
+    pub session_sidebar_open: bool,
+    /// Newest-first current-directory sessions shown in the optional sidebar.
+    pub session_summaries: Vec<session::SessionSummary>,
+    /// Request that the terminal loop temporarily hand the composer to `$EDITOR`.
+    pub external_editor_requested: bool,
+    /// Explicit local commands waiting for the terminal adapter to launch.
+    pub pending_direct_shell: Vec<String>,
     /// Kill-ring for readline-style yank (Ctrl+Y).
     pub kill_ring: Vec<String>,
     /// Scrollable detail pane for inspecting full tool output.
@@ -504,6 +522,7 @@ impl From<&Cli> for App {
             .unwrap_or_else(|| session::sessions_dir(&workspace_root));
         let run_persistence = if value.ephemeral { RunPersistence::Ephemeral } else { RunPersistence::Durable };
         let session_id = session::generate_session_id();
+        let session_summaries = session::list_session_summaries(&sessions_dir);
         let input_history_store = InputHistoryStore::for_workspace(&workspace_root);
         let input_history = input_history_store.load_recent().ok().flatten().unwrap_or_default();
         let (mcp_config_files, mcp_config_diagnostics) = agent_lifecycle::load_mcp_config_audit(&workspace_root);
@@ -613,12 +632,19 @@ impl From<&Cli> for App {
             queue_target: QueueTarget::default(),
             pending_setup_reasoning_effort: None,
             picker: None,
+            action_palette_open: false,
+            transcript_selection: None,
             prompt_accessory: PromptAccessory::None,
             first_run_recovery: None,
             chatgpt_oauth_driver: ChatGptOAuthDriver::default(),
             chatgpt_browser_login: None,
             queued_steering: Vec::new(),
             queued_followups: Vec::new(),
+            change_review: None,
+            session_sidebar_open: false,
+            session_summaries,
+            external_editor_requested: false,
+            pending_direct_shell: Vec::new(),
             kill_ring: Vec::new(),
             detail_pane: DetailPane::default(),
             pending_permission: None,
@@ -963,11 +989,16 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
         Msg::Clear => {
             app.transcript.clear();
             app.detail_pane = DetailPane::default();
+            app.transcript_selection = None;
             None
         }
         Msg::Agent(event) => agent_lifecycle::handle_agent_event(app, event.clone()),
         Msg::GitStatusChanged(status) => {
             app.git_status = status.clone();
+            None
+        }
+        Msg::DirectShell(command) => {
+            app.pending_direct_shell.push(command.clone());
             None
         }
     }

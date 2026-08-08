@@ -61,7 +61,8 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let text_style = CellStyle::new().fg(p.text).bg(surface);
     let mention_style = CellStyle::new().fg(p.accent).bg(surface).bold();
 
-    let border_style = CellStyle::new().fg(prompt_color).bg(surface);
+    let border_color = if prompt_state == PromptState::Editable { p.overlay0 } else { prompt_color };
+    let border_style = CellStyle::new().fg(border_color).bg(surface);
     let mut rows = Vec::with_capacity(visual_rows.len());
     for (idx, line) in visual_rows.into_iter().enumerate() {
         let mut spans: Vec<Span> = if framed && idx == 0 {

@@ -1,0 +1,12 @@
+---
+source: crates/thndrs/src/cli/renderer/live/tests.rs
+expression: frame.render_styled()
+---
+│   │  ACTIONS                                                       option 1/32    # [-]=   [fg=#3b4261]=│   [fg=#f1fc79 b]=ACTIONS [-]=                                                        [fg=#6473b7]=option 1/32 [-]=  
+│   │  filter: type to filter                                                       # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=filter: type to filter [-]=                                                    [-]=  
+│   │  ❯ model  switch model                                                        # [-]=   [fg=#3b4261]=│   [fg=#ebfafa b]=❯ model  switch model [-]=                                                     [-]=  
+│   │    reasoning  set reasoning effort                                            # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  reasoning  set reasoning effort [-]=                                         [-]=  
+│   │    skills  browse loaded skills                                               # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  skills  browse loaded skills [-]=                                            [-]=  
+│   │    files  find workspace files                                                # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  files  find workspace files [-]=                                             [-]=  
+│   │  … 28 rows below                                                              # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=… 28 rows below [-]=                                                           [-]=  
+│   │  Enter select · Esc close                                                     # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=Enter select · Esc close [-]=                                                  [-]=

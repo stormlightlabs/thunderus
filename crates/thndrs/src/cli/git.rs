@@ -3,7 +3,15 @@
 //!
 //! The collector uses read-only git commands with optional locks disabled.
 
-use std::{path::Path, process::Command};
+use std::{
+    fs,
+    io::Read,
+    path::Path,
+    process::{Command, Stdio},
+};
+
+const MAX_REVIEW_LINES: usize = 4_000;
+const MAX_REVIEW_BYTES: usize = 1024 * 1024;
 
 /// A changed-file category reported by `git status`.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -50,6 +58,25 @@ pub struct GitStatusSummary {
     pub deleted: usize,
 }
 
+/// One changed file in the read-only workspace review surface.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GitChange {
+    pub file: String,
+    pub status: GitStatusKind,
+    pub added: usize,
+    pub removed: usize,
+    pub diff: Vec<String>,
+}
+
+/// Bounded snapshot of the current workspace changes.
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct GitChangeReview {
+    pub files: Vec<GitChange>,
+    pub added: usize,
+    pub removed: usize,
+    pub truncated: bool,
+}
+
 impl GitStatusSummary {
     pub fn from_items(branch: Option<String>, items: &[GitStatusItem]) -> Self {
         let mut summary = Self { branch, ..Default::default() };
@@ -80,7 +107,7 @@ pub fn collect(cwd: &Path) -> Option<GitStatusSummary> {
     }
     let branch = git_output(cwd, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .and_then(|branch| (!branch.is_empty()).then_some(branch));
-    let output = git_output(
+    let output = git_output_preserving_whitespace(
         cwd,
         &[
             "status",
@@ -94,6 +121,136 @@ pub fn collect(cwd: &Path) -> Option<GitStatusSummary> {
     )?;
 
     Some(GitStatusSummary::from_items(branch, &parse_status_output(&output)))
+}
+
+/// Collect current workspace changes for an inspection-only review surface.
+///
+/// Tracked files are compared with `HEAD`; untracked UTF-8 files are rendered
+/// as additions. The result is bounded so a large generated diff cannot take
+/// over the interactive renderer.
+pub fn collect_review(cwd: &Path) -> Option<GitChangeReview> {
+    if !git_success(cwd, &["rev-parse", "--is-inside-work-tree"]) {
+        return None;
+    }
+    let (mut status, status_truncated) = git_output_bounded(
+        cwd,
+        &[
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--no-renames",
+            "-z",
+            "--",
+            ".",
+        ],
+        MAX_REVIEW_BYTES,
+    )?;
+    if status_truncated {
+        status.truncate(status.iter().rposition(|byte| *byte == 0).map_or(0, |end| end + 1));
+    }
+    let items = parse_status_output(&String::from_utf8_lossy(&status));
+    let mut review = GitChangeReview { truncated: status_truncated, ..GitChangeReview::default() };
+    let mut remaining = MAX_REVIEW_LINES;
+    let mut remaining_bytes = MAX_REVIEW_BYTES;
+
+    for item in items {
+        let (diff, truncated) = if item.code == "??" {
+            untracked_diff(cwd, &item.file, remaining, remaining_bytes)
+        } else {
+            tracked_diff(cwd, &item.file, remaining, remaining_bytes)
+        };
+        let (added, removed) = count_diff_lines(&diff);
+        review.truncated |= truncated;
+        remaining = remaining.saturating_sub(diff.len());
+        remaining_bytes = remaining_bytes.saturating_sub(diff.iter().map(|line| line.len() + 1).sum::<usize>());
+        review.added += added;
+        review.removed += removed;
+        review
+            .files
+            .push(GitChange { file: item.file, status: item.status, added, removed, diff });
+    }
+
+    Some(review)
+}
+
+fn tracked_diff(cwd: &Path, file: &str, max_lines: usize, max_bytes: usize) -> (Vec<String>, bool) {
+    if max_lines == 0 || max_bytes == 0 {
+        return (Vec::new(), true);
+    }
+    let Some((output, bytes_truncated)) = git_output_bounded(
+        cwd,
+        &["diff", "--no-ext-diff", "--no-color", "--unified=3", "HEAD", "--", file],
+        max_bytes,
+    ) else {
+        return (Vec::new(), false);
+    };
+    let output = String::from_utf8_lossy(&output);
+    let mut lines: Vec<_> = output.lines().take(max_lines + 1).map(ToString::to_string).collect();
+    let line_truncated = lines.len() > max_lines;
+    lines.truncate(max_lines);
+    (lines, bytes_truncated || line_truncated)
+}
+
+fn untracked_diff(cwd: &Path, file: &str, max_lines: usize, max_bytes: usize) -> (Vec<String>, bool) {
+    if max_lines == 0 || max_bytes == 0 {
+        return (Vec::new(), true);
+    }
+    let path = cwd.join(file);
+    let Ok(metadata) = fs::symlink_metadata(&path) else {
+        return (vec![format!("Unreadable untracked file: {file}")], false);
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return (vec![format!("Unreviewed non-regular file: {file}")], false);
+    }
+    let Ok(open_file) = fs::File::open(path) else {
+        return (vec![format!("Unreadable untracked file: {file}")], false);
+    };
+    let mut contents = Vec::new();
+    let Ok(_) = open_file
+        .take(max_bytes.saturating_add(1) as u64)
+        .read_to_end(&mut contents)
+    else {
+        return (vec![format!("Unreadable untracked file: {file}")], false);
+    };
+    let bytes_truncated = contents.len() > max_bytes;
+    contents.truncate(max_bytes);
+    let contents = match String::from_utf8(contents) {
+        Ok(contents) => contents,
+        Err(error) if bytes_truncated && error.utf8_error().error_len().is_none() => {
+            let valid = error.utf8_error().valid_up_to();
+            String::from_utf8(error.into_bytes()[..valid].to_vec()).expect("validated UTF-8 prefix")
+        }
+        Err(_) => return (vec![format!("Binary or unreadable untracked file: {file}")], false),
+    };
+    let mut lines = vec!["--- /dev/null".to_string(), format!("+++ b/{file}")];
+    let mut used_bytes = lines.iter().map(|line| line.len() + 1).sum::<usize>();
+    let mut line_truncated = lines.len() > max_lines || used_bytes > max_bytes;
+    lines.truncate(max_lines);
+    if !line_truncated {
+        for line in contents.lines() {
+            let rendered = format!("+{line}");
+            let rendered_bytes = rendered.len() + 1;
+            if lines.len() == max_lines || used_bytes.saturating_add(rendered_bytes) > max_bytes {
+                line_truncated = true;
+                break;
+            }
+            used_bytes += rendered_bytes;
+            lines.push(rendered);
+        }
+    }
+    (lines, bytes_truncated || line_truncated)
+}
+
+fn count_diff_lines(lines: &[String]) -> (usize, usize) {
+    let added = lines
+        .iter()
+        .filter(|line| line.starts_with('+') && !line.starts_with("+++"))
+        .count();
+    let removed = lines
+        .iter()
+        .filter(|line| line.starts_with('-') && !line.starts_with("---"))
+        .count();
+    (added, removed)
 }
 
 fn git_success(cwd: &Path, args: &[&str]) -> bool {
@@ -116,6 +273,44 @@ fn git_output(cwd: &Path, args: &[&str]) -> Option<String> {
         .status
         .success()
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn git_output_preserving_whitespace(cwd: &Path, args: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .args(git_config_args())
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn git_output_bounded(cwd: &Path, args: &[&str], max_bytes: usize) -> Option<(Vec<u8>, bool)> {
+    let mut child = Command::new("git")
+        .args(git_config_args())
+        .args(args)
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut output = Vec::new();
+    child
+        .stdout
+        .take()?
+        .take(max_bytes.saturating_add(1) as u64)
+        .read_to_end(&mut output)
+        .ok()?;
+    let truncated = output.len() > max_bytes;
+    if truncated {
+        let _ = child.kill();
+        output.truncate(max_bytes);
+    }
+    let status = child.wait().ok()?;
+    (truncated || status.success()).then_some((output, truncated))
 }
 
 fn git_config_args() -> [&'static str; 9] {
@@ -211,6 +406,76 @@ mod tests {
         assert_eq!(summary.added, 1);
         assert_eq!(summary.modified, 1);
         assert_eq!(summary.deleted, 1);
+    }
+
+    #[test]
+    fn collect_review_reports_file_counts_and_unified_diff() {
+        let dir = temp_git_repo();
+        std::fs::write(dir.path().join("tracked.txt"), "clean\nchanged\n").expect("modify tracked file");
+        std::fs::write(dir.path().join("new.txt"), "one\ntwo\n").expect("write untracked file");
+
+        let review = collect_review(dir.path()).expect("git review");
+
+        assert_eq!(review.files.len(), 2);
+        assert_eq!(review.added, 3);
+        assert_eq!(review.removed, 0);
+        assert!(!review.truncated);
+        let tracked = review
+            .files
+            .iter()
+            .find(|change| change.file == "tracked.txt")
+            .expect("tracked change");
+        assert_eq!((tracked.added, tracked.removed), (1, 0));
+        assert!(tracked.diff.iter().any(|line| line == "+changed"));
+        let untracked = review
+            .files
+            .iter()
+            .find(|change| change.file == "new.txt")
+            .expect("untracked change");
+        assert_eq!((untracked.added, untracked.removed), (2, 0));
+        assert_eq!(untracked.diff[0], "--- /dev/null");
+    }
+
+    #[test]
+    fn collect_review_truncates_large_untracked_files() {
+        let dir = temp_git_repo();
+        std::fs::write(dir.path().join("large.txt"), "line\n".repeat(MAX_REVIEW_LINES + 10))
+            .expect("write large untracked file");
+
+        let review = collect_review(dir.path()).expect("git review");
+
+        assert!(review.truncated);
+        assert!(review.files.iter().map(|change| change.diff.len()).sum::<usize>() <= MAX_REVIEW_LINES);
+        assert!(
+            review
+                .files
+                .iter()
+                .flat_map(|change| &change.diff)
+                .map(|line| line.len() + 1)
+                .sum::<usize>()
+                <= MAX_REVIEW_BYTES
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn collect_review_does_not_follow_untracked_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let dir = temp_git_repo();
+        let outside = tempfile::tempdir().expect("outside temp dir");
+        let target = outside.path().join("outside-secret.txt");
+        std::fs::write(&target, "must not appear in review\n").expect("write symlink target");
+        symlink(&target, dir.path().join("linked.txt")).expect("create untracked symlink");
+
+        let review = collect_review(dir.path()).expect("git review");
+        let linked = review
+            .files
+            .iter()
+            .find(|change| change.file == "linked.txt")
+            .expect("symlink change");
+
+        assert_eq!(linked.diff, vec!["Unreviewed non-regular file: linked.txt"]);
     }
 
     fn temp_git_repo() -> tempfile::TempDir {

@@ -18,7 +18,7 @@ use thndrs_agent::context::ContextConfig;
 use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use crate::utils;
 
-static CONFIG_KEYS: [&str; 14] = [
+static CONFIG_KEYS: [&str; 15] = [
     "model",
     "websearch",
     "websearch_url",
@@ -27,6 +27,7 @@ static CONFIG_KEYS: [&str; 14] = [
     "tick_rate_ms",
     "theme",
     "mouse",
+    "notifications",
     "verbose",
     "skill_dirs",
     "session_dir",
@@ -117,6 +118,7 @@ pub struct Config {
     pub reasoning_summary: Option<ReasoningSummary>,
     pub tick_rate_ms: Option<u64>,
     pub mouse: Option<bool>,
+    pub notifications: Option<bool>,
     pub verbose: Option<bool>,
     pub theme: Option<Theme>,
     pub skill_dirs: Vec<PathBuf>,
@@ -136,6 +138,7 @@ impl Config {
         self.reasoning_summary = other.reasoning_summary.or(self.reasoning_summary);
         self.tick_rate_ms = other.tick_rate_ms.or(self.tick_rate_ms);
         self.mouse = other.mouse.or(self.mouse);
+        self.notifications = other.notifications.or(self.notifications);
         self.verbose = other.verbose.or(self.verbose);
         self.theme = other.theme.or(self.theme);
         self.session_dir = other.session_dir.or(self.session_dir);
@@ -522,6 +525,10 @@ pub fn load_env(
                 config.mouse = Some(parse_bool_env(key, value)?);
                 origins.insert("mouse".to_string(), env_origin(key));
             }
+            "notifications" => {
+                config.notifications = Some(parse_bool_env(key, value)?);
+                origins.insert("notifications".to_string(), env_origin(key));
+            }
             "verbose" => {
                 config.verbose = Some(parse_bool_env(key, value)?);
                 origins.insert("verbose".to_string(), env_origin(key));
@@ -743,6 +750,12 @@ fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: 
     if config.mouse.is_some() {
         origins.insert("mouse".to_string(), ConfigOrigin { source, detail: detail.to_string() });
     }
+    if config.notifications.is_some() {
+        origins.insert(
+            "notifications".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
     if config.verbose.is_some() {
         origins.insert(
             "verbose".to_string(),
@@ -790,6 +803,7 @@ fn has_any_value(config: &Config) -> bool {
         || config.tick_rate_ms.is_some()
         || config.theme.is_some()
         || config.mouse.is_some()
+        || config.notifications.is_some()
         || config.verbose.is_some()
         || !config.skill_dirs.is_empty()
         || config.session_dir.is_some()
@@ -805,7 +819,8 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         reasoning_effort: Some(ReasoningEffort::default()),
         reasoning_summary: Some(ReasoningSummary::default()),
         tick_rate_ms: Some(DEFAULT_TICK_RATE_MS),
-        mouse: Some(true),
+        mouse: Some(false),
+        notifications: Some(false),
         verbose: Some(false),
         theme: Some(Theme::default()),
         skill_dirs: Vec::new(),

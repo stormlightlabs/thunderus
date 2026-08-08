@@ -22,6 +22,7 @@ fn test_app() -> App {
         tick_rate_ms: 100,
         no_mouse: false,
         mouse: false,
+        notifications: false,
         verbose: false,
         theme: Theme::EldritchMinimal,
         print_prompt: false,

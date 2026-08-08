@@ -13,13 +13,13 @@ use crate::renderer::style::{self, CellStyle, Color as RendererColor, Span};
 use crate::renderer::view::{
     ColumnAlignment, ColumnWidthPolicy, DiffDetailView, FocusedSurfaceView, HelpView, PermissionView, PickerView,
     SetupFormView, SurfaceRenderInput, SurfaceRenderer, SurfaceThemeView, TableCellView, TableView, ThemeRole,
-    ToolDetailView,
+    ToolDetailView, TranscriptDetailView,
 };
 use crate::utils;
 
 const HELP_ROWS: &[(&str, &str)] = &[
     ("── Navigation ──", ""),
-    ("Ctrl+O", "open output, diff, warning, or error detail"),
+    ("Ctrl+O", "open the action palette"),
     ("Enter", "accept highlighted item"),
     ("Escape", "close help, files, or commands"),
     ("Up/Down", "move cursor or recall history"),
@@ -108,6 +108,9 @@ pub fn render_surface(input: &SurfaceRenderInput<'_>) -> Vec<Row> {
         FocusedSurfaceView::Help(help) => help_rows(help, input.width, input.height, input.theme),
         FocusedSurfaceView::ToolDetail(detail) => tool_detail_rows(detail, input.width, input.height, input.theme),
         FocusedSurfaceView::DiffDetail(detail) => diff_detail_rows(detail, input.width, input.height, input.theme),
+        FocusedSurfaceView::TranscriptDetail(detail) => {
+            transcript_detail_rows(detail, input.width, input.height, input.theme)
+        }
         FocusedSurfaceView::TranscriptLens { selected_entry, scroll } => {
             transcript_lens_surface_rows(selected_entry, *scroll, input.width, input.height, input.theme)
         }
@@ -311,6 +314,36 @@ fn tool_detail_rows(detail: &ToolDetailView, width: usize, height: usize, theme:
             focus: Some(1),
             hints: "↑/↓ scroll · Esc close".to_string(),
             border,
+        },
+        width,
+        height,
+        theme,
+    )
+}
+
+fn transcript_detail_rows(
+    detail: &TranscriptDetailView, width: usize, height: usize, theme: &SurfaceThemeView,
+) -> Vec<Row> {
+    let status = if detail.entry_index == usize::MAX {
+        "read-only workspace snapshot".to_string()
+    } else {
+        format!("focus: entry {}", detail.entry_index)
+    };
+    let body = detail
+        .body
+        .iter()
+        .skip(detail.scroll)
+        .cloned()
+        .map(SurfaceLine::text)
+        .collect();
+    render_bounded_view(
+        &ViewContent {
+            title: detail.title.clone(),
+            status,
+            body,
+            focus: Some(0),
+            hints: "↑/↓ scroll · Esc close".to_string(),
+            border: ThemeRole::Selected,
         },
         width,
         height,

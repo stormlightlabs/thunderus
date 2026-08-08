@@ -246,7 +246,7 @@ impl AlternateViewport {
     }
 
     /// Apply transcript navigation when no higher-priority surface owns input.
-    pub fn handle_navigation(&mut self, app: &App, event: &Event) -> bool {
+    pub fn handle_navigation(&mut self, app: &mut App, event: &Event) -> bool {
         let transcript_focused = app.first_run_recovery.is_none()
             && !app.detail_pane.open
             && app.pending_permission.is_none()
@@ -254,34 +254,50 @@ impl AlternateViewport {
         if !transcript_focused {
             return false;
         }
+        if let Event::Key(key) = event
+            && key.kind != KeyEventKind::Release
+            && key.code == KeyCode::Enter
+            && app.input.is_empty()
+            && let Some(index) = app.transcript_selection
+            && crate::app::open_entry_detail(app, index)
+        {
+            return true;
+        }
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => match (key.code, key.modifiers) {
                 (KeyCode::PageUp, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
                     self.half_page_up();
+                    self.sync_selection(app);
                     true
                 }
                 (KeyCode::PageDown, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
                     self.half_page_down();
+                    self.sync_selection(app);
                     true
                 }
                 (KeyCode::PageUp, _) => {
                     self.page_up();
+                    self.sync_selection(app);
                     true
                 }
                 (KeyCode::PageDown, _) => {
                     self.page_down();
+                    self.sync_selection(app);
                     true
                 }
                 (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::ALT) => {
                     self.line_up();
+                    self.sync_selection(app);
                     true
                 }
                 (KeyCode::Down, modifiers) if modifiers.contains(KeyModifiers::ALT) => {
                     self.line_down();
+                    self.sync_selection(app);
                     true
                 }
                 (KeyCode::Home, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
                     self.top();
+                    self.sync_selection(app);
                     true
                 }
                 (KeyCode::End, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -344,10 +360,12 @@ impl AlternateViewport {
 
     /// Build one complete terminal-sized logical frame.
     pub fn build_frame(&mut self, app: &App, width: usize, height: usize) -> Frame {
+        let sidebar_width = if app.session_sidebar_open && width >= 120 { 32 } else { 0 };
+        let content_width = width.saturating_sub(sidebar_width + usize::from(sidebar_width > 0));
         let semantic = SemanticUiView::from(app);
-        let transcript = self.transcript_cache.project(app, width);
-        let live = LiveView::build(app, width, height, &transcript, &semantic);
-        let view = RendererView { semantic, transcript, live, width, height };
+        let transcript = self.transcript_cache.project(app, content_width);
+        let live = LiveView::build(app, content_width, height, &transcript, &semantic);
+        let view = RendererView { semantic, transcript, live, width: content_width, height };
         let anchored = matches!(self.state, ViewportState::Anchored(_));
         let chrome = build_chrome_frame(&view, anchored);
         let chrome_height = chrome.rows.len().min(height);
@@ -386,7 +404,10 @@ impl AlternateViewport {
         });
         frame.cursor_visible = !matches!(app.prompt_state(), PromptState::Stopped | PromptState::Errored);
         while frame.rows.len() < height {
-            frame.push(Row::blank(width, CellStyle::new()));
+            frame.push(Row::blank(content_width, CellStyle::new()));
+        }
+        if sidebar_width > 0 {
+            attach_session_sidebar(&mut frame, app, width, sidebar_width);
         }
         frame
     }
@@ -407,6 +428,71 @@ impl AlternateViewport {
             self.state = ViewportState::Anchored(position);
         }
     }
+
+    fn sync_selection(&self, app: &mut App) {
+        let Some(TranscriptPosition::Entry { entry_index, .. }) = self.last_positions.get(self.last_top).copied()
+        else {
+            return;
+        };
+        if matches!(
+            app.transcript.get(entry_index),
+            Some(Entry::Tool { .. } | Entry::Reasoning { .. } | Entry::Error { .. })
+        ) {
+            app.transcript_selection = Some(entry_index);
+        }
+    }
+}
+
+fn attach_session_sidebar(frame: &mut Frame, app: &App, width: usize, sidebar_width: usize) {
+    let palette = super::style::palette();
+    let panel = CellStyle::new().bg(palette.panel_bg);
+    let heading = CellStyle::new().fg(palette.teal).bg(palette.panel_bg);
+    let muted = CellStyle::new().fg(palette.overlay0).bg(palette.panel_bg);
+    let separator = CellStyle::new().fg(palette.surface1).bg(palette.panel_bg);
+    let lines = session_sidebar_lines(app);
+
+    for (index, row) in frame.rows.iter_mut().enumerate() {
+        let group_id = row.group_id;
+        let mut spans = std::mem::take(&mut row.spans);
+        spans.push(Span::styled("│", separator));
+        let (text, style) = lines.get(index).map_or(("", muted), |(text, is_heading)| {
+            (text.as_str(), if *is_heading { heading } else { muted })
+        });
+        let sidebar = super::layout::truncate_spans(&[Span::styled(text, style)], sidebar_width, style);
+        spans.extend(super::layout::pad_right(
+            sidebar.clone(),
+            sidebar_width.saturating_sub(super::layout::spans_width(&sidebar)),
+            panel,
+        ));
+        *row = Row { spans, width, group_id };
+    }
+    frame.width = width;
+}
+
+fn session_sidebar_lines(app: &App) -> Vec<(String, bool)> {
+    let mut lines = vec![
+        (String::from("  SESSIONS"), true),
+        (format!("  current · {}", app.model), false),
+        (
+            format!("  in {} · out {}", app.session_tokens_in, app.session_tokens_out),
+            false,
+        ),
+        (String::new(), false),
+    ];
+    if app.session_summaries.is_empty() {
+        lines.push((String::from("  No earlier sessions"), false));
+        return lines;
+    }
+    for summary in app.session_summaries.iter().take(8) {
+        lines.push((format!("  {}", summary.title.replace('\n', " ")), true));
+        lines.push((format!("  {}", summary.model), false));
+        lines.push((
+            format!("  in {} · out {}", summary.input_tokens, summary.output_tokens),
+            false,
+        ));
+        lines.push((String::new(), false));
+    }
+    lines
 }
 
 /// Build the bottom-pinned prompt, focused surface, queue summary, and footer.
@@ -831,12 +917,12 @@ mod tests {
         let mut viewport = AlternateViewport::default();
         let event = Event::Key(crossterm::event::KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
 
-        assert!(!viewport.handle_navigation(&app, &event));
+        assert!(!viewport.handle_navigation(&mut app, &event));
         assert_eq!(viewport.state(), ViewportState::FollowingTail);
 
         app.prompt_accessory = PromptAccessory::None;
         viewport.build_frame(&app, 80, 12);
-        assert!(viewport.handle_navigation(&app, &event));
+        assert!(viewport.handle_navigation(&mut app, &event));
     }
 
     #[test]
@@ -860,7 +946,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         });
 
-        assert!(viewport.handle_navigation(&app, &event));
+        assert!(viewport.handle_navigation(&mut app, &event));
         assert!(matches!(viewport.state(), ViewportState::Anchored(_)));
         assert_eq!(app.input.as_str(), "current draft");
         assert_eq!(app.history_cursor, None);
@@ -882,5 +968,20 @@ mod tests {
         viewport.build_frame(&app, 40, 10);
 
         assert_eq!(viewport.state(), anchor);
+    }
+
+    #[test]
+    fn session_sidebar_only_uses_wide_layout_when_open() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session_writer = None;
+        app.session_sidebar_open = true;
+
+        let wide = AlternateViewport::default().build_frame(&app, 140, 12);
+        assert!(wide.rows.iter().any(|row| row.text().contains("SESSIONS")));
+        assert!(wide.rows.iter().all(|row| row.width == 140));
+
+        let narrow = AlternateViewport::default().build_frame(&app, 100, 12);
+        assert!(!narrow.rows.iter().any(|row| row.text().contains("SESSIONS")));
+        assert!(narrow.rows.iter().all(|row| row.width == 100));
     }
 }

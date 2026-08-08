@@ -24,6 +24,7 @@ fn test_app() -> App {
         tick_rate_ms: 100,
         no_mouse: false,
         mouse: false,
+        notifications: false,
         verbose: false,
         theme: Theme::EldritchMinimal,
         print_prompt: false,
@@ -377,6 +378,17 @@ fn snapshot_command_suggestions() {
     let rows = accessory_rows(&app, 80, 8);
     let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
     insta::assert_snapshot!("command_suggestions", frame.render_styled());
+}
+
+#[test]
+fn snapshot_action_palette() {
+    let mut app = test_app();
+    app.action_palette_open = true;
+    app.mode = Mode::Command;
+    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+    let rows = accessory_rows(&app, 80, 8);
+    let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
+    insta::assert_snapshot!("action_palette", frame.render_styled());
 }
 
 #[test]

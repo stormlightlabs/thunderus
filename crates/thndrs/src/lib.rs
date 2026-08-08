@@ -89,6 +89,17 @@ const MAX_AGENT_EVENTS_PER_RENDER: usize = 256;
 /// Buffer one complete terminal transaction so CRLF scrollback commits cannot
 /// be line-buffered and shown before their replacement frame.
 const TERMINAL_WRITE_BUFFER_CAPACITY: usize = 64 * 1024;
+const LOCAL_COMMAND_LABEL: &str = "local command · user permissions · outside agent sandbox";
+
+/// Emit an opt-in OSC notification without coupling lifecycle state to a
+/// platform-specific desktop notification dependency.
+fn emit_terminal_notification(message: &str) {
+    let safe = message.replace(['\x1b', '\x07'], " ");
+    let mut stdout = io::stdout();
+    let _ = io::Write::write_all(&mut stdout, format!("\x1b]9;thndrs: {safe}\x07").as_bytes());
+    let _ = io::Write::flush(&mut stdout);
+}
+
 enum AcpEventWrite {
     Continue,
     Finished,
@@ -110,6 +121,20 @@ struct AgentSlot {
     receiver: thndrs_agent::AgentRun<app::AgentEvent>,
     cancel: CancelToken,
     steering: mpsc::Sender<String>,
+}
+
+/// One explicit local command running outside the agent sandbox.
+struct DirectShellSlot {
+    receiver: mpsc::Receiver<Result<tools::shell::ProcessResult, String>>,
+    cancel: CancelToken,
+    entry_index: usize,
+    command: String,
+}
+
+impl Drop for DirectShellSlot {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
 }
 
 struct GitStatusWatcher {
@@ -1126,18 +1151,18 @@ fn redact_secret(text: &str) -> String {
 /// Interactive alternate-screen mode with one application-owned viewport.
 fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
     let mouse_enabled = cli.mouse && !cli.no_mouse;
-    let _terminal_session = AlternateScreenSession::enter(mouse_enabled)?;
+    let mut terminal_session = AlternateScreenSession::enter(mouse_enabled)?;
     let stdout = io::BufWriter::with_capacity(TERMINAL_WRITE_BUFFER_CAPACITY, io::stdout());
     let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
     let mut surface = RatatuiSurface::new(terminal);
-    interactive_loop(&mut surface, tick, cli)
+    interactive_loop(&mut surface, &mut terminal_session, tick, cli)
 }
 
 trait InteractiveSurface {
     fn draw(&mut self, app: &mut App) -> io::Result<()>;
     fn resize(&mut self, width: u16, height: u16) -> io::Result<()>;
     fn clear(&mut self) -> io::Result<()>;
-    fn handle_navigation(&mut self, app: &App, event: &Event) -> bool;
+    fn handle_navigation(&mut self, app: &mut App, event: &Event) -> bool;
 }
 
 struct RatatuiSurface<W: io::Write> {
@@ -1182,14 +1207,16 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
         self.terminal.clear()
     }
 
-    fn handle_navigation(&mut self, app: &App, event: &Event) -> bool {
+    fn handle_navigation(&mut self, app: &mut App, event: &Event) -> bool {
         self.viewport.handle_navigation(app, event)
     }
 }
 
 /// Renderer-neutral interactive coordinator for application, agent, terminal,
 /// and render events.
-fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli: &Cli) -> io::Result<()> {
+fn interactive_loop<S: InteractiveSurface>(
+    surface: &mut S, terminal_session: &mut AlternateScreenSession, tick: Duration, cli: &Cli,
+) -> io::Result<()> {
     let tick = tick.max(MIN_RENDER_INTERVAL);
     let mut app = App::from_cli(cli);
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
@@ -1220,6 +1247,7 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
     );
 
     let mut agent: Option<AgentSlot> = None;
+    let mut direct_shells = Vec::new();
     let git_watcher = GitStatusWatcher::spawn(workspace_root);
     surface.draw(&mut app)?;
     let mut render_dirty = false;
@@ -1228,9 +1256,11 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
         let deadline = Instant::now() + tick;
         while Instant::now() < deadline {
             render_dirty |= drain_agent_events(&mut app, &mut agent, surface, &observability)?;
+            render_dirty |= drain_direct_shells(&mut app, &mut direct_shells);
             render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, surface)?;
             manage_agent_lifecycle(&app, &mut agent);
             maybe_spawn_agent(&mut app, &mut agent);
+            render_dirty |= spawn_direct_shell_requests(&mut app, &mut direct_shells);
             flush_steering(&mut app, &agent);
             if render_dirty {
                 surface.draw(&mut app)?;
@@ -1248,7 +1278,7 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
                 break;
             }
             let terminal_event = event::read()?;
-            if surface.handle_navigation(&app, &terminal_event) {
+            if surface.handle_navigation(&mut app, &terminal_event) {
                 surface.draw(&mut app)?;
                 continue;
             }
@@ -1256,6 +1286,7 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
                 Event::Key(key) if key.kind == KeyEventKind::Release => {}
                 Event::Key(key) => {
                     handle_key(&mut app, key, &mut agent, surface)?;
+                    maybe_edit_prompt(&mut app, terminal_session, surface)?;
                     surface.draw(&mut app)?;
                 }
                 Event::Mouse(mouse) => {
@@ -1280,6 +1311,7 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
             }
 
             maybe_spawn_agent(&mut app, &mut agent);
+            render_dirty |= spawn_direct_shell_requests(&mut app, &mut direct_shells);
             flush_steering(&mut app, &agent);
 
             if app.quit {
@@ -1292,6 +1324,7 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
         handle_msg(&mut app, Msg::Tick, surface)?;
         render_dirty |= tick_requires_render(&run_state_before_tick, &app);
         render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, surface)?;
+        render_dirty |= drain_direct_shells(&mut app, &mut direct_shells);
         if render_dirty {
             surface.draw(&mut app)?;
             render_dirty = false;
@@ -1327,7 +1360,7 @@ fn handle_key<S: InteractiveSurface>(
 /// Process a message and all pure follow-ups through one application path.
 fn handle_msg<S: InteractiveSurface>(app: &mut App, msg: Msg, surface: &mut S) -> io::Result<()> {
     let mut next = Some(msg);
-    while let Some(m) = next {
+    while let Some(m) = next.take() {
         let is_clear = matches!(m, Msg::Clear);
         next = update(app, &m);
         if is_clear {
@@ -1336,6 +1369,88 @@ fn handle_msg<S: InteractiveSurface>(app: &mut App, msg: Msg, surface: &mut S) -
         if app.quit {
             return Ok(());
         }
+    }
+    Ok(())
+}
+
+fn spawn_direct_shell_requests(app: &mut App, slots: &mut Vec<DirectShellSlot>) -> bool {
+    let mut spawned = false;
+    for command in std::mem::take(&mut app.pending_direct_shell) {
+        spawned = true;
+        let entry_index = app.transcript.len();
+        app.transcript.push(app::Entry::Tool {
+            name: String::from(LOCAL_COMMAND_LABEL),
+            arguments: command.clone(),
+            status: app::ToolStatus::Running,
+            output: Vec::new(),
+        });
+        let cwd = app.cwd.clone();
+        let cancel = CancelToken::new();
+        let worker_cancel = cancel.clone();
+        let worker_command = command.clone();
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let result = cli::local::run_direct_command(&worker_command, &cwd, &worker_cancel);
+            let _ = sender.send(result);
+        });
+        slots.push(DirectShellSlot { receiver, cancel, entry_index, command });
+    }
+    spawned
+}
+
+fn drain_direct_shells(app: &mut App, slots: &mut Vec<DirectShellSlot>) -> bool {
+    let mut changed = false;
+    let mut index = 0;
+    while index < slots.len() {
+        let result = match slots[index].receiver.try_recv() {
+            Ok(result) => Some(result),
+            Err(mpsc::TryRecvError::Empty) => {
+                index += 1;
+                None
+            }
+            Err(mpsc::TryRecvError::Disconnected) => Some(Err(String::from("local command worker stopped"))),
+        };
+        let Some(result) = result else { continue };
+        let slot = slots.remove(index);
+        let (status, output) = match result {
+            Ok(result) => (result.status.into(), result.to_output_lines()),
+            Err(error) => (app::ToolStatus::Failed, vec![error]),
+        };
+        let matches_slot = matches!(
+            app.transcript.get(slot.entry_index),
+            Some(app::Entry::Tool { name, arguments, .. })
+                if name == LOCAL_COMMAND_LABEL && arguments == &slot.command
+        );
+        if matches_slot {
+            app.transcript[slot.entry_index] = app::Entry::Tool {
+                name: String::from(LOCAL_COMMAND_LABEL),
+                arguments: slot.command.clone(),
+                status,
+                output,
+            };
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn maybe_edit_prompt<S: InteractiveSurface>(
+    app: &mut App, terminal_session: &mut AlternateScreenSession, surface: &mut S,
+) -> io::Result<()> {
+    if !std::mem::take(&mut app.external_editor_requested) {
+        return Ok(());
+    }
+
+    terminal_session.suspend()?;
+    let edited = cli::local::edit_prompt(app.input.as_str());
+    let resume_result = terminal_session.resume();
+    surface.clear()?;
+    resume_result?;
+    match edited {
+        Ok(text) => app.input.set_text(text.trim_end_matches(['\r', '\n'])),
+        Err(error) => app
+            .transcript
+            .push(app::Entry::Error { text: format!("editor: {error}") }),
     }
     Ok(())
 }
@@ -1361,6 +1476,9 @@ fn drain_agent_events<S: InteractiveSurface>(
                             "agent_failed",
                             &format!("error={}", daily_detail_value(msg)),
                         );
+                        if app.cli.notifications {
+                            emit_terminal_notification("run failed");
+                        }
                     }
                     app::AgentEvent::Cancelled => {
                         tracing::warn!("agent cancelled");
@@ -1369,6 +1487,14 @@ fn drain_agent_events<S: InteractiveSurface>(
                     app::AgentEvent::Finished => {
                         tracing::info!("agent finished");
                         append_daily_log(observability, &app.session_id, "agent_finished", "");
+                        if app.cli.notifications {
+                            emit_terminal_notification("run completed");
+                        }
+                    }
+                    app::AgentEvent::PermissionRequest(_) => {
+                        if app.cli.notifications {
+                            emit_terminal_notification("permission required");
+                        }
                     }
                     _ => {}
                 }
@@ -1677,7 +1803,7 @@ mod tests {
             Ok(())
         }
 
-        fn handle_navigation(&mut self, _app: &App, _event: &Event) -> bool {
+        fn handle_navigation(&mut self, _app: &mut App, _event: &Event) -> bool {
             false
         }
     }

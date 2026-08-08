@@ -265,7 +265,8 @@ fn write_config<W: Write>(config: &config::Config, writer: &mut W) -> io::Result
         config.reasoning_summary.unwrap_or_default().label()
     )?;
     writeln!(writer, "  tick_rate_ms: {}", config.tick_rate_ms.unwrap_or(0))?;
-    writeln!(writer, "  mouse: {}", config.mouse.unwrap_or(true))?;
+    writeln!(writer, "  mouse: {}", config.mouse.unwrap_or(false))?;
+    writeln!(writer, "  notifications: {}", config.notifications.unwrap_or(false))?;
     writeln!(writer, "  verbose: {}", config.verbose.unwrap_or(false))?;
     writeln!(writer, "  theme: {:?}", config.theme.unwrap_or_default())?;
     if config.skill_dirs.is_empty() {

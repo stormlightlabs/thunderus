@@ -2244,6 +2244,22 @@ fn submit_kicks_off_agent_via_followup() {
 }
 
 #[test]
+fn queue_send_now_kicks_off_agent_via_followup() {
+    let mut app = fresh_app();
+    app.queued_followups.push("start this now".to_string());
+    app.prompt_accessory = PromptAccessory::Queue { selected: 0 };
+
+    let follow = update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL)),
+    );
+
+    assert_eq!(follow, Some(Msg::Agent(AgentEvent::Started)));
+    assert!(app.queued_followups.is_empty());
+    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if text == "start this now"));
+}
+
+#[test]
 fn app_without_agents_md_has_no_context_sources() {
     let app = fresh_app();
     assert!(app.context_sources.is_empty());

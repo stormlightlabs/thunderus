@@ -21,6 +21,8 @@ pub enum PromptAccessory {
     #[default]
     None,
     Help,
+    /// The command-shaped accessory is also the unified action palette when
+    /// `App::action_palette_open` is true.
     Commands {
         selected: usize,
     },
@@ -30,6 +32,14 @@ pub enum PromptAccessory {
     Skills,
     /// Bounded inspection of the current context ledger.
     Context,
+    /// Read-only session-wide workspace change review.
+    Changes {
+        scroll: usize,
+    },
+    /// Editable queued steering and follow-up prompts.
+    Queue {
+        selected: usize,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,6 +77,69 @@ impl PickerItem {
 
     fn searchable(&self) -> String {
         if self.detail.is_empty() { self.label.clone() } else { format!("{} {}", self.label, self.detail) }
+    }
+}
+
+/// A typed destination for an item in the unified action palette.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Action {
+    Command(String),
+    Model,
+    Reasoning,
+    Skills,
+    Files,
+    Help,
+    Detail,
+    Changes,
+    Queue,
+    Editor,
+    Sessions,
+}
+
+/// One searchable action and its short user-facing description.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActionItem {
+    pub action: Action,
+    pub label: String,
+    pub detail: String,
+}
+
+impl ActionItem {
+    pub fn new(action: Action, label: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self { action, label: label.into(), detail: detail.into() }
+    }
+
+    fn searchable(&self) -> String {
+        if self.detail.is_empty() { self.label.clone() } else { format!("{} {}", self.label, self.detail) }
+    }
+}
+
+/// Registry of the actions exposed by the current application state.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ActionRegistry {
+    pub items: Vec<ActionItem>,
+}
+
+impl ActionRegistry {
+    pub fn new(items: Vec<ActionItem>) -> Self {
+        Self { items }
+    }
+
+    /// Return fuzzy-matched actions in score order.
+    pub fn matches(&self, query: &str, limit: usize) -> Vec<ActionItem> {
+        if query.trim().is_empty() {
+            return self.items.iter().take(limit).cloned().collect();
+        }
+
+        let mut scored = self
+            .items
+            .iter()
+            .filter_map(|item| fuzzy::fuzzy_match(query, &item.searchable()).map(|matched| (matched.score, item)))
+            .collect::<Vec<_>>();
+        scored.sort_by(|(a_score, a_item), (b_score, b_item)| {
+            a_score.cmp(b_score).then_with(|| a_item.label.cmp(&b_item.label))
+        });
+        scored.into_iter().take(limit).map(|(_, item)| item.clone()).collect()
     }
 }
 
@@ -159,7 +232,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     }
 
     if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        open_detail_surface(app);
+        open_action_palette(app);
         return None;
     }
 
@@ -240,6 +313,14 @@ pub fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
             }
             None
         }
+        PromptAccessory::Changes { ref mut scroll } => {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => *scroll = scroll.saturating_sub(3),
+                MouseEventKind::ScrollDown => *scroll = scroll.saturating_add(3),
+                _ => {}
+            }
+            None
+        }
         _ => None,
     }
 }
@@ -265,11 +346,70 @@ pub fn handle_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
             }
             _ => KeyOutcome::Unhandled,
         },
+        PromptAccessory::Changes { ref mut scroll } => match key.code {
+            KeyCode::Esc => {
+                close_prompt_accessory(app);
+                KeyOutcome::Handled
+            }
+            KeyCode::Up => {
+                *scroll = scroll.saturating_sub(1);
+                KeyOutcome::Handled
+            }
+            KeyCode::Down => {
+                *scroll = scroll.saturating_add(1);
+                KeyOutcome::Handled
+            }
+            KeyCode::PageUp => {
+                *scroll = scroll.saturating_sub(VISIBLE_ROWS);
+                KeyOutcome::Handled
+            }
+            KeyCode::PageDown => {
+                *scroll = scroll.saturating_add(VISIBLE_ROWS);
+                KeyOutcome::Handled
+            }
+            KeyCode::Home => {
+                *scroll = 0;
+                KeyOutcome::Handled
+            }
+            _ => KeyOutcome::Unhandled,
+        },
+        PromptAccessory::Queue { .. } => handle_queue_accessory_key(app, key),
         PromptAccessory::None => KeyOutcome::Unhandled,
     }
 }
 
 pub fn handle_command_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
+    if app.action_palette_open {
+        let actions = action_registry_for_app(app).matches(&command_query(app), LARGE_PICKER_LIMIT);
+        match key.code {
+            KeyCode::Esc => {
+                close_prompt_accessory(app);
+                return KeyOutcome::Handled;
+            }
+            KeyCode::Up => {
+                if let PromptAccessory::Commands { selected } = &mut app.prompt_accessory {
+                    *selected = selected.saturating_sub(1);
+                }
+                return KeyOutcome::Handled;
+            }
+            KeyCode::Down => {
+                if let PromptAccessory::Commands { selected } = &mut app.prompt_accessory {
+                    *selected = (*selected + 1).min(actions.len().saturating_sub(1));
+                }
+                return KeyOutcome::Handled;
+            }
+            KeyCode::Enter if !actions.is_empty() => {
+                let selected = match app.prompt_accessory {
+                    PromptAccessory::Commands { selected } => selected.min(actions.len() - 1),
+                    _ => 0,
+                };
+                execute_action(app, actions[selected].action.clone());
+                return KeyOutcome::Handled;
+            }
+            _ => {}
+        }
+    }
+
     let count = command_suggestions_for_app(app).len();
     match key.code {
         KeyCode::Esc => {
@@ -674,9 +814,10 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             app.prompt_accessory = PromptAccessory::Help;
             None
         }
-        KeyCode::Char(':') if app.input.is_empty() && matches!(app.run_state, RunState::Idle | RunState::Error(_)) => {
-            app.mode = Mode::Command;
-            app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+        KeyCode::Char(':') | KeyCode::Char('/')
+            if app.input.is_empty() && matches!(app.run_state, RunState::Idle | RunState::Error(_)) =>
+        {
+            open_action_palette(app);
             None
         }
         KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
@@ -746,6 +887,14 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             sync_prompt_accessory(app);
             None
         }
+        KeyCode::Enter if app.input.is_empty() && app.transcript_selection.is_some() => {
+            if let Some(index) = app.transcript_selection
+                && !open_entry_detail(app, index)
+            {
+                app.transcript_selection = None;
+            }
+            None
+        }
         KeyCode::Enter => handle_submit(app),
         KeyCode::Tab => accept_prompt_suggestion(app),
         KeyCode::Esc if app.run_state == RunState::Working => {
@@ -802,13 +951,86 @@ pub fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
         | PromptAccessory::Models
         | PromptAccessory::ReasoningEffort
         | PromptAccessory::Skills
-        | PromptAccessory::Context => {
+        | PromptAccessory::Context
+        | PromptAccessory::Changes { .. }
+        | PromptAccessory::Queue { .. } => {
             if app.mode == Mode::Command || app.input.as_str().starts_with('/') {
                 accept_command_suggestion(app)
             } else {
                 None
             }
         }
+    }
+}
+
+/// Build the current unified action registry.
+pub fn action_registry_for_app(app: &App) -> ActionRegistry {
+    let mut items = vec![
+        ActionItem::new(Action::Model, "model", "switch model"),
+        ActionItem::new(Action::Reasoning, "reasoning", "set reasoning effort"),
+        ActionItem::new(Action::Skills, "skills", "browse loaded skills"),
+        ActionItem::new(Action::Files, "files", "find workspace files"),
+        ActionItem::new(Action::Help, "help", "show keyboard help"),
+        ActionItem::new(Action::Detail, "detail", "expand selected output or message"),
+        ActionItem::new(Action::Changes, "changes", "review workspace files and diffs"),
+        ActionItem::new(
+            Action::Queue,
+            "queue",
+            "edit, retarget, reorder, or send queued prompts",
+        ),
+        ActionItem::new(Action::Editor, "editor", "edit the prompt in VISUAL or EDITOR"),
+        ActionItem::new(
+            Action::Sessions,
+            "sessions",
+            "toggle the wide current-directory sidebar",
+        ),
+    ];
+    items.extend(
+        super::commands::all_command_suggestions_for_app(app)
+            .into_iter()
+            .filter(|suggestion| !matches!(suggestion.name.as_str(), "model" | "reasoning" | "skills" | "help"))
+            .map(|suggestion| {
+                let name = suggestion.name;
+                ActionItem::new(Action::Command(name.clone()), name, suggestion.detail)
+            }),
+    );
+    ActionRegistry::new(items)
+}
+
+/// Open the unified action palette without putting its trigger in the prompt.
+pub fn open_action_palette(app: &mut App) {
+    app.detail_pane.open = false;
+    app.input.clear();
+    app.mode = Mode::Command;
+    app.action_palette_open = true;
+    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+}
+
+fn execute_action(app: &mut App, action: Action) {
+    app.input.clear();
+    app.mode = Mode::Prompt;
+    close_prompt_accessory(app);
+    match action {
+        Action::Command(command) => {
+            if app.run_state == RunState::Working {
+                let _ = handle_running_command(app, &command);
+            } else {
+                let _ = handle_command(app, &command);
+            }
+        }
+        Action::Model => open_model_picker(app),
+        Action::Reasoning => open_reasoning_effort_picker(app),
+        Action::Skills => open_skill_picker(app),
+        Action::Files => open_file_picker(app, FilePickerSource::Forced),
+        Action::Help => app.prompt_accessory = PromptAccessory::Help,
+        Action::Detail => open_detail_surface(app),
+        Action::Changes => {
+            app.change_review = git::collect_review(&app.cwd);
+            app.prompt_accessory = PromptAccessory::Changes { scroll: 0 };
+        }
+        Action::Queue => app.prompt_accessory = PromptAccessory::Queue { selected: 0 },
+        Action::Editor => app.external_editor_requested = true,
+        Action::Sessions => app.session_sidebar_open = !app.session_sidebar_open,
     }
 }
 
@@ -907,6 +1129,7 @@ pub fn close_prompt_accessory(app: &mut App) {
     ) {
         app.picker = None;
     }
+    app.action_palette_open = false;
     app.prompt_accessory = PromptAccessory::None;
 }
 
@@ -917,35 +1140,30 @@ pub fn close_prompt_accessory(app: &mut App) {
 /// 2. Tool output that is likely truncated in the live transcript preview.
 /// 3. Latest available tool output.
 pub fn open_detail_surface(app: &mut App) {
-    let Some(index) = next_detail_target(app) else {
-        return;
-    };
+    if let Some(index) = next_detail_target(app) {
+        let _ = open_entry_detail(app, index);
+    }
+}
+
+/// Open a detail surface for a selected transcript entry.
+pub fn open_entry_detail(app: &mut App, index: usize) -> bool {
+    if !app.transcript.get(index).is_some_and(is_detailable_entry) {
+        return false;
+    }
     app.detail_pane = DetailPane { entry_index: index, scroll: 0, open: true };
+    app.transcript_selection = Some(index);
+    true
+}
+
+fn is_detailable_entry(entry: &Entry) -> bool {
+    matches!(
+        entry,
+        Entry::Tool { .. } | Entry::Reasoning { .. } | Entry::Error { .. }
+    )
 }
 
 pub fn next_detail_target(app: &App) -> Option<usize> {
-    const TOOL_PREVIEW_LINES: usize = 6;
-
-    let mut fallback = None;
-    let mut truncated = None;
-
-    for (index, entry) in app.transcript.iter().enumerate().rev() {
-        let Entry::Tool { status, output, .. } = entry else {
-            continue;
-        };
-
-        fallback.get_or_insert(index);
-
-        if matches!(status, ToolStatus::Failed) {
-            return Some(index);
-        }
-
-        if output.len() > TOOL_PREVIEW_LINES && truncated.is_none() {
-            truncated = Some(index);
-        }
-    }
-
-    truncated.or(fallback)
+    app.transcript.iter().rposition(is_detailable_entry)
 }
 
 /// Handle keys while the detail pane is open.
@@ -976,12 +1194,17 @@ pub fn handle_detail_pane_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 
 /// Count output lines available for the detail pane's current target entry.
 pub fn detail_pane_output_count(app: &App) -> usize {
+    detail_pane_lines(app).len()
+}
+
+pub fn detail_pane_lines(app: &App) -> Vec<String> {
     let Some(entry) = app.transcript.get(app.detail_pane.entry_index) else {
-        return 0;
+        return Vec::new();
     };
     match entry {
-        Entry::Tool { output, .. } => output.len(),
-        _ => 0,
+        Entry::Tool { output, .. } => output.clone(),
+        Entry::Reasoning { text, .. } | Entry::Error { text } => text.lines().map(str::to_string).collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -1173,11 +1396,14 @@ pub fn accept_skill_suggestion(app: &mut App) {
 
 pub fn sync_prompt_accessory(app: &mut App) {
     if app.mode == Mode::Command {
-        app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+        if !app.action_palette_open {
+            app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+        }
         return;
     }
 
     if app.input.as_str().starts_with('/') {
+        app.action_palette_open = false;
         app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
         return;
     }
@@ -1262,7 +1488,113 @@ pub fn handle_submit(app: &mut App) -> Option<Msg> {
         return handle_command(app, command);
     }
 
+    if let Some(command) = text.strip_prefix('!') {
+        app.input.clear();
+        agent_lifecycle::remember_input(app, &text);
+        return Some(Msg::DirectShell(command.trim().to_string()));
+    }
+
     submit_user_turn(app, text)
+}
+
+fn handle_queue_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
+    let count = app.queued_steering.len() + app.queued_followups.len();
+    let selected = match app.prompt_accessory {
+        PromptAccessory::Queue { selected } => selected.min(count.saturating_sub(1)),
+        _ => return KeyOutcome::Unhandled,
+    };
+    match key.code {
+        KeyCode::Esc => close_prompt_accessory(app),
+        KeyCode::Up if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            reorder_queue_item(app, selected, false);
+        }
+        KeyCode::Down if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            reorder_queue_item(app, selected, true);
+        }
+        KeyCode::Up => set_queue_selection(app, selected.saturating_sub(1)),
+        KeyCode::Down => set_queue_selection(app, (selected + 1).min(count.saturating_sub(1))),
+        KeyCode::Delete | KeyCode::Backspace => {
+            take_queue_item(app, selected);
+            if count == 1 {
+                close_prompt_accessory(app);
+            } else {
+                set_queue_selection(app, selected.min(count.saturating_sub(2)));
+            }
+        }
+        KeyCode::Tab => retarget_queue_item(app, selected),
+        KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            return KeyOutcome::with(send_queue_item_now(app, selected));
+        }
+        KeyCode::Enter => {
+            if let Some((text, _)) = take_queue_item(app, selected) {
+                app.input.set_text(&text);
+                close_prompt_accessory(app);
+            }
+        }
+        _ => return KeyOutcome::Unhandled,
+    }
+    KeyOutcome::Handled
+}
+
+fn set_queue_selection(app: &mut App, selected: usize) {
+    app.prompt_accessory = PromptAccessory::Queue { selected };
+}
+
+fn take_queue_item(app: &mut App, selected: usize) -> Option<(String, QueueTarget)> {
+    if selected < app.queued_steering.len() {
+        Some((app.queued_steering.remove(selected), QueueTarget::Steering))
+    } else {
+        let index = selected.checked_sub(app.queued_steering.len())?;
+        (index < app.queued_followups.len()).then(|| (app.queued_followups.remove(index), QueueTarget::FollowUp))
+    }
+}
+
+fn retarget_queue_item(app: &mut App, selected: usize) {
+    let Some((text, target)) = take_queue_item(app, selected) else { return };
+    match target {
+        QueueTarget::Steering => app.queued_followups.push(text),
+        QueueTarget::FollowUp => app.queued_steering.push(text),
+    }
+    set_queue_selection(
+        app,
+        selected.min(
+            app.queued_steering
+                .len()
+                .saturating_add(app.queued_followups.len())
+                .saturating_sub(1),
+        ),
+    );
+}
+
+fn reorder_queue_item(app: &mut App, selected: usize, down: bool) {
+    let steering_len = app.queued_steering.len();
+    let (items, index, offset) = if selected < steering_len {
+        (&mut app.queued_steering, selected, 0)
+    } else {
+        (
+            &mut app.queued_followups,
+            selected.saturating_sub(steering_len),
+            steering_len,
+        )
+    };
+    if items.is_empty() {
+        return;
+    }
+    let other = if down { (index + 1).min(items.len() - 1) } else { index.saturating_sub(1) };
+    items.swap(index, other);
+    set_queue_selection(app, offset + other);
+}
+
+fn send_queue_item_now(app: &mut App, selected: usize) -> Option<Msg> {
+    let (text, _) = take_queue_item(app, selected)?;
+    if app.run_state == RunState::Working {
+        app.queued_steering.insert(0, text);
+        close_prompt_accessory(app);
+        None
+    } else {
+        close_prompt_accessory(app);
+        submit_user_turn(app, text)
+    }
 }
 
 pub fn queue_running_input(app: &mut App, text: &str) {
