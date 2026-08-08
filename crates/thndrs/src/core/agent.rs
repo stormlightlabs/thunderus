@@ -1191,6 +1191,12 @@ where
         .send_streaming_request(request.model, request.messages, &provider_request)
     {
         Ok(response) => {
+            if codex::is_model_id(request.model)
+                && let Some(usage) = codex::CodexUsageStatus::from_response_headers(response.headers())
+                && send(tx, AgentEvent::CodexUsage(usage), cancel).is_none()
+            {
+                return Err(ProviderAttemptError::Stream("cancelled".to_string()));
+            }
             match send(
                 tx,
                 AgentEvent::Status(format!("provider: connected HTTP {}", response.status().as_u16())),

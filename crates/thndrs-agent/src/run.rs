@@ -85,6 +85,18 @@ impl<Event> AgentRun<Event> {
         self.join_worker()
     }
 
+    /// Request cancellation and relinquish the worker without blocking the caller.
+    ///
+    /// This is reserved for a bounded UI shutdown path after the worker has not
+    /// settled within its cancellation grace period. The worker must still
+    /// honor cancellation or its own operation deadlines; dropping the join
+    /// handle only prevents an uncooperative worker from freezing its caller.
+    pub fn detach(mut self) {
+        self.cancel.cancel();
+        self.disconnect_events();
+        drop(self.worker.take());
+    }
+
     fn events(&self) -> &Receiver<Event> {
         &self.events
     }
@@ -137,6 +149,22 @@ mod tests {
 
         assert_eq!(run.recv(), Err(RecvError));
         assert_eq!(run.wait(), Err(AgentRunError::WorkerPanicked));
+    }
+
+    #[test]
+    fn detach_does_not_wait_for_an_uncooperative_worker() {
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (settled_tx, settled_rx) = std::sync::mpsc::channel();
+        let run = AgentRun::<()>::spawn(CancelToken::new(), move |_sender, _cancel| {
+            release_rx.recv().expect("release worker");
+            settled_tx.send(()).expect("signal worker completion");
+        });
+
+        run.detach();
+        release_tx.send(()).expect("release detached worker");
+        settled_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("detached worker should finish");
     }
 
     #[test]

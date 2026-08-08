@@ -6,6 +6,9 @@
 
 use std::borrow::Cow;
 use std::path::Path;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use http::HeaderMap;
 
 use crate::cli::{ReasoningEffort, ReasoningSummary};
 use crate::{
@@ -67,6 +70,93 @@ pub enum ResponsesSseEvent {
     Done,
     Malformed(String),
     Other,
+}
+
+/// A parsed reset time from the undocumented ChatGPT Codex usage headers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CodexUsageReset {
+    /// Seconds since the Unix epoch.
+    UnixSeconds(u64),
+    /// An RFC 3339 timestamp that the application preserves for display.
+    Rfc3339(String),
+}
+
+/// One primary or secondary usage window from a ChatGPT Codex response.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CodexUsageWindow {
+    /// Percentage of the window already consumed.
+    pub used_percent: Option<u8>,
+    /// Duration of the provider window in minutes.
+    pub window_minutes: Option<u32>,
+    /// When the provider says the window resets.
+    pub reset_at: Option<CodexUsageReset>,
+}
+
+/// Credit availability reported in a ChatGPT Codex response.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CodexCredits {
+    /// Whether the account has credits available.
+    pub has_credits: Option<bool>,
+    /// Whether credit use is unlimited.
+    pub unlimited: Option<bool>,
+    /// Remaining credit balance when it is a whole number.
+    pub balance: Option<u64>,
+}
+
+/// Application-owned quota state parsed from undocumented ChatGPT Codex headers.
+///
+/// The parser deliberately accepts each field independently. Missing or malformed
+/// headers simply leave that field unavailable rather than affecting a request.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CodexUsageStatus {
+    /// Short-window quota.
+    pub primary: CodexUsageWindow,
+    /// Long-window quota.
+    pub secondary: CodexUsageWindow,
+    /// Credit availability.
+    pub credits: CodexCredits,
+}
+
+impl CodexUsageStatus {
+    /// Parse known ChatGPT Codex quota headers without exposing wire data to the agent crate.
+    pub fn from_response_headers(headers: &HeaderMap) -> Option<Self> {
+        let status = Self {
+            primary: usage_window_from_headers(headers, "primary"),
+            secondary: usage_window_from_headers(headers, "secondary"),
+            credits: CodexCredits {
+                has_credits: header_value(headers, "x-codex-credits-has-credits").and_then(parse_bool),
+                unlimited: header_value(headers, "x-codex-credits-unlimited").and_then(parse_bool),
+                balance: header_value(headers, "x-codex-credits-balance").and_then(parse_u64),
+            },
+        };
+        (!status.is_empty()).then_some(status)
+    }
+
+    /// Render the compact quota segment for the TUI status row.
+    pub fn compact_status(&self) -> Option<String> {
+        self.compact_status_at(SystemTime::now())
+    }
+
+    /// Render the compact quota segment at a fixed time.
+    pub fn compact_status_at(&self, now: SystemTime) -> Option<String> {
+        let mut parts = Vec::new();
+        if let Some(window) = format_usage_window("p", &self.primary, now) {
+            parts.push(window);
+        }
+        if let Some(window) = format_usage_window("s", &self.secondary, now) {
+            parts.push(window);
+        }
+        if let Some(credits) = format_credits(&self.credits) {
+            parts.push(credits);
+        }
+        (!parts.is_empty()).then(|| parts.join(" "))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.primary == CodexUsageWindow::default()
+            && self.secondary == CodexUsageWindow::default()
+            && self.credits == CodexCredits::default()
+    }
 }
 
 /// Concrete ChatGPT Codex API client.
@@ -506,6 +596,158 @@ pub fn parse_responses_sse_event(data: &str) -> Vec<ResponsesSseEvent> {
     if events.is_empty() { vec![ResponsesSseEvent::Other] } else { events }
 }
 
+fn usage_window_from_headers(headers: &HeaderMap, name: &str) -> CodexUsageWindow {
+    let prefix = format!("x-codex-{name}");
+    CodexUsageWindow {
+        used_percent: header_value(headers, &format!("{prefix}-used-percent")).and_then(parse_percent),
+        window_minutes: header_value(headers, &format!("{prefix}-window-minutes")).and_then(parse_window_minutes),
+        reset_at: header_value(headers, &format!("{prefix}-reset-at")).and_then(parse_reset_at),
+    }
+}
+
+fn header_value<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get(name)?
+        .to_str()
+        .ok()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn parse_percent(value: &str) -> Option<u8> {
+    value.parse().ok().filter(|percent: &u8| *percent <= 100)
+}
+
+fn parse_window_minutes(value: &str) -> Option<u32> {
+    value.parse().ok().filter(|minutes: &u32| *minutes > 0)
+}
+
+fn parse_u64(value: &str) -> Option<u64> {
+    value.parse().ok()
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_reset_at(value: &str) -> Option<CodexUsageReset> {
+    if let Some(seconds) = parse_u64(value) {
+        return Some(CodexUsageReset::UnixSeconds(seconds));
+    }
+
+    valid_rfc3339_utc(value).then(|| CodexUsageReset::Rfc3339(value.to_string()))
+}
+
+fn valid_rfc3339_utc(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() < 20
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || !bytes.ends_with(b"Z")
+    {
+        return false;
+    }
+
+    let Some(year) = parse_fixed_u32(&bytes[0..4]) else { return false };
+    let Some(month) = parse_fixed_u32(&bytes[5..7]) else { return false };
+    let fields = [
+        (&bytes[0..4], 1, 9_999),
+        (&bytes[5..7], 1, 12),
+        (&bytes[8..10], 1, days_in_month(year, month)),
+        (&bytes[11..13], 0, 23),
+        (&bytes[14..16], 0, 59),
+        (&bytes[17..19], 0, 60),
+    ];
+    if fields.iter().any(|(digits, min, max)| {
+        !digits.iter().all(u8::is_ascii_digit)
+            || parse_fixed_u32(digits).is_none_or(|value| value < *min || value > *max)
+    }) {
+        return false;
+    }
+
+    let fraction = &bytes[19..bytes.len() - 1];
+    fraction.is_empty() || (fraction[0] == b'.' && fraction.len() > 1 && fraction[1..].iter().all(u8::is_ascii_digit))
+}
+
+fn parse_fixed_u32(digits: &[u8]) -> Option<u32> {
+    (!digits.is_empty() && digits.iter().all(u8::is_ascii_digit)).then(|| {
+        digits
+            .iter()
+            .fold(0u32, |value, digit| value * 10 + u32::from(digit - b'0'))
+    })
+}
+
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        2 if year.is_multiple_of(400) || (year.is_multiple_of(4) && !year.is_multiple_of(100)) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+fn format_usage_window(label: &str, window: &CodexUsageWindow, now: SystemTime) -> Option<String> {
+    let percent = window.used_percent?;
+    let mut text = format!("{label}:{percent}%");
+    if let Some(minutes) = window.window_minutes {
+        text.push('/');
+        text.push_str(&format_window_minutes(minutes));
+    }
+    if let Some(reset) = window.reset_at.as_ref() {
+        text.push_str("->");
+        text.push_str(&format_reset_at(reset, now));
+    }
+    Some(text)
+}
+
+fn format_window_minutes(minutes: u32) -> String {
+    if minutes % 1_440 == 0 {
+        format!("{}d", minutes / 1_440)
+    } else if minutes % 60 == 0 {
+        format!("{}h", minutes / 60)
+    } else {
+        format!("{minutes}m")
+    }
+}
+
+fn format_reset_at(reset: &CodexUsageReset, now: SystemTime) -> String {
+    match reset {
+        CodexUsageReset::UnixSeconds(seconds) => UNIX_EPOCH
+            .checked_add(Duration::from_secs(*seconds))
+            .and_then(|time| time.duration_since(now).ok())
+            .map_or_else(|| "now".to_string(), format_remaining),
+        CodexUsageReset::Rfc3339(value) => value.clone(),
+    }
+}
+
+fn format_remaining(duration: Duration) -> String {
+    let minutes = duration.as_secs().div_ceil(60);
+    if minutes >= 1_440 {
+        format!("{}d", minutes / 1_440)
+    } else if minutes >= 60 {
+        format!("{}h", minutes / 60)
+    } else {
+        format!("{minutes}m")
+    }
+}
+
+fn format_credits(credits: &CodexCredits) -> Option<String> {
+    if credits.unlimited == Some(true) {
+        Some("credits:unlimited".to_string())
+    } else if credits.has_credits == Some(false) {
+        Some("credits:none".to_string())
+    } else {
+        credits.balance.map(|balance| format!("credits:{balance}"))
+    }
+}
+
 fn is_gpt_5_6_raw_model(model: &str) -> bool {
     matches!(model, "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna")
 }
@@ -823,6 +1065,77 @@ mod tests {
 
     fn test_auth() -> ChatGptCodexAuth {
         ChatGptCodexAuth { access_token: "test-token".to_string(), account_id: "acct_123".to_string() }
+    }
+
+    #[test]
+    fn parses_usage_windows_and_credits_from_response_headers() {
+        let mut headers = HeaderMap::new();
+        for (name, value) in [
+            ("x-codex-primary-used-percent", "42"),
+            ("x-codex-primary-window-minutes", "300"),
+            ("x-codex-primary-reset-at", "7200"),
+            ("x-codex-secondary-used-percent", "7"),
+            ("x-codex-secondary-window-minutes", "10080"),
+            ("x-codex-secondary-reset-at", "2030-01-02T03:04:05Z"),
+            ("x-codex-credits-has-credits", "true"),
+            ("x-codex-credits-unlimited", "false"),
+            ("x-codex-credits-balance", "19"),
+        ] {
+            headers.insert(name, value.parse().expect("valid test header"));
+        }
+
+        let status = CodexUsageStatus::from_response_headers(&headers).expect("usage status");
+
+        assert_eq!(status.primary.used_percent, Some(42));
+        assert_eq!(status.primary.window_minutes, Some(300));
+        assert_eq!(status.primary.reset_at, Some(CodexUsageReset::UnixSeconds(7200)));
+        assert_eq!(status.secondary.used_percent, Some(7));
+        assert_eq!(
+            status.secondary.reset_at,
+            Some(CodexUsageReset::Rfc3339("2030-01-02T03:04:05Z".to_string()))
+        );
+        assert_eq!(status.credits.balance, Some(19));
+        assert_eq!(
+            status.compact_status_at(UNIX_EPOCH),
+            Some("p:42%/5h->2h s:7%/7d->2030-01-02T03:04:05Z credits:19".to_string())
+        );
+    }
+
+    #[test]
+    fn usage_headers_ignore_missing_and_malformed_values() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-codex-primary-used-percent",
+            "101".parse().expect("valid test header"),
+        );
+        headers.insert(
+            "x-codex-primary-window-minutes",
+            "zero".parse().expect("valid test header"),
+        );
+        headers.insert(
+            "x-codex-primary-reset-at",
+            "2030-99-99T25:61:61Z".parse().expect("valid test header"),
+        );
+        headers.insert(
+            "x-codex-secondary-reset-at",
+            http::HeaderValue::from_bytes(&[0xff]).expect("opaque test header"),
+        );
+        headers.insert(
+            "x-codex-credits-has-credits",
+            "perhaps".parse().expect("valid test header"),
+        );
+
+        assert_eq!(CodexUsageStatus::from_response_headers(&headers), None);
+
+        headers.insert(
+            "x-codex-secondary-used-percent",
+            "12".parse().expect("valid test header"),
+        );
+        let status = CodexUsageStatus::from_response_headers(&headers).expect("partial status");
+        assert_eq!(status.secondary.used_percent, Some(12));
+        assert_eq!(status.primary, CodexUsageWindow::default());
+        assert_eq!(status.secondary.reset_at, None);
+        assert_eq!(status.credits, CodexCredits::default());
     }
 
     #[test]

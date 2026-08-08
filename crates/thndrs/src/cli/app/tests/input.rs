@@ -1,6 +1,6 @@
 use super::*;
 use crate::input::PromptInput;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
 use helpers::*;
 
@@ -14,6 +14,21 @@ fn q_appends_to_input_and_does_not_quit() {
     assert!(!app.quit, "q should not quit");
     assert_eq!(app.input.as_str(), "q", "q should append to input");
     assert_eq!(follow, None);
+}
+
+#[test]
+fn mouse_wheel_does_not_edit_or_recall_prompt_input() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("current draft");
+    app.input_history.push("previous prompt".to_string());
+
+    update(
+        &mut app,
+        &Msg::Mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: 0, row: 0, modifiers: KeyModifiers::NONE }),
+    );
+
+    assert_eq!(app.input.as_str(), "current draft");
+    assert_eq!(app.history_cursor, None);
 }
 
 #[test]

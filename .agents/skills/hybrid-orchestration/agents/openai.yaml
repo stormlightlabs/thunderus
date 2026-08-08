@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hybrid Orchestration"
+  short_description: "Run thndrs workers and improve the harness"
+  default_prompt: "Use $hybrid-orchestration to delegate this task to one or two installed thndrs TUI workers and route confirmed incidental harness fixes to Pi."

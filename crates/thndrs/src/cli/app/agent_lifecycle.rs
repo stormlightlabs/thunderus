@@ -30,6 +30,10 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             }
             None
         }
+        AgentEvent::CodexUsage(usage) => {
+            app.codex_usage = Some(usage);
+            None
+        }
         AgentEvent::RequestAccounting(accounting) => {
             app.last_request_accounting = Some(accounting.as_ref().clone());
             if let Some(usage) = &accounting.provider_usage {
@@ -333,6 +337,7 @@ pub fn finish_stopping_if_due(app: &mut App) {
 
     if now_or_after_deadline(app.ui_tick, deadline) {
         handle_agent_event(app, AgentEvent::Cancelled);
+        app.stopping_timed_out = true;
     }
 }
 

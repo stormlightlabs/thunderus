@@ -366,6 +366,14 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     let model_label = format!("model: {}", codex::display_model_id(&app.model));
     let reasoning_text =
         supports_reasoning_status(&app.model).then(|| format!("reasoning: {}", app.cli.reasoning_effort.label()));
+    let codex_usage_text = codex::is_model_id(&app.model)
+        .then(|| {
+            app.codex_usage
+                .as_ref()
+                .and_then(codex::CodexUsageStatus::compact_status)
+        })
+        .flatten()
+        .map(|status| format!("quota {status}"));
     let search_label = app.websearch.label();
     let search_text = format!("search: {search_label}");
     let token_text = compact_token_status(app);
@@ -414,6 +422,11 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     }
     if show_reasoning && let Some(reasoning_text) = reasoning_text.as_deref() {
         push_segment(reasoning_text, CellStyle::new().fg(p.mauve).bg(bg), &mut used);
+    }
+    if width >= 88
+        && let Some(codex_usage_text) = codex_usage_text.as_deref()
+    {
+        push_segment(codex_usage_text, CellStyle::new().fg(p.peach).bg(bg), &mut used);
     }
     if show_search {
         push_segment(&search_text, subtext, &mut used);

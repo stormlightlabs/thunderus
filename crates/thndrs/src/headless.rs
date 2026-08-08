@@ -123,7 +123,7 @@ enum JsonEvent<'a> {
         ephemeral: bool,
     },
     Status {
-        message: &'a str,
+        message: std::borrow::Cow<'a, str>,
     },
     Usage {
         input_tokens: u64,
@@ -198,10 +198,17 @@ impl<'a> JsonEvent<'a> {
     fn from_agent_event(event: &'a app::AgentEvent, ephemeral: bool) -> Self {
         match event {
             app::AgentEvent::Started => Self::Started { ephemeral },
-            app::AgentEvent::Status(message) => Self::Status { message },
+            app::AgentEvent::Status(message) => Self::Status { message: message.into() },
             app::AgentEvent::Usage { input_tokens, output_tokens } => {
                 Self::Usage { input_tokens: *input_tokens, output_tokens: *output_tokens }
             }
+            app::AgentEvent::CodexUsage(usage) => Self::Status {
+                message: format!(
+                    "quota {}",
+                    usage.compact_status().unwrap_or_else(|| "update".to_string())
+                )
+                .into(),
+            },
             app::AgentEvent::RequestAccounting(accounting) => Self::RequestAccounting {
                 turn_id: &accounting.turn_id,
                 request_id: &accounting.request_id,
@@ -607,6 +614,13 @@ fn write_diagnostic<Stderr: Write>(stderr: &mut Stderr, event: &app::AgentEvent)
         app::AgentEvent::Status(message) => writeln!(stderr, "thndrs run: {message}"),
         app::AgentEvent::Usage { input_tokens, output_tokens } => {
             writeln!(stderr, "thndrs run: usage input={input_tokens} output={output_tokens}")
+        }
+        app::AgentEvent::CodexUsage(usage) => {
+            writeln!(
+                stderr,
+                "thndrs run: quota {}",
+                usage.compact_status().unwrap_or_else(|| "update".to_string())
+            )
         }
         app::AgentEvent::RequestAccounting(accounting) => {
             writeln!(

@@ -293,6 +293,32 @@ fn static_status_row_uses_codex_model_label_and_shows_reasoning_when_supported()
 }
 
 #[test]
+fn static_status_row_shows_codex_usage_quota() {
+    let mut app = test_app();
+    app.model = "chatgpt-codex/gpt-5.6-terra".to_string();
+    app.codex_usage = Some(crate::providers::codex::CodexUsageStatus {
+        primary: crate::providers::codex::CodexUsageWindow {
+            used_percent: Some(42),
+            window_minutes: Some(300),
+            reset_at: None,
+        },
+        secondary: Default::default(),
+        credits: crate::providers::codex::CodexCredits {
+            has_credits: Some(true),
+            unlimited: Some(false),
+            balance: Some(19),
+        },
+    });
+
+    let text = static_status_row(&app, 200).text();
+
+    assert!(
+        text.contains("quota p:42%/5h credits:19"),
+        "quota should be concise and visible: {text}"
+    );
+}
+
+#[test]
 fn static_status_row_shows_opencode_reasoning_toggle() {
     let mut app = test_app();
     app.model = "opencode/gpt-5.6-luna".to_string();

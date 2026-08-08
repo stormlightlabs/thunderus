@@ -890,6 +890,11 @@ fn write_acp_event<W: io::Write>(writer: &mut W, event: app::AgentEvent) -> io::
         app::AgentEvent::Usage { input_tokens, output_tokens } => {
             writeln!(writer, "usage: input={input_tokens} output={output_tokens}")?
         }
+        app::AgentEvent::CodexUsage(usage) => writeln!(
+            writer,
+            "quota: {}",
+            usage.compact_status().unwrap_or_else(|| "update".to_string())
+        )?,
         app::AgentEvent::RequestAccounting(accounting) => {
             let input = accounting
                 .provider_usage
@@ -1283,9 +1288,9 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
                 return Ok(());
             }
         }
+        let run_state_before_tick = app.run_state.clone();
         handle_msg(&mut app, Msg::Tick, surface)?;
-        render_dirty |=
-            app.run_state != RunState::Idle || app.first_run_recovery.is_some() || app.ctrl_d_pending.is_some();
+        render_dirty |= tick_requires_render(&run_state_before_tick, &app);
         render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, surface)?;
         if render_dirty {
             surface.draw(&mut app)?;
@@ -1297,6 +1302,13 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
             return Ok(());
         }
     }
+}
+
+fn tick_requires_render(previous_state: &RunState, app: &App) -> bool {
+    previous_state != &app.run_state
+        || app.run_state != RunState::Idle
+        || app.first_run_recovery.is_some()
+        || app.ctrl_d_pending.is_some()
 }
 
 /// Process a key through the shared application update path.
@@ -1410,6 +1422,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
         return;
     }
 
+    app.stopping_timed_out = false;
     let prompt = active_provider_prompt(app);
     let cli = app.cli.clone();
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
@@ -1566,9 +1579,13 @@ fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
         RunState::Idle | RunState::Error(_) => {
             if let Some(mut slot) = agent.take() {
                 tracing::info!("cancelling dropped agent slot");
-                slot.cancel.cancel();
-                if let Err(error) = slot.receiver.wait() {
-                    tracing::error!(%error, "agent worker failed while settling");
+                if app.stopping_timed_out {
+                    slot.receiver.detach();
+                } else {
+                    slot.cancel.cancel();
+                    if let Err(error) = slot.receiver.wait() {
+                        tracing::error!(%error, "agent worker failed while settling");
+                    }
                 }
             }
         }
@@ -2368,6 +2385,54 @@ for line in sys.stdin:
         assert!(
             cancel.is_cancelled(),
             "stopping should still signal cooperative cancellation"
+        );
+    }
+
+    #[test]
+    fn stopping_timeout_marks_terminal_state_for_repaint() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.run_state = RunState::Stopping;
+        app.transcript
+            .push(app::Entry::Status { text: "cancelled".to_string() });
+        app.stopping_deadline = Some(0);
+        let mut surface = TestSurface::default();
+        let before = app.run_state.clone();
+
+        handle_msg(&mut app, Msg::Tick, &mut surface).expect("tick");
+
+        assert_eq!(app.run_state, RunState::Idle);
+        assert_eq!(app.status_label(), "cancelled");
+        assert!(app.stopping_timed_out, "the UI must detach an unsettled worker");
+        assert!(
+            tick_requires_render(&before, &app),
+            "the terminal state must replace the last stopping frame"
+        );
+    }
+
+    #[test]
+    fn timed_out_stopping_agent_is_detached_without_blocking_the_ui() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.run_state = RunState::Idle;
+        app.stopping_timed_out = true;
+
+        let run = thndrs_agent::AgentRun::<app::AgentEvent>::spawn(CancelToken::new(), |_sender, _cancel| {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        });
+        let cancel = run.cancel().clone();
+        let (steering_tx, _steering_rx) = mpsc::channel();
+        let mut agent = Some(AgentSlot { receiver: run, cancel, steering: steering_tx });
+        let started = Instant::now();
+
+        manage_agent_lifecycle(&app, &mut agent);
+
+        assert!(agent.is_none());
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(100),
+            "a timed-out worker must not freeze the render loop"
         );
     }
 

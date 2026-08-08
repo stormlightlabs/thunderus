@@ -281,6 +281,8 @@ pub enum AgentEvent {
         input_tokens: u64,
         output_tokens: u64,
     },
+    /// Application-owned ChatGPT Codex quota headers observed on a response.
+    CodexUsage(codex::CodexUsageStatus),
     /// One successful provider request with exact size and optional usage.
     RequestAccounting(Box<ProviderRequestAccounting>),
     AssistantDelta(String),
@@ -378,6 +380,8 @@ pub struct App {
     /// Provider token usage accumulated for this session.
     pub session_tokens_in: u64,
     pub session_tokens_out: u64,
+    /// Latest application-owned ChatGPT Codex usage quota reported by a response.
+    pub codex_usage: Option<codex::CodexUsageStatus>,
     /// In-memory client-observed TTFT for the active and last completed turn.
     pub ttft: TurnTtftState,
     /// Loaded context sources (e.g. AGENTS.md).
@@ -407,6 +411,11 @@ pub struct App {
     /// Tick deadline that bounds how long a cancelled run may remain in the
     /// `Stopping` state while its worker unwinds.
     pub stopping_deadline: Option<u64>,
+    /// Whether the cancellation grace period expired before the worker settled.
+    ///
+    /// The direct loop uses this to detach the worker instead of joining it on
+    /// the UI thread after the app has already entered its terminal state.
+    pub(crate) stopping_timed_out: bool,
     /// Append-only session writer. `None` when persistence is disabled
     /// (e.g. the sessions directory is not writable).
     pub session_writer: Option<session::SessionWriter>,
@@ -574,6 +583,7 @@ impl From<&Cli> for App {
             verbose: value.verbose,
             session_tokens_in: 0,
             session_tokens_out: 0,
+            codex_usage: None,
             ttft: TurnTtftState::default(),
             context_sources,
             context_diagnostics,
@@ -586,6 +596,7 @@ impl From<&Cli> for App {
             ui_tick: 0,
             ctrl_d_pending: None,
             stopping_deadline: None,
+            stopping_timed_out: false,
             session_writer,
             tool_artifacts: HashMap::new(),
             tool_projection_decisions: HashMap::new(),

@@ -1051,6 +1051,8 @@ pub fn accept_model_suggestion(app: &mut App) {
 
     app.model = model.clone();
     app.cli.model = model.clone();
+    app.input.clear();
+    app.codex_usage = None;
     match config::write_project_model(&app.cwd, &model) {
         Ok(path) => {
             let display = config::project_config_path_display(&path, &app.cwd);

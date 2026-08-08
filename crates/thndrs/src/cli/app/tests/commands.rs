@@ -364,6 +364,10 @@ fn gpt_5_6_model_selection_prompts_for_and_saves_reasoning_effort() {
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(app.model, "opencode/gpt-5.6-terra");
+    assert!(
+        app.input.is_empty(),
+        "the typed /model command must not remain in the prompt"
+    );
     assert_eq!(app.prompt_accessory, PromptAccessory::ReasoningEffort);
     let picker = app.picker.as_mut().expect("reasoning effort picker");
     picker.query = "xhigh".to_string();
