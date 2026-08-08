@@ -144,6 +144,22 @@ impl LabeledBlock {
         }
         rows
     }
+
+    fn build_compact(self, label: &str, text: &str) -> Vec<Row> {
+        let summary = text.lines().find(|line| !line.trim().is_empty()).unwrap_or_default();
+        let label_width = utils::text_width(label) + 2;
+        let summary = utils::truncate_ellipsis(summary, self.body_width.saturating_sub(label_width));
+        vec![Row::padded(
+            vec![
+                Span::styled(ENTRY_RAIL, self.rail_style),
+                Span::styled(label.to_string(), self.label_style),
+                Span::styled("  ", CellStyle::new().bg(self.bg)),
+                Span::styled(summary, self.text_style),
+            ],
+            self.width,
+            CellStyle::new().bg(self.bg),
+        )]
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -176,10 +192,10 @@ impl ToolBlockView<'_> {
     fn rows(&self) -> Vec<Row> {
         let p = super::style::palette();
         let (status_label, status_color, icon) = match self.status {
-            ToolStatus::Running => ("running", p.peach, "·"),
-            ToolStatus::Ok => ("ok", p.green, "✓"),
-            ToolStatus::Failed => ("failed", p.red, "✕"),
-            ToolStatus::Cancelled => ("cancelled", p.peach, "○"),
+            ToolStatus::Running => ("Running", p.peach, "·"),
+            ToolStatus::Ok => ("Done", p.green, "✓"),
+            ToolStatus::Failed => ("Failed", p.red, "✕"),
+            ToolStatus::Cancelled => ("Stopped", p.peach, "○"),
         };
         let header_style = CellStyle::new().fg(p.text).bg(self.bg).bold();
         let status_style = CellStyle::new().fg(status_color).bg(self.bg);
@@ -211,9 +227,7 @@ impl ToolBlockView<'_> {
             Span::styled(format!("{icon} "), status_style),
             Span::styled(base_name.to_string(), header_style),
         ];
-        if self.status != ToolStatus::Ok {
-            header_spans.push(Span::styled(format!(" [{status_label}]"), status_style));
-        }
+        header_spans.push(Span::styled(format!(" [{status_label}]"), status_style));
 
         if !args_summary.is_empty() {
             let header_width: usize = header_spans.iter().map(|s| utils::text_width(&s.text)).sum();
@@ -233,11 +247,25 @@ impl ToolBlockView<'_> {
                 header_spans = Vec::new();
             }
         }
-        if self.status == ToolStatus::Ok && !self.output.is_empty() && !header_spans.is_empty() {
-            header_spans.push(Span::styled("  ▸", CellStyle::new().fg(p.overlay0).bg(self.bg)));
+        let output_details = (self.status == ToolStatus::Ok && !self.output.is_empty())
+            .then(|| format!("{} lines · Ctrl+O details", self.output.len()));
+        if let Some(details) = output_details.as_ref()
+            && !header_spans.is_empty()
+        {
+            header_spans.push(Span::styled(format!("  {details}"), muted_style));
         }
         if !header_spans.is_empty() {
             rows.push(Row::padded(header_spans, self.width, CellStyle::new().bg(self.bg)));
+        } else if let Some(details) = output_details {
+            rows.push(Row::padded(
+                vec![
+                    Span::styled(ENTRY_RAIL, rail_style),
+                    Span::styled("  ", CellStyle::new().bg(self.bg)),
+                    Span::styled(details, muted_style),
+                ],
+                self.width,
+                CellStyle::new().bg(self.bg),
+            ));
         }
 
         if let Some(summary) = edit_summary_line(self.name, self.output, self.status, self.cwd) {
@@ -320,7 +348,7 @@ impl ToolBlockView<'_> {
                     Span::styled(ENTRY_RAIL, rail_style),
                     Span::styled(
                         format!(
-                            "   │ … ({} lines stored, {} shown here)",
+                            "   │ … ({} lines stored, {} shown here) · Ctrl+O details",
                             self.output.len(),
                             MAX_TOOL_OUTPUT_LINES
                         ),
@@ -914,10 +942,11 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path, tool
         }
         Entry::Reasoning { text, streaming } => {
             let rail_style = CellStyle::new().fg(p.mauve).bg(bg).bold();
-            let label_style = CellStyle::new().fg(p.mauve).bg(bg).bold();
+            let label_style = CellStyle::new().fg(p.overlay1).bg(bg);
             let text_style = CellStyle::new().fg(p.subtext0).bg(bg).italic();
             let label = if *streaming { "Thinking ·" } else { "Thinking ✓" };
-            LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width).build(label, text)
+            LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
+                .build_compact(label, text)
         }
         Entry::Tool { name, arguments, status, output } => ToolBlockView {
             name,
@@ -933,10 +962,15 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path, tool
         .rows(),
         Entry::Status { text } => {
             let rail_style = CellStyle::new().fg(p.overlay1).bg(bg);
-            let label_style = CellStyle::new().fg(p.overlay1).bg(bg).bold();
-            let text_style = CellStyle::new().fg(p.text).bg(bg);
-            LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
-                .build(status_label_for(text), text)
+            let label_style = CellStyle::new().fg(p.overlay1).bg(bg);
+            let text_style = CellStyle::new().fg(p.subtext0).bg(bg);
+            if text.contains('\n') {
+                LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
+                    .build(status_label_for(text), text)
+            } else {
+                LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
+                    .build_compact(status_label_for(text), text)
+            }
         }
         Entry::Error { text } => {
             let error_bg = p.surface_dim;
@@ -960,7 +994,7 @@ fn assistant_block_rows(
         Row::padded(
             vec![
                 Span::styled(ENTRY_RAIL, rail_style),
-                Span::styled("Agent".to_string(), label_style),
+                Span::styled("Response".to_string(), label_style),
             ],
             width,
             CellStyle::new().bg(bg),
@@ -1157,7 +1191,9 @@ fn is_section_header(line: &str) -> bool {
 
 /// Derive a label for status entries based on text content.
 fn status_label_for(text: &str) -> &'static str {
-    if text.starts_with("context  ") {
+    if text.starts_with("state:") {
+        "Status"
+    } else if text.starts_with("context  ") {
         "Context"
     } else if text.starts_with("logs  ") {
         "Session log"

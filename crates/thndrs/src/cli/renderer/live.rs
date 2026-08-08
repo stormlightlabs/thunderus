@@ -7,7 +7,6 @@
 mod tests;
 
 use crate::app::{App, Entry, Mode, PromptState, RecoveryStage, ToolStatus};
-use crate::providers::codex;
 use crate::renderer::cursor::{prompt_cursor, prompt_rows};
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::style::{CellStyle, Color, Span};
@@ -169,9 +168,9 @@ pub fn frame_prompt_rows(
     let session_budget = content_width.saturating_sub(5).max(1);
     let label = format!(" {} ", utils::truncate_ellipsis(session, session_budget));
     let status_label = app.status_label();
-    let status = (status_label != "idle").then(|| {
+    let status = (status_label != "Ready").then(|| {
         let icon = super::style::status_icon(
-            status_label,
+            &status_label,
             super::style::spinner_tick(app.ui_tick, app.cli.tick_rate_ms),
         );
         format!(" {icon} {status_label} ")
@@ -187,7 +186,7 @@ pub fn frame_prompt_rows(
         if let Some(status) = status {
             spans.push(Span::styled(
                 status,
-                CellStyle::new().fg(super::style::status_color(status_label)).bg(bg),
+                CellStyle::new().fg(super::style::status_color(&status_label)).bg(bg),
             ));
         }
         spans.push(Span::styled("╮", border_style));
@@ -354,100 +353,23 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
     rows
 }
 
-/// Build the static status row (model/reasoning/search/tokens/cwd) below the prompt.
-///
-/// Width-aware clipping hides segments that don't fit.
+/// Build the immediate operational state row below the prompt.
 pub fn static_status_row(app: &App, width: usize) -> Row {
     let p = super::style::palette();
     let bg = p.panel_bg;
-    let subtext = CellStyle::new().fg(p.subtext0).bg(bg);
-    let trust_text = "local user · workspace-contained tools · no TUI sandbox";
     let muted = CellStyle::new().fg(p.overlay0).bg(bg);
-    let model_label = format!("model: {}", codex::display_model_id(&app.model));
-    let reasoning_text =
-        supports_reasoning_status(&app.model).then(|| format!("reasoning: {}", app.cli.reasoning_effort.label()));
-    let codex_usage_text = codex::is_model_id(&app.model)
-        .then(|| {
-            app.codex_usage
-                .as_ref()
-                .and_then(codex::CodexUsageStatus::compact_status)
-        })
-        .flatten()
-        .map(|status| format!("quota {status}"));
-    let search_label = app.websearch.label();
-    let search_text = format!("search: {search_label}");
-    let token_text = compact_token_status(app);
-    let ttft_text = ttft_status_text(app);
-    let git_text = app.git_status.as_ref().map(|summary| summary.display());
-    let token_style = CellStyle::new().fg(p.peach).bg(bg);
-    let ttft_style = CellStyle::new().fg(p.teal).bg(bg);
-    let git_style = CellStyle::new().fg(p.green).bg(bg);
-
-    let (show_model, show_reasoning, show_search, show_tokens, show_ttft, show_git, show_cwd, show_trust) = match width
-    {
-        w if w < 24 => (false, false, false, false, false, false, false, false),
-        w if w < 42 => (true, false, false, false, false, false, false, false),
-        w if w < 56 => (true, false, true, false, false, false, false, false),
-        w if w < 72 => (true, false, true, true, false, false, false, false),
-        w if w < 88 => (true, true, true, true, false, true, false, false),
-        w if w < 97 => (true, true, true, true, true, true, false, false),
-        w if w < 160 => (true, true, true, true, true, true, true, false),
-        _ => (true, true, true, true, true, true, true, true),
-    };
-
-    let mut spans: Vec<Span> = Vec::new();
-    let mut used = LIVE_INSET;
-    spans.push(Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)));
-
-    let mut push_segment = |text: &str, style: CellStyle, used: &mut usize| {
-        let segment_len = utils::text_width(text);
-        if *used == LIVE_INSET {
-            *used = used.saturating_add(segment_len);
-            spans.push(Span::styled(text.to_string(), style));
-            return;
-        }
-
-        let separator_len = 3;
-        if *used + separator_len + segment_len > width {
-            return;
-        }
-
-        spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
-        spans.push(Span::styled(text.to_string(), style));
-        *used = used.saturating_add(separator_len + segment_len);
-    };
-
-    if show_model {
-        push_segment(&model_label, subtext, &mut used);
+    if width < 12 {
+        return Row::blank(width, CellStyle::new().bg(bg));
     }
-    if show_reasoning && let Some(reasoning_text) = reasoning_text.as_deref() {
-        push_segment(reasoning_text, CellStyle::new().fg(p.mauve).bg(bg), &mut used);
+    let state = app.status_label();
+    let state_style = CellStyle::new().fg(super::style::status_color(&state)).bg(bg).bold();
+    let mut spans = vec![
+        Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+        Span::styled(state, state_style),
+    ];
+    if width >= 30 {
+        spans.push(Span::styled("   /status details", muted));
     }
-    if width >= 88
-        && let Some(codex_usage_text) = codex_usage_text.as_deref()
-    {
-        push_segment(codex_usage_text, CellStyle::new().fg(p.peach).bg(bg), &mut used);
-    }
-    if show_search {
-        push_segment(&search_text, subtext, &mut used);
-    }
-    if show_tokens {
-        push_segment(&token_text, token_style, &mut used);
-    }
-    if show_ttft && let Some(ttft_text) = ttft_text {
-        push_segment(&ttft_text, ttft_style, &mut used);
-    }
-    if show_git && let Some(git_text) = git_text {
-        push_segment(&git_text, git_style, &mut used);
-    }
-    if show_trust {
-        push_segment(trust_text, subtext, &mut used);
-    }
-    if show_cwd {
-        let cwd_display = super::path_display::footer_segment(&app.cwd, width, used + 3);
-        push_segment(&cwd_display, muted, &mut used);
-    }
-
     Row::padded(spans, width, CellStyle::new().bg(bg))
 }
 
@@ -460,46 +382,6 @@ fn clipped_detail_indicator_row(
         (above, below) => format!("   │ … {above} rows above, {below} below"),
     };
     Row::padded(vec![Span::styled(text, style)], width, CellStyle::new().bg(bg))
-}
-
-fn ttft_status_text(app: &App) -> Option<String> {
-    if app.ttft.is_pending() {
-        return Some(String::from("ttft: pending"));
-    }
-
-    app.ttft.last_completed().map(|duration| {
-        let millis = duration.as_millis();
-        if millis < 1_000 {
-            format!("ttft: {millis}ms")
-        } else {
-            format!("ttft: {:.1}s", millis as f64 / 1_000.0)
-        }
-    })
-}
-
-fn compact_token_status(app: &App) -> String {
-    let Some(accounting) = &app.last_request_accounting else {
-        return format!("tok: ↑{} ↓{}", app.session_tokens_in, app.session_tokens_out);
-    };
-    let estimate = accounting
-        .estimated_input_tokens
-        .value
-        .map_or_else(|| "?".to_string(), |value| value.to_string());
-    let provider = accounting
-        .provider_usage
-        .as_ref()
-        .and_then(|usage| usage.inclusive_input_tokens.value)
-        .map_or_else(|| "?".to_string(), |value| value.to_string());
-    let cache = accounting
-        .provider_usage
-        .as_ref()
-        .and_then(|usage| usage.components.cache_read_input_tokens)
-        .map_or_else(|| "?".to_string(), |value| value.to_string());
-    format!("tok est:{estimate} prov:{provider} cache:{cache}")
-}
-
-fn supports_reasoning_status(model: &str) -> bool {
-    codex::supports_reasoning_effort(model) || crate::providers::reasoning_options(model).len() > 1
 }
 
 fn mention_styled_spans(line: &str, text_style: CellStyle, mention_style: CellStyle, _bg: Color) -> Vec<Span> {

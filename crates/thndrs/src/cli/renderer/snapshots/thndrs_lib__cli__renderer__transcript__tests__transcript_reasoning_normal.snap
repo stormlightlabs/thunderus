@@ -2,6 +2,4 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                                                                   # [-]=                                                                                
-│   │ Thinking ✓                                                                    # [-]=   [fg=#a48cf2 b]=│  [fg=#a48cf2 b]=Thinking ✓ [-]=                                                                 [-]=  
-│   │ I need to check the file structure first.                                     # [-]=   [fg=#a48cf2 b]=│  [fg=#abb4da i]=I need to check the file structure first. [-]=                                  [-]=
+│   │ Thinking ✓  I need to check the file structure first.                         # [-]=   [fg=#a48cf2 b]=│  [fg=#6473b7]=Thinking ✓ [-]=   [fg=#abb4da i]=I need to check the file structure first. [-]=                      [-]=

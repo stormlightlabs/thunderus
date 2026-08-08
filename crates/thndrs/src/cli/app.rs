@@ -775,35 +775,59 @@ impl App {
         )
     }
 
-    /// Derive the granular status label for the status line.
-    ///
-    /// Maps `RunState` plus the last transcript entry into one of idle, sending,
-    /// thinking, working, running tool, stopping, cancelled, failed, error, done.
-    pub fn status_label(&self) -> &'static str {
+    /// Derive the precise, user-facing state shown by interactive surfaces.
+    pub fn status_label(&self) -> String {
         match self.run_state {
             RunState::Working => match self.transcript.last() {
-                Some(Entry::Reasoning { streaming: true, .. }) => "thinking",
-                Some(Entry::Agent { streaming: true, .. }) => "working",
-                Some(Entry::Tool { status: ToolStatus::Running, .. }) => "running tool",
-                Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "cancelled tool",
-                Some(Entry::User { .. }) | None => "sending",
-                _ => "working",
+                Some(Entry::Reasoning { streaming: true, .. }) => "Thinking".to_string(),
+                Some(Entry::Agent { streaming: true, .. }) => "Responding".to_string(),
+                Some(Entry::Tool { name, arguments, status: ToolStatus::Running, .. }) => {
+                    running_tool_status(name, arguments)
+                }
+                Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "Stopped".to_string(),
+                Some(Entry::User { .. }) | None => "Sending".to_string(),
+                _ => "Working".to_string(),
             },
-            RunState::Stopping => "stopping",
-            RunState::Error(_) => "failed",
+            RunState::Stopping => "Stopping".to_string(),
+            RunState::Error(_) => "Failed".to_string(),
             RunState::Idle => match self.transcript.last() {
-                Some(Entry::Status { text }) if text == "cancelled" => "cancelled",
+                Some(Entry::Status { text }) if text == "cancelled" => "Stopped".to_string(),
                 _ => match self.last_non_status_entry() {
-                    Some(Entry::Error { .. }) => "failed",
-                    Some(Entry::Tool { status: ToolStatus::Failed, .. }) => "failed",
-                    Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "cancelled",
+                    Some(Entry::Error { .. }) => "Failed".to_string(),
+                    Some(Entry::Tool { status: ToolStatus::Failed, .. }) => "Failed".to_string(),
+                    Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "Stopped".to_string(),
                     Some(Entry::Agent { streaming: false, .. }) | Some(Entry::Tool { status: ToolStatus::Ok, .. }) => {
-                        "done"
+                        "Ready".to_string()
                     }
-                    _ => "idle",
+                    _ => "Ready".to_string(),
                 },
             },
         }
+    }
+
+    /// Render secondary runtime telemetry for the `/status` inspection command.
+    pub fn runtime_status(&self) -> String {
+        let quota = self
+            .codex_usage
+            .as_ref()
+            .and_then(codex::CodexUsageStatus::compact_status)
+            .unwrap_or_else(|| "unavailable".to_string());
+        let git = self
+            .git_status
+            .as_ref()
+            .map_or_else(|| "unavailable".to_string(), GitStatusSummary::display);
+        format!(
+            "state: {}\nmodel: {}\nreasoning: {}\nsearch: {}\nsession tokens: {} in / {} out\nquota: {}\ngit: {}\nworkspace: {}",
+            self.status_label(),
+            codex::display_model_id(&self.model),
+            self.cli.reasoning_effort.label(),
+            self.websearch.label(),
+            self.session_tokens_in,
+            self.session_tokens_out,
+            quota,
+            git,
+            self.cwd.display()
+        )
     }
 
     /// Derive the prompt UI state from `run_state` and the transcript.
@@ -872,6 +896,41 @@ impl App {
             .cloned()
             .unwrap_or_else(|| self.cli.context.reduction.clone())
     }
+}
+
+fn running_tool_status(name: &str, arguments: &str) -> String {
+    let name = name.split('#').next().unwrap_or(name);
+    if name == "run_shell"
+        && let Ok(value) = serde_json::from_str::<serde_json::Value>(arguments)
+    {
+        let command = if let Some(argv) = value.get("argv").and_then(serde_json::Value::as_array) {
+            argv.iter()
+                .filter_map(serde_json::Value::as_str)
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ")
+        } else {
+            let program = value
+                .get("program")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let argument = value
+                .get("args")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|args| args.first())
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            [program, argument]
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        if !command.is_empty() {
+            return format!("Running {}", utils::truncate_ellipsis(&command, 40));
+        }
+    }
+    format!("Running {}", name.replace('_', " "))
 }
 
 fn display_token(value: Option<u64>) -> String {

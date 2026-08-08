@@ -377,7 +377,7 @@ fn settled_tool_collapses_output_behind_detail_affordance() {
     let rendered = render_entry_styled(&entry, 80);
 
     assert!(
-        rendered.contains('▸'),
+        rendered.contains("Ctrl+O details"),
         "settled tool should advertise detail: {rendered}"
     );
     assert!(

@@ -139,7 +139,7 @@ fn frame_prompt_rows_shows_only_non_idle_status() {
     let (body_rows, cursor) = prompt_rows_for(&app, 80);
     let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
 
-    assert!(rows[0].text().contains("working"));
+    assert!(rows[0].text().contains("Responding"));
 }
 
 #[test]
@@ -163,13 +163,6 @@ fn prompt_rows_submitted_shows_queue_icon() {
 }
 
 #[test]
-fn static_status_row_shows_model_at_narrow_width() {
-    let app = test_app();
-    let row = static_status_row(&app, 30);
-    assert!(row.text().contains("model:"), "model should show at width 30");
-}
-
-#[test]
 fn static_status_row_hides_everything_at_tiny_width() {
     let app = test_app();
     let row = static_status_row(&app, 10);
@@ -178,155 +171,24 @@ fn static_status_row_hides_everything_at_tiny_width() {
 }
 
 #[test]
-fn static_status_row_width_thresholds_control_segments() {
+fn static_status_row_prioritizes_immediate_state() {
     let app = test_app();
-    let cases = [
-        (23, false, false, false, false, false, false, false),
-        (24, true, false, false, false, false, false, false),
-        (41, true, false, false, false, false, false, false),
-        (42, true, true, false, false, false, false, false),
-        (55, true, true, false, false, false, false, false),
-        (56, true, true, true, false, false, false, false),
-        (71, true, true, true, false, false, false, false),
-        (72, true, true, true, false, true, false, false),
-        (87, true, true, true, false, true, false, false),
-        (88, true, true, true, false, true, false, false),
-        (95, true, true, true, false, true, false, false),
-        (96, true, true, true, false, true, false, false),
-        (97, true, true, true, false, true, true, false),
-        (159, true, true, true, false, true, true, false),
-        (160, true, true, true, false, true, true, true),
-    ];
-
-    for (width, model, search, tokens, ttft, git, cwd, trust) in cases {
-        let text = static_status_row(&app, width).text();
-        assert_eq!(
-            text.contains("model:"),
-            model,
-            "model visibility at width {width}: {text}"
-        );
-        assert_eq!(
-            text.contains("search:"),
-            search,
-            "search visibility at width {width}: {text}"
-        );
-        assert_eq!(
-            text.contains("tok:"),
-            tokens,
-            "token visibility at width {width}: {text}"
-        );
-        assert_eq!(text.contains("ttft:"), ttft, "TTFT visibility at width {width}: {text}");
-        assert_eq!(text.contains("git:"), git, "git visibility at width {width}: {text}");
-        assert_eq!(text.contains("cwd:"), cwd, "cwd visibility at width {width}: {text}");
-        assert_eq!(
-            text.contains("local user"),
-            trust,
-            "trust visibility at width {width}: {text}"
-        );
-    }
-}
-
-#[test]
-fn static_status_row_shows_trust_at_very_wide_width() {
-    let app = test_app();
-    let text = static_status_row(&app, 220).text();
-
-    assert!(
-        text.contains("local user · workspace-contained tools · no TUI sandbox"),
-        "trust label should be visible on very wide terminals"
-    );
-}
-
-#[test]
-fn static_status_row_shows_pending_ttft_when_width_allows() {
-    let mut app = test_app();
-    app.ttft.set_pending_for_test();
-    let text = static_status_row(&app, 90).text();
-
-    assert!(text.contains("ttft: pending"));
-}
-
-#[test]
-fn static_status_row_formats_measured_ttft() {
-    let mut app = test_app();
-    app.ttft
-        .set_last_completed_for_test(std::time::Duration::from_millis(987));
-    assert!(static_status_row(&app, 90).text().contains("ttft: 987ms"));
-
-    app.ttft
-        .set_last_completed_for_test(std::time::Duration::from_millis(1_234));
-    assert!(static_status_row(&app, 90).text().contains("ttft: 1.2s"));
-}
-
-#[test]
-fn static_status_row_hides_ttft_at_narrow_width() {
-    let mut app = test_app();
-    app.ttft.set_pending_for_test();
     let text = static_status_row(&app, 80).text();
-
-    assert!(text.contains("tok:"), "core token status should remain visible");
-    assert!(!text.contains("ttft:"), "TTFT should hide before core status");
+    assert!(text.contains("Ready"));
+    assert!(text.contains("/status details"));
+    assert!(!text.contains("model:"));
+    assert!(!text.contains("tok:"));
+    assert!(!text.contains("quota"));
 }
 
 #[test]
-fn static_status_row_shows_all_at_wide_width() {
-    let app = test_app();
-    let row = static_status_row(&app, 128);
-    let text = row.text();
-    assert!(text.contains("model:"));
-    assert!(text.contains("search:"));
-    assert!(text.contains("tok:"));
-    assert!(text.contains("git: main clean"));
-}
-
-#[test]
-fn static_status_row_uses_codex_model_label_and_shows_reasoning_when_supported() {
+fn static_status_row_names_active_work() {
     let mut app = test_app();
-    app.model = "chatgpt-codex/gpt-5.6-terra".to_string();
-    app.cli.reasoning_effort = crate::cli::ReasoningEffort::High;
+    app.run_state = RunState::Working;
+    app.transcript
+        .push(Entry::Reasoning { text: "checking".to_string(), streaming: true });
 
-    let text = static_status_row(&app, 128).text();
-
-    assert!(text.contains("model: codex/gpt-5.6-terra"));
-    assert!(text.contains("reasoning: high"));
-    assert!(!text.contains("chatgpt-codex/"));
-}
-
-#[test]
-fn static_status_row_shows_codex_usage_quota() {
-    let mut app = test_app();
-    app.model = "chatgpt-codex/gpt-5.6-terra".to_string();
-    app.codex_usage = Some(crate::providers::codex::CodexUsageStatus {
-        primary: crate::providers::codex::CodexUsageWindow {
-            used_percent: Some(42),
-            window_minutes: Some(300),
-            reset_at: None,
-        },
-        secondary: Default::default(),
-        credits: crate::providers::codex::CodexCredits {
-            has_credits: Some(true),
-            unlimited: Some(false),
-            balance: Some(19),
-        },
-    });
-
-    let text = static_status_row(&app, 200).text();
-
-    assert!(
-        text.contains("quota p:42%/5h credits:19"),
-        "quota should be concise and visible: {text}"
-    );
-}
-
-#[test]
-fn static_status_row_shows_opencode_reasoning_toggle() {
-    let mut app = test_app();
-    app.model = "opencode/gpt-5.6-luna".to_string();
-    app.cli.reasoning_effort = crate::cli::ReasoningEffort::On;
-
-    let text = static_status_row(&app, 128).text();
-
-    assert!(text.contains("reasoning: on"));
+    assert!(static_status_row(&app, 80).text().contains("Thinking"));
 }
 
 #[test]

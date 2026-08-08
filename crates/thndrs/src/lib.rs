@@ -2403,7 +2403,7 @@ for line in sys.stdin:
         handle_msg(&mut app, Msg::Tick, &mut surface).expect("tick");
 
         assert_eq!(app.run_state, RunState::Idle);
-        assert_eq!(app.status_label(), "cancelled");
+        assert_eq!(app.status_label(), "Stopped");
         assert!(app.stopping_timed_out, "the UI must detach an unsettled worker");
         assert!(
             tick_requires_render(&before, &app),

@@ -4,7 +4,7 @@ expression: contents
 ---
 │                                                                                   # [-]=                                                                                
 │   │ Activity                                                                      # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
-│   │ · run_shell [running]  $ cargo test                                           # [-]=   [fg=#f1fc79]=│  [fg=#f7c67f]=·  [fg=#ebfafa b]=run_shell [fg=#f7c67f]= [running] [-]=   [fg=#abb4da]=$ cargo test [-]=                                        [-]=  
+│   │ · run_shell [Running]  $ cargo test                                           # [-]=   [fg=#f1fc79]=│  [fg=#f7c67f]=·  [fg=#ebfafa b]=run_shell [fg=#f7c67f]= [Running] [-]=   [fg=#abb4da]=$ cargo test [-]=                                        [-]=  
 │   │    │ running 3 tests                                                          # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=running [fg=#c0c5ce]= 3 tests [-]=                                                       [-]=  
 │   │    │ test tests::foo ... ok                                                   # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::foo ... ok [-]=                                                [-]=  
 │   │    │ test tests::bar ... ok                                                   # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::bar ... ok [-]=                                                [-]=

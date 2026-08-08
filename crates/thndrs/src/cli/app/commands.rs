@@ -27,6 +27,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("history", "list recent sessions"),
     ("resume", "resume a local session"),
     ("session", "show a local session summary"),
+    ("status", "inspect runtime status and telemetry"),
     ("tokens", "show current session token totals"),
     ("debug log", "read the current session log"),
     ("auth status", "show credential sources"),
@@ -61,6 +62,11 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     if command == "tokens" {
         app.transcript
             .push(Entry::Status { text: app.token_accounting_status() });
+        app.input.clear();
+        return None;
+    }
+    if command == "status" {
+        app.transcript.push(Entry::Status { text: app.runtime_status() });
         app.input.clear();
         return None;
     }

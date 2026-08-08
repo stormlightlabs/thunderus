@@ -29,7 +29,7 @@ use ratatui::widgets::{Clear, Paragraph};
 use crate::app::{App, Entry, PromptAccessory, PromptState};
 
 use super::row::{Frame, Row};
-use super::style::{CellStyle, Color};
+use super::style::{CellStyle, Color, Span};
 use super::view::{LiveView, RendererView, SemanticUiView, TranscriptView, project_transcript_entry};
 
 /// Owns terminal modes for one alternate-screen application session.
@@ -348,7 +348,8 @@ impl AlternateViewport {
         let transcript = self.transcript_cache.project(app, width);
         let live = LiveView::build(app, width, height, &transcript, &semantic);
         let view = RendererView { semantic, transcript, live, width, height };
-        let chrome = build_chrome_frame(&view);
+        let anchored = matches!(self.state, ViewportState::Anchored(_));
+        let chrome = build_chrome_frame(&view, anchored);
         let chrome_height = chrome.rows.len().min(height);
         let transcript_height = height.saturating_sub(chrome_height);
         let rows = &view.transcript.rows;
@@ -409,7 +410,7 @@ impl AlternateViewport {
 }
 
 /// Build the bottom-pinned prompt, focused surface, queue summary, and footer.
-fn build_chrome_frame(view: &RendererView) -> Frame {
+fn build_chrome_frame(view: &RendererView, anchored: bool) -> Frame {
     let width = view.width;
     let height = view.height;
     let live = &view.live;
@@ -417,7 +418,19 @@ fn build_chrome_frame(view: &RendererView) -> Frame {
     let min_prompt_chrome = live.prompt_rows.len() + 1;
     let keep_prompt_gutters = height >= min_prompt_chrome + 3;
 
-    let mut footer = vec![live.static_status.clone()];
+    let mut footer = Vec::new();
+    if anchored {
+        let p = super::style::palette();
+        footer.push(Row::padded(
+            vec![Span::styled(
+                "  ↑ Viewing earlier output · Ctrl+End to follow",
+                CellStyle::new().fg(p.teal).bg(p.panel_bg),
+            )],
+            width,
+            CellStyle::new().bg(p.panel_bg),
+        ));
+    }
+    footer.push(live.static_status.clone());
     if keep_prompt_gutters {
         footer.push(Row::blank(width, surface_bg));
     }
@@ -742,6 +755,31 @@ mod tests {
             anchored,
             ViewportState::Anchored(TranscriptPosition::Entry { .. })
         ));
+    }
+
+    #[test]
+    fn anchored_hint_disappears_after_following_latest() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session_writer = None;
+        app.transcript = (0..12)
+            .map(|index| Entry::Status { text: format!("entry {index}") })
+            .collect();
+        let mut viewport = AlternateViewport::default();
+        viewport.build_frame(&app, 80, 12);
+        viewport.page_up();
+
+        let anchored = viewport.build_frame(&app, 80, 12);
+        assert!(
+            anchored
+                .rows
+                .iter()
+                .any(|row| row.text().contains("Ctrl+End to follow"))
+        );
+
+        viewport.follow_tail();
+        let following = viewport.build_frame(&app, 80, 12);
+        assert!(!following.rows.iter().any(|row| row.text().contains("End to follow")));
+        assert_eq!(viewport.state(), ViewportState::FollowingTail);
     }
 
     #[test]

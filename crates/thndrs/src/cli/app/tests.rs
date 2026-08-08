@@ -1883,6 +1883,11 @@ fn tool_finished_sets_output_and_status() {
             shell_result: None,
         }),
     );
+    assert_eq!(
+        app.transcript.len(),
+        1,
+        "tool completion should update its existing entry"
+    );
     match &app.transcript[0] {
         Entry::Tool { status, output, .. } => {
             assert_eq!(*status, ToolStatus::Ok);
@@ -2314,7 +2319,7 @@ fn stopping_state_after_escape() {
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
     assert_eq!(app.run_state, RunState::Stopping);
-    assert_eq!(app.status_label(), "stopping");
+    assert_eq!(app.status_label(), "Stopping");
     assert_eq!(app.prompt_state(), PromptState::Stopped);
 }
 

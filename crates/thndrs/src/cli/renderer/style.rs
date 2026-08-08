@@ -193,22 +193,22 @@ pub fn palette() -> Palette {
 pub fn status_color(label: &str) -> Color {
     let p = palette();
     match label {
-        "idle" => p.overlay0,
-        "done" => p.green,
-        "sending" | "thinking" | "working" | "running tool" | "stopping" => p.peach,
-        "cancelled" => p.teal,
-        "failed" => p.red,
+        "Ready" => p.green,
+        "Stopped" => p.teal,
+        "Failed" => p.red,
+        "Sending" | "Thinking" | "Responding" | "Working" | "Stopping" => p.peach,
+        _ if label.starts_with("Running ") => p.peach,
         _ => p.overlay0,
     }
 }
 
 pub fn status_icon(label: &str, tick: u64) -> &'static str {
     match label {
-        "sending" | "thinking" | "working" | "running tool" | "stopping" => spinner_frame(tick),
-        "done" => "✓",
-        "failed" => "✕",
-        "cancelled" => "○",
-        "idle" => "·",
+        "Sending" | "Thinking" | "Responding" | "Working" | "Stopping" => spinner_frame(tick),
+        "Ready" => "✓",
+        "Failed" => "✕",
+        "Stopped" => "○",
+        _ if label.starts_with("Running ") => spinner_frame(tick),
         _ => "·",
     }
 }

@@ -552,7 +552,7 @@ impl From<&App> for OrientationBandView {
             },
             OrientationFieldView {
                 label: "run".to_string(),
-                value: app.status_label().to_string(),
+                value: app.status_label(),
                 priority: 0,
                 truncate: TruncationPolicy::Hide,
             },

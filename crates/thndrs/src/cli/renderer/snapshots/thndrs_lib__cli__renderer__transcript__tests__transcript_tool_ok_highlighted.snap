@@ -4,4 +4,4 @@ expression: contents
 ---
 │                                                                                   # [-]=                                                                                
 │   │ Activity                                                                      # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
-│   │ ✓ run_shell  $ cargo build  ▸                                                 # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=run_shell [-]=   [fg=#abb4da]=$ cargo build [fg=#3b4261]=  ▸ [-]=                                              [-]=
+│   │ ✓ run_shell [Done]  $ cargo build  2 lines · Ctrl+O details                   # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=run_shell [fg=#37f499]= [Done] [-]=   [fg=#abb4da]=$ cargo build [fg=#abb4da]=  2 lines · Ctrl+O details [-]=                [-]=

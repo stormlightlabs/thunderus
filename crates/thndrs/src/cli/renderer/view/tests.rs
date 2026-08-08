@@ -134,7 +134,7 @@ fn build_view_streaming_assistant_is_all_live() {
             .transcript
             .stable_rows
             .iter()
-            .any(|row| row.text().contains("Agent") || row.text().contains("line one")),
+            .any(|row| row.text().contains("Response") || row.text().contains("line one")),
         "streaming assistant rows should not be stable"
     );
     assert!(
@@ -145,8 +145,11 @@ fn build_view_streaming_assistant_is_all_live() {
         "live_rows should contain the mutable tail"
     );
     assert!(
-        view.transcript.live_rows.iter().any(|row| row.text().contains("Agent")),
-        "live_rows should contain the agent header"
+        view.transcript
+            .live_rows
+            .iter()
+            .any(|row| row.text().contains("Response")),
+        "live_rows should contain the response header"
     );
 }
 
@@ -180,8 +183,8 @@ fn build_view_long_streaming_reasoning_is_all_live() {
         view.transcript
             .live_rows
             .iter()
-            .any(|row| row.text().contains("line 39")),
-        "live rows should include the mutable reasoning tail"
+            .any(|row| row.text().contains("line 0")),
+        "live rows should include the compact reasoning summary"
     );
 }
 
@@ -195,8 +198,11 @@ fn build_view_streaming_assistant_short_block_is_all_live() {
     let view = RendererView::build(&app, 80, 24);
 
     assert!(
-        view.transcript.live_rows.iter().any(|row| row.text().contains("Agent")),
-        "live_rows should contain the agent header for a short block"
+        view.transcript
+            .live_rows
+            .iter()
+            .any(|row| row.text().contains("Response")),
+        "live_rows should contain the response header for a short block"
     );
     assert!(
         view.transcript.live_rows.iter().any(|row| row.text().contains("short")),
@@ -207,8 +213,8 @@ fn build_view_streaming_assistant_short_block_is_all_live() {
             .transcript
             .stable_rows
             .iter()
-            .any(|row| row.text().contains("Agent")),
-        "stable_rows should not contain the agent header for a short block"
+            .any(|row| row.text().contains("Response")),
+        "stable_rows should not contain the response header for a short block"
     );
 }
 
@@ -351,7 +357,7 @@ fn build_view_working_state_has_live_tail_and_composer_status() {
     let view = RendererView::build(&app, 80, 24);
 
     assert!(!view.live.live_tail.is_empty(), "working state should have a live tail");
-    assert!(view.live.prompt_rows[0].text().contains("working"));
+    assert!(view.live.prompt_rows[0].text().contains("Responding"));
 }
 
 #[test]

@@ -70,12 +70,30 @@ fn session_commands_are_suggested() {
     let app = fresh_app();
     let suggestions = command_suggestions_for_app(&app);
 
-    for command in ["history", "resume", "session", "tokens", "debug log"] {
+    for command in ["history", "resume", "session", "status", "tokens", "debug log"] {
         assert!(
             suggestions.iter().any(|suggestion| suggestion.name == command),
             "missing {command}"
         );
     }
+}
+
+#[test]
+fn status_command_shows_secondary_telemetry() {
+    let mut app = fresh_app();
+    app.session_tokens_in = 12;
+    app.session_tokens_out = 7;
+    app.input = PromptInput::from("/status");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    let Some(Entry::Status { text }) = app.transcript.last() else {
+        panic!("status command should append a status entry");
+    };
+    assert!(text.contains("state: Ready"));
+    assert!(text.contains("session tokens: 12 in / 7 out"));
+    assert!(text.contains("quota:"));
+    assert!(text.contains("workspace:"));
 }
 
 #[test]

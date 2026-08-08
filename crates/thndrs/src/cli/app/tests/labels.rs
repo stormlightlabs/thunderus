@@ -89,7 +89,7 @@ fn ttft_is_preserved_across_retries_and_reset_on_next_turn() {
 #[test]
 fn status_label_idle_when_no_transcript() {
     let app = fresh_app();
-    assert_eq!(app.status_label(), "idle");
+    assert_eq!(app.status_label(), "Ready");
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn status_label_sending_after_user_submit() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     app.transcript.push(Entry::User { text: String::from("hi") });
-    assert_eq!(app.status_label(), "sending");
+    assert_eq!(app.status_label(), "Sending");
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn status_label_thinking_during_reasoning_stream() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::ReasoningDelta(String::from("hmm"))));
-    assert_eq!(app.status_label(), "thinking");
+    assert_eq!(app.status_label(), "Thinking");
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn status_label_working_during_assistant_stream() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
-    assert_eq!(app.status_label(), "working");
+    assert_eq!(app.status_label(), "Responding");
 }
 
 #[test]
@@ -128,7 +128,37 @@ fn status_label_running_tool_when_tool_active() {
             arguments: String::from("{}"),
         }),
     );
-    assert_eq!(app.status_label(), "running tool");
+    assert_eq!(app.status_label(), "Running read file");
+}
+
+#[test]
+fn status_label_names_the_running_shell_command() {
+    let mut app = fresh_app();
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolStarted {
+            id: String::from("0"),
+            name: String::from("run_shell"),
+            arguments: String::from(r#"{"argv":["cargo","test","--workspace"]}"#),
+        }),
+    );
+    assert_eq!(app.status_label(), "Running cargo test");
+}
+
+#[test]
+fn status_label_names_a_legacy_running_shell_command() {
+    let mut app = fresh_app();
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolStarted {
+            id: String::from("0"),
+            name: String::from("run_shell"),
+            arguments: String::from(r#"{"program":"cargo","args":["test","--workspace"]}"#),
+        }),
+    );
+    assert_eq!(app.status_label(), "Running cargo test");
 }
 
 #[test]
@@ -137,7 +167,7 @@ fn status_label_done_after_finished() {
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("done"))));
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
-    assert_eq!(app.status_label(), "done");
+    assert_eq!(app.status_label(), "Ready");
 }
 
 #[test]
@@ -145,7 +175,7 @@ fn status_label_failed_after_error() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
-    assert_eq!(app.status_label(), "failed");
+    assert_eq!(app.status_label(), "Failed");
 }
 
 #[test]
@@ -157,11 +187,7 @@ fn status_label_failed_after_failed_tool() {
         status: ToolStatus::Failed,
         output: vec![String::from("error")],
     });
-    assert_eq!(
-        app.status_label(),
-        "failed",
-        "failed tool should show 'failed' not 'done'"
-    );
+    assert_eq!(app.status_label(), "Failed", "failed tool should remain visible");
 }
 
 #[test]
@@ -169,7 +195,7 @@ fn status_label_cancelled_after_cancel() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
-    assert_eq!(app.status_label(), "cancelled");
+    assert_eq!(app.status_label(), "Stopped");
 }
 
 #[test]
