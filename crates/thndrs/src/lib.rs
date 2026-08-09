@@ -62,9 +62,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
-use ratatui::layout::Rect;
 
 use acp::config::provider_label;
 use app::{App, Msg, RunState, start_auto_compaction, update};
@@ -76,7 +73,8 @@ use cli::{
 };
 use mcp::manager::McpManager;
 use prompt::PromptBundle;
-use renderer::alternate::{AlternateScreenSession, AlternateViewport, render_logical_frame};
+use renderer::backend::{TerminalBackend, enter_raw_mode, leave_raw_mode, terminal_size};
+use renderer::region::LiveRegion;
 use utils::datetime;
 
 use thndrs_agent::CancelToken;
@@ -1148,74 +1146,164 @@ fn redact_secret(text: &str) -> String {
     text.replace("sk-", "sk-[REDACTED]")
 }
 
-/// Interactive alternate-screen mode with one application-owned viewport.
+/// Direct/native terminal mode. Only the mutable composer and streaming tail
+/// are redrawn; settled transcript rows are inserted into terminal scrollback.
 fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
-    let mouse_enabled = cli.mouse && !cli.no_mouse;
-    let mut terminal_session = AlternateScreenSession::enter(mouse_enabled)?;
+    let mut terminal_session = DirectTerminalSession::enter()?;
+    let (width, height) = terminal_size();
     let stdout = io::BufWriter::with_capacity(TERMINAL_WRITE_BUFFER_CAPACITY, io::stdout());
-    let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
-    let mut surface = RatatuiSurface::new(terminal);
-    interactive_loop(&mut surface, &mut terminal_session, tick, cli)
+    let mut surface = DirectSurface::new(TerminalBackend::new(stdout, width, height));
+    let result = interactive_loop(&mut surface, &mut terminal_session, tick, cli);
+    let final_height = surface.backend.height();
+    let _ = surface.backend.flush();
+    drop(surface);
+    drop(terminal_session);
+
+    let mut stdout = io::stdout();
+    let _ = crossterm::execute!(
+        stdout,
+        crossterm::cursor::MoveTo(0, final_height.saturating_sub(1)),
+        crossterm::cursor::Show
+    );
+    let _ = io::Write::write_all(&mut stdout, b"\n");
+    let _ = io::Write::flush(&mut stdout);
+    result
 }
 
 trait InteractiveSurface {
     fn draw(&mut self, app: &mut App) -> io::Result<()>;
     fn resize(&mut self, width: u16, height: u16) -> io::Result<()>;
     fn clear(&mut self) -> io::Result<()>;
+    fn refresh(&mut self) -> io::Result<()> {
+        self.clear()
+    }
     fn handle_navigation(&mut self, app: &mut App, event: &Event) -> bool;
 }
 
-struct RatatuiSurface<W: io::Write> {
-    terminal: Terminal<CrosstermBackend<W>>,
-    viewport: AlternateViewport,
+struct DirectSurface<W: io::Write> {
+    backend: TerminalBackend<W>,
+    live: LiveRegion,
 }
 
-impl<W: io::Write> RatatuiSurface<W> {
-    fn new(terminal: Terminal<CrosstermBackend<W>>) -> Self {
-        Self { terminal, viewport: AlternateViewport::default() }
+impl<W: io::Write> DirectSurface<W> {
+    fn new(backend: TerminalBackend<W>) -> Self {
+        Self { backend, live: LiveRegion::new() }
     }
 }
 
-impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
+impl<W: io::Write> InteractiveSurface for DirectSurface<W> {
     fn draw(&mut self, app: &mut App) -> io::Result<()> {
         let projection_started = Instant::now();
         renderer::style::set_theme(app.theme);
-        let area = self.terminal.size()?;
-        let logical = self
-            .viewport
-            .build_frame(app, area.width as usize, area.height as usize);
-        let projection_elapsed = projection_started.elapsed();
-        let draw_started = Instant::now();
-        self.terminal.draw(|frame| render_logical_frame(frame, &logical))?;
+        let width = self.backend.width() as usize;
+        let height = self.backend.height() as usize;
+        self.live.render_frame(app, &mut self.backend, width, height)?;
+        self.backend.flush()?;
         tracing::trace!(
-            projection_us = projection_elapsed.as_micros(),
-            draw_us = draw_started.elapsed().as_micros(),
-            width = area.width,
-            height = area.height,
-            "ratatui frame timing"
+            projection_us = projection_started.elapsed().as_micros(),
+            width,
+            height,
+            "direct frame timing"
         );
         Ok(())
     }
 
     fn resize(&mut self, width: u16, height: u16) -> io::Result<()> {
-        self.terminal.resize(Rect::new(0, 0, width, height))?;
+        self.backend.set_size(width, height);
         Ok(())
     }
 
     fn clear(&mut self) -> io::Result<()> {
-        self.viewport.reset();
-        self.terminal.clear()
+        self.live.reset();
+        self.backend.clear_all_and_scrollback()
     }
 
-    fn handle_navigation(&mut self, app: &mut App, event: &Event) -> bool {
-        self.viewport.handle_navigation(app, event)
+    fn refresh(&mut self) -> io::Result<()> {
+        // External editors own the terminal briefly. Redraw the live surface
+        // without purging transcript or shell scrollback.
+        self.live.invalidate_frame();
+        self.backend.clear_all()
+    }
+
+    fn handle_navigation(&mut self, _app: &mut App, _event: &Event) -> bool {
+        // Mouse capture remains disabled for the normal transcript, so the
+        // terminal itself owns wheel scrolling and selection.
+        false
+    }
+}
+
+struct DirectTerminalSession {
+    active: bool,
+}
+
+impl DirectTerminalSession {
+    fn enter() -> io::Result<Self> {
+        enter_raw_mode()?;
+        if let Err(error) = crossterm::execute!(io::stdout(), crossterm::event::EnableBracketedPaste) {
+            let _ = leave_raw_mode();
+            return Err(error);
+        }
+        Ok(Self { active: true })
+    }
+
+    fn suspend(&mut self) -> io::Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+        drain_terminal_events();
+        self.restore()
+    }
+
+    fn resume(&mut self) -> io::Result<()> {
+        if self.active {
+            return Ok(());
+        }
+        enter_raw_mode()?;
+        let result = crossterm::execute!(io::stdout(), crossterm::event::EnableBracketedPaste);
+        if result.is_ok() {
+            self.active = true;
+        } else {
+            let _ = leave_raw_mode();
+        }
+        result
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+        let mut stdout = io::stdout();
+        crossterm::execute!(
+            stdout,
+            crossterm::cursor::Show,
+            crossterm::cursor::SetCursorStyle::DefaultUserShape,
+            crossterm::event::DisableBracketedPaste
+        )?;
+        io::Write::flush(&mut stdout)?;
+        leave_raw_mode()?;
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl Drop for DirectTerminalSession {
+    fn drop(&mut self) {
+        let _ = self.restore();
+    }
+}
+
+fn drain_terminal_events() {
+    while crossterm::event::poll(Duration::ZERO).unwrap_or(false) {
+        if crossterm::event::read().is_err() {
+            break;
+        }
     }
 }
 
 /// Renderer-neutral interactive coordinator for application, agent, terminal,
 /// and render events.
 fn interactive_loop<S: InteractiveSurface>(
-    surface: &mut S, terminal_session: &mut AlternateScreenSession, tick: Duration, cli: &Cli,
+    surface: &mut S, terminal_session: &mut DirectTerminalSession, tick: Duration, cli: &Cli,
 ) -> io::Result<()> {
     let tick = tick.max(MIN_RENDER_INTERVAL);
     let mut app = App::from_cli(cli);
@@ -1232,7 +1320,7 @@ fn interactive_loop<S: InteractiveSurface>(
         cwd = %workspace_root.display(),
         model = %cli.model,
         websearch = %cli.websearch.label(),
-        "starting thndrs (ratatui renderer)"
+        "starting thndrs (direct native renderer)"
     );
     append_daily_log(
         &observability,
@@ -1435,7 +1523,7 @@ fn drain_direct_shells(app: &mut App, slots: &mut Vec<DirectShellSlot>) -> bool 
 }
 
 fn maybe_edit_prompt<S: InteractiveSurface>(
-    app: &mut App, terminal_session: &mut AlternateScreenSession, surface: &mut S,
+    app: &mut App, terminal_session: &mut DirectTerminalSession, surface: &mut S,
 ) -> io::Result<()> {
     if !std::mem::take(&mut app.external_editor_requested) {
         return Ok(());
@@ -1444,7 +1532,7 @@ fn maybe_edit_prompt<S: InteractiveSurface>(
     terminal_session.suspend()?;
     let edited = cli::local::edit_prompt(app.input.as_str());
     let resume_result = terminal_session.resume();
-    surface.clear()?;
+    surface.refresh()?;
     resume_result?;
     match edited {
         Ok(text) => app.input.set_text(text.trim_end_matches(['\r', '\n'])),

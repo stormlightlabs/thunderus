@@ -20,8 +20,6 @@ fn test_app() -> App {
         reasoning_effort: Default::default(),
         reasoning_summary: Default::default(),
         tick_rate_ms: 100,
-        no_mouse: false,
-        mouse: false,
         notifications: false,
         verbose: false,
         theme: Theme::EldritchMinimal,
@@ -152,6 +150,28 @@ fn build_view_streaming_assistant_is_all_live() {
             .any(|row| row.text().contains("Response")),
         "live_rows should contain the response header"
     );
+}
+
+#[test]
+fn settled_entries_after_a_mutable_entry_remain_in_chronological_live_order() {
+    let mut app = test_app();
+    app.run_state = RunState::Working;
+    app.transcript.push(Entry::Agent {
+        text: "mutable response".to_string(),
+        streaming: true,
+    });
+    app.transcript.push(Entry::User { text: "later settled row".to_string() });
+
+    let view = RendererView::build(&app, 80, 24);
+
+    assert!(
+        !view.transcript.stable_rows.iter().any(|row| row.text().contains("later settled row")),
+        "a settled row must not be committed ahead of an earlier mutable row"
+    );
+    let live_text = view.transcript.live_rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
+    let mutable = live_text.find("mutable response").expect("mutable response row");
+    let settled = live_text.find("later settled row").expect("later settled row");
+    assert!(mutable < settled, "live rows must retain transcript order");
 }
 
 #[test]

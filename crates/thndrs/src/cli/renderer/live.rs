@@ -1,7 +1,7 @@
 //! Live prompt and focused-surface row builders.
 //!
-//! The live chrome is rebuilt after dirty updates and composed into the full
-//! viewport by [`super::alternate::AlternateViewport`].
+//! The live chrome is rebuilt after dirty updates and composed with native
+//! scrollback by [`super::region::LiveRegion`].
 
 #[cfg(test)]
 mod tests;
@@ -61,7 +61,9 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let text_style = CellStyle::new().fg(p.text).bg(surface);
     let mention_style = CellStyle::new().fg(p.accent).bg(surface).bold();
 
-    let border_color = if prompt_state == PromptState::Editable { p.overlay0 } else { prompt_color };
+    // Keep the vertical and horizontal composer edges on the same state
+    // colour so the prompt reads as one continuous surface.
+    let border_color = prompt_color;
     let border_style = CellStyle::new().fg(border_color).bg(surface);
     let mut rows = Vec::with_capacity(visual_rows.len());
     for (idx, line) in visual_rows.into_iter().enumerate() {

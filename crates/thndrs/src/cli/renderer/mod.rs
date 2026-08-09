@@ -3,21 +3,24 @@
 //! The row model
 //! ([`style`], [`layout`], [`row`], [`cursor`]) is independent of crossterm I/O
 //! so wrapping, padding, truncation, cursor coordinates, and snapshots remain
-//! unit-testable. [`alternate`] owns the production Ratatui surface and terminal
-//! lifecycle.
+//! unit-testable. [`backend`] owns ANSI terminal I/O and [`region`] owns the
+//! native-scrollback live-region lifecycle.
 
 pub mod adapter;
-pub mod alternate;
+pub mod backend;
 pub mod cursor;
 pub mod git;
 pub mod highlight;
 pub mod layout;
 pub mod live;
 pub mod path_display;
+pub mod region;
 pub mod row;
 pub mod style;
 pub mod transcript;
 pub mod view;
+
+pub use backend::{enter_raw_mode, leave_raw_mode, terminal_size};
 
 #[cfg(test)]
 mod tests {

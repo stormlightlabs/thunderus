@@ -27,10 +27,13 @@ The TUI renders completed entries into native terminal scrollback and keeps a
 small live prompt region at the bottom. Detail views can expose bounded
 additional tool output without turning the transcript into a second viewport.
 
-The renderer has two cooperating lanes.
+The renderer has two cooperating layers.
 
-1. Direct rows own committed transcript history, prompt editing, cursor placement,
-   terminal redraw, and resize replay.
-2. A semantic view layer projects app state into prompt, transcript, orientation,
-   and focused-surface data. The iocraft adapter is the only boundary that turns
-   those bounded semantic surfaces into `Vec<Row>` values.
+1. A semantic view projects application state into styled, wrapped rows for the
+   transcript, prompt, orientation, and focused surfaces.
+2. A direct terminal backend commits settled rows to native scrollback and
+   redraws only the bounded live region. It also places the terminal's hardware
+   cursor at the prompt insertion point.
+
+Settled rows remain terminal-owned across resizes. The live region is wrapped
+again at the new width without erasing existing shell or transcript history.

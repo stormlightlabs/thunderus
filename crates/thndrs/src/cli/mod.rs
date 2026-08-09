@@ -290,16 +290,6 @@ pub struct Cli {
     /// Event poll interval in milliseconds (minimum [`MIN_TICK_RATE_MS`]).
     #[arg(long, default_value_t = DEFAULT_TICK_RATE_MS)]
     pub tick_rate_ms: u64,
-    /// Disable mouse capture in the alternate-screen interface.
-    ///
-    /// Use this for native terminal selection and scrollback.
-    #[arg(long, default_value_t = false, conflicts_with = "mouse")]
-    pub no_mouse: bool,
-    /// Enable terminal mouse capture for transcript scrolling and overlay events.
-    ///
-    /// Disabled by default so native terminal selection and scrollback work.
-    #[arg(long, default_value_t = false, conflicts_with = "no_mouse")]
-    pub mouse: bool,
     /// Emit terminal notifications when a run completes or needs attention.
     #[arg(long, default_value_t = false)]
     pub notifications: bool,
@@ -354,8 +344,6 @@ impl Default for Cli {
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
             tick_rate_ms: DEFAULT_TICK_RATE_MS,
-            no_mouse: false,
-            mouse: false,
             notifications: false,
             verbose: false,
             theme: Theme::default(),
@@ -467,13 +455,6 @@ impl Cli {
             config.theme = Some(self.theme);
             insert_cli_origin(&mut origins, "theme", "--theme");
         }
-        if is_command_line(matches, "mouse") {
-            config.mouse = Some(true);
-            insert_cli_origin(&mut origins, "mouse", "--mouse");
-        } else if is_command_line(matches, "no_mouse") {
-            config.mouse = Some(false);
-            insert_cli_origin(&mut origins, "mouse", "--no-mouse");
-        }
         if is_command_line(matches, "verbose") {
             config.verbose = Some(true);
             insert_cli_origin(&mut origins, "verbose", "--verbose");
@@ -507,7 +488,6 @@ impl Cli {
         self.reasoning_effort = config.reasoning_effort.unwrap_or(defaults.reasoning_effort);
         self.reasoning_summary = config.reasoning_summary.unwrap_or(defaults.reasoning_summary);
         self.tick_rate_ms = config.tick_rate_ms.unwrap_or(defaults.tick_rate_ms);
-        self.mouse = config.mouse.unwrap_or(defaults.mouse);
         self.notifications = config.notifications.unwrap_or(defaults.notifications);
         self.verbose = config.verbose.unwrap_or(defaults.verbose);
         self.theme = config.theme.unwrap_or(defaults.theme);
@@ -556,8 +536,6 @@ mod tests {
         assert!(cli.model.is_empty());
         assert_eq!(cli.websearch, WebSearchMode::DuckDuckGo);
         assert_eq!(cli.tick_rate_ms, DEFAULT_TICK_RATE_MS);
-        assert!(!cli.no_mouse);
-        assert!(!cli.mouse);
         assert!(!cli.notifications);
         assert!(!cli.verbose);
         assert_eq!(cli.theme, Theme::EldritchMinimal);
@@ -620,7 +598,7 @@ mod tests {
         fs::create_dir_all(workspace.join(".thndrs")).expect("create .thndrs dir");
         fs::write(
             workspace.join(".thndrs").join("config.toml"),
-            "model = \"config-model\"\nwebsearch = \"duckduckgo\"\ntick_rate_ms = 250\nverbose = false\ntheme = \"eldritch-minimal\"\nmouse = false\n",
+            "model = \"config-model\"\nwebsearch = \"duckduckgo\"\ntick_rate_ms = 250\nverbose = false\ntheme = \"eldritch-minimal\"\n",
         )
         .expect("write config");
 
@@ -631,7 +609,6 @@ mod tests {
             "--verbose",
             "--theme",
             "catppuccin-mocha",
-            "--mouse",
         ])
         .unwrap();
         let effective = config::load_effective(workspace, &[]).expect("load effective");
@@ -642,25 +619,9 @@ mod tests {
         assert_eq!(cli.tick_rate_ms, 250);
         assert!(cli.verbose);
         assert_eq!(cli.theme, Theme::CatppuccinMocha);
-        assert!(cli.mouse);
         assert_eq!(
             cli.config_origins.get("model"),
             Some(&config::ConfigOrigin { source: config::ConfigSource::CliFlag, detail: "--model".to_string() })
-        );
-    }
-
-    #[test]
-    fn cli_mouse_flag_overrides_env() {
-        let tmp = tempfile::tempdir().expect("create temp dir");
-        let (cli, matches) = Cli::try_parse_matches_from(["thndrs", "--no-mouse"]).unwrap();
-        let effective =
-            config::load_effective(tmp.path(), &[("THNDRS_MOUSE".to_string(), "true".to_string())]).unwrap();
-        let cli = cli.with_effective(effective, &matches);
-
-        assert!(!cli.mouse);
-        assert_eq!(
-            cli.config_origins.get("mouse"),
-            Some(&config::ConfigOrigin { source: config::ConfigSource::CliFlag, detail: "--no-mouse".to_string() })
         );
     }
 
@@ -1039,24 +1000,6 @@ mod tests {
                 }
             })
         );
-    }
-
-    #[test]
-    fn no_mouse_flag_parses() {
-        let cli = Cli::try_parse_from(["thndrs", "--no-mouse"]).expect("parse");
-        assert!(cli.no_mouse);
-    }
-
-    #[test]
-    fn mouse_flag_parses() {
-        let cli = Cli::try_parse_from(["thndrs", "--mouse"]).expect("parse");
-        assert!(cli.mouse);
-    }
-
-    #[test]
-    fn mouse_and_no_mouse_conflict() {
-        let err = Cli::try_parse_from(["thndrs", "--mouse", "--no-mouse"]).expect_err("conflict rejected");
-        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
 
     #[test]

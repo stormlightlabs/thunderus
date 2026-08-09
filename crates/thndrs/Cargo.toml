@@ -29,7 +29,6 @@ lectito.workspace = true
 markdown.workspace = true
 minijinja.workspace = true
 process-wrap.workspace = true
-ratatui = { workspace = true, features = ["crossterm"] }
 regex-lite.workspace = true
 rmcp.workspace = true
 scraper.workspace = true
@@ -57,6 +56,7 @@ workspace = true
 [dev-dependencies]
 divan.workspace = true
 insta.workspace = true
+portable-pty.workspace = true
 tempfile.workspace = true
 vt100.workspace = true
 

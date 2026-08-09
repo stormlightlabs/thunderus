@@ -3,8 +3,8 @@
 //! [`RendererView`] is a data-only staging area built from [`App`] plus
 //! terminal dimensions. It contains no crossterm types and performs no terminal
 //! writes. The view separates semantic row construction from viewport policy so
-//! that [`super::alternate::AlternateViewport`] can focus on viewport policy,
-//! projection caching, and frame composition.
+//! that [`super::region::LiveRegion`] can focus on native scrollback and frame
+//! composition.
 
 #[cfg(test)]
 mod tests;
@@ -337,9 +337,6 @@ pub struct TranscriptView {
 }
 
 /// Project one transcript entry at a specific width.
-///
-/// Alternate-screen caching uses this boundary to invalidate a changing entry
-/// without rebuilding settled entries above it.
 pub fn project_transcript_entry(app: &App, entry_index: usize, width: usize) -> (Vec<Row>, Vec<Row>) {
     let Some(entry) = app.transcript.get(entry_index) else {
         return (Vec::new(), Vec::new());
@@ -380,6 +377,7 @@ impl TranscriptView {
         };
 
         let mut previous_was_tool = false;
+        let mut stable_prefix = true;
         for (index, entry) in app.transcript.iter().enumerate() {
             let mut entry_ctx = ctx.clone();
             entry_ctx.entry_index = Some(index);
@@ -387,10 +385,11 @@ impl TranscriptView {
             let (entry_stable, entry_live) = entry_ctx.rows_for_entry_stable_and_live_rows(entry);
             rows.extend(entry_stable.iter().cloned());
             rows.extend(entry_live.iter().cloned());
-            if entry_stable.is_empty() {
-                live_rows.extend(entry_live);
-            } else {
+            if stable_prefix && entry_live.is_empty() {
                 stable_rows.extend(entry_stable);
+            } else {
+                stable_prefix = false;
+                live_rows.extend(entry_stable);
                 live_rows.extend(entry_live);
             }
             previous_was_tool = matches!(entry, Entry::Tool { .. });

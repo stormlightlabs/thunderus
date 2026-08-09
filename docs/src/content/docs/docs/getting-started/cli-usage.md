@@ -63,15 +63,12 @@ The output redacts secrets.
 
 ## Terminal Options
 
-Use `--tick-rate-ms` to tune UI tick timing. The TUI uses an alternate screen
-with an application-owned transcript.
+Use `--tick-rate-ms` to tune UI tick timing. The TUI writes completed messages
+to the terminal's native scrollback and redraws only the active prompt and
+streaming output. Use the terminal's mouse wheel, scrollbar, search, and text
+selection as you would for ordinary shell output. `thndrs` does not capture the
+mouse.
 
-Page Up and Page Down scroll by a page; Alt+Up and Alt+Down scroll by a line;
-Ctrl+Home and Ctrl+End jump to the oldest entry and the live tail.
-
-Mouse capture is enabled by default for transcript wheel scrolling and mouse
-navigation in pickers.
-
-Use `--no-mouse` to preserve native terminal selection and scrollback. Most
-terminal emulators let you hold a modifier while selecting text when capture is
-enabled.
+The prompt uses the terminal's blinking text cursor, including while editing a
+multi-line prompt. Page Up and Page Down remain available inside focused
+pickers and detail surfaces.

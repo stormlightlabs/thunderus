@@ -18,7 +18,7 @@ use thndrs_agent::context::ContextConfig;
 use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use crate::utils;
 
-static CONFIG_KEYS: [&str; 15] = [
+static CONFIG_KEYS: [&str; 14] = [
     "model",
     "websearch",
     "websearch_url",
@@ -26,7 +26,6 @@ static CONFIG_KEYS: [&str; 15] = [
     "reasoning_summary",
     "tick_rate_ms",
     "theme",
-    "mouse",
     "notifications",
     "verbose",
     "skill_dirs",
@@ -58,8 +57,6 @@ pub enum ConfigError {
     SecretInConfig { key: String },
     #[error("invalid config {key}: {message}")]
     InvalidConfig { key: String, message: String },
-    #[error("conflicting CLI flags: --mouse and --no-mouse cannot both be set")]
-    ConflictingMouseFlags,
     #[error(
         "unsupported provider route: the configured provider is no longer supported; choose ChatGPT Codex, OpenCode Zen, or OpenCode Go with `thndrs setup --provider <provider>`. Existing retired-provider credentials are left untouched."
     )]
@@ -106,7 +103,7 @@ pub type AcpAgentsConfig = BTreeMap<String, AcpAgentConfig>;
 /// User-editable configuration loaded from TOML.
 ///
 /// Only ordinary runtime keys are present. CLI-only flags (`print_prompt`,
-/// `cwd`, `no_mouse`) are not TOML keys. Secret-shaped keys
+/// `cwd`) are not TOML keys. Secret-shaped keys
 /// are rejected before deserialization reaches this struct.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -117,7 +114,6 @@ pub struct Config {
     pub reasoning_effort: Option<ReasoningEffort>,
     pub reasoning_summary: Option<ReasoningSummary>,
     pub tick_rate_ms: Option<u64>,
-    pub mouse: Option<bool>,
     pub notifications: Option<bool>,
     pub verbose: Option<bool>,
     pub theme: Option<Theme>,
@@ -137,7 +133,6 @@ impl Config {
         self.reasoning_effort = other.reasoning_effort.or(self.reasoning_effort);
         self.reasoning_summary = other.reasoning_summary.or(self.reasoning_summary);
         self.tick_rate_ms = other.tick_rate_ms.or(self.tick_rate_ms);
-        self.mouse = other.mouse.or(self.mouse);
         self.notifications = other.notifications.or(self.notifications);
         self.verbose = other.verbose.or(self.verbose);
         self.theme = other.theme.or(self.theme);
@@ -521,10 +516,6 @@ pub fn load_env(
                 config.theme = Some(parse_theme_env(key, value)?);
                 origins.insert("theme".to_string(), env_origin(key));
             }
-            "mouse" => {
-                config.mouse = Some(parse_bool_env(key, value)?);
-                origins.insert("mouse".to_string(), env_origin(key));
-            }
             "notifications" => {
                 config.notifications = Some(parse_bool_env(key, value)?);
                 origins.insert("notifications".to_string(), env_origin(key));
@@ -747,9 +738,6 @@ fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: 
     if config.theme.is_some() {
         origins.insert("theme".to_string(), ConfigOrigin { source, detail: detail.to_string() });
     }
-    if config.mouse.is_some() {
-        origins.insert("mouse".to_string(), ConfigOrigin { source, detail: detail.to_string() });
-    }
     if config.notifications.is_some() {
         origins.insert(
             "notifications".to_string(),
@@ -802,7 +790,6 @@ fn has_any_value(config: &Config) -> bool {
         || config.reasoning_summary.is_some()
         || config.tick_rate_ms.is_some()
         || config.theme.is_some()
-        || config.mouse.is_some()
         || config.notifications.is_some()
         || config.verbose.is_some()
         || !config.skill_dirs.is_empty()
@@ -819,7 +806,6 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         reasoning_effort: Some(ReasoningEffort::default()),
         reasoning_summary: Some(ReasoningSummary::default()),
         tick_rate_ms: Some(DEFAULT_TICK_RATE_MS),
-        mouse: Some(false),
         notifications: Some(false),
         verbose: Some(false),
         theme: Some(Theme::default()),

@@ -2,7 +2,7 @@
 title: "Keybindings"
 ---
 
-This page lists the keyboard (and mouse) shortcuts available in the thndrs TUI.
+This page lists the keyboard shortcuts available in the thndrs TUI.
 
 Shortcuts are grouped by the context in which they apply.
 
@@ -48,14 +48,12 @@ Move through previously submitted prompts.
 | `Up`   | Recall older input from history |
 | `Down` | Recall newer input from history |
 
-## Transcript Scrollback
+## Terminal Scrollback
 
-| Key                             | Description                         |
-| ------------------------------- | ----------------------------------- |
-| `PageUp` / `PageDown`           | Scroll by one visible page          |
-| `Ctrl+PageUp` / `Ctrl+PageDown` | Scroll by half a visible page       |
-| `Alt+Up` / `Alt+Down`           | Scroll by one rendered row          |
-| `Ctrl+Home` / `Ctrl+End`        | Jump to oldest entry / latest entry |
+Completed transcript entries become ordinary terminal history. Use your
+terminal's mouse wheel, scrollbar, search, selection, or native scrollback
+shortcuts. `thndrs` does not capture mouse input or maintain a second
+application-owned transcript viewport.
 
 ## Help Overlay
 
@@ -107,13 +105,3 @@ Available after running `:model`.
 | `Esc`                   | Close the model picker without changing models  |
 | `Backspace`             | Remove the last character from the picker query |
 | Any printable character | Append to the picker query and filter results   |
-
-## Mouse
-
-Mouse capture is enabled by default for transcript and picker scrolling. Run with
-`--no-mouse` to preserve native terminal selection and scrollback:
-
-| Action        | Description                                           |
-| ------------- | ----------------------------------------------------- |
-| `Scroll Up`   | Scroll transcript up, or move picker selection up     |
-| `Scroll Down` | Scroll transcript down, or move picker selection down |

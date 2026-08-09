@@ -31,7 +31,7 @@ fn config_merge_overrides_only_present_values() {
         verbose: Some(false),
         ..Config::default()
     };
-    let over = Config { websearch: Some(WebSearchMode::Searxng), mouse: Some(true), ..Config::default() };
+    let over = Config { websearch: Some(WebSearchMode::Searxng), ..Config::default() };
 
     assert_eq!(
         base.merge(over),
@@ -39,7 +39,6 @@ fn config_merge_overrides_only_present_values() {
             model: Some("base".to_string()),
             websearch: Some(WebSearchMode::Searxng),
             verbose: Some(false),
-            mouse: Some(true),
             ..Config::default()
         }
     );
@@ -54,7 +53,6 @@ fn parses_known_config_fields() {
         reasoning_effort = "xhigh"
         reasoning_summary = "auto"
         tick_rate_ms = 250
-        mouse = true
         theme = "catppuccin-mocha"
         skill_dirs = ["vendor/agent-skills"]
         session_dir = "/tmp/sessions"
@@ -75,7 +73,6 @@ fn parses_known_config_fields() {
     assert_eq!(config.reasoning_effort, Some(ReasoningEffort::Xhigh));
     assert_eq!(config.reasoning_summary, Some(ReasoningSummary::Auto));
     assert_eq!(config.tick_rate_ms, Some(250));
-    assert_eq!(config.mouse, Some(true));
     assert_eq!(config.theme, Some(Theme::CatppuccinMocha));
     assert_eq!(config.skill_dirs, vec![PathBuf::from("vendor/agent-skills")]);
     assert_eq!(config.session_dir, Some(PathBuf::from("/tmp/sessions")));
@@ -125,8 +122,8 @@ fn rejects_cwd_as_config_key() {
 }
 
 #[test]
-fn rejects_no_mouse_as_config_key() {
-    let err = toml::from_str::<Config>("no_mouse = true").expect_err("no_mouse rejected");
+fn rejects_mouse_as_config_key() {
+    let err = toml::from_str::<Config>("mouse = true").expect_err("mouse rejected");
     assert!(err.to_string().contains("unknown field"));
 }
 
@@ -417,29 +414,6 @@ fn env_loads_reasoning_controls_and_rejects_invalid_values() {
 }
 
 #[test]
-fn env_loads_boolean_mouse() {
-    for (val, expected) in [
-        ("1", true),
-        ("true", true),
-        ("yes", true),
-        ("on", true),
-        ("0", false),
-        ("false", false),
-        ("no", false),
-        ("off", false),
-    ] {
-        let mut o = BTreeMap::new();
-        let mut d = Vec::new();
-        let config = load_env(&[("THNDRS_MOUSE".to_string(), val.to_string())], &mut o, &mut d).unwrap();
-        assert_eq!(
-            config.mouse,
-            Some(expected),
-            "THNDRS_MOUSE={val} should parse as {expected}"
-        );
-    }
-}
-
-#[test]
 fn env_loads_boolean_notifications() {
     let mut origins = BTreeMap::new();
     let mut diagnostics = Vec::new();
@@ -474,8 +448,8 @@ fn env_boolean_case_insensitive() {
 fn env_rejects_invalid_boolean() {
     let mut o = BTreeMap::new();
     let mut d = Vec::new();
-    let err = load_env(&[("THNDRS_MOUSE".to_string(), "maybe".to_string())], &mut o, &mut d).unwrap_err();
-    assert!(matches!(err, ConfigError::InvalidEnv { name, .. } if name == "THNDRS_MOUSE"));
+    let err = load_env(&[("THNDRS_VERBOSE".to_string(), "maybe".to_string())], &mut o, &mut d).unwrap_err();
+    assert!(matches!(err, ConfigError::InvalidEnv { name, .. } if name == "THNDRS_VERBOSE"));
 }
 
 #[test]
@@ -639,7 +613,6 @@ fn effective_config_defaults_when_no_files() {
     assert_eq!(effective.config.model, None);
     assert_eq!(effective.config.websearch, Some(WebSearchMode::DuckDuckGo));
     assert_eq!(effective.config.tick_rate_ms, Some(DEFAULT_TICK_RATE_MS));
-    assert_eq!(effective.config.mouse, Some(false));
     assert_eq!(effective.config.verbose, Some(false));
     assert_eq!(effective.config.theme, Some(Theme::EldritchMinimal));
     assert_eq!(
@@ -1065,6 +1038,6 @@ websearch=Some(Searxng)
 verbose=Some(true)
 session_dir_suffix=.thndrs/sessions
 layers=[("project", ".thndrs/config.toml")]
-origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("notifications", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml"), ("websearch_url", "default", "default")]
+origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("notifications", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml"), ("websearch_url", "default", "default")]
 "###);
 }
