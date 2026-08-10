@@ -2,9 +2,9 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [-]=
-│   │ Activity                              # [-]=   [fg=#3b4261]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=
-│   │ ○ run_shell [Stopped]                 # [-]=   [fg=#3b4261]=│  [fg=#f7c67f]=○  [fg=#ebfafa b]=run_shell [fg=#f7c67f]= [Stopped] [-]=              [-]=
-│   │   $ cargo test                        # [-]=   [fg=#3b4261]=│  [-]=   [fg=#abb4da]=$ cargo test [-]=                     [-]=
-│   │    │ running 3 tests                  # [-]=   [fg=#3b4261]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=running [fg=#c0c5ce]= 3 tests [-]=               [-]=
-│   │    │ test tests::foo ... ok           # [-]=   [fg=#3b4261]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::foo ... ok [-]=        [-]=
+│                                           # [bg=#171928]=
+│   │ Activity                              # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#f1fc79 bg=#171928 b]=Activity [bg=#171928]=                           [bg=#171928]=
+│   │ ○ run_shell [Stopped]                 # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#f7c67f bg=#171928]=○  [fg=#ebfafa bg=#171928 b]=run_shell [fg=#f7c67f bg=#171928]= [Stopped] [bg=#171928]=              [bg=#171928]=
+│   │   $ cargo test                        # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [bg=#171928]=   [fg=#abb4da bg=#171928]=$ cargo test [bg=#171928]=                     [bg=#171928]=
+│   │    │ running 3 tests                  # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=running [fg=#c0c5ce bg=#171928]= 3 tests [bg=#171928]=               [bg=#171928]=
+│   │    │ test tests::foo ... ok           # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=test [fg=#c0c5ce bg=#171928]= tests::foo ... ok [bg=#171928]=        [bg=#171928]=

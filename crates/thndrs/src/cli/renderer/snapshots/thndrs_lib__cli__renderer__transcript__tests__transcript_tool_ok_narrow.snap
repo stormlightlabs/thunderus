@@ -2,8 +2,8 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [-]=
-│   │ Activity                              # [-]=   [fg=#3b4261]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=
-│   │ ✓ search_text [Done]                  # [-]=   [fg=#3b4261]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=search_text [fg=#37f499]= [Done] [-]=               [-]=
-│   │   pattern: fn main                    # [-]=   [fg=#3b4261]=│  [-]=   [fg=#abb4da]=pattern: fn main [-]=                 [-]=
-│   │   3 lines · Ctrl+O actions            # [-]=   [fg=#3b4261]=│  [-]=   [fg=#abb4da]=3 lines · Ctrl+O actions [-]=         [-]=
+│                                           # [bg=#171928]=
+│   │ Activity                              # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#f1fc79 bg=#171928 b]=Activity [bg=#171928]=                           [bg=#171928]=
+│   │ ✓ search_text [Done]                  # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#37f499 bg=#171928]=✓  [fg=#ebfafa bg=#171928 b]=search_text [fg=#37f499 bg=#171928]= [Done] [bg=#171928]=               [bg=#171928]=
+│   │   pattern: fn main                    # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [bg=#171928]=   [fg=#abb4da bg=#171928]=pattern: fn main [bg=#171928]=                 [bg=#171928]=
+│   │   3 lines · Ctrl+O actions            # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [bg=#171928]=   [fg=#abb4da bg=#171928]=3 lines · Ctrl+O actions [bg=#171928]=         [bg=#171928]=

@@ -921,7 +921,7 @@ fn path_like_suffix(line: &str) -> Option<String> {
 /// Convert a single transcript entry to padded rows for scrollback.
 fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path, tool_group_start: bool) -> Vec<Row> {
     let p = super::style::palette();
-    let bg = Color::Reset;
+    let bg = p.surface_dim;
     let body_width = super::layout::content_width(width);
     let railed_body_width = body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
 

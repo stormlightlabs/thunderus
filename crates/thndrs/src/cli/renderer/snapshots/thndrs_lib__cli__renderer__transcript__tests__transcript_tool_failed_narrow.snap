@@ -2,12 +2,12 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [-]=
-│   │ Activity                              # [-]=   [fg=#3b4261]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=
-│   │ ✕ run_shell [Failed]                  # [-]=   [fg=#3b4261]=│  [fg=#f16c75]=✕  [fg=#ebfafa b]=run_shell [fg=#f16c75]= [Failed] [-]=               [-]=
-│   │   $ cargo build                       # [-]=   [fg=#3b4261]=│  [-]=   [fg=#abb4da]=$ cargo build [-]=                    [-]=
-│   │    │ error[E0308]: mismatched typ…    # [-]=   [fg=#3b4261]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=error[E0308]: [fg=#c0c5ce]= mismatched typ [fg=#abb4da]=… [-]=
-│   │    │   --> src/main.rs:5:14           # [-]=   [fg=#3b4261]=│  [fg=#3b4261]=   │  [fg=#c0c5ce]=   [fg=#8fa1b3]=-- [fg=#c0c5ce]=> [fg=#c0c5ce]= src/main.rs:5:14 [-]=        [-]=
-│   │    │    |                             # [-]=   [fg=#3b4261]=│  [fg=#3b4261]=   │  [fg=#c0c5ce]=    [fg=#c0c5ce]=| [-]=                          [-]=
-│   │    │ 5 |     let x: i32 = "hello";    # [-]=   [fg=#3b4261]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=5 [fg=#c0c5ce]=  [fg=#c0c5ce]=| [fg=#c0c5ce]=      [fg=#96b5b4]=let [fg=#c0c5ce]= x [fg=#c0c5ce]=: [fg=#c0c5ce]= i32  [fg=#c0c5ce]== [fg=#c0c5ce]=  [fg=#c0c5ce]=" [fg=#a3be8c]=hello [fg=#c0c5ce]=" [fg=#c0c5ce]=; [-]=
-│   │    │    |               ^^^^^^^^      # [-]=   [fg=#3b4261]=│  [fg=#3b4261]=   │  [fg=#c0c5ce]=    [fg=#c0c5ce]=| [fg=#c0c5ce]=                [fg=#8fa1b3]=^^^^^^^^ [-]=   [-]=
+│                                           # [bg=#171928]=
+│   │ Activity                              # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#f1fc79 bg=#171928 b]=Activity [bg=#171928]=                           [bg=#171928]=
+│   │ ✕ run_shell [Failed]                  # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#f16c75 bg=#171928]=✕  [fg=#ebfafa bg=#171928 b]=run_shell [fg=#f16c75 bg=#171928]= [Failed] [bg=#171928]=               [bg=#171928]=
+│   │   $ cargo build                       # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [bg=#171928]=   [fg=#abb4da bg=#171928]=$ cargo build [bg=#171928]=                    [bg=#171928]=
+│   │    │ error[E0308]: mismatched typ…    # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=error[E0308]: [fg=#c0c5ce bg=#171928]= mismatched typ [fg=#abb4da bg=#171928]=… [bg=#171928]=
+│   │    │   --> src/main.rs:5:14           # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=   [fg=#8fa1b3 bg=#171928]=-- [fg=#c0c5ce bg=#171928]=> [fg=#c0c5ce bg=#171928]= src/main.rs:5:14 [bg=#171928]=        [bg=#171928]=
+│   │    │    |                             # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=    [fg=#c0c5ce bg=#171928]=| [bg=#171928]=                          [bg=#171928]=
+│   │    │ 5 |     let x: i32 = "hello";    # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=5 [fg=#c0c5ce bg=#171928]=  [fg=#c0c5ce bg=#171928]=| [fg=#c0c5ce bg=#171928]=      [fg=#96b5b4 bg=#171928]=let [fg=#c0c5ce bg=#171928]= x [fg=#c0c5ce bg=#171928]=: [fg=#c0c5ce bg=#171928]= i32  [fg=#c0c5ce bg=#171928]== [fg=#c0c5ce bg=#171928]=  [fg=#c0c5ce bg=#171928]=" [fg=#a3be8c bg=#171928]=hello [fg=#c0c5ce bg=#171928]=" [fg=#c0c5ce bg=#171928]=; [bg=#171928]=
+│   │    │    |               ^^^^^^^^      # [bg=#171928]=   [fg=#3b4261 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=    [fg=#c0c5ce bg=#171928]=| [fg=#c0c5ce bg=#171928]=                [fg=#8fa1b3 bg=#171928]=^^^^^^^^ [bg=#171928]=   [bg=#171928]=

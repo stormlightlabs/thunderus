@@ -837,9 +837,9 @@ impl App {
         let git = self
             .git_status
             .as_ref()
-            .map_or_else(|| "unavailable".to_string(), GitStatusSummary::display);
+            .map_or_else(|| "git: unavailable".to_string(), GitStatusSummary::display);
         format!(
-            "state: {}\nmodel: {}\nreasoning: {}\nsearch: {}\nsession tokens: {} in / {} out\nquota: {}\ngit: {}\nworkspace: {}",
+            "state: {}\nmodel: {}\nreasoning: {}\nsearch: {}\nsession tokens: {} in / {} out\nquota: {}\n{}\nworkspace: {}",
             self.status_label(),
             codex::display_model_id(&self.model),
             self.cli.reasoning_effort.label(),

@@ -24,7 +24,7 @@ fn render_banner_styled(app: &App, width: usize) -> String {
 }
 
 #[test]
-fn ordinary_transcript_rows_use_terminal_default_background() {
+fn transcript_cells_fill_their_background() {
     let entries = [
         Entry::User { text: "inspect the renderer".to_string() },
         Entry::Agent { text: "I found the projection.".to_string(), streaming: false },
@@ -36,8 +36,8 @@ fn ordinary_transcript_rows_use_terminal_default_background() {
         assert!(
             rows.iter()
                 .flat_map(|row| &row.spans)
-                .all(|span| span.style.bg == renderer::style::Color::Reset),
-            "ordinary transcript entries should inherit the terminal background: {entry:?}"
+                .all(|span| span.style.bg == renderer::style::palette().surface_dim),
+            "transcript cells should paint their complete surface: {entry:?}"
         );
     }
 }
@@ -200,7 +200,7 @@ fn ordinary_markdown_code_fence_is_highlighted_and_wrapped() {
         "code should be wrapped: {rendered}"
     );
     assert!(
-        rendered.contains("[fg=#b48ead]=fn"),
+        rendered.contains("[fg=#b48ead bg=#171928]=fn"),
         "ordinary Markdown code fences should highlight Rust keywords: {rendered}"
     );
 }

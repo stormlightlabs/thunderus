@@ -217,4 +217,6 @@ fn git_status_changed_message_updates_app_summary() {
         app.git_status.as_ref().map(|status| status.display()),
         Some("git: main +1 ~2 -3".to_string())
     );
+    assert!(app.runtime_status().contains("\ngit: main +1 ~2 -3\n"));
+    assert!(!app.runtime_status().contains("git: git:"));
 }

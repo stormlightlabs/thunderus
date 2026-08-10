@@ -98,6 +98,67 @@ fn vt100_proves_native_history_live_repaint_and_prompt_cursor() {
 }
 
 #[test]
+fn completed_response_keeps_user_prompt_and_compacts_in_place() {
+    let mut app = test_app();
+    app.first_run_recovery = None;
+    app.session_id = "test-session".to_string();
+    app.transcript.push(Entry::Status {
+        text: "state: Ready\nmodel: test\nreasoning: medium\nsearch: off\nsession tokens: 0 in / 0 out\nquota: unavailable\ngit: main clean\nworkspace: /tmp"
+            .to_string(),
+    });
+
+    let mut live = LiveRegion::new();
+    let mut backend = TerminalBackend::new(Vec::new(), 80, 32);
+    let mut parser = vt100::Parser::new(32, 80, 256);
+
+    live.render_frame(&app, &mut backend, 80, 32).expect("status render");
+    parser.process(backend.writer());
+    backend.writer().clear();
+
+    app.transcript.push(Entry::User { text: "Who are you?".to_string() });
+    app.transcript
+        .push(Entry::Agent { text: String::new(), streaming: true });
+    live.render_frame(&app, &mut backend, 80, 32)
+        .expect("submitted prompt render");
+    parser.process(backend.writer());
+    backend.writer().clear();
+
+    app.transcript[2] = Entry::Agent {
+        text: "I'm thndrs, a coding assistant operating in this workspace.".to_string(),
+        streaming: true,
+    };
+    live.render_frame(&app, &mut backend, 80, 32)
+        .expect("streaming response render");
+    parser.process(backend.writer());
+    backend.writer().clear();
+
+    app.transcript[2] = Entry::Agent {
+        text: "I'm thndrs, a coding assistant operating in this workspace.".to_string(),
+        streaming: false,
+    };
+    live.render_frame(&app, &mut backend, 80, 32)
+        .expect("completed response render");
+    parser.process(backend.writer());
+
+    let contents = parser.screen().contents();
+    let lines: Vec<_> = contents.lines().collect();
+    let prompt_row = lines
+        .iter()
+        .position(|line| line.contains("Who are you?"))
+        .unwrap_or_else(|| panic!("submitted prompt disappeared:\n{contents}"));
+    let response_row = lines
+        .iter()
+        .position(|line| line.contains("Response"))
+        .unwrap_or_else(|| panic!("response label disappeared:\n{contents}"));
+    assert!(
+        response_row > prompt_row && response_row - prompt_row <= 4,
+        "prompt and response should remain adjacent transcript cells:\n{contents}"
+    );
+    assert!(contents.contains("Status"));
+    assert!(contents.contains("I'm thndrs"));
+}
+
+#[test]
 fn vt100_can_scroll_back_to_settled_transcript_after_live_repaints() {
     let mut app = test_app();
     app.first_run_recovery = None;

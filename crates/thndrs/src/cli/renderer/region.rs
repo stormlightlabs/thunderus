@@ -76,6 +76,7 @@ struct RenderPlan<'a> {
     height: usize,
     top_row: u16,
     relocate_live_region: bool,
+    promote_visible_tail: bool,
     stable_entry_count: usize,
     commits_banner: bool,
 }
@@ -326,6 +327,11 @@ impl LiveRegion {
             .unwrap_or(view.transcript.stable_rows.len());
         let rows_to_commit = &view.transcript.stable_rows[commit_start..];
         let relocate_live_region = width_changed || height_changed || live_region_moved;
+        let promote_visible_tail = view.transcript.live_rows.is_empty()
+            && self
+                .rendered_frame
+                .as_ref()
+                .is_some_and(|previous| rendered_prefix_matches(rows_to_commit, previous));
         let frame_changed = self.rendered_frame.as_ref() != Some(&live);
         let viewport_changed = self.rendered_width != Some(width)
             || self.rendered_height != Some(height)
@@ -342,6 +348,7 @@ impl LiveRegion {
             height,
             top_row,
             relocate_live_region,
+            promote_visible_tail,
             stable_entry_count,
             commits_banner,
         };
@@ -361,25 +368,48 @@ impl LiveRegion {
             height,
             top_row,
             relocate_live_region,
+            promote_visible_tail,
             stable_entry_count,
             commits_banner,
         } = plan;
-        if relocate_live_region {
-            self.clear_abandoned_live_rows(backend, top_row, frame.rows.len(), height)?;
+        let promoted_visible_tail = if promote_visible_tail && let Some(previous_top) = self.rendered_top_row {
+            backend.write_rows(previous_top, rows_to_commit)?;
+            self.rendered_frame = None;
+            true
+        } else {
+            false
+        };
+        if !promoted_visible_tail && relocate_live_region {
+            let live_grew_upward = self.rendered_width == Some(width)
+                && self.rendered_height == Some(height)
+                && self.rendered_top_row.is_some_and(|previous_top| previous_top > top_row);
+            if live_grew_upward && let Some(previous_top) = self.rendered_top_row {
+                if let Some(previous_frame) = self.rendered_frame.as_ref() {
+                    backend.clear_rows(previous_top, previous_frame.rows.len() as u16)?;
+                }
+                backend.scroll_up_preserving_history(previous_top - top_row)?;
+                self.rendered_frame = None;
+            } else {
+                self.clear_abandoned_live_rows(backend, top_row, frame.rows.len(), height)?;
+            }
         }
 
         if !rows_to_commit.is_empty() {
             // The terminal will preserve every row displaced by the full-screen
             // scroll. Remove the previous mutable region first so prompt and
             // streaming content cannot become transcript history.
-            if let (Some(previous_top), Some(previous_frame)) = (self.rendered_top_row, self.rendered_frame.as_ref()) {
-                backend.clear_rows(previous_top, previous_frame.rows.len() as u16)?;
+            if !promoted_visible_tail {
+                if let (Some(previous_top), Some(previous_frame)) =
+                    (self.rendered_top_row, self.rendered_frame.as_ref())
+                {
+                    backend.clear_rows(previous_top, previous_frame.rows.len() as u16)?;
+                }
+                // Keep the mutable composer below the terminal-native transcript
+                // region. When it fills the screen, still insert into full-screen
+                // scrollback and immediately restore the live frame below.
+                let transcript_bottom = if top_row == 0 { height as u16 } else { top_row };
+                backend.insert_history_lines(rows_to_commit, transcript_bottom)?;
             }
-            // Keep the mutable composer below the terminal-native transcript
-            // region. When it fills the screen, still insert into full-screen
-            // scrollback and immediately restore the live frame below.
-            let transcript_bottom = if top_row == 0 { height as u16 } else { top_row };
-            backend.insert_history_lines(rows_to_commit, transcript_bottom)?;
             self.rendered_frame = None;
             self.committed_entry_count = stable_entry_count;
             self.banner_committed |= commits_banner;
@@ -451,6 +481,20 @@ impl LiveRegion {
     pub fn invalidate_frame(&mut self) {
         self.rendered_frame = None;
     }
+}
+
+fn rendered_prefix_matches(rows: &[Row], previous: &Frame) -> bool {
+    if rows.is_empty() || rows.len() > previous.rows.len() || rows.iter().any(|row| row.group_id.is_none()) {
+        return false;
+    }
+
+    rows.iter()
+        .zip(&previous.rows)
+        .all(|(settled, rendered)| settled.group_id == rendered.group_id)
+        && previous
+            .rows
+            .get(rows.len())
+            .is_none_or(|next| next.group_id != rows.last().and_then(|row| row.group_id))
 }
 
 struct StartupSectionGroup {

@@ -163,6 +163,25 @@ impl<W: Write> TerminalBackend<W> {
         Ok(())
     }
 
+    /// Scroll the full terminal upward, preserving displaced rows in native
+    /// scrollback.
+    ///
+    /// The caller clears mutable rows before invoking this method. This lets a
+    /// growing live region make room without painting over settled transcript
+    /// rows or allowing mutable content to escape into terminal history.
+    pub fn scroll_up_preserving_history(&mut self, count: u16) -> io::Result<()> {
+        if count == 0 || self.height == 0 {
+            return Ok(());
+        }
+
+        queue!(self.writer, ResetScrollRegion)?;
+        for _ in 0..count {
+            queue!(self.writer, MoveTo(0, self.height.saturating_sub(1)))?;
+            queue!(self.writer, crossterm::style::Print("\r\n"))?;
+        }
+        Ok(())
+    }
+
     /// Move the cursor to a coordinate within the live region.
     pub fn move_cursor(&mut self, coord: CursorCoord) -> io::Result<()> {
         queue!(self.writer, MoveTo(coord.col as u16, coord.row as u16))
@@ -708,6 +727,17 @@ mod tests {
         assert!(out.contains("two"));
         assert!(out.contains("three"));
         assert!(out.contains("\x1b[r"), "scroll region should be reset after insertion");
+    }
+
+    #[test]
+    fn scroll_up_preserving_history_uses_full_screen_newlines() {
+        let mut b = backend(20, 10);
+        b.scroll_up_preserving_history(3).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert_eq!(out.matches("\r\n").count(), 3);
+        assert!(out.contains("\x1b[r"), "scroll region should be reset");
+        assert!(out.contains("\x1b[10;1H\r\n"));
     }
 
     #[test]

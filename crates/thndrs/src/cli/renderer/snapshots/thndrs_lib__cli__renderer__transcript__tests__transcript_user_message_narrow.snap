@@ -2,7 +2,7 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [-]=
-│   │ User                                  # [-]=   [fg=#3b4261 b]=│  [fg=#04d1f9 b]=User [-]=                               [-]=
-│   │ Hello, can you help me with this?     # [-]=   [fg=#3b4261 b]=│  [fg=#abb4da]=Hello, can you help me with this? [-]=  [-]=
-│                                           # [-]=
+│                                           # [bg=#171928]=
+│   │ User                                  # [bg=#171928]=   [fg=#3b4261 bg=#171928 b]=│  [fg=#04d1f9 bg=#171928 b]=User [bg=#171928]=                               [bg=#171928]=
+│   │ Hello, can you help me with this?     # [bg=#171928]=   [fg=#3b4261 bg=#171928 b]=│  [fg=#abb4da bg=#171928]=Hello, can you help me with this? [bg=#171928]=  [bg=#171928]=
+│                                           # [bg=#171928]=
