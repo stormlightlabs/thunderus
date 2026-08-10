@@ -1,668 +1,887 @@
-# Parking Lot
+# Task List/To-Dos
+
+## P1 — UI Foundation
+
+### UI-1: Split `App` into cohesive state domains
+
+**Outcome:** Reduce field coupling while preserving one top-level update path.
 
-## RR-1: Make workspace writes atomic
+**Blocked by:** None.
+
+**Acceptance:**
 
-Made `create_file`, `replace_range`, and every `write_patch` operation preserve
-the previous target when validation or writing fails. The implemented behavior
-must match the public unchanged-on-failure guarantee.
-
-## RR-2: Implement real background process ownership
-
-Made `run_shell` return promptly for a background command and keep the actual
-running child under application ownership until it exits or is cancelled.
-
-## RR-3: Make ACP field caps UTF-8 safe
-
-Capped ACP tool input, output, and content without slicing a string between
-UTF-8 code units.
-
-## RR-4: Align clean-install diagnostics with onboarding
-
-Made `doctor` describe an unset model as incomplete setup instead of silently
-diagnosing Umans, and direct users to a working support URL.
-
-## RR-5: Fix the application crate archive
-
-Maade the `thndrs` crate archive complete and ready for the two-stage crates.io
-publication flow.
-
-## RR-6: Make strict lint and API documentation checks green
-
-Removed the current all-target Clippy warnings and Rustdoc errors so strict
-checks can be used as release gates.
-
-## RR-7: Add continuous release checks
-
-Added CI that runs the checks required to keep the alpha installable and catches
-regressions in both crates before merge.
-
-## RR-8: Finalize the `thndrs-agent` 0.1 release contract
-
-Finished the provider-neutral library's public release contract and record the
-evidence needed for a separate publication decision.
-
-## RR-9: Prove the registry-to-clean-install path
-
-**What to build:** Exercise the exact publication order and prove that a user can
-install the application from crates.io without a source checkout.
-
-**Blocked by:** RR-5: Fix the application crate archive; RR-7: Add continuous
-release checks; RR-8: Finalize the `thndrs-agent` 0.1 release contract; explicit
-owner approval to publish `thndrs-agent 0.1.0`.
-
-**Acceptance criteria:**
-
-- [ ] Publish `thndrs-agent 0.1.0` only after direct approval and verify registry
-      availability and docs.rs output.
-- [ ] Package `thndrs` against the registry dependency and review its final
-      archive before requesting application publication approval.
-- [ ] Install `thndrs` with `cargo install --locked thndrs` under a clean `HOME`.
-- [ ] `thndrs --version`, first-run provider choice, CLI setup, `doctor`, config
-      inspection, and empty session listing work from the installed binary.
-- [ ] The clean first run does not assume a provider or model and does not write
-      credential material before authentication succeeds.
-- [ ] Record versions, revision, platform, architecture, Rust/Cargo versions,
-      commands, and redacted results in the release evidence.
-- [ ] Publishing `thndrs` and creating a tag remain separate approval steps.
-
-**Verification:**
-
-- `cargo install --locked thndrs`
-- `thndrs --version`
-- Clean-`HOME` first-run and CLI smoke from a disposable workspace.
-
-## RR-10: Execute real-provider and terminal release smokes
-
-**What to build:** Complete the human checks that deterministic tests cannot
-cover: current provider authentication, one bounded coding task per first-class
-provider, session recovery, and real-terminal behavior.
-
-**Blocked by:** RR-1: Make workspace writes atomic; RR-2: Implement real
-background process ownership; RR-3: Make ACP field caps UTF-8 safe; RR-4: Align
-clean-install diagnostics with onboarding; RR-9: Prove the registry-to-clean-install
-path.
-
-**Acceptance criteria:**
-
-- [ ] ChatGPT Codex browser OAuth, explicit device-code OAuth, cancellation,
-      expired/revoked credential recovery, and transient service failure are
-      exercised without recording tokens, account identifiers, or OAuth URLs.
-- [ ] OpenCode Zen and OpenCode Go credential entry, environment overrides,
-      rejected-key recovery, and transient service failure are exercised
-      without recording credentials.
-- [ ] Each provider completes a bounded edit, uses local tools, runs verification,
-      exposes inspectable output, and resumes the resulting session.
-- [ ] Session inspection, export, logs, diagnostics, and prompt inspection are
-      reviewed for secret leakage.
-- [ ] Normal, narrow, short, Unicode, CJK, emoji, combining-mark, long-path,
-      monochrome, setup, picker, permission, help, and detail surfaces are
-      reviewed in a real terminal.
-- [ ] Known provider or terminal limitations are added to public documentation
-      before approval.
-
-**Verification:**
-
-- Complete and sign off the applicable sections of `docs/internal/qa/README.md`
-  and its channel checklists.
-- Run the ignored live tests individually only with the required account and
-  privacy prerequisites.
-
-## RR-11: Approve or reject the public alpha candidate
-
-**What to build:** Produce one complete release evidence packet and make an
-explicit go/no-go decision for `thndrs 0.1.0`.
-
-**Blocked by:** RR-1 through RR-10
-
-**Acceptance criteria:**
-
-- [ ] Every preceding ticket has passing verification evidence or a documented,
-      owner-approved alpha limitation that is accurate in public documentation.
-- [ ] The release checklist contains the candidate revision, environment,
-      archive reviews, clean install, provider smokes, terminal review, and
-      redacted results.
-- [ ] The changelog describes the shipped application, `thndrs-agent` contract,
-      known limitations, and migration expectations without stale provider or
-      default-model claims.
-- [ ] The owner separately approves application publication and tagging.
-- [ ] The evidence packet and repository contain no credential, token, account
-      identifier, authorization URL, callback URL, or registry secret.
-
-**Verification:**
-
-- Re-run the complete command list in `docs/internal/qa/README.md` from the approved
-  candidate revision.
-- Review the final crates.io pages, docs site, repository links, and release
-  notes after publication.
-
-## Parking Lot
-
-Quiver owns toolchain extensibility. Do not add a separate plugin runtime.
-
-## PL-1: Own agent-run completion
-
-Made `AgentRun` retain its event receiver, cancellation token, and worker.
-Dropping a run now cancels, disconnects, and joins it; explicit completion
-reports worker panic, and the TUI, ACP, and server paths retain the owner.
-
-## PL-2: Run one prompt without the TUI
-
-Added a headless command that runs one coding prompt through the normal provider,
-tool, context, and session paths.
-
-## PL-3: Stream headless events as JSONL
-
-Added a machine-readable mode for the headless command using
-the provider-neutral event vocabulary.
-
-## PL-4: Accept piped prompt input
-
-Lets the headless command combine bounded stdin content with an explicit prompt.
-
-## PL-5: Run without saving a session
-
-Added `--ephemeral` (also available as `--no-session`) for interactive and
-headless runs. Ephemeral runs keep their working state in memory and leave
-sessions, session artifacts, and per-session logs untouched. Credential loading,
-configuration, and shared prompt history continue to work; the TUI and JSONL
-`started` event identify the mode.
-
-## PL-6: Resume sessions from the TUI
-
-Added a searchable recent-session picker to `/resume`, including each session's
-name, identifier, model, and usage. Selection now uses strict record validation
-and exclusive locking. Cancellation and failed selections preserve the active
-session and draft; successful selection restores the saved session state.
-
-## PL-7: Name local sessions
-
-Added `/name` and `session rename` commands. Name changes append durable metadata
-without changing session identity, appear in session views and exports, and
-reject empty, oversized, or control-character names.
-
-## PL-8: Fork a session from a completed turn
-
-**What to build:** Create a new append-only session from a selected completed
-turn while preserving provenance to the source session.
-
-**Blocked by:** PL-6: Resume sessions from the TUI
-
-**Acceptance criteria:**
-
-- [ ] Users can select only replayable, settled turn boundaries.
-- [ ] The fork has a new identifier and records its source session, source
-      sequence, and turn in optional backward-compatible metadata.
-- [ ] The new session contains a self-contained replayable prefix and remains
-      usable if the source file is moved or removed.
-- [ ] Pending tools, permissions, queues, and processes are never copied.
-
-**Verification:**
-
-- Deterministic session fixtures cover valid forks and rejected live or corrupt
-  boundaries.
-
-## PL-9: Export sessions for human review
-
-**What to build:** Export a redacted session as readable Markdown and
-standalone HTML.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] Both formats preserve message, reasoning-summary, tool, status, and error
-      order.
-- [ ] Tool details remain bounded and secrets stay redacted.
-- [ ] The HTML export requires no external assets or scripts.
-
-**Verification:**
-
-- Snapshot both formats from the same representative session fixture.
-
-## PL-10: Attach images to native prompts
-
-**What to build:** Let TUI and headless users attach local images to providers
-that advertise image input.
-
-**Blocked by:** PL-2: Run one prompt without the TUI
-
-**Acceptance criteria:**
-
-- [ ] Users can add, inspect, and remove image paths before submission.
-- [ ] MIME type, size, dimensions, and provider support are validated locally.
-- [ ] Session records preserve safe attachment metadata without duplicating
-      image bytes.
-- [ ] Text-only providers fail before making a request.
-
-**Verification:**
-
-- Provider request fixtures and TUI/headless tests cover supported,
-  unsupported, missing, and oversized images.
-
-## PL-11: Support the OpenAI Platform API
-
-**What to build:** Add first-class API-key authentication and model discovery
-for OpenAI Platform models without using ChatGPT OAuth credentials.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] Platform and ChatGPT credentials remain separate and are never used as
-      fallbacks for each other.
-- [ ] Text, image, reasoning, tool, usage, retry, and error behavior normalize
-      through existing contracts.
-- [ ] Setup, doctor, model selection, and session metadata identify the route
+- [ ] Move cohesive fields and invariants into concrete `SessionState`,
+      `TranscriptState`, `ComposerState`, `OverlayState`, and `RuntimeState`
+      structures; add `InstanceState` only when process instances begin.
+- [ ] Keep a single `update(&mut App, Msg)` mutation path and existing external
+      behavior.
+- [ ] Focus is represented once; impossible combinations of picker, details,
+      help, setup, and permission surfaces are unrepresentable or rejected.
+- [ ] Session recording, auth recovery, process ownership, MCP audit, and
+      permission state have clear owners.
+- [ ] Inline one-call helpers and avoid traits that do not mark an effect
+      boundary.
+
+**Verify:** Existing app/input/renderer tests plus focused tests for domain
+invariants and overlay transitions.
+
+### UI-2: Normalize input into semantic actions
+
+**Outcome:** Ensure raw Crossterm events do not directly implement product
+behavior across large mode-specific branches.
+
+**Blocked by:** UI-1.
+
+**Acceptance:**
+
+- [ ] Normalize keyboard, paste, mouse, resize, suspend, and terminal events in
+      one capture layer.
+- [ ] Translate normalized input through the active focus/mode and configurable
+      keymap into small semantic actions.
+- [ ] Components/domain handlers receive only actions they can handle; an
+      overlay consumes or rejects input before the underlying composer.
+- [ ] Repeated keys, bracketed paste, modifier differences, escape sequences,
+      and unsupported terminal capabilities have deterministic behavior.
+- [ ] Grapheme-aware insert, delete, backspace, cursor movement, word movement,
+      wrapping, and rendered cursor placement remain covered.
+- [ ] Key help is generated from the same bindings used for dispatch where
+      practical.
+
+**Verify:** Table-driven translation tests by focus/mode, prompt-editor tests,
+and virtual-terminal tests for paste, resize, and escape behavior.
+
+### UI-3: Isolate update effects from state transitions
+
+**Outcome:** Make state transitions pure where practical and make every
+terminal, filesystem, provider, process, clipboard, and session effect
+explicit.
+
+**Blocked by:** UI-1.
+
+**Acceptance:**
+
+- [ ] Update handlers return bounded effect values instead of performing
+      hidden I/O in state mutation branches.
+- [ ] Effects identify the state/action that requested them and return a
+      semantic success/failure message.
+- [ ] Cancellation, stale completions, duplicate completions, and effects that
+      finish after a mode/session change are handled deterministically.
+- [ ] JSONL and ACP receive semantic run/session events, not TUI projections.
+- [ ] No generic effect framework or trait hierarchy is added beyond concrete
+      needs found during extraction.
+
+**Verify:** Pure update tests with deterministic fake executors and focused
+integration tests for terminal cleanup, session persistence, and cancellation.
+
+### UI-4: Introduce stable transcript blocks
+
+**Outcome:** Model transcript history as semantic, identifiable blocks whose
+lifecycles update in place.
+
+**Blocked by:** UI-1 and UI-3.
+
+**Acceptance:**
+
+- [ ] Every user prompt, assistant response, reasoning summary, tool call,
+      edit/diff, permission, status, error, and child activity has a stable block
+      identifier and explicit kind.
+- [ ] Tool lifecycle is validated across queued, running, succeeded, failed,
+      and cancelled states; duplicate or invalid transitions are rejected.
+- [ ] A tool block shows action, target, current state, and concise result;
+      lifecycle updates replace its live block instead of appending rows.
+- [ ] Routine successful reads/searches collapse after completion. Edits,
+      failures, permissions, verification, truncation, and unknown diffs remain
+      prominent.
+- [ ] Compact and detailed projections are bounded, redacted, deterministic,
+      and distinguish unknown from empty or unchanged.
+- [ ] Sessions persist semantic events and state, never width-specific rows or
+      terminal cells.
+- [ ] Assistant prose remains visually dominant; reasoning and status remain
+      readable; final-response boundaries are consistent and restrained.
+
+**Verify:** Transition tests, serialization round trips, compact/detail
+snapshots at normal and narrow widths, and regression fixtures for running,
+failed, cancelled, truncated, compiler, search, and diff tools.
+
+### UI-5: Consolidate bounded rendering on Ratatui
+
+**Outcome:** Make Ratatui the only bounded-screen renderer and remove the
+iocraft canvas-to-row path after proven parity.
+
+**Blocked by:** UI-1. UI-4 should land first for transcript surfaces;
+independent focused surfaces may move earlier.
+
+**Acceptance:**
+
+- [ ] Port one focused surface at a time from `IocraftSurfaceRenderer` to a
+      direct Ratatui widget consuming the existing semantic projection.
+- [ ] Add only the characterization test needed for each surface before moving
+      it; use existing snapshots and state-transition tests wherever they already
+      protect the behavior.
+- [ ] Remove decorative borders and box-drawing chrome from the normal frame,
+      composer, focused surfaces, pickers, permissions, help, and details. Use
+      spacing, alignment, background, text attributes, selection, and accent
+      glyphs for hierarchy and focus.
+- [ ] Preserve content, focus, accessibility labels, cursor, narrow/short
+      behavior, and terminal cleanup. Treat the borderless presentation as an
+      intentional parity exception.
+- [ ] Remove `renderer/adapter.rs`, its snapshots, and the `iocraft` dependency
+      only after the final caller moves.
+- [ ] Keep Crossterm and focused Unicode/text utilities. Add no second general
+      component or layout framework; justify any new utility with a concrete
+      editor, wrapping, ANSI, or clipboard requirement.
+- [ ] Retain custom row/style/layout types only when a non-Ratatui consumer or a
+      useful pure presentation boundary remains; otherwise use Ratatui primitives
+      directly.
+- [ ] Rendering performs no filesystem, Git, provider, process, session, or
+      clipboard I/O.
+- [ ] The alternate-screen driver continues to own complete dirty frames and
+      restores the terminal on every exit path.
+
+**Verify:** Semantic projection tests, Ratatui buffer snapshots for each moved
+surface, borderless normal/narrow/monochrome full-frame `TestBackend` snapshots,
+and `cargo tree -i iocraft` showing no application dependency before removal is
+declared complete.
+
+### UI-6: Complete full-screen transcript navigation
+
+**Outcome:** Restore the search, selection, copy, and scrollback affordances the
+application takes over from the terminal.
+
+**Blocked by:** UI-4 and UI-5.
+
+**Acceptance:**
+
+- [ ] Search shows the query, current/total matches, next/previous navigation,
+      no-match state, and safe cancellation.
+- [ ] Keyboard selection works across wrapped lines and block boundaries;
+      mouse selection is enabled only where terminal behavior is reliable.
+- [ ] Copy uses an explicit action, preserves exact semantic text where
+      possible, and reports unavailable clipboard support without losing the
+      selection.
+- [ ] Scrolling away shows an anchored-away indicator; new activity never moves
+      that viewport; returning to follow-latest is immediately visible.
+- [ ] Updating a live block preserves the user's semantic anchor rather than a
+      fragile absolute row when wrapping changes.
+- [ ] Search and selection remain bounded on large transcripts and do not load
+      hidden tool bodies unnecessarily.
+- [ ] Resize, suspend/resume, crash cleanup, mouse-off selection, narrow/short
+      terminals, and Unicode are deterministic.
+
+**Verify:** State/model tests, virtual-terminal navigation and selection tests,
+Ratatui snapshots, and a real-terminal smoke on the supported terminal matrix.
+
+### UI-7: Make queued input inspectable and editable
+
+**Outcome:** Turn queued follow-ups and steering into durable, explicit state
+rather than an opaque count.
+
+**Blocked by:** UI-1, UI-2, and UI-3.
+
+**Acceptance:**
+
+- [ ] Every queue item has a stable identifier, order, target, kind
+      (follow-up/steer), bounded preview, created time, and audit/settlement state.
+- [ ] A focused queue surface supports inspect, edit, reorder, retarget, delete,
+      send after current step, and send now for exactly one item.
+- [ ] Up/down composer history and queued-item editing have unambiguous focus
+      and never silently overwrite draft text.
+- [ ] Interruption/cancellation preserves unrelated follow-ups and settles
+      steering according to documented rules.
+- [ ] Audit or persistence failure does not lose queued input.
+- [ ] Queue text and attachment metadata remain redacted and bounded in logs,
+      status, and child summaries.
+
+**Verify:** Queue transition and persistence tests, input/focus tests, snapshots,
+and an end-to-end streaming run with follow-up, steer, edit, and cancel.
+
+### UI-8: Add a configurable status line
+
+**Outcome:** Replace the fixed footer with one borderless, configurable status
+line that shows immediate operational truth without becoming a diagnostics
+panel.
+
+**Blocked by:** UI-1 and UI-4.
+
+**Acceptance:**
+
+- [ ] The status line distinguishes idle, thinking, named running tool, waiting
+      for permission, compacting, cancelling, failed, and complete.
+- [ ] Configuration selects and orders known typed segments in left and right
+      groups. It supports run state, active tool, model/provider route, authority,
+      workspace, session, queue count, anchored-away state, and active child count.
+- [ ] Configuration does not execute commands or interpolate arbitrary
+      templates. Invalid or unavailable segment names produce an actionable
+      configuration error.
+- [ ] Every segment declares priority, minimum width, and truncation behavior.
+      Narrow layouts drop optional segments before truncating eligible values and
+      never wrap the status line.
+- [ ] Run state, permission waits, failures, and authority remain visible ahead
+      of cosmetic context. The default configuration stays sparse.
+- [ ] Quota, token, account, and detailed diagnostics remain in `/status` or
+      `/usage`, not the status line.
+- [ ] Unknown, unavailable, stale, and zero are visually and semantically
+      distinct.
+- [ ] Tool failures include enough bounded transcript/log context to diagnose
+      the failing operation without exposing secrets.
+
+**Verify:** Configuration parse/validation tests, pure status projection tests,
+normal/narrow/tiny/monochrome snapshots, and transitions driven by fake
+provider/tool/permission events.
+
+### UI-9: Add structured review as a complete workflow
+
+**Outcome:** Resolve one review target, run with read-only authority, and render
+deterministic actionable findings or a clean result.
+
+**Blocked by:** UI-4 and the existing resume/session picker workflow.
+
+**Acceptance:**
+
+- [ ] The finding contract requires severity, evidence, and a tight valid
+      location; it distinguishes actionable findings from a clean review.
+- [ ] Exactly one working-tree, revision, range, or session change set is
+      resolved before the provider runs.
+- [ ] Review uses read-only tools and cannot modify the repository.
+- [ ] The review surface shows paths, bounded diffs, verification, failures,
+      unresolved findings, and a clear clean-review outcome.
+- [ ] Human, JSONL, and ACP output share the semantic finding contract and
+      deterministic ordering.
+- [ ] Invalid/out-of-range findings are rejected rather than rendered as fact.
+
+**Verify:** Finding validation/serialization tests, deterministic fake-provider
+review cases, clean/finding/error snapshots, and a bounded real-repository
+smoke.
+
+### UI-10: Make search and file-discovery degradation explicit
+
+**Outcome:** Preserve useful contained search when `fd` or `rg` is unavailable
+without pretending the fallback is equivalent.
+
+**Blocked by:** None.
+
+**Acceptance:**
+
+- [ ] Prefer `fd` for file discovery and `rg --json` for content search.
+- [ ] Missing binaries use bounded fallbacks that preserve workspace
+      containment, output caps, and generated/vendor exclusions.
+- [ ] Diagnostics and tool metadata name the selected implementation and mark
+      degraded results.
+- [ ] Fallback behavior cannot escape allowed roots or turn unbounded output
+      into transcript/session data.
+
+**Verify:** Deterministic path-injection tests for native and missing-binary
+cases, containment tests, cap tests, and transcript metadata snapshots.
+
+### UI-11: Pass the daily-driver gate
+
+**Outcome:** Demonstrate that the refactored TUI is a better daily driver before
+instances or Quiver add new surface area.
+
+**Blocked by:** UI-4 through UI-10. UI-1 through UI-3 must be sufficiently
+complete for the exercised flows.
+
+**Acceptance:**
+
+- [ ] Re-run the recorded orientation/follow-up, implementation, diagnosis,
+      review, verification, failure-recovery, cancellation, queue, and resume flows.
+- [ ] Sol completes the workflow repeatedly without transcript corruption,
+      lost drafts/queues, unclear authority, or terminal cleanup failure.
+- [ ] Normal and constrained terminal fixtures pass deterministic checks and
+      real-terminal review.
+- [ ] Reproduced harness failures become focused regression tests.
+- [ ] Long transcripts, streaming updates, resize, and long wrapped prompts
+      remain responsive. Add a focused before/after benchmark only when a touched
+      path shows risk or a measurable regression.
+
+**Verify:** Focused flow results, current workspace checks, regressions added for
+reproduced failures, and the real-terminal QA checklist.
+
+## P2 — Dispatchable Instances
+
+### INST-1: Define the instance contract
+
+**Outcome:** Specify the validated values, lifecycle, authority, evidence, and
+failure semantics shared by JSONL, ACP, and parent supervision.
+
+**Blocked by:** None; settle before implementing instance UI or supervision.
+
+**Acceptance:**
+
+- [ ] An instance specification contains exact model route, absolute contained
+      cwd, session policy, authority, prompt/task, timeout, evidence limits,
+      executable, and protocol.
+- [ ] Lifecycle covers starting, ready, running, waiting for permission,
+      cancelling, succeeded, failed, and cancelled with valid transitions.
+- [ ] Invalid transitions, traversal, implicit defaults, recursive delegation,
+      and unbounded specifications are rejected locally.
+- [ ] Results contain bounded semantic evidence and durable instance, session,
+      and change handles rather than an unbounded transcript copy.
+- [ ] ChatGPT Codex, OpenCode Zen, OpenCode Go, and unavailable routes are
+      represented without leaking provider payloads into public library APIs.
+- [ ] Capacity distinguishes provider-reported fresh/stale/unavailable data;
+      unknown is never zero.
+
+**Verify:** Pure validation/transition tests and serialization round trips for
+valid, invalid, legacy, and unknown-provider/capacity cases.
+
+### INST-2: Unify JSONL and ACP instance identity
+
+**Outcome:** Map both dispatch surfaces to one local identity and settled
+lifecycle without forcing their wire formats to be the same.
+
+**Blocked by:** INST-1.
+
+**Acceptance:**
+
+- [ ] JSONL start and terminal events optionally identify instance, route,
+      model, absolute cwd, session policy/ID, authority, and final state.
+- [ ] ACP session metadata maps to the same local identity and lifecycle.
+- [ ] Exact model identifiers survive configuration, child startup, events,
+      session metadata, and result summaries.
+- [ ] Stdout remains protocol-clean; safe bounded diagnostics use stderr.
+- [ ] Unsupported model, missing credential, invalid cwd, protocol mismatch,
+      startup failure, runtime failure, cancellation, and timeout remain distinct.
+- [ ] Existing callers that ignore new optional metadata continue to work.
+
+**Verify:** JSONL golden streams, ACP fake-client tests, compatibility fixtures,
+and stderr/stdout separation tests.
+
+### INST-3: Validate real ACP dispatch and packaging
+
+**Outcome:** Prove the shipped `thndrs acp serve` command works with a real ACP
+client and is discoverable as packaged.
+
+**Blocked by:** INST-2.
+
+**Acceptance:**
+
+- [ ] Record one real client, client version, protocol version, and test date
+      that prove initialization, streaming, tools, permission, cancellation, and
+      session settlement.
+- [ ] Each compatibility fix receives a deterministic fake-client regression.
+- [ ] Registry/discovery material names the actual command and supported
+      capabilities.
+- [ ] Stdio remains the only transport until a concrete deployment cannot use
+      it.
+- [ ] Packaged execution resolves assets/config exactly as source execution does.
+
+**Verify:** Fake-client suite, packaged command smoke, and one redacted real
+client evidence record.
+
+### INST-4: Prove every first-class provider route through every surface
+
+**Outcome:** Ensure TUI, JSONL, ACP, and supervised children use the same route,
+permission, workspace, and session semantics.
+
+**Blocked by:** INST-2; supervised-child cases wait for INST-6.
+
+**Acceptance:**
+
+- [ ] Deterministic provider fakes cover ChatGPT Codex, OpenCode Zen, and
+      OpenCode Go without network access.
+- [ ] Provider setup/capacity failures stay distinct from harness lifecycle
+      failures.
+- [ ] Permissions and workspace containment do not vary by dispatch surface.
+- [ ] Session events and terminal results settle identically for equivalent
+      semantic runs.
+- [ ] Bounded opt-in smokes cover one current ChatGPT Codex model and one model
+      on each supported OpenCode route.
+
+**Verify:** Cross-surface conformance tests and isolated live smokes with
+redacted evidence.
+
+### INST-5: Expose supported account capacity without scraping
+
+**Outcome:** Show provider-reported remaining subscription/credit windows when
+a supported account API can provide them, and say unavailable otherwise.
+
+**Blocked by:** INST-1 and an evidenced supported API for each route. This task
+does not block process supervision.
+
+**Acceptance:**
+
+- [ ] ChatGPT displays each returned rate-limit window with used/remaining,
+      reset, observation time, and stale state when the supported route exposes it.
+- [ ] OpenCode displays subscription/credit allowance and reset data only when
+      its supported API returns them.
+- [ ] `/usage` refreshes and shows detail; `/status` and orientation show only a
+      compact redacted summary.
+- [ ] ACP/JSONL metadata may expose an optional redacted snapshot.
+- [ ] Missing fields and unsupported routes display `unavailable`; stale data
+      displays `stale`; neither becomes zero.
+- [ ] Raw account responses, email, token, account ID, and authorization URL are
+      never persisted or rendered.
+
+**Verify:** Provider-response fixtures for complete, partial, stale, malformed,
+and unsupported cases; redaction tests; opt-in live smoke only for supported
+APIs.
+
+### INST-6: Supervise one read-only child process
+
+**Outcome:** Let a foreground `thndrs` session dispatch and settle exactly one
+explicit read-only child `thndrs` process.
+
+**Blocked by:** INST-1 through INST-4. UI-7 is required before user steering is
+added, but not for the first unsteerable child slice.
+
+**Acceptance:**
+
+- [ ] The child receives explicit executable, protocol, absolute cwd, exact
+      model route, session policy, prompt, limits, timeout, and read-only authority.
+- [ ] The parent owns pipes, process-group cleanup, cancellation, timeout, and
+      terminal settlement; a child cannot outlive parent shutdown.
+- [ ] Child context, transcript, queue, session, and process registry remain
+      separate from the parent.
+- [ ] The parent receives a bounded summary plus instance/session handles.
+- [ ] Missing credentials, invalid cwd, startup failure, protocol corruption,
+      timeout, cancellation, and task failure settle distinctly.
+- [ ] Recursive delegation and write authority are disabled.
+- [ ] Fresh supported capacity may reject a depleted route; unavailable
+      capacity does not invent a decision.
+
+**Verify:** Deterministic fake-child protocol tests, real local child smoke,
+process cleanup tests, timeout/cancellation tests, and bounded-evidence tests.
+
+### INST-7: Add bounded multi-instance supervision
+
+**Outcome:** Run a small number of independent children without weakening
+authority, lifecycle, or failure isolation.
+
+**Blocked by:** INST-6.
+
+**Acceptance:**
+
+- [ ] Delegation requires direct user/project instruction and an independently
+      useful bounded task.
+- [ ] Concurrency, depth, total runtime, evidence, and account-capacity policy
+      are validated before launch.
+- [ ] Parent cancellation settles every owned child before the parent run can
+      complete.
+- [ ] One child failure does not hide another child's result or permission
+      request.
+- [ ] No child gains write authority or further delegation implicitly.
+- [ ] Results are ordered and identified deterministically regardless of
+      completion order.
+
+**Verify:** Fake-process concurrency tests covering mixed success/failure,
+capacity rejection, cancellation races, permission waits, and shutdown.
+
+### INST-8: Expose sparse instance controls
+
+**Outcome:** Inspect, steer, and stop a child without turning the TUI into a
+pane manager.
+
+**Blocked by:** INST-7 plus UI-6 through UI-8.
+
+**Acceptance:**
+
+- [ ] A compact surface shows stable ID, bounded task, route/model, cwd,
+      lifecycle, elapsed time, authority, capacity state, and session/result handle.
+- [ ] Inspect, steer, stop, and close actions resolve exactly one instance and
+      are audited.
+- [ ] Permission requests remain visible while another instance is focused.
+- [ ] Closing a settled instance removes transient UI state but never deletes
+      its durable session.
+- [ ] Child transcript detail uses the same semantic block/progressive-
+      disclosure model without merging histories.
+- [ ] Default layout remains transcript + composer + restrained status; no
+      permanent panes are added.
+
+**Verify:** Instance-state transitions, focus/keymap tests, snapshots at normal
+and narrow widths, and an end-to-end two-child smoke.
+
+### INST-9: Pass the harness dogfood gate
+
+**Outcome:** Prove `thndrs` is both a reliable foreground agent and a reliable
+dispatchable child.
+
+**Blocked by:** INST-4 and INST-6 through INST-8. INST-5 is required only for
+routes that claim capacity support.
+
+**Acceptance:**
+
+- [ ] One ChatGPT Codex, OpenCode Zen, and OpenCode Go child is exercised where
+      accounts and current routes are available; unavailable routes are recorded
+      accurately.
+- [ ] Foreground and child runs cover implementation, diagnosis, review,
+      failure recovery, cancellation, queue steering, and resume.
+- [ ] Herdr can host `thndrs`, Codex, and Pi panes without special integration
+      or terminal corruption.
+- [ ] Capacity is accurate or clearly unavailable; permissions remain visible;
+      all child processes settle.
+- [ ] Repeated harness failures become deterministic regression tests.
+
+**Verify:** A redacted dogfood ledger, focused regression suite, provider smokes,
+and real-terminal cleanup review.
+
+## P3 — Quiver v1
+
+Quiver follows the trust, permission, containment, and effect boundaries used by
+built-in tools. It does not create a second plugin runtime.
+
+### QUIV-1: Resolve arrow manifests without running them
+
+**Outcome:** Discover and validate global/project arrows as pure data.
+
+**Blocked by:** None.
+
+**Acceptance:**
+
+- [ ] Discover valid manifests from documented global and project roots with
+      deterministic ordering.
+- [ ] Accept either TOML plus optional sibling `overlay.toml`, or JSON plus
+      optional sibling overlay, according to one versioned schema.
+- [ ] Reject directories containing both manifest formats, mismatched overlays,
+      invalid names, traversal, unknown required schema versions, and duplicate
+      operations with actionable diagnostics.
+- [ ] A project arrow fully shadows a global arrow with the same name; no fields
+      merge across trust scopes.
+- [ ] Invalid arrows remain inspectable without breaking unrelated startup.
+- [ ] Discovery neither enables an arrow nor runs its entrypoint/health check.
+- [ ] Parsed types distinguish trusted manifest fields from mutable learned
+      overlay fields.
+
+**Verify:** Pure parser/resolver tests over deterministic temporary fixtures,
+including shadowing, malformed, traversal, and mixed-format cases.
+
+### QUIV-2: Add lifecycle, health, and explicit enablement
+
+**Outcome:** Make discovered, enabled, healthy, and runnable distinct states.
+
+**Blocked by:** QUIV-1.
+
+**Acceptance:**
+
+- [ ] Humans can inspect status and explicitly enable/disable an arrow at the
+      correct scope.
+- [ ] Agents can request enablement only through normal permission interaction;
+      they cannot self-enable silently.
+- [ ] Health checks use manifest-declared explicit argv, contained cwd,
+      timeout, and bounded output; shell command strings are rejected.
+- [ ] Missing/incompatible runtime remains visible with an actionable degraded
+      state.
+- [ ] Project-local entrypoints are visibly classified and require explicit
+      project trust before health or invocation.
+- [ ] State transitions and configuration writes are atomic and audited.
+
+**Verify:** Lifecycle transition tests, fake process executor tests, trust and
+permission cases, and atomic-config failure tests.
+
+### QUIV-3: Project arrow knowledge into context safely
+
+**Outcome:** Expose compact capability metadata by default and load full or
+learned knowledge only on demand.
+
+**Blocked by:** QUIV-1 and QUIV-2.
+
+**Acceptance:**
+
+- [ ] Default context contains only compact identity, scope, state, operation
+      names, effects, and a bounded description.
+- [ ] Full docs and learned notes load through explicit tool/context operations.
+- [ ] Agent-written learning records provenance, confidence, observed version,
+      timestamp, and review state in the optional overlay.
+- [ ] Overlays cannot modify entrypoints, argv templates, operations, effects,
+      permissions, containment, trust, or manifest identity.
+- [ ] Users can inspect, reset, reject, and deliberately promote learned
+      changes.
+- [ ] Context budget and serialization caps fail closed with visible omission.
+
+**Verify:** Projection snapshots, budget/cap tests, overlay authority tests, and
+atomic learning-record round trips.
+
+### QUIV-4: Invoke declared arrow operations as tools
+
+**Outcome:** Provide generic Quiver management and bounded direct operations for
+healthy enabled arrows.
+
+**Blocked by:** QUIV-2 and QUIV-3; the applicable sandbox/permission policy must
+be explicit even if the first slice is read-only.
+
+**Acceptance:**
+
+- [ ] Quiver exposes generic inspect, status, enable, disable, documentation,
+      and learning operations.
+- [ ] A healthy enabled arrow may contribute a direct named operation without
+      rewriting the core tool registry architecture.
+- [ ] Invocation uses explicit argv, contained cwd, timeout, output caps,
+      cancellation, redaction, and process cleanup.
+- [ ] Declared effects participate in permission policy before execution and
+      actual effects are recorded afterward.
+- [ ] A project arrow cannot exceed project trust or the current run's
+      authority.
+- [ ] The shell tool remains an explicit escape hatch, not an implicit Quiver
+      execution path.
+
+**Verify:** Fake-executor operation tests, permission/containment tests,
+cancellation/output-cap tests, and semantic transcript/session projections.
+
+### QUIV-5: Ship `mccabre` as the first read-only arrow
+
+**Outcome:** Prove the whole Quiver path with an independently installed,
+read-only code-analysis capability.
+
+**Blocked by:** QUIV-1 through QUIV-4.
+
+**Acceptance:**
+
+- [ ] `thndrs` presents `mccabre` as a bundled manifest/integration but an
+      independently installed executable.
+- [ ] Setup diagnoses absent, incompatible, disabled, unhealthy, and untrusted
+      installations without auto-installing or executing project code.
+- [ ] Supported analyses run from the selected contained workspace and return
+      bounded semantic findings plus raw-detail handles where safe.
+- [ ] Artifact-writing/report operations and remote authority are not exposed
+      in v1.
+- [ ] Threshold output is presented as analysis data, not an enforced quality
+      gate unless a separate policy says so.
+- [ ] Automated tests use deterministic fakes; a documented real local smoke
+      proves executable compatibility.
+
+**Verify:** Manifest/setup fixtures, fake analysis outputs, transcript/context
+snapshots, and one version-recorded local smoke.
+
+### QUIV-6: Document and review the vertical slice
+
+**Outcome:** Make Quiver's installation, scope, trust, learning, invocation, and
+limitations understandable to users and maintainers.
+
+**Blocked by:** QUIV-5.
+
+**Acceptance:**
+
+- [ ] User documentation distinguishes arrow installation records from the
+      external executable and explains global/project shadowing.
+- [ ] Documentation explains project-local script trust, explicit enablement,
+      health, effects, permissions, overlay learning, reset/promotion, and limits.
+- [ ] Comparison language describes the implemented relationship among arrows,
+      tools, skills, slash commands, and MCP without claiming a generic plugin
+      ecosystem.
+- [ ] Maintainer documentation records the versioned schema, pure/effect
+      boundaries, compatibility policy, and test strategy.
+- [ ] Public docs build successfully.
+
+**Verify:** Documentation review, examples exercised against the current CLI,
+and `pnpm --dir docs build`.
+
+## Later Vertical Slices
+
+These are intentionally ordered after the foundation they need. Promote one to
+a priority milestone only when it has an owner and its blocker is satisfied.
+
+### SESSION-1: Fork a session from a settled turn
+
+**Blocked by:** Stable semantic session events from UI-4.
+
+- [ ] Select only replayable settled turn boundaries.
+- [ ] Give the fork a new identifier and record source session, source turn,
+      timestamp, and lineage.
+- [ ] Store a self-contained replayable prefix.
+- [ ] Never copy pending tools, permissions, queues, processes, or children.
+
+### SESSION-2: Export sessions for human review
+
+**Blocked by:** UI-4 and structured review semantics from UI-9.
+
+- [ ] Export deterministic Markdown and self-contained HTML.
+- [ ] Preserve messages, reasoning summaries, tools, status, errors, findings,
+      session identity, and lineage with bounded redacted details.
+- [ ] Require no external scripts or assets in HTML.
+
+### INPUT-1: Attach images to native prompts
+
+**Blocked by:** Composer state from UI-1 and provider capability metadata.
+
+- [ ] Add, inspect, and remove paths before submission.
+- [ ] Validate MIME type, size, dimensions, readability, and route support
+      locally.
+- [ ] Persist safe attachment metadata without duplicating arbitrary source
+      files.
+- [ ] Reject text-only routes before making a request.
+
+### PROVIDER-1: Support the OpenAI Platform API
+
+- [ ] Keep Platform and ChatGPT credentials/routes distinct.
+- [ ] Normalize text, images, reasoning, tools, usage, retry, and errors through
+      provider-neutral agent contracts.
+- [ ] Setup, doctor, model selection, status, and sessions identify the route
       accurately.
 
-**Verification:**
+### PROVIDER-2: Support the Anthropic API
 
-- No-network request/stream fixtures plus an ignored live smoke test.
+- [ ] Add setup, doctor, model selection, recovery, and session identity.
+- [ ] Normalize text, images, reasoning, tools, usage, retries, and errors.
+- [ ] Reject unsupported controls locally through explicit capabilities.
 
-## PL-12: Support the Anthropic API
+### PROVIDER-3: Configure compatible provider endpoints
 
-**What to build:** Add first-class Anthropic API-key authentication and model
-discovery through the existing Anthropic-compatible adapter boundary.
+**Blocked by:** Two native provider adapters with stable capability contracts.
 
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] Setup, doctor, model selection, and recovery support Anthropic.
-- [ ] Text, image, reasoning, tools, usage, retries, and errors normalize
-      without exposing provider payloads publicly.
-- [ ] Provider-specific capabilities reject unsupported controls locally.
-
-**Verification:**
-
-- No-network request/stream fixtures plus an ignored live smoke test.
-
-## PL-13: Configure compatible provider endpoints
-
-**What to build:** Let users register custom OpenAI- or Anthropic-compatible
-endpoints and a data-driven model catalogue.
-
-**Blocked by:** PL-11: Support the OpenAI Platform API; PL-12: Support the
-Anthropic API
-
-**Acceptance criteria:**
-
-- [ ] Configuration declares protocol, base URL, credential source, and model
-      capabilities without embedding secrets.
-- [ ] Model metadata covers tools, images, reasoning, context, and output
+- [ ] Configuration declares protocol, base URL, credential source, model, and
+      trust scope.
+- [ ] Capability metadata covers tools, images, reasoning, context, and output
       limits.
-- [ ] Invalid or incomplete capabilities fail before a provider request.
+- [ ] Invalid or incomplete capability declarations fail before a request.
 
-**Verification:**
+### SAFETY-1: Gate project-owned runtime configuration on trust
 
-- Local fake servers cover both protocols, model loading, and rejected config.
-
-## PL-16: Gate project-owned runtime configuration on trust
-
-**What to build:** Ask before loading project-owned configuration that can
-start processes or change runtime behavior.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] Trust covers project MCP, ACP, prompt templates, and skills without
-      treating `AGENTS.md` as executable authority.
+- [ ] Cover project MCP, ACP, arrows, prompt templates, commands, and skills
+      without one setting silently authorizing unrelated capabilities.
 - [ ] Untrusted projects use global/user configuration and show what was
-      skipped.
-- [ ] Trust decisions are explicit, inspectable, revocable, and scoped to a
-      canonical project root.
+      ignored.
+- [ ] Decisions are explicit, inspectable, revocable, scoped, and durable.
+- [ ] Project files/resources cannot rewrite harness identity, direct
+      instructions, tool schemas, provider boundaries, or safety policy.
 
-**Verification:**
+### SAFETY-2: Define the sandbox execution boundary
 
-- Clean-home tests cover trusted, untrusted, moved, and replaced project roots.
+**Blocked by:** SAFETY-1.
 
-## PL-17: Define the sandbox execution boundary
+- [ ] Distinguish read-only, workspace-write, and external isolation.
+- [ ] Treat filesystem and network authority as separate inputs.
+- [ ] Make built-in shell, ACP terminals, MCP children, arrows, and supervised
+      instances report the boundary they actually use.
+- [ ] Claim no isolation when no enforcing backend exists.
 
-**What to build:** Route local commands through one application-owned sandbox
-adapter while preserving an explicit external/no-sandbox mode.
+### SAFETY-3: Implement the first OS sandbox backend
 
-**Blocked by:** PL-1: Own agent-run completion
+**Blocked by:** SAFETY-2.
 
-**Acceptance criteria:**
+- [ ] Enforce declared workspace reads/writes and network policy.
+- [ ] Fail closed outside allowed roots and for disallowed network access.
+- [ ] Protect repository-control and credential paths.
+- [ ] Ensure descendants cannot outlive cancellation or shutdown.
 
-- [ ] Policy distinguishes read-only, workspace-write, and external isolation.
-- [ ] Filesystem and network authority are separate inputs.
-- [ ] Built-in shell, ACP terminals, and MCP children report which boundary
-      applies.
-- [ ] The adapter adds no in-process claim of isolation when no backend exists.
+### SAFETY-4: Ask for approval at authority boundaries
 
-**Verification:**
+**Blocked by:** SAFETY-2; OS-enforced cases additionally require SAFETY-3.
 
-- Deterministic policy and routing tests with a fake sandbox backend.
+- [ ] Describe the exact command, resource, effects, and requested authority.
+- [ ] Audit allow, reject, cancel, timeout, and unavailable-interaction results.
+- [ ] Never weaken the sandbox silently or claim enforcement that is absent.
+- [ ] Apply skill-, arrow-, MCP-, and child-specific permission constraints
+      through the same policy model.
 
-## PL-18: Implement the first OS sandbox backend
+### CONTEXT-1: Inspect context at a provider request
 
-**What to build:** Enforce read-only and workspace-write command execution on
-one supported operating system.
+- [ ] Choose a turn, request, and retry without exposing raw provider payloads.
+- [ ] Show item kind, source, estimated size/tokens, visibility, lifecycle, and
+      omission reason.
+- [ ] Show budget totals, route/model, serialized request size, reported usage,
+      and compaction boundary.
+- [ ] Distinguish historical capture from the current next-request projection.
+- [ ] Keep content-free historical records useful after resume and bounded on
+      large sessions.
 
-**Blocked by:** PL-17: Define the sandbox execution boundary
+### CONTEXT-2: Compare context between requests
 
-**Acceptance criteria:**
+**Blocked by:** CONTEXT-1.
 
-- [ ] Workspace reads and policy-approved writes behave as declared.
-- [ ] Writes outside allowed roots and disallowed network access fail closed.
-- [ ] Protected repository and credential paths remain unavailable.
-- [ ] Child processes cannot outlive cancellation or application shutdown.
+- [ ] Group additions, removals, visibility/lifecycle changes, replacements,
+      and truncation/compaction.
+- [ ] Compare budget, serialized size, estimated tokens, and reported usage.
+- [ ] Use the same model across turns and forked sessions.
+- [ ] Keep large diffs bounded/searchable without loading every body.
 
-**Verification:**
+### CONTEXT-3: Browse session lineage
 
-- Platform integration tests attempt allowed and denied filesystem, network,
-  and process operations.
+**Blocked by:** SESSION-1.
 
-## PL-19: Ask for approval at sandbox boundaries
+- [ ] Display pre-lineage sessions as roots.
+- [ ] Show source turn, title, model, last activity, and lock/corruption state.
+- [ ] Inspect, resume, fork, or export through existing workflows.
+- [ ] Surface missing parents, malformed lineage, and cycles as diagnostics.
 
-**What to build:** Surface approval only when an operation requests authority
-outside the active sandbox policy.
+### CONTEXT-4: Capture opt-in request projections
 
-**Blocked by:** PL-18: Implement the first OS sandbox backend
+**Blocked by:** CONTEXT-1 and an approved privacy/retention design.
 
-**Acceptance criteria:**
+- [ ] Default off and require an explicit per-run choice.
+- [ ] Store normalized model-message projection, never credentials or raw wire
+      payloads.
+- [ ] Fail closed on size/retention limits and record omissions.
+- [ ] Preserve existing redaction in inspect/export surfaces.
 
-- [ ] Approval describes the exact command, resource, and requested authority.
-- [ ] Allow, reject, cancel, and unavailable-interaction outcomes are audited.
-- [ ] Approval never weakens the sandbox silently or claims that command
-      classification is isolation.
+### EVAL-1: Run versioned coding-task evaluations
 
-**Verification:**
+**Blocked by:** Stable headless semantics and structured review.
 
-- Policy, TUI, headless, ACP, and session tests cover every outcome.
+- [ ] Cover edits, diagnosis, review, tool failure, steering, compaction,
+      cancellation, resume, Unicode, and containment.
+- [ ] Separate harness failures from model task failures.
+- [ ] Record model, route, revision, timing, usage, intervention, environment,
+      and task version without secrets.
+- [ ] Make reports deterministic enough to compare harness revisions.
 
-## PL-20: Define structured code-review findings
+### INSTANCE-10: Isolate writing children in worktrees
 
-**What to build:** Define a stable review result with severity, summary,
-evidence, and the smallest useful code location.
+**Blocked by:** INST-9, SAFETY-3, and SESSION-1.
 
-**Blocked by:** None - can start immediately
+- [ ] Require an explicit bounded repository and write-capable task.
+- [ ] Keep child writes inside its isolated worktree and authority boundary.
+- [ ] Report changed files, verification, session, and cleanup state.
+- [ ] Applying, committing, publishing, or deleting child work remains a
+      separate explicit user action.
 
-**Acceptance criteria:**
+### PRODUCT-1: Add explicit plan/read-only mode
 
-- [ ] The contract distinguishes actionable findings from a clean review.
-- [ ] Findings require evidence and reject invalid or out-of-range locations.
-- [ ] Rendering is deterministic in human and JSON forms.
+**Blocked by:** SAFETY-2 and UI-8.
 
-**Verification:**
-
-- Parser, validation, ordering, and rendering tests use fixed review fixtures.
-
-## PL-21: Add a first-class review command
-
-**What to build:** Review uncommitted changes, a base branch, or one commit
-through an explicit read-only workflow.
-
-**Blocked by:** PL-20: Define structured code-review findings
-
-**Acceptance criteria:**
-
-- [ ] Exactly one review target is resolved before the provider runs.
-- [ ] Review uses read-only tools and does not modify the repository.
-- [ ] Human and JSON output use the structured finding contract.
-- [ ] A clean review exits successfully with no invented findings.
-
-**Verification:**
-
-- Git fixtures cover every target, invalid combinations, findings, and a clean
-  result.
-
-## PL-22: Run versioned coding-task evaluations
-
-**What to build:** Add a deterministic runner for versioned repository tasks
-with explicit setup, expected behavior, verification, and scoring.
-
-**Blocked by:** PL-2: Run one prompt without the TUI
-
-**Acceptance criteria:**
-
-- [ ] Tasks cover edits, diagnosis, review, tool failure, steering, compaction,
-      hostile instructions, and interrupted resume.
-- [ ] Reports separate harness failures from model task failures.
-- [ ] Results record model, provider, revision, timing, usage, intervention,
-      changed files, and verification outcome.
-
-**Verification:**
-
-- A fake provider run produces stable JSON and Markdown reports.
-
-## PL-24: Supervise read-only subagents
-
-**What to build:** Let a parent run delegate explicit independent tasks to
-bounded, read-only child runs and collect their summaries.
-
-**Blocked by:** PL-1: Own agent-run completion
-
-**Acceptance criteria:**
-
-- [ ] Delegation requires direct user or project guidance and obeys a
-      concurrency limit.
-- [ ] Each child has isolated context, its own transcript, and inherited
-      sandbox limits.
-- [ ] Parent cancellation settles every child before completion.
-- [ ] The parent receives summaries rather than unbounded child transcripts.
-
-**Verification:**
-
-- Deterministic fake-agent tests cover success, failure, cancellation, and the
-  concurrency bound.
-
-## PL-25: Inspect and steer subagents
-
-**What to build:** Let users inspect, steer, stop, and close supervised child
-runs without losing the parent conversation.
-
-**Blocked by:** PL-24: Supervise read-only subagents
-
-**Acceptance criteria:**
-
-- [ ] Active and completed children have stable identifiers and visible state.
-- [ ] Steering and stop requests target exactly one child and are audited.
-- [ ] Child approval requests remain visible while another thread is focused.
-
-**Verification:**
-
-- State-machine and renderer tests cover concurrent child updates and actions.
-
-## PL-26: Isolate writing subagents in worktrees
-
-**What to build:** Give an explicitly authorized writing child its own Git
-worktree and return an inspectable change summary to the parent.
-
-**Blocked by:** PL-19: Ask for approval at sandbox boundaries; PL-24: Supervise
-read-only subagents
-
-**Acceptance criteria:**
-
-- [ ] Worktree creation is explicit, bounded to one repository, and never
-      mutates the user's current checkout.
-- [ ] Child writes stay inside its worktree.
-- [ ] Completion reports changed files, verification, and cleanup state.
-- [ ] Applying, committing, or deleting child work remains a separate user
-      action.
-
-**Verification:**
-
-- Temporary-repository tests cover success, cancellation, dirty state, and
-  cleanup failure.
-
-## PL-27: Inspect context at a provider request
-
-**What to build:** Add a TUI inspector for the context considered and selected
-at each recorded provider request in the active or resumed session.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] Users can choose a turn, request, and retry attempt without reading raw
-      session JSONL.
-- [ ] The inspector shows every context item's kind, source, estimated size,
-      visibility, lifecycle, and inclusion or exclusion reason.
-- [ ] Budget totals, provider/model identity, serialized request size, token
-      estimate provenance, provider usage, and reduction receipts are visible.
-- [ ] The current next-request projection is clearly distinguished from a
-      request that was actually sent.
-- [ ] Content-free historical records remain useful after resuming a session;
-      missing records produce an explicit unavailable state.
-
-**Verification:**
-
-- State and renderer tests cover multiple requests in one turn, retries,
-  compaction, pinned and dropped items, resume, and sessions without accounting
-  records.
-
-## PL-28: Compare context between requests
-
-**What to build:** Let users diff two request snapshots to explain how the
-model-visible working set and context pressure changed.
-
-**Blocked by:** PL-27: Inspect context at a provider request
-
-**Acceptance criteria:**
-
-- [ ] The diff groups added, removed, visibility-changed, lifecycle-changed,
-      and reduction-changed context items by stable identifier.
-- [ ] Budget, serialized-size, estimated-token, and reported-usage changes are
-      shown separately so estimates are not presented as provider facts.
-- [ ] Comparing requests across turns and forked sessions uses the same
-      projection and handles absent historical records explicitly.
-- [ ] Large diffs remain bounded and searchable without loading context bodies.
-
-**Verification:**
-
-- Deterministic request-accounting fixtures cover unchanged, added, removed,
-  compacted, retried, and cross-session comparisons.
-
-## PL-29: Browse session lineage as a tree
-
-**What to build:** Extend the session browser to show roots, forks, and the
-selected fork point as a navigable tree.
-
-**Blocked by:** PL-6: Resume sessions from the TUI; PL-8: Fork a session from a
-completed turn
-
-**Acceptance criteria:**
-
-- [ ] Sessions created before lineage metadata are displayed as roots.
-- [ ] Each child shows its source turn, title, model, last activity, and lock or
-      corruption state without opening it for writing.
-- [ ] Selecting a node can inspect, resume, or fork it through the existing
-      validation paths.
-- [ ] Missing parents, malformed lineage, and cycles are visible diagnostics
-      and cannot crash or hide otherwise valid sessions.
-
-**Verification:**
-
-- Session graph and renderer fixtures cover multiple roots, deep and wide
-  forks, legacy sessions, missing parents, cycles, locks, and corrupt records.
-
-## PL-30: Capture opt-in request projections for debugging
-
-**What to build:** Add an explicit diagnostic mode that preserves a bounded,
-redacted model-message projection when context metadata cannot explain a
-provider request.
-
-**Blocked by:** PL-27: Inspect context at a provider request
-
-**Acceptance criteria:**
-
-- [ ] Capture is off by default, requires an explicit per-run choice, and the
-      TUI states that prompt and tool content may be persisted.
-- [ ] The durable record stores the normalized model-message projection, not
-      provider wire payloads or authentication data.
-- [ ] Size and retention limits fail closed, and inspection identifies omitted
-      or redacted content.
-- [ ] Inspect and export surfaces preserve existing redaction guarantees and
-      clearly distinguish captured content from content-free accounting.
-
-**Verification:**
-
-- Session, inspection, and export tests cover default-off behavior, opt-in
-  capture, redaction, truncation, retention, and resume.
-
-## PL-31: Clarify the transcript reading hierarchy
-
-**What to build:** Make assistant prose the primary transcript layer while
-keeping reasoning and status updates quieter and more compact. Separate a
-turn's final response from the activity above it with consistent spacing and a
-restrained marker.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] Assistant prose remains visually dominant beside reasoning, status, and
-      operational entries.
-- [ ] Reasoning and status updates remain readable without competing with the
-      response.
-- [ ] Every final response has a consistent, restrained boundary from the
-      preceding activity.
-
-**Verification:**
-
-- Renderer fixtures cover mixed reasoning, status, operational, and response
-  entries across narrow and wide terminals.
-
-## PL-32: Render each tool call as one stable block
-
-**What to build:** Give each tool call one lifecycle block that updates in
-place from running to success or failure. Keep the collapsed view concise and
-make its detail shortcut discoverable.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] A tool block shows its action, target, current state, and concise result.
-- [ ] Lifecycle updates replace the existing block instead of adding visual
-      traffic.
-- [ ] Collapsed output shows `Ctrl+O details`, and expansion retains the
-      existing command, output, and failure detail.
-
-**Verification:**
-
-- State and renderer tests cover running, successful, failed, collapsed, and
-  expanded tool calls.
-
-## PL-33: Make transcript follow mode visible
-
-**What to build:** Show when the transcript is anchored away from its latest
-entry and give users a nearby way to return to follow mode.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] Scrolling away from the latest entry shows an anchored-away indicator
-      and an `End to follow` hint.
-- [ ] Returning to follow mode is immediately visible.
-- [ ] New transcript activity does not move a user who remains anchored away.
-
-**Verification:**
-
-- State and renderer tests cover leaving follow mode, receiving new activity,
-  and returning by keyboard and mouse.
-
-## PL-34: Make operational state precise
-
-**What to build:** Keep the footer focused on the current operation, move quota
-and detailed token telemetry to `/status`, and replace ambiguous spinners with
-specific state labels.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] The footer shows immediate operational state without quota or detailed
-      token telemetry.
-- [ ] `/status` exposes the quota and token details removed from the footer.
-- [ ] State labels distinguish `Thinking`, a running tool such as
-      `Running cargo test`, `Stopping`, and `Stopped`.
-
-**Verification:**
-
-- State and renderer tests cover idle, thinking, tool execution, stopping, and
-  stopped states, plus the corresponding `/status` telemetry.
+- [ ] Mode has enforceable authority, visible status, local capability
+      rejection, and a deliberate transition to write-capable work.
+- [ ] TUI, JSONL, ACP, and child instances use the same semantics.
+
+### PRODUCT-2: Add in-app task tracking only if sessions need it
+
+**Blocked by:** Evidence from daily-driver and instance workflows.
+
+- [ ] Model only durable user-visible work state not already represented by the
+      transcript, queue, or child lifecycle.
+- [ ] Avoid a second planning system or provider-specific todo payload.
+
+### EXT-1: Expand skills and Quiver distribution deliberately
+
+**Blocked by:** QUIV-6 and existing skill-loading safety tests.
+
+- [ ] Add metadata validation, progressive-loading, remote-fetch safety,
+      reference-depth, and self-knowledge snapshot coverage before distribution.
+- [ ] Design marketplace/install/share behavior as a separate trust and supply-
+      chain slice; do not imply that Quiver v1 ships a marketplace.
+- [ ] Prefer skills, slash commands, MCP, or arrows over a generic plugin
+      framework unless a concrete capability cannot fit those boundaries.
+
+## Trigger-Gated Horizons
+
+These items are retained from the superseded feature plans but are not active
+tasks. Convert one into a vertical slice only when its stated trigger exists.
+
+### Quiver horizons
+
+- **Repository map:** proceed only when repeated workflows show that bounded,
+  targeted derived context improves on normal search. Define cache creation,
+  invalidation, inspection, and deletion before implementation.
+- **Durable memory:** proceed only with an explicit facts model, provenance,
+  retention and forgetting, and user-controlled writes. Learned context must
+  not become executable authority.
+- **Sandboxed arrows:** use the shared sandbox and permission semantics from
+  SAFETY-2 and SAFETY-3; do not build a Quiver-only isolation model.
+- **Jobs, watch triggers, and a local daemon:** require a concrete durable
+  workload that cannot be handled by an explicit foreground or headless run.
+- **First-class `ocaat`:** permission local reads and remote writes separately;
+  do not infer remote authority from discovery or enablement.
+- **Distribution and comparison copy:** wait until the `mccabre` vertical slice
+  is real and reviewable, then describe implemented behavior only.
+
+### Instance horizons
+
+- **Write-capable children:** INSTANCE-10 is the first admissible design; shared
+  writable checkouts remain out of scope.
+- **Remote transports:** require a deployment that local stdio ACP or JSONL
+  cannot serve.
+- **Automatic model routing:** require repeated task evidence and reliable,
+  supported capacity signals; unknown capacity is not a routing signal.
+- **Permanent sidebar or cockpit:** require frequent switching that the compact
+  list, picker, and detail overlay cannot handle.
+- **Public instance SDK:** require a second external harness whose needs are not
+  met by ACP and JSONL.
