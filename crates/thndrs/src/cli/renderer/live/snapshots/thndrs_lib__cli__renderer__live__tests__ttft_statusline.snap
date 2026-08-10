@@ -3,10 +3,10 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 pending:
-│     Ready   /status details                                                                       # [bg=#171928]=   [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Ready [fg=#3b4261 bg=#171928]=   /status details [bg=#171928]=                                                                    [bg=#171928]=  
+│     Ready   /status details                                                                       # [bg=#171928]=   [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Ready [fg=#3b4261 bg=#171928]=   /status details [bg=#171928]=                                                                    [bg=#171928]=
 measured:
-│     Ready   /status details                                                                       # [bg=#171928]=   [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Ready [fg=#3b4261 bg=#171928]=   /status details [bg=#171928]=                                                                    [bg=#171928]=  
+│     Ready   /status details                                                                       # [bg=#171928]=   [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Ready [fg=#3b4261 bg=#171928]=   /status details [bg=#171928]=                                                                    [bg=#171928]=
 retained:
-│     Ready   /status details                                                                       # [bg=#171928]=   [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Ready [fg=#3b4261 bg=#171928]=   /status details [bg=#171928]=                                                                    [bg=#171928]=  
+│     Ready   /status details                                                                       # [bg=#171928]=   [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Ready [fg=#3b4261 bg=#171928]=   /status details [bg=#171928]=                                                                    [bg=#171928]=
 narrow:
 │     Ready   /status details                                                       # [bg=#171928]=   [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Ready [fg=#3b4261 bg=#171928]=   /status details [bg=#171928]=                                                    [bg=#171928]=

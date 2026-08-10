@@ -1183,11 +1183,12 @@ trait InteractiveSurface {
 struct DirectSurface<W: io::Write> {
     backend: TerminalBackend<W>,
     live: LiveRegion,
+    transcript_generation: Option<u64>,
 }
 
 impl<W: io::Write> DirectSurface<W> {
     fn new(backend: TerminalBackend<W>) -> Self {
-        Self { backend, live: LiveRegion::new() }
+        Self { backend, live: LiveRegion::new(), transcript_generation: None }
     }
 }
 
@@ -1197,6 +1198,13 @@ impl<W: io::Write> InteractiveSurface for DirectSurface<W> {
         renderer::style::set_theme(app.theme);
         let width = self.backend.width() as usize;
         let height = self.backend.height() as usize;
+        if self
+            .transcript_generation
+            .is_some_and(|generation| generation != app.transcript_generation)
+        {
+            self.live.begin_transcript_segment();
+        }
+        self.transcript_generation = Some(app.transcript_generation);
         self.live.render_frame(app, &mut self.backend, width, height)?;
         self.backend.flush()?;
         tracing::trace!(
@@ -1897,6 +1905,27 @@ mod tests {
     }
 
     #[test]
+    fn direct_surface_observes_transcript_generation_changes() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session_writer = None;
+        app.transcript
+            .push(app::Entry::User { text: "original session row".to_string() });
+        let mut surface = DirectSurface::new(TerminalBackend::new(Vec::new(), 80, 24));
+
+        surface.draw(&mut app).expect("initial session render");
+        surface.backend.writer().clear();
+
+        app.transcript = vec![app::Entry::Agent { text: "resumed session row".to_string(), streaming: false }];
+        app.transcript_generation += 1;
+        surface.draw(&mut app).expect("resumed session render");
+
+        let output = String::from_utf8(surface.backend.writer().clone()).expect("utf8 terminal output");
+        assert_eq!(output.matches("resumed session row").count(), 1);
+        assert!(!output.contains("original session row"));
+        assert!(!output.contains("\x1b[3J"));
+    }
+
+    #[test]
     fn ephemeral_runs_do_not_create_per_session_logs() {
         let temp = tempfile::tempdir().expect("create workspace");
 
@@ -2554,6 +2583,57 @@ for line in sys.stdin:
 
         let mut surface = TestSurface::default();
         handle_msg(&mut app, Msg::Clear, &mut surface).expect("clear");
+        assert!(app.transcript.is_empty());
+        assert_eq!(surface.clears, 1);
+    }
+
+    #[test]
+    fn action_palette_clear_resets_application_and_render_surface() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session_writer = None;
+        app.first_run_recovery = None;
+        app.transcript.push(app::Entry::User { text: "hello".to_string() });
+        let mut surface = TestSurface::default();
+
+        handle_msg(
+            &mut app,
+            Msg::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char('o'),
+                crossterm::event::KeyModifiers::CONTROL,
+            )),
+            &mut surface,
+        )
+        .expect("open action palette");
+        for ch in "clear".chars() {
+            handle_msg(
+                &mut app,
+                Msg::Key(crossterm::event::KeyEvent::new(
+                    crossterm::event::KeyCode::Char(ch),
+                    crossterm::event::KeyModifiers::NONE,
+                )),
+                &mut surface,
+            )
+            .expect("filter action palette");
+        }
+        assert!(app.action_palette_open);
+        assert_eq!(app.input.as_str(), "clear");
+        assert_eq!(
+            app::action_registry_for_app(&app)
+                .matches("clear", 1)
+                .first()
+                .map(|action| action.label.as_str()),
+            Some("clear")
+        );
+        handle_msg(
+            &mut app,
+            Msg::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut surface,
+        )
+        .expect("run clear action");
+
         assert!(app.transcript.is_empty());
         assert_eq!(surface.clears, 1);
     }

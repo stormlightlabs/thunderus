@@ -119,6 +119,41 @@ fn frame_prompt_rows_adds_complete_composer_border_and_offsets_cursor() {
 }
 
 #[test]
+fn prompt_and_status_surfaces_are_bounded_and_palette_filled() {
+    let mut snapshot = String::new();
+    for width in [8, 12, 40, 120] {
+        let mut app = test_app();
+        app.session_id = "test-session".to_string();
+        app.input.set_text("draft");
+        let (body_rows, cursor) = prompt_rows_for(&app, width);
+        let (prompt_rows, cursor) = frame_prompt_rows(&app, width, body_rows, cursor);
+        let status = static_status_row(&app, width);
+        let panel_bg = renderer::style::palette().panel_bg;
+
+        assert!(cursor.is_none_or(|cursor| cursor.col < width.max(1)));
+        assert!(
+            prompt_rows
+                .iter()
+                .chain(std::iter::once(&status))
+                .all(|row| { row.width == width && row.spans.iter().all(|span| span.style.bg == panel_bg) })
+        );
+        if width >= 12 {
+            let border_style = prompt_rows[0].spans[0].style;
+            assert_eq!(prompt_rows[1].spans[0].style, border_style);
+            assert_eq!(prompt_rows[1].spans.last().expect("right border").style, border_style);
+            assert_eq!(prompt_rows.last().expect("bottom border").spans[0].style, border_style);
+        }
+        snapshot.push_str(&format!("width={width}:\n"));
+        snapshot.push_str(
+            &Frame { rows: prompt_rows.into_iter().chain([status]).collect(), width, cursor, cursor_visible: true }
+                .render_styled(),
+        );
+        snapshot.push('\n');
+    }
+    insta::assert_snapshot!("composer_status_widths", snapshot);
+}
+
+#[test]
 fn frame_prompt_rows_identifies_ephemeral_runs() {
     let mut app = test_app();
     app.run_persistence = crate::app::RunPersistence::Ephemeral;

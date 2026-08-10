@@ -14,7 +14,7 @@ use tempfile::tempdir;
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[test]
-fn interactive_terminal_preserves_native_scrollback_and_terminal_input() {
+fn interactive_terminal_protocol_smoke_without_alternate_screen_or_mouse_capture() {
     let workspace = tempdir().expect("create workspace");
     let pty = native_pty_system();
     let pair = pty
@@ -82,6 +82,8 @@ fn interactive_terminal_preserves_native_scrollback_and_terminal_input() {
     assert_contains(&output, b"\x1b[?2004h", "enable bracketed paste");
     assert_contains(&output, b"\x1b[?2004l", "disable bracketed paste");
     assert_contains(&output, b"\x1b[5 q", "select a blinking terminal cursor");
+    assert_contains(&output, b"\x1b[?25h", "restore cursor visibility");
+    assert_contains(&output, b"\x1b[0 q", "restore the default cursor shape");
     assert_contains(
         &output,
         b"Ask for change, run a command, or inspect the repo.",

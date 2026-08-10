@@ -2,6 +2,6 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                                                                   # [-]=                                                                                
-│   │ Activity                                                                      # [-]=   [fg=#3b4261]=│  [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
+│                                                                                   # [-]=
+│   │ Activity                                                                      # [-]=   [fg=#3b4261]=│  [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=
 │   │ ✓ run_shell [Done]  $ ls  20 lines · Ctrl+O actions                           # [-]=   [fg=#3b4261]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=run_shell [fg=#37f499]= [Done] [-]=   [fg=#abb4da]=$ ls [fg=#abb4da]=  20 lines · Ctrl+O actions [-]=                        [-]=

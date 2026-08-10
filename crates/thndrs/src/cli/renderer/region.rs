@@ -372,9 +372,7 @@ impl LiveRegion {
             // The terminal will preserve every row displaced by the full-screen
             // scroll. Remove the previous mutable region first so prompt and
             // streaming content cannot become transcript history.
-            if let (Some(previous_top), Some(previous_frame)) =
-                (self.rendered_top_row, self.rendered_frame.as_ref())
-            {
+            if let (Some(previous_top), Some(previous_frame)) = (self.rendered_top_row, self.rendered_frame.as_ref()) {
                 backend.clear_rows(previous_top, previous_frame.rows.len() as u16)?;
             }
             // Keep the mutable composer below the terminal-native transcript
@@ -433,6 +431,16 @@ impl LiveRegion {
         self.rendered_height = None;
         self.rendered_top_row = None;
         self.banner_committed = false;
+        self.committed_entry_count = 0;
+    }
+
+    /// Start projecting a replacement transcript without clearing terminal history.
+    ///
+    /// The next render commits the replacement transcript from its first
+    /// stable entry. Keeping the painted frame lets that render erase the old
+    /// mutable region before inserting the new segment, while retaining the
+    /// banner watermark prevents the startup banner from being replayed.
+    pub fn begin_transcript_segment(&mut self) {
         self.committed_entry_count = 0;
     }
 

@@ -1045,6 +1045,7 @@ pub fn apply_compaction(
 
     if is_automatic {
         app.transcript.clear();
+        app.transcript_generation = app.transcript_generation.saturating_add(1);
     } else {
         app.transcript = pending.original_transcript;
         app.transcript

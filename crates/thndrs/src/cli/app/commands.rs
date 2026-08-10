@@ -74,8 +74,7 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         return resume_session_command(app, session_id.trim());
     }
     if command == "resume" {
-        app.transcript
-            .push(Entry::Error { text: String::from("usage: /resume <session-id>") });
+        super::input::open_session_picker(app);
         return None;
     }
     if let Some(session_id) = command.strip_prefix("session ") {
@@ -463,6 +462,11 @@ fn show_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
 }
 
 fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
+    if matches!(app.run_state, RunState::Working | RunState::Stopping) {
+        app.transcript
+            .push(Entry::Status { text: String::from("sessions are not available while the agent is working") });
+        return None;
+    }
     if app.is_ephemeral() {
         app.transcript
             .push(Entry::Error { text: String::from("cannot resume a session in ephemeral mode") });
@@ -501,7 +505,6 @@ fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
         .iter()
         .filter(|record| matches!(record, session::SessionRecord::User { .. }))
         .count() as u64;
-
     app.session_writer = Some(writer);
     app.session_id = id.clone();
     app.transcript = transcript;
@@ -515,6 +518,7 @@ fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
     app.turn_count = turn_count;
     app.last_input = None;
     app.pending_manual_compaction = None;
+    app.pending_compaction_review = None;
     app.queued_steering.clear();
     app.queued_followups.clear();
     app.pending_permission = None;
@@ -522,6 +526,7 @@ fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
     app.input.clear();
     app.history_cursor = None;
     app.history_draft.clear();
+    app.transcript_generation = app.transcript_generation.saturating_add(1);
     app.transcript
         .push(Entry::Status { text: format!("resumed session: {id}") });
     None

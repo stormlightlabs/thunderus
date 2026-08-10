@@ -51,8 +51,19 @@ thndrs sessions resume session-20260710
 It restores the saved transcript and token totals, but never restores a
 running tool, pending permission, queued input, or other live process state.
 
-Inside the TUI, use `/history`, `/session <id>`, `/resume <id>`, `/context`,
-and `/tokens` to take a look at your usage.
+Inside the TUI, run `/resume` or choose **Sessions** from the `Ctrl+O` action
+palette to open the recent-session picker. Type to filter the list, use the
+arrow keys to choose a session, and press `Enter` to resume it.
+Press `Esc` to leave the picker without changing sessions. The current session
+is marked, but cannot be resumed from the picker. The list is refreshed whenever
+the picker opens.
+
+Use `/resume <id>` when you already know the exact id or a unique prefix. A
+successful resume starts a new transcript segment at the live edge; transcript
+rows already committed to the terminal remain in native scrollback.
+
+Use `/history`, `/session <id>`, `/context`, and `/tokens` to inspect session
+and context state without switching sessions.
 
 `/context` shows item state, policy reason, protection, replacement,
 and recovery availability.

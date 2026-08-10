@@ -1,7 +1,6 @@
 ---
 source: crates/thndrs/src/cli/renderer/mod.rs
-assertion_line: 193
 expression: frame.render_styled()
 ---
-│   ❯  line one                   # [-]=   [fg=yellow]=❯   [-]=line one [-]=                [-]=  
+│   ❯  line one                   # [-]=   [fg=yellow]=❯   [-]=line one [-]=                [-]=
 │   ❯  line two                   # [-]=   [fg=yellow]=❯   [-]=line two [-]=                [-]=

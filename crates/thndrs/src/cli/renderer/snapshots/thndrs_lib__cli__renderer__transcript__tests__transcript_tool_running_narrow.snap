@@ -2,10 +2,10 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [-]=                                        
-│   │ Activity                              # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=  
-│   │ · run_shell [Running]                 # [-]=   [fg=#f1fc79]=│  [fg=#f7c67f]=·  [fg=#ebfafa b]=run_shell [fg=#f7c67f]= [Running] [-]=              [-]=  
-│   │   $ cargo test                        # [-]=   [fg=#f1fc79]=│  [-]=   [fg=#abb4da]=$ cargo test [-]=                     [-]=  
-│   │    │ test tests::foo ... ok           # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::foo ... ok [-]=        [-]=  
-│   │    │ test tests::bar ... ok           # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::bar ... ok [-]=        [-]=  
+│                                           # [-]=
+│   │ Activity                              # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=
+│   │ · run_shell [Running]                 # [-]=   [fg=#f1fc79]=│  [fg=#f7c67f]=·  [fg=#ebfafa b]=run_shell [fg=#f7c67f]= [Running] [-]=              [-]=
+│   │   $ cargo test                        # [-]=   [fg=#f1fc79]=│  [-]=   [fg=#abb4da]=$ cargo test [-]=                     [-]=
+│   │    │ test tests::foo ... ok           # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::foo ... ok [-]=        [-]=
+│   │    │ test tests::bar ... ok           # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::bar ... ok [-]=        [-]=
 │   │    │ … (3 meaningful lines stored, 2 shown here) · Ctrl+O actions  # [-]=   [fg=#f1fc79]=│  [fg=#abb4da]=   │ … (3 meaningful lines stored, 2 shown here) · Ctrl+O actions

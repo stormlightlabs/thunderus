@@ -2,8 +2,8 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [-]=                                        
-│   │ Activity                              # [-]=   [fg=#3b4261]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=  
-│   │ ✓ search_text [Done]                  # [-]=   [fg=#3b4261]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=search_text [fg=#37f499]= [Done] [-]=               [-]=  
-│   │   pattern: fn main                    # [-]=   [fg=#3b4261]=│  [-]=   [fg=#abb4da]=pattern: fn main [-]=                 [-]=  
+│                                           # [-]=
+│   │ Activity                              # [-]=   [fg=#3b4261]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=
+│   │ ✓ search_text [Done]                  # [-]=   [fg=#3b4261]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=search_text [fg=#37f499]= [Done] [-]=               [-]=
+│   │   pattern: fn main                    # [-]=   [fg=#3b4261]=│  [-]=   [fg=#abb4da]=pattern: fn main [-]=                 [-]=
 │   │   3 lines · Ctrl+O actions            # [-]=   [fg=#3b4261]=│  [-]=   [fg=#abb4da]=3 lines · Ctrl+O actions [-]=         [-]=

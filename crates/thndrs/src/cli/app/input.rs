@@ -6,6 +6,8 @@
 //! navigation, input history, and queued input while an agent is running.
 use super::*;
 
+const SESSION_PICKER_LIMIT: usize = 20;
+
 /// Top-level interaction mode.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 pub enum Mode {
@@ -45,7 +47,11 @@ pub enum PromptAccessory {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FilePickerSource {
     Forced,
-    Mention { token_start: usize },
+    Mention {
+        token_start: usize,
+    },
+    /// Recent persisted sessions selected through `/resume` or the Sessions action.
+    Sessions,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -68,11 +74,17 @@ impl KeyOutcome {
 pub struct PickerItem {
     pub label: String,
     pub detail: String,
+    pub selectable: bool,
 }
 
 impl PickerItem {
     pub fn new(label: impl Into<String>, detail: impl Into<String>) -> Self {
-        Self { label: label.into(), detail: detail.into() }
+        Self { label: label.into(), detail: detail.into(), selectable: true }
+    }
+
+    fn disabled(mut self) -> Self {
+        self.selectable = false;
+        self
     }
 
     fn searchable(&self) -> String {
@@ -236,6 +248,11 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         return None;
     }
 
+    if key.code == KeyCode::Char('p') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        open_file_picker(app, FilePickerSource::Forced);
+        return None;
+    }
+
     if key.code == KeyCode::Char('d')
         && key.modifiers.contains(KeyModifiers::CONTROL)
         && !key.modifiers.contains(KeyModifiers::ALT)
@@ -299,6 +316,14 @@ pub fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
     }
 
     match app.prompt_accessory {
+        PromptAccessory::Files(FilePickerSource::Sessions) => {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => move_session_selection(app, false, 1),
+                MouseEventKind::ScrollDown => move_session_selection(app, true, 1),
+                _ => {}
+            }
+            None
+        }
         PromptAccessory::Files(_)
         | PromptAccessory::Models
         | PromptAccessory::ReasoningEffort
@@ -403,8 +428,7 @@ pub fn handle_command_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome 
                     PromptAccessory::Commands { selected } => selected.min(actions.len() - 1),
                     _ => 0,
                 };
-                execute_action(app, actions[selected].action.clone());
-                return KeyOutcome::Handled;
+                return KeyOutcome::with(execute_action(app, actions[selected].action.clone()));
             }
             _ => {}
         }
@@ -445,6 +469,10 @@ pub fn handle_file_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
         PromptAccessory::Files(source) => source,
         _ => return KeyOutcome::Unhandled,
     };
+    if source == FilePickerSource::Sessions {
+        return handle_session_picker_key(app, key);
+    }
+
     let Some(picker) = app.picker.as_mut() else {
         return KeyOutcome::Unhandled;
     };
@@ -481,6 +509,52 @@ pub fn handle_file_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
         KeyCode::Char(ch) if source == FilePickerSource::Forced => {
             picker.query.push(ch);
             picker.refresh_matches();
+            KeyOutcome::Handled
+        }
+        _ => KeyOutcome::Unhandled,
+    }
+}
+
+fn handle_session_picker_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
+    match key.code {
+        KeyCode::Esc => {
+            close_prompt_accessory(app);
+            KeyOutcome::Handled
+        }
+        KeyCode::Enter => {
+            accept_session_suggestion(app);
+            KeyOutcome::Handled
+        }
+        KeyCode::Up => {
+            move_session_selection(app, false, 1);
+            KeyOutcome::Handled
+        }
+        KeyCode::Down => {
+            move_session_selection(app, true, 1);
+            KeyOutcome::Handled
+        }
+        KeyCode::PageUp => {
+            move_session_selection(app, false, VISIBLE_ROWS);
+            KeyOutcome::Handled
+        }
+        KeyCode::PageDown => {
+            move_session_selection(app, true, VISIBLE_ROWS);
+            KeyOutcome::Handled
+        }
+        KeyCode::Backspace => {
+            if let Some(picker) = app.picker.as_mut() {
+                picker.query.pop();
+                picker.refresh_matches();
+            }
+            select_first_resumable(app);
+            KeyOutcome::Handled
+        }
+        KeyCode::Char(ch) => {
+            if let Some(picker) = app.picker.as_mut() {
+                picker.query.push(ch);
+                picker.refresh_matches();
+            }
+            select_first_resumable(app);
             KeyOutcome::Handled
         }
         _ => KeyOutcome::Unhandled,
@@ -942,6 +1016,10 @@ pub fn accept_command_suggestion(app: &mut App) -> Option<Msg> {
 pub fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
     match app.prompt_accessory {
         PromptAccessory::Commands { selected: _ } => accept_command_suggestion(app),
+        PromptAccessory::Files(FilePickerSource::Sessions) => {
+            accept_session_suggestion(app);
+            None
+        }
         PromptAccessory::Files(_) => {
             accept_file_suggestion(app);
             None
@@ -982,7 +1060,7 @@ pub fn action_registry_for_app(app: &App) -> ActionRegistry {
         ActionItem::new(
             Action::Sessions,
             "sessions",
-            "toggle the wide current-directory sidebar",
+            "resume a recent current-directory session",
         ),
     ];
     items.extend(
@@ -1006,32 +1084,115 @@ pub fn open_action_palette(app: &mut App) {
     app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
 }
 
-fn execute_action(app: &mut App, action: Action) {
+fn execute_action(app: &mut App, action: Action) -> Option<Msg> {
     app.input.clear();
     app.mode = Mode::Prompt;
     close_prompt_accessory(app);
     match action {
         Action::Command(command) => {
             if app.run_state == RunState::Working {
-                let _ = handle_running_command(app, &command);
+                handle_running_command(app, &command)
             } else {
-                let _ = handle_command(app, &command);
+                handle_command(app, &command)
             }
         }
-        Action::Model => open_model_picker(app),
-        Action::Reasoning => open_reasoning_effort_picker(app),
-        Action::Skills => open_skill_picker(app),
-        Action::Files => open_file_picker(app, FilePickerSource::Forced),
-        Action::Help => app.prompt_accessory = PromptAccessory::Help,
-        Action::Detail => open_detail_surface(app),
+        Action::Model => {
+            open_model_picker(app);
+            None
+        }
+        Action::Reasoning => {
+            open_reasoning_effort_picker(app);
+            None
+        }
+        Action::Skills => {
+            open_skill_picker(app);
+            None
+        }
+        Action::Files => {
+            open_file_picker(app, FilePickerSource::Forced);
+            None
+        }
+        Action::Help => {
+            app.prompt_accessory = PromptAccessory::Help;
+            None
+        }
+        Action::Detail => {
+            open_detail_surface(app);
+            None
+        }
         Action::Changes => {
             app.change_review = git::collect_review(&app.cwd);
             app.prompt_accessory = PromptAccessory::Changes { scroll: 0 };
+            None
         }
-        Action::Queue => app.prompt_accessory = PromptAccessory::Queue { selected: 0 },
-        Action::Editor => app.external_editor_requested = true,
-        Action::Sessions => app.session_sidebar_open = !app.session_sidebar_open,
+        Action::Queue => {
+            app.prompt_accessory = PromptAccessory::Queue { selected: 0 };
+            None
+        }
+        Action::Editor => {
+            app.external_editor_requested = true;
+            None
+        }
+        Action::Sessions => {
+            open_session_picker(app);
+            None
+        }
     }
+}
+
+/// Open the bounded, newest-first picker for persisted sessions in the current directory.
+pub fn open_session_picker(app: &mut App) {
+    if !matches!(app.run_state, RunState::Idle | RunState::Error(_)) {
+        app.transcript
+            .push(Entry::Status { text: String::from("sessions are not available while the agent is working") });
+        return;
+    }
+    if app.is_ephemeral() {
+        app.transcript
+            .push(Entry::Error { text: String::from("cannot resume a session in ephemeral mode") });
+        return;
+    }
+
+    let files = session::list_session_files(&app.session_directory());
+    let current_file = files
+        .iter()
+        .find(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|id| id == app.session_id)
+        })
+        .cloned();
+    let mut recent_files = files.into_iter().take(SESSION_PICKER_LIMIT).collect::<Vec<_>>();
+    if let Some(current_file) = current_file
+        && !recent_files.iter().any(|path| path == &current_file)
+    {
+        recent_files.pop();
+        recent_files.push(current_file);
+    }
+
+    let items = recent_files
+        .into_iter()
+        .filter_map(|path| {
+            let id = path.file_stem()?.to_str()?.to_string();
+            let summary = session::SessionReader::read_summary(&path);
+            let marker = if id == app.session_id { "current session · " } else { Default::default() };
+            let item = PickerItem::new(
+                id,
+                format!(
+                    "{marker}{} · {} · in {} out {}",
+                    summary.title, summary.model, summary.input_tokens, summary.output_tokens
+                ),
+            );
+            Some(if marker.is_empty() { item } else { item.disabled() })
+        })
+        .collect();
+
+    app.input.clear();
+    app.mode = Mode::Prompt;
+    app.action_palette_open = false;
+    app.picker = Some(PickerState::new(items, SESSION_PICKER_LIMIT));
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Sessions);
+    select_first_resumable(app);
 }
 
 pub fn open_file_picker(app: &mut App, source: FilePickerSource) {
@@ -1237,6 +1398,53 @@ pub fn insert_file_path(app: &mut App, path: &str) {
         app.input.insert_char(' ');
     }
     app.input.insert_str(path);
+}
+
+fn select_first_resumable(app: &mut App) {
+    if let Some(picker) = app.picker.as_mut() {
+        if let Some(selected) = picker.matches.iter().position(|item| item.selectable) {
+            picker.selected = selected;
+            picker.ensure_selected_visible();
+        }
+    }
+}
+
+fn move_session_selection(app: &mut App, down: bool, steps: usize) {
+    let Some(picker) = app.picker.as_mut() else {
+        return;
+    };
+    if picker.matches.is_empty() {
+        return;
+    }
+
+    for _ in 0..steps {
+        let mut index = picker.selected.min(picker.matches.len() - 1);
+        loop {
+            let next = if down { (index + 1).min(picker.matches.len() - 1) } else { index.saturating_sub(1) };
+            if next == index {
+                return;
+            }
+            index = next;
+            if picker.matches[index].selectable {
+                picker.selected = index;
+                picker.ensure_selected_visible();
+                break;
+            }
+        }
+    }
+}
+
+fn accept_session_suggestion(app: &mut App) {
+    let Some(item) = app.picker.as_ref().and_then(PickerState::selected) else {
+        return;
+    };
+    if !item.selectable {
+        return;
+    }
+    let session_id = item.label.clone();
+
+    close_prompt_accessory(app);
+    let _ = handle_command(app, &format!("resume {session_id}"));
 }
 
 pub fn accept_file_suggestion(app: &mut App) {

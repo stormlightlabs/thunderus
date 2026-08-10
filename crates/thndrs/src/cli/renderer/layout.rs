@@ -172,6 +172,7 @@ pub fn pad_row(spans: Vec<Span>, width: usize, pad_style: CellStyle) -> Vec<Span
     if width == 0 {
         return Vec::new();
     }
+
     let used = spans_width(&spans);
     let left_pad = width.min(2);
     let right_pad = width.saturating_sub(left_pad + used).min(2);
@@ -181,8 +182,7 @@ pub fn pad_row(spans: Vec<Span>, width: usize, pad_style: CellStyle) -> Vec<Span
     if fill > 0 {
         out.push(Span::styled(" ".repeat(fill), pad_style));
     }
-    out = pad_right(out, right_pad, pad_style);
-    out
+    pad_right(out, right_pad, pad_style)
 }
 
 /// Truncate spans to `width` columns, appending `…` if anything was cut.

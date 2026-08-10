@@ -5,6 +5,24 @@ use thndrs_agent::CancelToken;
 
 use helpers::*;
 
+fn write_test_session(app: &App, id: &str, title: &str) {
+    let mut writer = session::SessionWriter::create(
+        &session::sessions_dir(&app.cwd),
+        id,
+        &app.cwd.display().to_string(),
+        title,
+        "opencode-go",
+        "opencode/big-pickle",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create test session");
+    writer
+        .append_entry(&Entry::User { text: format!("prompt for {id}") }, "turn_1")
+        .expect("append test prompt");
+}
+
 #[test]
 fn ctrl_a_in_command_mode_inserts_literal_a() {
     let mut app = fresh_app();
@@ -76,6 +94,217 @@ fn session_commands_are_suggested() {
             "missing {command}"
         );
     }
+}
+
+#[test]
+fn resume_without_an_argument_opens_a_fresh_session_picker() {
+    let mut app = fresh_app();
+    write_test_session(&app, "session-recent", "Recent work");
+    app.input = PromptInput::from("/resume");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::Files(FilePickerSource::Sessions));
+    let picker = app.picker.as_ref().expect("session picker");
+    let recent = picker
+        .matches
+        .iter()
+        .find(|item| item.label == "session-recent")
+        .expect("freshly loaded session");
+    assert!(recent.detail.contains("Recent work"));
+    assert!(
+        picker
+            .matches
+            .iter()
+            .any(|item| item.detail.contains("current session"))
+    );
+}
+
+#[test]
+fn ctrl_p_opens_the_file_picker() {
+    let mut app = fresh_app();
+    std::fs::write(app.cwd.join("README.md"), "test file").expect("write test file");
+
+    update(&mut app, &key(KeyCode::Char('p'), KeyModifiers::CONTROL));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::Files(FilePickerSource::Forced));
+    assert!(
+        app.picker
+            .as_ref()
+            .expect("file picker")
+            .matches
+            .iter()
+            .any(|item| item.label == "README.md")
+    );
+}
+
+#[test]
+fn sessions_action_opens_the_same_session_picker() {
+    let mut app = fresh_app();
+    write_test_session(&app, "session-action", "Action work");
+    update(&mut app, &key(KeyCode::Char('o'), KeyModifiers::CONTROL));
+    app.input = PromptInput::from("sessions");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::Files(FilePickerSource::Sessions));
+    assert!(
+        app.picker
+            .as_ref()
+            .expect("session picker")
+            .matches
+            .iter()
+            .any(|item| { item.label == "session-action" })
+    );
+}
+
+#[test]
+fn session_picker_typing_filters_and_navigation_skips_current_session() {
+    let mut app = fresh_app();
+    app.session_id = "session-current".to_string();
+    write_test_session(&app, "session-current", "Current work");
+    write_test_session(&app, "session-alpha", "Alpha work");
+    write_test_session(&app, "session-beta", "Beta work");
+    handle_command(&mut app, "resume");
+
+    let picker = app.picker.as_ref().expect("session picker");
+    assert_ne!(picker.selected().expect("initial selection").label, "session-current");
+    let first = picker.selected;
+    let direction = if first + 1 < picker.matches.len() { KeyCode::Down } else { KeyCode::Up };
+    update(&mut app, &key(direction, KeyModifiers::NONE));
+    let moved = app.picker.as_ref().expect("session picker").selected;
+    assert_ne!(moved, first, "navigation should move between resumable sessions");
+    assert_ne!(
+        app.picker
+            .as_ref()
+            .expect("session picker")
+            .selected()
+            .expect("selection")
+            .label,
+        "session-current"
+    );
+
+    for ch in "beta".chars() {
+        update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let picker = app.picker.as_ref().expect("filtered session picker");
+    assert_eq!(picker.matches.len(), 1);
+    assert_eq!(picker.matches[0].label, "session-beta");
+    assert_eq!(picker.selected().expect("filtered selection").label, "session-beta");
+}
+
+#[test]
+fn session_picker_page_navigation_skips_current_session() {
+    let mut app = fresh_app();
+    app.session_id = "session-current".to_string();
+    let items = (0..20)
+        .map(|index| {
+            let id = if index == 4 { app.session_id.clone() } else { format!("session-{index:02}") };
+            if id == app.session_id {
+                let mut item = PickerItem::new(id, "");
+                item.selectable = false;
+                item
+            } else {
+                PickerItem::new(id, "")
+            }
+        })
+        .collect();
+    app.picker = Some(PickerState::new(items, 20));
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Sessions);
+
+    update(&mut app, &key(KeyCode::PageDown, KeyModifiers::NONE));
+    let picker = app.picker.as_ref().expect("session picker");
+    assert_eq!(picker.selected, VISIBLE_ROWS + 1);
+    assert_ne!(picker.selected().expect("selection").label, app.session_id);
+
+    update(&mut app, &key(KeyCode::PageUp, KeyModifiers::NONE));
+    assert_eq!(app.picker.as_ref().expect("session picker").selected, 0);
+}
+
+#[test]
+fn session_picker_marks_current_session_and_rejects_enter_on_it() {
+    let mut app = fresh_app();
+    app.session_id = "session-current".to_string();
+    write_test_session(&app, "session-current", "Current work");
+    handle_command(&mut app, "resume");
+
+    let current = app
+        .picker
+        .as_ref()
+        .expect("session picker")
+        .matches
+        .iter()
+        .find(|item| item.label == "session-current")
+        .expect("current session item");
+    assert!(current.detail.contains("current session"));
+    assert!(!current.selectable);
+
+    for ch in "session-current".chars() {
+        update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.session_id, "session-current");
+    assert_eq!(app.prompt_accessory, PromptAccessory::Files(FilePickerSource::Sessions));
+}
+
+#[test]
+fn session_picker_enter_resumes_the_selected_session() {
+    let mut app = fresh_app();
+    let original_session = app.session_id.clone();
+    write_test_session(&app, "session-selected", "Selected work");
+    handle_command(&mut app, "resume");
+    let picker = app.picker.as_mut().expect("session picker");
+    picker.selected = picker
+        .matches
+        .iter()
+        .position(|item| item.label == "session-selected")
+        .expect("selected session");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_ne!(app.session_id, original_session);
+    assert_eq!(app.session_id, "session-selected");
+    assert_eq!(app.transcript_generation, 1);
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::User { text } if text == "prompt for session-selected"))
+    );
+}
+
+#[test]
+fn sessions_cannot_replace_state_while_the_agent_is_working() {
+    let mut app = fresh_app();
+    let original_session = app.session_id.clone();
+    write_test_session(&app, "session-blocked", "Blocked work");
+    app.run_state = RunState::Working;
+
+    open_session_picker(&mut app);
+    handle_command(&mut app, "resume session-blocked");
+
+    assert_eq!(app.session_id, original_session);
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Status { text } if text.contains("while the agent is working")))
+    );
+}
+
+#[test]
+fn session_picker_escape_cancels_without_resuming() {
+    let mut app = fresh_app();
+    let session_id = app.session_id.clone();
+    write_test_session(&app, "session-cancel", "Cancel work");
+    handle_command(&mut app, "resume");
+
+    update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert!(app.picker.is_none());
+    assert_eq!(app.session_id, session_id);
 }
 
 #[test]
@@ -152,7 +381,6 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
         .expect("append user");
     writer.append_usage(7, 11).expect("append usage");
     drop(writer);
-
     app.run_state = RunState::Error("stale state".to_string());
     app.queued_followups.push("stale queue".to_string());
     app.input = PromptInput::from("/resume session-res");
@@ -160,6 +388,7 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
 
     assert_eq!(app.session_id, "session-resume");
     assert_eq!(app.run_state, RunState::Idle);
+    assert_eq!(app.transcript_generation, 1);
     assert!(app.queued_followups.is_empty());
     assert_eq!(app.session_tokens_in, 7);
     assert_eq!(app.session_tokens_out, 11);
@@ -185,6 +414,19 @@ fn command_mode_enter_executes_and_returns_to_prompt() {
     assert_eq!(app.mode, Mode::Prompt);
     assert!(app.input.is_empty());
     assert!(app.transcript.is_empty(), "clear should clear the transcript");
+}
+
+#[test]
+fn action_palette_clear_returns_the_surface_clear_message() {
+    let mut app = fresh_app();
+    app.transcript.push(Entry::User { text: "settled row".to_string() });
+    open_action_palette(&mut app);
+    app.input = PromptInput::from("clear");
+
+    let follow_up = update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(follow_up, Some(Msg::Clear));
+    assert!(app.transcript.is_empty());
 }
 
 #[test]

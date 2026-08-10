@@ -5,6 +5,7 @@ use crate::app::{
 };
 use crate::cli::{Cli, Theme, WebSearchMode, commands::setup::SetupProviderArg};
 use crate::renderer;
+use crate::renderer::row::Row;
 use crate::renderer::view::{
     FocusedSurfaceView, PromptStatusView, PromptSuggestionKind, RendererView, TranscriptRowKind, TruncationPolicy,
 };
@@ -156,19 +157,28 @@ fn build_view_streaming_assistant_is_all_live() {
 fn settled_entries_after_a_mutable_entry_remain_in_chronological_live_order() {
     let mut app = test_app();
     app.run_state = RunState::Working;
-    app.transcript.push(Entry::Agent {
-        text: "mutable response".to_string(),
-        streaming: true,
-    });
-    app.transcript.push(Entry::User { text: "later settled row".to_string() });
+    app.transcript
+        .push(Entry::Agent { text: "mutable response".to_string(), streaming: true });
+    app.transcript
+        .push(Entry::User { text: "later settled row".to_string() });
 
     let view = RendererView::build(&app, 80, 24);
 
     assert!(
-        !view.transcript.stable_rows.iter().any(|row| row.text().contains("later settled row")),
+        !view
+            .transcript
+            .stable_rows
+            .iter()
+            .any(|row| row.text().contains("later settled row")),
         "a settled row must not be committed ahead of an earlier mutable row"
     );
-    let live_text = view.transcript.live_rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
+    let live_text = view
+        .transcript
+        .live_rows
+        .iter()
+        .map(Row::text)
+        .collect::<Vec<_>>()
+        .join("\n");
     let mutable = live_text.find("mutable response").expect("mutable response row");
     let settled = live_text.find("later settled row").expect("later settled row");
     assert!(mutable < settled, "live rows must retain transcript order");
@@ -423,6 +433,23 @@ fn build_view_accessory_surfaces_are_present_when_active() {
             .iter()
             .any(|r| r.text().contains("src/main.rs")),
         "accessory rows should contain picker items"
+    );
+}
+
+#[test]
+fn build_view_labels_the_session_picker_as_sessions() {
+    let mut app = test_app();
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Sessions);
+    app.picker = Some(PickerState::new(vec![PickerItem::new("session-1", "Recent work")], 20));
+
+    let view = RendererView::build(&app, 80, 24);
+
+    assert!(
+        view.live
+            .accessory_rows
+            .iter()
+            .any(|row| row.text().contains("SESSIONS")),
+        "the session picker should not be presented as a file picker"
     );
 }
 

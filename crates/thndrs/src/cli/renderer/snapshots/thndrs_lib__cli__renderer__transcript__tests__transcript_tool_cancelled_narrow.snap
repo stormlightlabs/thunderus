@@ -2,9 +2,9 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [-]=                                        
-│   │ Activity                              # [-]=   [fg=#3b4261]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=  
-│   │ ○ run_shell [Stopped]                 # [-]=   [fg=#3b4261]=│  [fg=#f7c67f]=○  [fg=#ebfafa b]=run_shell [fg=#f7c67f]= [Stopped] [-]=              [-]=  
-│   │   $ cargo test                        # [-]=   [fg=#3b4261]=│  [-]=   [fg=#abb4da]=$ cargo test [-]=                     [-]=  
-│   │    │ running 3 tests                  # [-]=   [fg=#3b4261]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=running [fg=#c0c5ce]= 3 tests [-]=               [-]=  
+│                                           # [-]=
+│   │ Activity                              # [-]=   [fg=#3b4261]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=
+│   │ ○ run_shell [Stopped]                 # [-]=   [fg=#3b4261]=│  [fg=#f7c67f]=○  [fg=#ebfafa b]=run_shell [fg=#f7c67f]= [Stopped] [-]=              [-]=
+│   │   $ cargo test                        # [-]=   [fg=#3b4261]=│  [-]=   [fg=#abb4da]=$ cargo test [-]=                     [-]=
+│   │    │ running 3 tests                  # [-]=   [fg=#3b4261]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=running [fg=#c0c5ce]= 3 tests [-]=               [-]=
 │   │    │ test tests::foo ... ok           # [-]=   [fg=#3b4261]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::foo ... ok [-]=        [-]=

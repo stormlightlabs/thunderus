@@ -2,6 +2,6 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                                                                   # [-]=                                                                                
-│   │ Response                                                                      # [-]=   [fg=#3b4261 b]=│  [fg=#37f499 b]=Response [-]=                                                                   [-]=  
+│                                                                                   # [-]=
+│   │ Response                                                                      # [-]=   [fg=#3b4261 b]=│  [fg=#37f499 b]=Response [-]=                                                                   [-]=
 │   │ Sure! I can help with that. Let me take a look.                               # [-]=   [fg=#3b4261 b]=│  [fg=#ebfafa]=Sure! I can help with that. Let me take a look. [-]=                            [-]=

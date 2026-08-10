@@ -594,7 +594,10 @@ mod tests {
             out.contains("\x1b[10;1H\r\n"),
             "history insertion should scroll the full terminal: {out:?}"
         );
-        assert!(out.contains("\x1b[8;1H"), "history should be painted above the live viewport");
+        assert!(
+            out.contains("\x1b[8;1H"),
+            "history should be painted above the live viewport"
+        );
         assert!(out.contains("history"));
         assert!(out.contains("\x1b[r"), "scroll region should be reset");
     }
@@ -603,7 +606,9 @@ mod tests {
     fn insert_history_lines_rejects_a_viewport_without_history_space() {
         let mut b = backend(20, 10);
         let row = Row::padded(vec![Span::plain("history")], 20, CellStyle::default());
-        let error = b.insert_history_lines(&[row], 0).expect_err("top row has no history space");
+        let error = b
+            .insert_history_lines(&[row], 0)
+            .expect_err("top row has no history space");
 
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert!(b.writer().is_empty());

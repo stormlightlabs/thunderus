@@ -177,7 +177,7 @@ impl From<&App> for FocusedSurfaceView {
                         crate::app::action_registry_for_app(app)
                             .matches(&app.input.text(), crate::app::VISIBLE_ROWS * 4)
                             .into_iter()
-                            .map(|item| PickerItemView { label: item.label, detail: item.detail })
+                            .map(|item| PickerItemView { label: item.label, detail: item.detail, selectable: true })
                             .collect(),
                     )
                 } else {
@@ -185,7 +185,11 @@ impl From<&App> for FocusedSurfaceView {
                         "commands",
                         crate::app::command_suggestions_for_app(app)
                             .into_iter()
-                            .map(|suggestion| PickerItemView { label: suggestion.name, detail: suggestion.detail })
+                            .map(|suggestion| PickerItemView {
+                                label: suggestion.name,
+                                detail: suggestion.detail,
+                                selectable: true,
+                            })
                             .collect(),
                     )
                 };
@@ -196,8 +200,8 @@ impl From<&App> for FocusedSurfaceView {
                     items,
                 })
             }
-            PromptAccessory::Files(_) => app
-                .render_picker_surface("files")
+            PromptAccessory::Files(source) => app
+                .render_picker_surface(if source == FilePickerSource::Sessions { "sessions" } else { "files" })
                 .map_or(FocusedSurfaceView::None, FocusedSurfaceView::FilePicker),
             PromptAccessory::Models => app
                 .render_picker_surface("models")
@@ -223,12 +227,16 @@ impl From<&App> for FocusedSurfaceView {
                 items: app
                     .queued_steering
                     .iter()
-                    .map(|text| PickerItemView { label: text.clone(), detail: "steering".to_string() })
-                    .chain(
-                        app.queued_followups
-                            .iter()
-                            .map(|text| PickerItemView { label: text.clone(), detail: "follow-up".to_string() }),
-                    )
+                    .map(|text| PickerItemView {
+                        label: text.clone(),
+                        detail: "steering".to_string(),
+                        selectable: true,
+                    })
+                    .chain(app.queued_followups.iter().map(|text| PickerItemView {
+                        label: text.clone(),
+                        detail: "follow-up".to_string(),
+                        selectable: true,
+                    }))
                     .collect(),
             }),
             _ => FocusedSurfaceView::None,
@@ -685,6 +693,7 @@ pub struct PickerView {
 pub struct PickerItemView {
     pub label: String,
     pub detail: String,
+    pub selectable: bool,
 }
 
 /// Full tool-output detail surface.
@@ -936,7 +945,11 @@ impl App {
             items: picker
                 .matches
                 .iter()
-                .map(|item| PickerItemView { label: item.label.clone(), detail: item.detail.clone() })
+                .map(|item| PickerItemView {
+                    label: item.label.clone(),
+                    detail: item.detail.clone(),
+                    selectable: item.selectable,
+                })
                 .collect(),
         })
     }
@@ -1280,7 +1293,7 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
     };
     labels
         .into_iter()
-        .map(|label| PickerItemView { detail: String::new(), label })
+        .map(|label| PickerItemView { detail: String::new(), label, selectable: true })
         .collect()
 }
 

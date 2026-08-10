@@ -31,7 +31,7 @@ use input::accept_model_suggestion;
 pub use commands::command_suggestions_for_app;
 pub use input::{
     Action, ActionItem, ActionRegistry, FilePickerSource, Mode, PickerItem, PickerState, PromptAccessory,
-    action_registry_for_app, next_detail_target, open_action_palette, open_entry_detail,
+    action_registry_for_app, next_detail_target, open_action_palette, open_entry_detail, open_session_picker,
 };
 pub use onboarding::setup_model_options;
 pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryStage};
@@ -358,6 +358,8 @@ pub struct App {
     /// Persistence policy selected for the current interactive or headless run.
     pub run_persistence: RunPersistence,
     pub session_id: String,
+    /// Monotonic identity for the currently projected transcript.
+    pub transcript_generation: u64,
     pub mode: Mode,
     pub run_state: RunState,
     pub input: PromptInput,
@@ -479,10 +481,6 @@ pub struct App {
     pub queued_followups: Vec<String>,
     /// Read-only snapshot shown by the workspace change review surface.
     pub change_review: Option<GitChangeReview>,
-    /// Whether the wide-layout current-directory session sidebar is visible.
-    pub session_sidebar_open: bool,
-    /// Newest-first current-directory sessions shown in the optional sidebar.
-    pub session_summaries: Vec<session::SessionSummary>,
     /// Request that the terminal loop temporarily hand the composer to `$EDITOR`.
     pub external_editor_requested: bool,
     /// Explicit local commands waiting for the terminal adapter to launch.
@@ -522,7 +520,6 @@ impl From<&Cli> for App {
             .unwrap_or_else(|| session::sessions_dir(&workspace_root));
         let run_persistence = if value.ephemeral { RunPersistence::Ephemeral } else { RunPersistence::Durable };
         let session_id = session::generate_session_id();
-        let session_summaries = session::list_session_summaries(&sessions_dir);
         let input_history_store = InputHistoryStore::for_workspace(&workspace_root);
         let input_history = input_history_store.load_recent().ok().flatten().unwrap_or_default();
         let (mcp_config_files, mcp_config_diagnostics) = agent_lifecycle::load_mcp_config_audit(&workspace_root);
@@ -584,6 +581,7 @@ impl From<&Cli> for App {
             cli: cli_snapshot,
             run_persistence,
             session_id,
+            transcript_generation: 0,
             mode: Mode::default(),
             run_state: RunState::default(),
             input: PromptInput::new(),
@@ -641,8 +639,6 @@ impl From<&Cli> for App {
             queued_steering: Vec::new(),
             queued_followups: Vec::new(),
             change_review: None,
-            session_sidebar_open: false,
-            session_summaries,
             external_editor_requested: false,
             pending_direct_shell: Vec::new(),
             kill_ring: Vec::new(),

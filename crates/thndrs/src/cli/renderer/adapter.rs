@@ -158,7 +158,13 @@ fn picker_content(picker: &PickerView, width: usize) -> ViewContent {
     } else {
         body.extend(picker.items.iter().enumerate().map(|(index, item)| {
             let selected = index == picker.selected;
-            let marker = if selected { "❯" } else { " " };
+            let marker = if !item.selectable {
+                "×"
+            } else if selected {
+                "❯"
+            } else {
+                " "
+            };
             let detail = if item.detail.is_empty() {
                 String::new()
             } else {
@@ -172,7 +178,13 @@ fn picker_content(picker: &PickerView, width: usize) -> ViewContent {
                 width.saturating_sub(4 + utils::text_width(&detail)).max(1),
             );
             let text = format!("{marker} {label}{detail}");
-            if selected { SurfaceLine::selected(text) } else { SurfaceLine::text(text) }
+            if selected && item.selectable {
+                SurfaceLine::selected(text)
+            } else if item.selectable {
+                SurfaceLine::text(text)
+            } else {
+                SurfaceLine::muted(text)
+            }
         }));
     }
     ViewContent {
@@ -194,33 +206,44 @@ fn quiet_picker_rows(picker: &PickerView, width: usize, height: usize) -> Vec<Ro
         return Vec::new();
     }
     let p = style::palette();
+    let background = p.surface0;
     let content = picker_content(picker, width);
-    let rail_style = CellStyle::new().fg(p.overlay0);
+    let rail_style = CellStyle::new().fg(p.overlay0).bg(background);
     let mut header_spans = vec![
         Span::styled("│  ", rail_style),
-        Span::styled(content.title.to_uppercase(), CellStyle::new().fg(p.yellow).bold()),
+        Span::styled(
+            content.title.to_uppercase(),
+            CellStyle::new().fg(p.yellow).bg(background).bold(),
+        ),
     ];
     let used = super::layout::spans_width(&header_spans);
     let status = content.status.strip_prefix("focus: ").unwrap_or(&content.status);
     let status_width = utils::text_width(status);
     let body_width = super::layout::content_width(width);
     if used + status_width + 2 <= body_width {
-        header_spans.push(Span::plain(" ".repeat(body_width - used - status_width)));
-        header_spans.push(Span::styled(status, CellStyle::new().fg(p.overlay1)));
+        header_spans.push(Span::styled(
+            " ".repeat(body_width - used - status_width),
+            CellStyle::new().bg(background),
+        ));
+        header_spans.push(Span::styled(status, CellStyle::new().fg(p.overlay1).bg(background)));
     }
 
-    let mut rows = vec![Row::padded(header_spans, width, CellStyle::new())];
+    let mut rows = vec![Row::padded(header_spans, width, CellStyle::new().bg(background))];
     let body = layout_surface_body(&content, height.saturating_sub(1));
     for line in body {
+        let row_background = if line.role == ThemeRole::Selected { p.surface1 } else { background };
         let text_style = match line.role {
-            ThemeRole::Selected => CellStyle::new().fg(p.text).bold(),
-            ThemeRole::Muted => CellStyle::new().fg(p.overlay0),
-            role => theme_role_style(role),
+            ThemeRole::Selected => CellStyle::new().fg(p.text).bg(row_background).bold(),
+            ThemeRole::Muted => CellStyle::new().fg(p.overlay0).bg(row_background),
+            role => theme_role_style(role).bg(row_background),
         };
         rows.push(Row::padded(
-            vec![Span::styled("│  ", rail_style), Span::styled(line.text, text_style)],
+            vec![
+                Span::styled("│  ", rail_style.bg(row_background)),
+                Span::styled(line.text, text_style),
+            ],
             width,
-            CellStyle::new(),
+            CellStyle::new().bg(row_background),
         ));
     }
     rows.truncate(height);
@@ -871,8 +894,8 @@ mod tests {
             query: "he".to_string(),
             selected: 1,
             items: vec![
-                PickerItemView { label: "help".to_string(), detail: "show help".to_string() },
-                PickerItemView { label: "health".to_string(), detail: "run doctor".to_string() },
+                PickerItemView { label: "help".to_string(), detail: "show help".to_string(), selectable: true },
+                PickerItemView { label: "health".to_string(), detail: "run doctor".to_string(), selectable: true },
             ],
         });
         let mut renderer = IocraftSurfaceRenderer;
@@ -891,10 +914,39 @@ mod tests {
             "command picker should use a quiet rail instead of a box"
         );
         assert!(
-            rows.iter()
-                .all(|row| row.spans.iter().all(|span| span.style.bg == RendererColor::Reset))
+            rows.iter().all(|row| {
+                row.spans
+                    .iter()
+                    .all(|span| matches!(span.style.bg, RendererColor::Rgb { .. }))
+            }),
+            "picker cells should use the renderer surface palette"
         );
         assert!(rows.iter().all(|row| row.width == 32));
+    }
+
+    #[test]
+    fn focused_surface_renderer_marks_disabled_picker_rows() {
+        let surface = FocusedSurfaceView::FilePicker(PickerView {
+            title: "sessions".to_string(),
+            query: String::new(),
+            selected: 0,
+            items: vec![PickerItemView {
+                label: "session-current".to_string(),
+                detail: "current session".to_string(),
+                selectable: false,
+            }],
+        });
+        let mut renderer = IocraftSurfaceRenderer;
+        let rows = renderer.render_surface(SurfaceRenderInput {
+            surface: &surface,
+            theme: &test_theme(),
+            width: 24,
+            height: 4,
+        });
+        let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
+
+        assert!(text.contains("× session-current"));
+        assert!(!text.contains("❯ session-current"));
     }
 
     #[test]
@@ -977,8 +1029,12 @@ mod tests {
         assert!(rows[0].text().contains("FILES"));
         assert!(!rows.iter().any(|row| row.text().contains('╭')));
         assert!(
-            rows.iter()
-                .all(|row| row.spans.iter().all(|span| span.style.bg == RendererColor::Reset))
+            rows.iter().all(|row| {
+                row.spans
+                    .iter()
+                    .all(|span| matches!(span.style.bg, RendererColor::Rgb { .. }))
+            }),
+            "picker cells should use the renderer surface palette"
         );
         assert!(rows.iter().any(|row| row.text().contains("no matches")));
     }
@@ -993,8 +1049,16 @@ mod tests {
                     query: "c".to_string(),
                     selected: 0,
                     items: vec![
-                        PickerItemView { label: "clear".to_string(), detail: "clear transcript".to_string() },
-                        PickerItemView { label: "config show".to_string(), detail: "redacted config".to_string() },
+                        PickerItemView {
+                            label: "clear".to_string(),
+                            detail: "clear transcript".to_string(),
+                            selectable: true,
+                        },
+                        PickerItemView {
+                            label: "config show".to_string(),
+                            detail: "redacted config".to_string(),
+                            selectable: true,
+                        },
                     ],
                 }),
             ),
@@ -1005,10 +1069,15 @@ mod tests {
                     query: "src".to_string(),
                     selected: 1,
                     items: vec![
-                        PickerItemView { label: "src/main.rs".to_string(), detail: "binary".to_string() },
+                        PickerItemView {
+                            label: "src/main.rs".to_string(),
+                            detail: "binary".to_string(),
+                            selectable: true,
+                        },
                         PickerItemView {
                             label: "src/cli/renderer/adapter.rs".to_string(),
                             detail: "focused UI".to_string(),
+                            selectable: true,
                         },
                     ],
                 }),

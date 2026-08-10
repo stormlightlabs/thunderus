@@ -17,7 +17,7 @@ These shortcuts work from any mode unless otherwise noted.
 | `Ctrl+C`           | Cancel a running stream; quit when idle                                          |
 | `Ctrl+D`, `Ctrl+D` | Show quit confirmation; press again to quit                                      |
 | `Ctrl+T`           | Toggle the running input target (`steering` / `follow-up`)                       |
-| `Ctrl+O`           | Open focused detail for failed/truncated tool output, diffs, warnings, or errors |
+| `Ctrl+O`           | Open the action palette |
 | `?`                | Open help overlay (only when the prompt is empty)                                |
 | `:`                | Enter command mode (only when idle or after an error)                            |
 
@@ -105,3 +105,17 @@ Available after running `:model`.
 | `Esc`                   | Close the model picker without changing models  |
 | `Backspace`             | Remove the last character from the picker query |
 | Any printable character | Append to the picker query and filter results   |
+
+## Session Picker
+
+Run `/resume` without an id, or choose **Sessions** from the `Ctrl+O` action
+palette, to open the recent-session picker.
+
+| Key                     | Description                                      |
+| ----------------------- | ------------------------------------------------ |
+| `Up` / `Down`           | Move selection up / down                         |
+| `PageUp` / `PageDown`   | Move selection up / down by a page               |
+| `Enter`                 | Resume the selected session                      |
+| `Esc`                   | Close the picker without changing sessions       |
+| `Backspace`             | Remove the last character from the picker query  |
+| Any printable character | Append to the picker query and filter the results |

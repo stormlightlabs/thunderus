@@ -1,7 +1,6 @@
 ---
-source: src/cli/renderer/mod.rs
-assertion_line: 164
+source: crates/thndrs/src/cli/renderer/mod.rs
 expression: frame.render_styled()
 ---
-│   User                                    # [bg=#1e2132]=   [fg=blue bg=#1e2132 b]=User [bg=#1e2132]=                                 [bg=#1e2132]=  
+│   User                                    # [bg=#1e2132]=   [fg=blue bg=#1e2132 b]=User [bg=#1e2132]=                                 [bg=#1e2132]=
 │   hello there                             # [bg=#1e2132]=   [bg=#1e2132]=hello there [bg=#1e2132]=                          [bg=#1e2132]=

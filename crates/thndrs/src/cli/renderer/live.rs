@@ -40,11 +40,15 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     };
 
     let prefix_width = if app.mode == Mode::Command { 4 } else { 3 };
-    let row_body_width = super::layout::content_width(width);
     let framed = composer_frame_height(width) > 0;
+    let compact = !framed && width < 12;
+    let row_body_width = if compact { width } else { super::layout::content_width(width) };
     let horizontal_chrome = if framed { 4 } else { LIVE_INSET };
     let body_width = row_body_width.saturating_sub(horizontal_chrome + prefix_width).max(1);
-    let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
+    let cursor_indent = (if compact { 0 } else { width.min(2) })
+        .saturating_add(LIVE_INSET)
+        .saturating_add(prefix_width)
+        .min(width.saturating_sub(1));
     let hidden_entry_active = app.first_run_recovery.as_ref().is_some_and(|recovery| {
         matches!(
             recovery.stage,
@@ -56,15 +60,15 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let cursor_pos = if hidden_entry_active { input_text.len() } else { app.input.cursor() };
 
     let visual_rows = prompt_rows(input_text, body_width);
-    let cursor = prompt_cursor(input_text, cursor_pos, body_width, cursor_indent);
+    let mut cursor = prompt_cursor(input_text, cursor_pos, body_width, cursor_indent);
+    cursor.col = cursor.col.min(width.saturating_sub(1));
 
     let text_style = CellStyle::new().fg(p.text).bg(surface);
     let mention_style = CellStyle::new().fg(p.accent).bg(surface).bold();
 
-    // Keep the vertical and horizontal composer edges on the same state
-    // colour so the prompt reads as one continuous surface.
-    let border_color = prompt_color;
-    let border_style = CellStyle::new().fg(border_color).bg(surface);
+    // Keep every composer edge on one state colour and one background so the
+    // prompt reads as a continuous physical surface.
+    let border_style = prompt_border_style(app, surface);
     let mut rows = Vec::with_capacity(visual_rows.len());
     for (idx, line) in visual_rows.into_iter().enumerate() {
         let mut spans: Vec<Span> = if framed && idx == 0 {
@@ -109,7 +113,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
             spans.push(Span::styled(" ".repeat(fill), CellStyle::new().bg(surface)));
             spans.push(Span::styled("│", border_style));
         }
-        rows.push(Row::padded(spans, width, CellStyle::new().bg(surface)));
+        rows.push(prompt_row(spans, width, surface, framed));
     }
 
     if rows.is_empty() {
@@ -136,10 +140,32 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
             spans.push(Span::styled(" ".repeat(fill), CellStyle::new().bg(surface)));
             spans.push(Span::styled("│", border_style));
         }
-        rows.push(Row::padded(spans, width, CellStyle::new().bg(surface)));
+        rows.push(prompt_row(spans, width, surface, framed));
     }
 
     (rows, if hidden_entry_active { None } else { Some(cursor) })
+}
+
+fn prompt_border_style(app: &App, background: Color) -> CellStyle {
+    let p = super::style::palette();
+    let color = match app.prompt_state() {
+        PromptState::Editable => p.yellow,
+        PromptState::Submitted | PromptState::Streaming | PromptState::RunningTool | PromptState::Stopped => p.teal,
+        PromptState::Errored => p.red,
+    };
+    CellStyle::new().fg(color).bg(background)
+}
+
+fn prompt_row(spans: Vec<Span>, width: usize, background: Color, framed: bool) -> Row {
+    let pad_style = CellStyle::new().bg(background);
+    if framed || width >= 12 {
+        return Row::padded(spans, width, pad_style);
+    }
+
+    let ellipsis_style = spans.last().map(|span| span.style).unwrap_or(pad_style);
+    let spans = super::layout::truncate_spans(&spans, width, ellipsis_style);
+    let used = super::layout::spans_width(&spans);
+    Row { spans: super::layout::pad_right(spans, width.saturating_sub(used), pad_style), width, group_id: None }
 }
 
 /// Number of horizontal frame rows reserved by the composer at this width.
@@ -157,12 +183,7 @@ pub fn frame_prompt_rows(
 
     let p = super::style::palette();
     let bg = p.panel_bg;
-    let border_color = match app.prompt_state() {
-        PromptState::Editable => p.yellow,
-        PromptState::Submitted | PromptState::Streaming | PromptState::RunningTool | PromptState::Stopped => p.teal,
-        PromptState::Errored => p.red,
-    };
-    let border_style = CellStyle::new().fg(border_color).bg(bg);
+    let border_style = prompt_border_style(app, bg);
     let label_style = border_style.bold();
     let content_width = super::layout::content_width(width);
 
@@ -260,7 +281,7 @@ pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
     }
 
     let p = super::style::palette();
-    let bg = Color::Reset;
+    let bg = p.panel_bg;
     let label_style = CellStyle::new().fg(p.peach).bg(bg).bold();
     let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
     let mut spans = vec![

@@ -3,17 +3,17 @@ source: crates/thndrs/src/cli/renderer/adapter.rs
 expression: rendered
 ---
 command picker:
-│   │  COMMANDS                       option 1/2    # [-]=   [fg=#3b4261]=│   [fg=#f1fc79 b]=COMMANDS [-]=                        [fg=#6473b7]=option 1/2 [-]=  
-│   │  filter: c                                    # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=filter: c [-]=                                 [-]=  
-│   │  ❯ clear  clear transcript                    # [-]=   [fg=#3b4261]=│   [fg=#ebfafa b]=❯ clear  clear transcript [-]=                 [-]=  
-│   │    config show  redacted config               # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  config show  redacted config [-]=            [-]=  
-│   │  Enter select · Esc close                     # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=Enter select · Esc close [-]=                  [-]=  
+│   │  COMMANDS                       option 1/2    # [bg=#212337]=   [fg=#3b4261 bg=#212337]=│   [fg=#f1fc79 bg=#212337 b]=COMMANDS [bg=#212337]=                        [fg=#6473b7 bg=#212337]=option 1/2 [bg=#212337]=
+│   │  filter: c                                    # [bg=#212337]=   [fg=#3b4261 bg=#212337]=│   [fg=#3b4261 bg=#212337]=filter: c [bg=#212337]=                                 [bg=#212337]=
+│   │  ❯ clear  clear transcript                    # [bg=#292e42]=   [fg=#3b4261 bg=#292e42]=│   [fg=#ebfafa bg=#292e42 b]=❯ clear  clear transcript [bg=#292e42]=                 [bg=#292e42]=
+│   │    config show  redacted config               # [bg=#212337]=   [fg=#3b4261 bg=#212337]=│   [fg=#ebfafa bg=#212337]=  config show  redacted config [bg=#212337]=            [bg=#212337]=
+│   │  Enter select · Esc close                     # [bg=#212337]=   [fg=#3b4261 bg=#212337]=│   [fg=#3b4261 bg=#212337]=Enter select · Esc close [bg=#212337]=                  [bg=#212337]=
 file picker:
-│   │  FILES                          option 2/2    # [-]=   [fg=#3b4261]=│   [fg=#f1fc79 b]=FILES [-]=                           [fg=#6473b7]=option 2/2 [-]=  
-│   │  filter: src                                  # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=filter: src [-]=                               [-]=  
-│   │    src/main.rs  binary                        # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  src/main.rs  binary [-]=                     [-]=  
-│   │  ❯ src/cli/renderer/adapter.rs  focused UI    # [-]=   [fg=#3b4261]=│   [fg=#ebfafa b]=❯ src/cli/renderer/adapter.rs  focused UI [-]=  
-│   │  Enter select · Esc close                     # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=Enter select · Esc close [-]=                  [-]=  
+│   │  FILES                          option 2/2    # [bg=#212337]=   [fg=#3b4261 bg=#212337]=│   [fg=#f1fc79 bg=#212337 b]=FILES [bg=#212337]=                           [fg=#6473b7 bg=#212337]=option 2/2 [bg=#212337]=
+│   │  filter: src                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=│   [fg=#3b4261 bg=#212337]=filter: src [bg=#212337]=                               [bg=#212337]=
+│   │    src/main.rs  binary                        # [bg=#212337]=   [fg=#3b4261 bg=#212337]=│   [fg=#ebfafa bg=#212337]=  src/main.rs  binary [bg=#212337]=                     [bg=#212337]=
+│   │  ❯ src/cli/renderer/adapter.rs  focused UI    # [bg=#292e42]=   [fg=#3b4261 bg=#292e42]=│   [fg=#ebfafa bg=#292e42 b]=❯ src/cli/renderer/adapter.rs  focused UI [bg=#292e42]=
+│   │  Enter select · Esc close                     # [bg=#212337]=   [fg=#3b4261 bg=#212337]=│   [fg=#3b4261 bg=#212337]=Enter select · Esc close [bg=#212337]=                  [bg=#212337]=
 help:
 │   ╭ help · focus: keyboard ──────────────────────╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ help · focus: keyboard ──────────────────────╮
 │   │    ── Navigation ──                              │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ── Navigation ──                               [fg=#ebfafa bg=#212337 b]=│

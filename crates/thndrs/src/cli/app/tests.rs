@@ -533,6 +533,51 @@ fn risky_compaction_waits_for_review_and_preserves_context_until_approval() {
 }
 
 #[test]
+fn resuming_a_session_discards_a_pending_compaction_review() {
+    let mut app = fresh_app();
+    app.transcript = vec![
+        Entry::User { text: "inspect the parser".to_string() },
+        Entry::Tool {
+            name: "read_file".to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["error details".to_string()],
+        },
+    ];
+    assert_eq!(
+        handle_command(&mut app, "compact"),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    let summary = context::range_summary_response(&app, "reviewable summary");
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+    assert!(app.pending_compaction_review.is_some());
+
+    let mut writer = session::SessionWriter::create(
+        &session::sessions_dir(&app.cwd),
+        "session-review-target",
+        &app.cwd.display().to_string(),
+        "Review target",
+        "opencode-go",
+        "opencode/big-pickle",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create target session");
+    writer
+        .append_entry(&Entry::User { text: "restored prompt".to_string() }, "turn_1")
+        .expect("append target entry");
+    drop(writer);
+
+    handle_command(&mut app, "resume session-review-target");
+
+    assert_eq!(app.session_id, "session-review-target");
+    assert!(app.pending_compaction_review.is_none());
+}
+
+#[test]
 fn rejected_compaction_keeps_the_projection_and_does_not_append_a_summary_record() {
     let dir = tempfile::tempdir().expect("create temp dir");
     auth::set_credential(
@@ -691,6 +736,7 @@ fn auto_compaction_writes_an_automatic_trigger_audit_record() {
         .path()
         .to_path_buf();
     app.transcript = vec![Entry::User { text: "long conversation".to_string() }];
+    let initial_generation = app.transcript_generation;
 
     assert_eq!(
         start_auto_compaction(&mut app, "continue".to_string()),
@@ -700,6 +746,8 @@ fn auto_compaction_writes_an_automatic_trigger_audit_record() {
     let summary = context::range_summary_response(&app, "auto summary");
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    assert_eq!(app.transcript_generation, initial_generation + 1);
 
     let records = session::SessionReader::read_records(&path);
     assert!(records.iter().any(|record| matches!(
