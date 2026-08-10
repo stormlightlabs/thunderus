@@ -35,7 +35,7 @@ pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecover
 
 use input::{
     handle_key, handle_mouse, offline_model_picker_items, open_model_picker, open_reasoning_effort_picker,
-    open_skill_picker,
+    open_session_picker, open_skill_picker,
 };
 use onboarding::{
     PendingSetupReasoningEffort, advance_after_setup_model_config, handle_first_run_key, poll_chatgpt_oauth_on_tick,
@@ -718,6 +718,19 @@ impl App {
         self.history_draft.clear();
         self.transcript
             .push(Entry::Status { text: format!("resumed session: {id}") });
+        Ok(())
+    }
+
+    /// Append a display-name change without changing the active session identity.
+    pub(crate) fn rename_session(&mut self, name: &str) -> io::Result<()> {
+        let writer = self
+            .session_writer
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "cannot name a session in ephemeral mode"))?;
+        writer.append_rename(name)?;
+        let title = session::SessionReader::read_title(writer.path());
+        self.transcript
+            .push(Entry::Status { text: format!("session named: {title}") });
         Ok(())
     }
 

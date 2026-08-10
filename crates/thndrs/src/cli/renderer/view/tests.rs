@@ -828,6 +828,31 @@ fn semantic_prompt_represents_file_mention_suggestions() {
 }
 
 #[test]
+fn semantic_session_picker_projects_recent_session_metadata() {
+    let mut app = test_app();
+    app.prompt_accessory = PromptAccessory::Sessions;
+    app.picker = Some(PickerState::new(
+        vec![PickerItem::new(
+            "Named work",
+            "session-20260809 · opencode/big-pickle · 12 in / 7 out",
+        )],
+        50,
+    ));
+
+    let view = RendererView::build(&app, 80, 24);
+
+    match &view.semantic.focused_surface {
+        FocusedSurfaceView::CommandPicker(picker) => {
+            assert_eq!(picker.title, "sessions");
+            assert_eq!(picker.items[0].label, "Named work");
+            assert!(picker.items[0].detail.contains("session-20260809"));
+            assert!(picker.items[0].detail.contains("12 in / 7 out"));
+        }
+        surface => panic!("expected session picker, got {surface:?}"),
+    }
+}
+
+#[test]
 fn semantic_orientation_has_truncation_metadata() {
     let app = test_app();
     let view = RendererView::build(&app, 80, 24);

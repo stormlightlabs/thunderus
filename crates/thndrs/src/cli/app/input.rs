@@ -28,6 +28,7 @@ pub enum PromptAccessory {
     Models,
     ReasoningEffort,
     Skills,
+    Sessions,
     /// Bounded inspection of the current context ledger.
     Context,
 }
@@ -58,11 +59,17 @@ impl KeyOutcome {
 pub struct PickerItem {
     pub label: String,
     pub detail: String,
+    value: String,
 }
 
 impl PickerItem {
     pub fn new(label: impl Into<String>, detail: impl Into<String>) -> Self {
-        Self { label: label.into(), detail: detail.into() }
+        let label = label.into();
+        Self { value: label.clone(), label, detail: detail.into() }
+    }
+
+    fn with_value(label: impl Into<String>, detail: impl Into<String>, value: impl Into<String>) -> Self {
+        Self { label: label.into(), detail: detail.into(), value: value.into() }
     }
 
     fn searchable(&self) -> String {
@@ -230,6 +237,7 @@ pub fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
         | PromptAccessory::Models
         | PromptAccessory::ReasoningEffort
         | PromptAccessory::Skills
+        | PromptAccessory::Sessions
         | PromptAccessory::Context => {
             if let Some(picker) = app.picker.as_mut() {
                 match mouse.kind {
@@ -258,6 +266,7 @@ pub fn handle_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
         PromptAccessory::Models => handle_model_accessory_key(app, key),
         PromptAccessory::ReasoningEffort => handle_reasoning_effort_accessory_key(app, key),
         PromptAccessory::Skills => handle_skill_accessory_key(app, key),
+        PromptAccessory::Sessions => handle_session_accessory_key(app, key),
         PromptAccessory::Context => match key.code {
             KeyCode::Esc => {
                 close_prompt_accessory(app);
@@ -444,6 +453,49 @@ pub fn handle_skill_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
         }
         KeyCode::Enter => {
             accept_skill_suggestion(app);
+            KeyOutcome::Handled
+        }
+        KeyCode::Up => {
+            picker.move_up();
+            KeyOutcome::Handled
+        }
+        KeyCode::Down => {
+            picker.move_down();
+            KeyOutcome::Handled
+        }
+        KeyCode::PageUp => {
+            picker.page_up();
+            KeyOutcome::Handled
+        }
+        KeyCode::PageDown => {
+            picker.page_down();
+            KeyOutcome::Handled
+        }
+        KeyCode::Backspace => {
+            picker.query.pop();
+            picker.refresh_matches();
+            KeyOutcome::Handled
+        }
+        KeyCode::Char(ch) => {
+            picker.query.push(ch);
+            picker.refresh_matches();
+            KeyOutcome::Handled
+        }
+        _ => KeyOutcome::Unhandled,
+    }
+}
+
+pub fn handle_session_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
+    let Some(picker) = app.picker.as_mut() else {
+        return KeyOutcome::Unhandled;
+    };
+    match key.code {
+        KeyCode::Esc => {
+            close_prompt_accessory(app);
+            KeyOutcome::Handled
+        }
+        KeyCode::Enter => {
+            accept_session_suggestion(app);
             KeyOutcome::Handled
         }
         KeyCode::Up => {
@@ -802,6 +854,7 @@ pub fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
         | PromptAccessory::Models
         | PromptAccessory::ReasoningEffort
         | PromptAccessory::Skills
+        | PromptAccessory::Sessions
         | PromptAccessory::Context => {
             if app.mode == Mode::Command || app.input.as_str().starts_with('/') {
                 accept_command_suggestion(app)
@@ -885,6 +938,54 @@ pub fn open_skill_picker(app: &mut App) {
     app.prompt_accessory = PromptAccessory::Skills;
 }
 
+pub fn open_session_picker(app: &mut App) {
+    if app.is_ephemeral() {
+        app.transcript
+            .push(Entry::Error { text: String::from("cannot resume a session in ephemeral mode") });
+        return;
+    }
+
+    let items = session::list_session_files(&app.session_directory())
+        .into_iter()
+        .filter_map(|path| {
+            let id = path.file_stem()?.to_str()?.to_string();
+            if id == app.session_id {
+                return None;
+            }
+            let summary = session::SessionReader::read_summary(&path);
+            Some(PickerItem::with_value(
+                summary.title,
+                format!(
+                    "{id} · {} · {} in / {} out",
+                    summary.model, summary.input_tokens, summary.output_tokens
+                ),
+                id,
+            ))
+        })
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        app.transcript
+            .push(Entry::Status { text: String::from("no other sessions found") });
+        return;
+    }
+    app.picker = Some(PickerState::new(items, LARGE_PICKER_LIMIT));
+    app.prompt_accessory = PromptAccessory::Sessions;
+}
+
+fn accept_session_suggestion(app: &mut App) {
+    let session_id = app
+        .picker
+        .as_ref()
+        .and_then(PickerState::selected)
+        .map(|item| item.value.clone());
+    close_prompt_accessory(app);
+    if let Some(session_id) = session_id
+        && let Err(error) = app.resume_session(&session_id)
+    {
+        app.transcript.push(Entry::Error { text: error.to_string() });
+    }
+}
+
 pub fn offline_model_picker_items() -> Vec<PickerItem> {
     opencode::known_models()
         .into_iter()
@@ -904,6 +1005,7 @@ pub fn close_prompt_accessory(app: &mut App) {
             | PromptAccessory::Models
             | PromptAccessory::ReasoningEffort
             | PromptAccessory::Skills
+            | PromptAccessory::Sessions
     ) {
         app.picker = None;
     }

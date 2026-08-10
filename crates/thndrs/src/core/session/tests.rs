@@ -1465,6 +1465,40 @@ fn reader_reads_latest_renamed_title() {
 }
 
 #[test]
+fn writer_appends_validated_rename_without_changing_session_identity() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "rename-session");
+    let path = writer.path().to_path_buf();
+
+    writer.append_rename("  focused work  ").expect("append rename");
+
+    assert_eq!(writer.session_id(), "rename-session");
+    assert_eq!(writer.path(), path);
+    assert_eq!(SessionReader::read_title(&path), "focused work");
+    assert!(matches!(
+        SessionReader::read_records(&path).last(),
+        Some(SessionRecord::SessionRenamed { title, .. }) if title == "focused work"
+    ));
+}
+
+#[test]
+fn writer_rejects_empty_oversized_and_control_character_names() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "rename-session");
+    let original_sequence = writer.next_sequence();
+
+    for invalid in [
+        "   ".to_string(),
+        "x".repeat(MAX_SESSION_NAME_CHARS + 1),
+        "two\nlines".to_string(),
+    ] {
+        let error = writer.append_rename(&invalid).expect_err("invalid name");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+    assert_eq!(writer.next_sequence(), original_sequence);
+}
+
+#[test]
 fn list_session_files_returns_jsonl_sorted_newest_first() {
     let dir = tempfile::tempdir().expect("temp dir");
 
@@ -1649,6 +1683,33 @@ fn resume_requires_an_exclusive_writer_lock() {
     drop(writer);
     let resumed = SessionWriter::resume(&path, "locked-session").expect("writer can resume after release");
     assert_eq!(resumed.session_id(), "locked-session");
+}
+
+#[test]
+fn resume_rejects_corrupt_records_and_releases_the_writer_lock() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let writer = test_writer(dir.path(), "corrupt-session");
+    let path = writer.path().to_path_buf();
+    drop(writer);
+    std::fs::write(&path, "not json\n").expect("corrupt session");
+
+    let error = SessionWriter::resume(&path, "corrupt-session").expect_err("corrupt session must fail");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(!path.with_file_name("corrupt-session.jsonl.lock").exists());
+}
+
+#[test]
+fn resume_rejects_a_session_identity_mismatch() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let writer = test_writer(dir.path(), "stored-session");
+    let path = writer.path().to_path_buf();
+    drop(writer);
+
+    let error = SessionWriter::resume(&path, "different-session").expect_err("identity mismatch must fail");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("identity mismatch"));
 }
 
 #[test]

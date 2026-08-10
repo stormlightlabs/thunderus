@@ -1147,6 +1147,17 @@ mod tests {
             })
         );
 
+        let rename = Cli::try_parse_from(["thndrs", "session", "rename", "session-1", "Named work"]).expect("parse");
+        assert_eq!(
+            rename.command,
+            Some(Command::Session {
+                command: commands::session::SessionCommand::Rename {
+                    session_id: "session-1".to_string(),
+                    name: "Named work".to_string(),
+                }
+            })
+        );
+
         let inspect =
             Cli::try_parse_from(["thndrs", "sessions", "inspect", "session-1", "--format", "json"]).expect("parse");
         assert_eq!(

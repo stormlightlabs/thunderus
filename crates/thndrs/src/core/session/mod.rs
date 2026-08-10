@@ -40,6 +40,9 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// Maximum amount of redacted log text returned by a reader.
 pub const MAX_LOG_OUTPUT_BYTES: usize = 32 * 1024;
 
+/// Maximum length of a user-assigned session name.
+pub const MAX_SESSION_NAME_CHARS: usize = 80;
+
 /// A single line in a session JSONL file.
 ///
 /// Every record carries `schema_version`, `seq` (monotonic within the session),
@@ -922,14 +925,16 @@ impl SessionWriter {
         self.seq
     }
 
-    /// Reopen an existing session file for append-only continuation.
-    ///
-    /// The next sequence number is derived from the highest readable record
-    /// sequence. Corrupt trailing lines are ignored consistently with
-    /// [`SessionReader`].
+    /// Reopen a validated existing session file for append-only continuation.
     pub fn resume(path: &Path, session_id: &str) -> std::io::Result<Self> {
         let (lock_path, lock) = acquire_writer_lock(path)?;
-        let records = SessionReader::read_records(path);
+        let records = match SessionReader::read_validated_records(path, session_id) {
+            Ok(records) => records,
+            Err(error) => {
+                let _ = std::fs::remove_file(&lock_path);
+                return Err(error);
+            }
+        };
         let seq = records
             .iter()
             .map(SessionRecord::seq)
@@ -942,6 +947,17 @@ impl SessionWriter {
         }
 
         Ok(SessionWriter { path: path.to_path_buf(), seq, session_id: session_id.to_string(), lock_path, _lock: lock })
+    }
+
+    /// Append a validated display-name change without rewriting history.
+    pub fn append_rename(&mut self, name: &str) -> std::io::Result<()> {
+        let name = validate_session_name(name)?;
+        self.append(SessionRecord::SessionRenamed {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            title: name.to_string(),
+        })
     }
 
     /// Append a record to the session file.
@@ -1398,6 +1414,54 @@ impl Drop for SessionWriter {
 pub struct SessionReader;
 
 impl SessionReader {
+    /// Read every record while validating session identity and ordering.
+    ///
+    /// Unlike the recovery-oriented readers, this rejects malformed lines and
+    /// is used before a session is opened for continued writing.
+    pub fn read_validated_records(path: &Path, session_id: &str) -> std::io::Result<Vec<SessionRecord>> {
+        let content = std::fs::read_to_string(path)?;
+        let mut records = Vec::new();
+        let mut previous_sequence = None;
+
+        for (index, line) in content.lines().enumerate() {
+            if line.is_empty() {
+                continue;
+            }
+            let record = SessionRecord::from_json(line).map_err(|error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("session record {} is corrupt: {error}", index + 1),
+                )
+            })?;
+            if previous_sequence.is_some_and(|sequence| record.seq() <= sequence) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("session record {} has an invalid sequence", index + 1),
+                ));
+            }
+            previous_sequence = Some(record.seq());
+            records.push(record);
+        }
+
+        match records.first() {
+            Some(SessionRecord::SessionMeta { session_id: stored_id, .. }) if stored_id == session_id => {}
+            Some(SessionRecord::SessionMeta { session_id: stored_id, .. }) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("session identity mismatch: expected `{session_id}`, found `{stored_id}`"),
+                ));
+            }
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "session metadata is missing",
+                ));
+            }
+        }
+
+        Ok(records)
+    }
+
     /// Read a session file and return all records, in order.
     ///
     /// Corrupt lines are skipped. Returns an empty vec if the file does
@@ -1688,6 +1752,29 @@ pub fn generate_session_id() -> String {
 /// Convert a serde_json error into an io::Error.
 fn io_err(e: serde_json::Error) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+}
+
+fn validate_session_name(name: &str) -> std::io::Result<&str> {
+    if name.chars().any(char::is_control) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "session names cannot contain control characters",
+        ));
+    }
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "session names cannot be empty",
+        ));
+    }
+    if name.chars().count() > MAX_SESSION_NAME_CHARS {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("session names cannot exceed {MAX_SESSION_NAME_CHARS} characters"),
+        ));
+    }
+    Ok(name)
 }
 
 fn acquire_writer_lock(path: &Path) -> std::io::Result<(PathBuf, File)> {

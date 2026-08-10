@@ -70,7 +70,7 @@ fn session_commands_are_suggested() {
     let app = fresh_app();
     let suggestions = command_suggestions_for_app(&app);
 
-    for command in ["history", "resume", "session", "status", "tokens", "debug log"] {
+    for command in ["history", "resume", "name", "session", "status", "tokens", "debug log"] {
         assert!(
             suggestions.iter().any(|suggestion| suggestion.name == command),
             "missing {command}"
@@ -155,7 +155,15 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
 
     app.run_state = RunState::Error("stale state".to_string());
     app.queued_followups.push("stale queue".to_string());
-    app.input = PromptInput::from("/resume session-res");
+    app.input = PromptInput::from("/resume");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::Sessions);
+    let picker = app.picker.as_ref().expect("session picker");
+    assert_eq!(picker.matches[0].label, "Saved work");
+    assert!(picker.matches[0].detail.contains("session-resume"));
+    assert!(picker.matches[0].detail.contains("opencode/big-pickle"));
+
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(app.session_id, "session-resume");
@@ -163,6 +171,7 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
     assert!(app.queued_followups.is_empty());
     assert_eq!(app.session_tokens_in, 7);
     assert_eq!(app.session_tokens_out, 11);
+    assert_eq!(app.turn_count, 1);
     assert!(
         app.transcript
             .iter()
@@ -173,6 +182,158 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
             .iter()
             .any(|entry| matches!(entry, Entry::Status { text } if text == "resumed session: session-resume"))
     );
+}
+
+#[test]
+fn cancelling_the_session_picker_preserves_the_current_session_and_draft() {
+    let mut app = fresh_app();
+    let current_id = app.session_id.clone();
+    let sessions_dir = session::sessions_dir(&app.cwd);
+    session::SessionWriter::create(
+        &sessions_dir,
+        "session-other",
+        &app.cwd.display().to_string(),
+        "Other work",
+        "opencode-go",
+        "opencode/big-pickle",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create session");
+    app.input = PromptInput::from("/resume");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
+
+    assert_eq!(app.session_id, current_id);
+    assert_eq!(app.input.as_str(), "/resume");
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+}
+
+#[test]
+fn locked_session_picker_selection_preserves_the_current_session_and_draft() {
+    let mut app = fresh_app();
+    let current_id = app.session_id.clone();
+    let sessions_dir = session::sessions_dir(&app.cwd);
+    let _locked = session::SessionWriter::create(
+        &sessions_dir,
+        "session-locked",
+        &app.cwd.display().to_string(),
+        "Locked work",
+        "opencode-go",
+        "opencode/big-pickle",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create locked session");
+    app.input = PromptInput::from("/resume");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.session_id, current_id);
+    assert_eq!(app.input.as_str(), "/resume");
+    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("active writer")));
+}
+
+#[test]
+fn corrupt_session_picker_selection_preserves_the_current_session_and_draft() {
+    let mut app = fresh_app();
+    let current_id = app.session_id.clone();
+    let sessions_dir = session::sessions_dir(&app.cwd);
+    let writer = session::SessionWriter::create(
+        &sessions_dir,
+        "session-corrupt",
+        &app.cwd.display().to_string(),
+        "Corrupt work",
+        "opencode-go",
+        "opencode/big-pickle",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create session");
+    let path = writer.path().to_path_buf();
+    drop(writer);
+    std::fs::write(&path, "not json\n").expect("corrupt session");
+    app.input = PromptInput::from("/resume");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.session_id, current_id);
+    assert_eq!(app.input.as_str(), "/resume");
+    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("corrupt")));
+}
+
+#[test]
+fn missing_session_picker_selection_preserves_the_current_session_and_draft() {
+    let mut app = fresh_app();
+    let current_id = app.session_id.clone();
+    let sessions_dir = session::sessions_dir(&app.cwd);
+    let writer = session::SessionWriter::create(
+        &sessions_dir,
+        "session-removed",
+        &app.cwd.display().to_string(),
+        "Removed work",
+        "opencode-go",
+        "opencode/big-pickle",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create session");
+    let path = writer.path().to_path_buf();
+    drop(writer);
+    app.input = PromptInput::from("/resume");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    std::fs::remove_file(path).expect("remove selected session");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.session_id, current_id);
+    assert_eq!(app.input.as_str(), "/resume");
+    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("not found")));
+}
+
+#[test]
+fn name_command_appends_changes_without_replacing_the_session_id() {
+    let mut app = fresh_app();
+    let id = app.session_id.clone();
+    let path = session::resolve_session_file(&session::sessions_dir(&app.cwd), &id).expect("current session");
+    app.session_writer = Some(session::SessionWriter::resume(&path, &id).expect("resume current writer"));
+
+    app.input = PromptInput::from("/name First name");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    app.input = PromptInput::from("/name Changed name");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.session_id, id);
+    assert_eq!(session::SessionReader::read_title(&path), "Changed name");
+    assert_eq!(
+        session::SessionReader::read_records(&path)
+            .iter()
+            .filter(|record| matches!(record, session::SessionRecord::SessionRenamed { .. }))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn invalid_name_command_preserves_the_prompt_draft() {
+    let mut app = fresh_app();
+    let id = app.session_id.clone();
+    let path = session::resolve_session_file(&session::sessions_dir(&app.cwd), &id).expect("current session");
+    app.session_writer = Some(session::SessionWriter::resume(&path, &id).expect("resume current writer"));
+    let draft = format!("/name {}", "x".repeat(session::MAX_SESSION_NAME_CHARS + 1));
+    app.input = PromptInput::from(draft.as_str());
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.input.as_str(), draft);
+    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("cannot exceed")));
 }
 
 #[test]

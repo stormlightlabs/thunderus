@@ -169,6 +169,9 @@ impl From<&App> for FocusedSurfaceView {
             PromptAccessory::Skills => app
                 .render_picker_surface("skills")
                 .map_or(FocusedSurfaceView::None, FocusedSurfaceView::CommandPicker),
+            PromptAccessory::Sessions => app
+                .render_picker_surface("sessions")
+                .map_or(FocusedSurfaceView::None, FocusedSurfaceView::CommandPicker),
             PromptAccessory::Context => FocusedSurfaceView::StructuredTable(app.render_context_table()),
             _ => FocusedSurfaceView::None,
         }

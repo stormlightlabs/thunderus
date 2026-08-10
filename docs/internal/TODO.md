@@ -169,44 +169,16 @@ configuration, and shared prompt history continue to work; the TUI and JSONL
 
 ## PL-6: Resume sessions from the TUI
 
-**What to build:** Add a session picker that resumes a validated local session
-without requiring its identifier or leaving the TUI. Reuse the restoration path
-shared by startup `sessions resume` and `/resume`.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] The picker lists recent sessions with enough metadata to distinguish
-      them.
-- [ ] Selecting a session uses the existing validation and exclusive-lock
-      rules.
-- [ ] Cancellation and corrupt, missing, or already locked sessions leave the
-      current session and draft unchanged.
-- [ ] Successful selection restores the transcript, context control state,
-      usage, and turn count before the next prompt can run.
-
-**Verification:**
-
-- State and renderer tests cover selection, cancellation, locking, and corrupt
-  records.
+Added a searchable recent-session picker to `/resume`, including each session's
+name, identifier, model, and usage. Selection now uses strict record validation
+and exclusive locking. Cancellation and failed selections preserve the active
+session and draft; successful selection restores the saved session state.
 
 ## PL-7: Name local sessions
 
-**What to build:** Let users assign and change a short display name without
-rewriting append-only history.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] Names appear in list, show, inspect, and export surfaces.
-- [ ] Renaming appends durable metadata and preserves the session identifier.
-- [ ] Empty, oversized, and control-character names are rejected.
-
-**Verification:**
-
-- Session round-trip and CLI/TUI projection tests.
+Added `/name` and `session rename` commands. Name changes append durable metadata
+without changing session identity, appear in session views and exports, and
+reject empty, oversized, or control-character names.
 
 ## PL-8: Fork a session from a completed turn
 
@@ -610,3 +582,87 @@ provider request.
 
 - Session, inspection, and export tests cover default-off behavior, opt-in
   capture, redaction, truncation, retention, and resume.
+
+## PL-31: Clarify the transcript reading hierarchy
+
+**What to build:** Make assistant prose the primary transcript layer while
+keeping reasoning and status updates quieter and more compact. Separate a
+turn's final response from the activity above it with consistent spacing and a
+restrained marker.
+
+**Blocked by:** None - can start immediately
+
+**Acceptance criteria:**
+
+- [ ] Assistant prose remains visually dominant beside reasoning, status, and
+      operational entries.
+- [ ] Reasoning and status updates remain readable without competing with the
+      response.
+- [ ] Every final response has a consistent, restrained boundary from the
+      preceding activity.
+
+**Verification:**
+
+- Renderer fixtures cover mixed reasoning, status, operational, and response
+  entries across narrow and wide terminals.
+
+## PL-32: Render each tool call as one stable block
+
+**What to build:** Give each tool call one lifecycle block that updates in
+place from running to success or failure. Keep the collapsed view concise and
+make its detail shortcut discoverable.
+
+**Blocked by:** None - can start immediately
+
+**Acceptance criteria:**
+
+- [ ] A tool block shows its action, target, current state, and concise result.
+- [ ] Lifecycle updates replace the existing block instead of adding visual
+      traffic.
+- [ ] Collapsed output shows `Ctrl+O details`, and expansion retains the
+      existing command, output, and failure detail.
+
+**Verification:**
+
+- State and renderer tests cover running, successful, failed, collapsed, and
+  expanded tool calls.
+
+## PL-33: Make transcript follow mode visible
+
+**What to build:** Show when the transcript is anchored away from its latest
+entry and give users a nearby way to return to follow mode.
+
+**Blocked by:** None - can start immediately
+
+**Acceptance criteria:**
+
+- [ ] Scrolling away from the latest entry shows an anchored-away indicator
+      and an `End to follow` hint.
+- [ ] Returning to follow mode is immediately visible.
+- [ ] New transcript activity does not move a user who remains anchored away.
+
+**Verification:**
+
+- State and renderer tests cover leaving follow mode, receiving new activity,
+  and returning by keyboard and mouse.
+
+## PL-34: Make operational state precise
+
+**What to build:** Keep the footer focused on the current operation, move quota
+and detailed token telemetry to `/status`, and replace ambiguous spinners with
+specific state labels.
+
+**Blocked by:** None - can start immediately
+
+**Acceptance criteria:**
+
+- [ ] The footer shows immediate operational state without quota or detailed
+      token telemetry.
+- [ ] `/status` exposes the quota and token details removed from the footer.
+- [ ] State labels distinguish `Thinking`, a running tool such as
+      `Running cargo test`, `Stopping`, and `Stopped`.
+
+**Verification:**
+
+- State and renderer tests cover idle, thinking, tool execution, stopping, and
+  stopped states, plus the corresponding `/status` telemetry.

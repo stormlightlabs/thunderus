@@ -21,6 +21,13 @@ pub enum SessionCommand {
         /// Exact id or unique id prefix, without the `.jsonl` suffix.
         session_id: String,
     },
+    /// Assign or change the display name without changing session identity.
+    Rename {
+        /// Exact id or unique id prefix, without the `.jsonl` suffix.
+        session_id: String,
+        /// Short display name used by session surfaces.
+        name: String,
+    },
     /// Print a stable, renderer-independent session projection.
     Inspect {
         /// Exact id or unique id prefix, without the `.jsonl` suffix.

@@ -287,6 +287,7 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
         SessionCommand::Titles => run_session_titles(&dir, &mut lock),
         SessionCommand::Show { session_id } => run_session_show(&dir, session_id, &mut lock),
         SessionCommand::Resume { .. } => Err(io::Error::other("session resume must start an interactive session")),
+        SessionCommand::Rename { session_id, name } => run_session_rename(&dir, session_id, name, &mut lock),
         SessionCommand::Inspect { session_id, format } => run_session_inspect(&dir, session_id, *format, &mut lock),
         SessionCommand::Export { session_id, format } => run_session_export(&dir, session_id, *format, &mut lock),
     }
@@ -347,6 +348,8 @@ fn run_session_titles<W: io::Write>(dir: &Path, writer: &mut W) -> io::Result<()
 
 fn run_session_show<W: io::Write>(dir: &Path, session_id: &str, writer: &mut W) -> io::Result<()> {
     let path = session::resolve_session_file(dir, session_id).map_err(io::Error::other)?;
+    let title = session::SessionReader::read_title(&path);
+    writeln!(writer, "title: {title}")?;
 
     let _reader = session::SessionReader;
     let transcript = session::SessionReader::read_transcript(&path);
@@ -368,6 +371,15 @@ fn run_session_show<W: io::Write>(dir: &Path, session_id: &str, writer: &mut W) 
         }
     }
     Ok(())
+}
+
+fn run_session_rename<W: io::Write>(dir: &Path, session_id: &str, name: &str, writer: &mut W) -> io::Result<()> {
+    let path = session::resolve_session_file(dir, session_id).map_err(io::Error::other)?;
+    let id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or(session_id);
+    let mut session_writer = session::SessionWriter::resume(&path, id)?;
+    session_writer.append_rename(name)?;
+    let title = session::SessionReader::read_title(&path);
+    writeln!(writer, "renamed {id}: {title}")
 }
 
 fn run_session_inspect<W: io::Write>(
@@ -2152,6 +2164,51 @@ for line in sys.stdin:
 
         assert!(output.contains("user: hello"));
         assert!(output.contains("assistant: hi"));
+    }
+
+    #[test]
+    fn session_rename_projects_the_name_without_changing_the_id() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let session_dir = temp.path().join("sessions");
+        let mut writer = session::SessionWriter::create(
+            &session_dir,
+            "session-named",
+            "/repo",
+            "Original",
+            "opencode-zen",
+            "opencode/big-pickle",
+            "none",
+            "0.1.0",
+            None,
+        )
+        .expect("create session");
+        writer
+            .append_entry(&app::Entry::User { text: "hello".to_string() }, "turn_1")
+            .expect("append user");
+        drop(writer);
+
+        let mut rename = Vec::new();
+        run_session_rename(&session_dir, "session-nam", "Named work", &mut rename).expect("rename session");
+
+        let mut list = Vec::new();
+        let mut show = Vec::new();
+        let mut inspect = Vec::new();
+        let mut export = Vec::new();
+        run_session_list(&session_dir, &mut list).expect("list sessions");
+        run_session_show(&session_dir, "session-named", &mut show).expect("show session");
+        run_session_inspect(&session_dir, "session-named", SessionDataFormat::Json, &mut inspect).expect("inspect");
+        run_session_export(&session_dir, "session-named", SessionDataFormat::Jsonl, &mut export).expect("export");
+
+        for output in [&rename, &list, &show, &inspect, &export] {
+            assert!(String::from_utf8_lossy(output).contains("Named work"));
+        }
+        assert_eq!(
+            session::resolve_session_file(&session_dir, "session-named")
+                .expect("same session id")
+                .file_stem()
+                .and_then(|stem| stem.to_str()),
+            Some("session-named")
+        );
     }
 
     #[test]

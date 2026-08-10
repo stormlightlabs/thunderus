@@ -26,6 +26,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("doctor", "show context health"),
     ("history", "list recent sessions"),
     ("resume", "resume a local session"),
+    ("name", "name the current session"),
     ("session", "show a local session summary"),
     ("status", "inspect runtime status and telemetry"),
     ("tokens", "show current session token totals"),
@@ -74,8 +75,15 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         return resume_session_command(app, session_id.trim());
     }
     if command == "resume" {
+        open_session_picker(app);
+        return None;
+    }
+    if let Some(name) = command.strip_prefix("name ") {
+        return rename_session_command(app, name);
+    }
+    if command == "name" {
         app.transcript
-            .push(Entry::Error { text: String::from("usage: /resume <session-id>") });
+            .push(Entry::Error { text: String::from("usage: /name <session-name>") });
         return None;
     }
     if let Some(session_id) = command.strip_prefix("session ") {
@@ -461,6 +469,15 @@ fn show_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
 fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
     if let Err(error) = app.resume_session(session_id) {
         app.transcript.push(Entry::Error { text: error.to_string() });
+    }
+    None
+}
+
+fn rename_session_command(app: &mut App, name: &str) -> Option<Msg> {
+    if let Err(error) = app.rename_session(name) {
+        app.transcript.push(Entry::Error { text: error.to_string() });
+    } else {
+        app.input.clear();
     }
     None
 }
