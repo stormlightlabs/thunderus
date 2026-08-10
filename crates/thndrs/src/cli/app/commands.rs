@@ -459,67 +459,9 @@ fn show_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
 }
 
 fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
-    if app.is_ephemeral() {
-        app.transcript
-            .push(Entry::Error { text: String::from("cannot resume a session in ephemeral mode") });
-        return None;
+    if let Err(error) = app.resume_session(session_id) {
+        app.transcript.push(Entry::Error { text: error.to_string() });
     }
-
-    let path = match session::resolve_session_file(&app.session_directory(), session_id) {
-        Ok(path) => path,
-        Err(error) => {
-            app.transcript.push(Entry::Error { text: error.to_string() });
-            return None;
-        }
-    };
-    let id = path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or(session_id)
-        .to_string();
-    if id == app.session_id {
-        app.transcript
-            .push(Entry::Error { text: String::from("the current session is already active") });
-        return None;
-    }
-    let writer = match session::SessionWriter::resume(&path, &id) {
-        Ok(writer) => writer,
-        Err(error) => {
-            app.transcript
-                .push(Entry::Error { text: format!("cannot resume session `{id}`: {error}") });
-            return None;
-        }
-    };
-    let summary = session::SessionReader::read_summary(&path);
-    let transcript = session::SessionReader::read_transcript(&path);
-    let records = session::SessionReader::read_records(&path);
-    let turn_count = records
-        .iter()
-        .filter(|record| matches!(record, session::SessionRecord::User { .. }))
-        .count() as u64;
-
-    app.session_writer = Some(writer);
-    app.session_id = id.clone();
-    app.transcript = transcript;
-    app.restore_context_state(&records);
-    app.last_request_accounting = records.iter().rev().find_map(|record| match record {
-        session::SessionRecord::RequestAccounting { accounting, .. } => Some(accounting.as_ref().clone()),
-        _ => None,
-    });
-    app.session_tokens_in = summary.input_tokens;
-    app.session_tokens_out = summary.output_tokens;
-    app.turn_count = turn_count;
-    app.last_input = None;
-    app.pending_manual_compaction = None;
-    app.queued_steering.clear();
-    app.queued_followups.clear();
-    app.pending_permission = None;
-    app.run_state = RunState::Idle;
-    app.input.clear();
-    app.history_cursor = None;
-    app.history_draft.clear();
-    app.transcript
-        .push(Entry::Status { text: format!("resumed session: {id}") });
     None
 }
 

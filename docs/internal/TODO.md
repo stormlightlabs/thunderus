@@ -170,7 +170,8 @@ configuration, and shared prompt history continue to work; the TUI and JSONL
 ## PL-6: Resume sessions from the TUI
 
 **What to build:** Add a session picker that resumes a validated local session
-without leaving the TUI.
+without requiring its identifier or leaving the TUI. Reuse the restoration path
+shared by startup `sessions resume` and `/resume`.
 
 **Blocked by:** None - can start immediately
 
@@ -180,8 +181,10 @@ without leaving the TUI.
       them.
 - [ ] Selecting a session uses the existing validation and exclusive-lock
       rules.
-- [ ] Corrupt, missing, or already locked sessions fail without losing the
-      current draft.
+- [ ] Cancellation and corrupt, missing, or already locked sessions leave the
+      current session and draft unchanged.
+- [ ] Successful selection restores the transcript, context control state,
+      usage, and turn count before the next prompt can run.
 
 **Verification:**
 
@@ -215,7 +218,10 @@ turn while preserving provenance to the source session.
 **Acceptance criteria:**
 
 - [ ] Users can select only replayable, settled turn boundaries.
-- [ ] The fork has a new identifier and records its source session and sequence.
+- [ ] The fork has a new identifier and records its source session, source
+      sequence, and turn in optional backward-compatible metadata.
+- [ ] The new session contains a self-contained replayable prefix and remains
+      usable if the source file is moved or removed.
 - [ ] Pending tools, permissions, queues, and processes are never copied.
 
 **Verification:**
@@ -509,3 +515,98 @@ read-only subagents
 
 - Temporary-repository tests cover success, cancellation, dirty state, and
   cleanup failure.
+
+## PL-27: Inspect context at a provider request
+
+**What to build:** Add a TUI inspector for the context considered and selected
+at each recorded provider request in the active or resumed session.
+
+**Blocked by:** None - can start immediately
+
+**Acceptance criteria:**
+
+- [ ] Users can choose a turn, request, and retry attempt without reading raw
+      session JSONL.
+- [ ] The inspector shows every context item's kind, source, estimated size,
+      visibility, lifecycle, and inclusion or exclusion reason.
+- [ ] Budget totals, provider/model identity, serialized request size, token
+      estimate provenance, provider usage, and reduction receipts are visible.
+- [ ] The current next-request projection is clearly distinguished from a
+      request that was actually sent.
+- [ ] Content-free historical records remain useful after resuming a session;
+      missing records produce an explicit unavailable state.
+
+**Verification:**
+
+- State and renderer tests cover multiple requests in one turn, retries,
+  compaction, pinned and dropped items, resume, and sessions without accounting
+  records.
+
+## PL-28: Compare context between requests
+
+**What to build:** Let users diff two request snapshots to explain how the
+model-visible working set and context pressure changed.
+
+**Blocked by:** PL-27: Inspect context at a provider request
+
+**Acceptance criteria:**
+
+- [ ] The diff groups added, removed, visibility-changed, lifecycle-changed,
+      and reduction-changed context items by stable identifier.
+- [ ] Budget, serialized-size, estimated-token, and reported-usage changes are
+      shown separately so estimates are not presented as provider facts.
+- [ ] Comparing requests across turns and forked sessions uses the same
+      projection and handles absent historical records explicitly.
+- [ ] Large diffs remain bounded and searchable without loading context bodies.
+
+**Verification:**
+
+- Deterministic request-accounting fixtures cover unchanged, added, removed,
+  compacted, retried, and cross-session comparisons.
+
+## PL-29: Browse session lineage as a tree
+
+**What to build:** Extend the session browser to show roots, forks, and the
+selected fork point as a navigable tree.
+
+**Blocked by:** PL-6: Resume sessions from the TUI; PL-8: Fork a session from a
+completed turn
+
+**Acceptance criteria:**
+
+- [ ] Sessions created before lineage metadata are displayed as roots.
+- [ ] Each child shows its source turn, title, model, last activity, and lock or
+      corruption state without opening it for writing.
+- [ ] Selecting a node can inspect, resume, or fork it through the existing
+      validation paths.
+- [ ] Missing parents, malformed lineage, and cycles are visible diagnostics
+      and cannot crash or hide otherwise valid sessions.
+
+**Verification:**
+
+- Session graph and renderer fixtures cover multiple roots, deep and wide
+  forks, legacy sessions, missing parents, cycles, locks, and corrupt records.
+
+## PL-30: Capture opt-in request projections for debugging
+
+**What to build:** Add an explicit diagnostic mode that preserves a bounded,
+redacted model-message projection when context metadata cannot explain a
+provider request.
+
+**Blocked by:** PL-27: Inspect context at a provider request
+
+**Acceptance criteria:**
+
+- [ ] Capture is off by default, requires an explicit per-run choice, and the
+      TUI states that prompt and tool content may be persisted.
+- [ ] The durable record stores the normalized model-message projection, not
+      provider wire payloads or authentication data.
+- [ ] Size and retention limits fail closed, and inspection identifies omitted
+      or redacted content.
+- [ ] Inspect and export surfaces preserve existing redaction guarantees and
+      clearly distinguish captured content from content-free accounting.
+
+**Verification:**
+
+- Session, inspection, and export tests cover default-off behavior, opt-in
+  capture, redaction, truncation, retention, and resume.

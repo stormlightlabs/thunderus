@@ -46,6 +46,7 @@ use onboarding::{
 mod tests;
 
 use std::collections::{BTreeMap, HashMap};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -107,6 +108,12 @@ impl RunPersistence {
     pub const fn is_ephemeral(self) -> bool {
         matches!(self, Self::Ephemeral)
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SessionStartup {
+    New,
+    Existing,
 }
 
 /// Semantic run state, used for the status line.
@@ -486,8 +493,8 @@ pub struct App {
     pub quit: bool,
 }
 
-impl From<&Cli> for App {
-    fn from(value: &Cli) -> Self {
+impl App {
+    fn build(value: &Cli, session_startup: SessionStartup) -> Self {
         let workspace_root = crate::context::discover_workspace_root(&value.cwd);
         let mut cli_snapshot = value.clone();
         cli_snapshot.cwd = workspace_root.clone();
@@ -538,7 +545,7 @@ impl From<&Cli> for App {
             }
         });
 
-        let mut session_writer = (!run_persistence.is_ephemeral())
+        let mut session_writer = (!run_persistence.is_ephemeral() && session_startup == SessionStartup::New)
             .then(|| {
                 session::SessionWriter::create(
                     &sessions_dir,
@@ -633,6 +640,12 @@ impl From<&Cli> for App {
     }
 }
 
+impl From<&Cli> for App {
+    fn from(value: &Cli) -> Self {
+        Self::build(value, SessionStartup::New)
+    }
+}
+
 impl App {
     /// Build the initial app from parsed CLI args.
     ///
@@ -640,6 +653,72 @@ impl App {
     /// scoped `AGENTS.md` sources if present, and records their metadata in the session.
     pub fn from_cli(cli: &Cli) -> Self {
         cli.into()
+    }
+
+    /// Build the initial app by restoring an existing durable session.
+    ///
+    /// The existing session is resolved and locked before any new session file
+    /// is created.
+    pub(crate) fn from_cli_resuming(cli: &Cli, session_id: &str) -> io::Result<Self> {
+        let mut app = Self::build(cli, SessionStartup::Existing);
+        app.resume_session(session_id)?;
+        Ok(app)
+    }
+
+    /// Replace the active session with a validated durable session.
+    pub(crate) fn resume_session(&mut self, session_id: &str) -> io::Result<()> {
+        if self.is_ephemeral() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cannot resume a session in ephemeral mode",
+            ));
+        }
+
+        let path = session::resolve_session_file(&self.session_directory(), session_id).map_err(io::Error::other)?;
+        let id = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or(session_id)
+            .to_string();
+        if id == self.session_id {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the current session is already active",
+            ));
+        }
+        let writer = session::SessionWriter::resume(&path, &id)
+            .map_err(|error| io::Error::new(error.kind(), format!("cannot resume session `{id}`: {error}")))?;
+        let summary = session::SessionReader::read_summary(&path);
+        let transcript = session::SessionReader::read_transcript(&path);
+        let records = session::SessionReader::read_records(&path);
+        let turn_count = records
+            .iter()
+            .filter(|record| matches!(record, session::SessionRecord::User { .. }))
+            .count() as u64;
+
+        self.session_writer = Some(writer);
+        self.session_id = id.clone();
+        self.transcript = transcript;
+        self.restore_context_state(&records);
+        self.last_request_accounting = records.iter().rev().find_map(|record| match record {
+            session::SessionRecord::RequestAccounting { accounting, .. } => Some(accounting.as_ref().clone()),
+            _ => None,
+        });
+        self.session_tokens_in = summary.input_tokens;
+        self.session_tokens_out = summary.output_tokens;
+        self.turn_count = turn_count;
+        self.last_input = None;
+        self.pending_manual_compaction = None;
+        self.queued_steering.clear();
+        self.queued_followups.clear();
+        self.pending_permission = None;
+        self.run_state = RunState::Idle;
+        self.input.clear();
+        self.history_cursor = None;
+        self.history_draft.clear();
+        self.transcript
+            .push(Entry::Status { text: format!("resumed session: {id}") });
+        Ok(())
     }
 
     /// Whether a compaction turn is currently in flight.

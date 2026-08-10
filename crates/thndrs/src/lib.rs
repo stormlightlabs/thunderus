@@ -89,6 +89,14 @@ const MAX_AGENT_EVENTS_PER_RENDER: usize = 256;
 /// Buffer one complete terminal transaction so CRLF scrollback commits cannot
 /// be line-buffered and shown before their replacement frame.
 const TERMINAL_WRITE_BUFFER_CAPACITY: usize = 64 * 1024;
+
+/// Session state to load before entering the interactive terminal.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InitialSession<'a> {
+    New,
+    Resume(&'a str),
+}
+
 enum AcpEventWrite {
     Continue,
     Finished,
@@ -173,6 +181,10 @@ struct Observability {
 /// Sets up the terminal, drives the draw loop, polls events on a tick, and
 /// restores the terminal on exit.
 pub fn run(cli: &Cli) -> io::Result<()> {
+    if let Some(Command::Session { command: SessionCommand::Resume { session_id } }) = &cli.command {
+        let tick = Duration::from_millis(cli.tick_rate_ms);
+        return run_inline(tick, cli, InitialSession::Resume(session_id));
+    }
     if let Some(command) = &cli.command {
         return run_command(cli, command);
     }
@@ -180,7 +192,7 @@ pub fn run(cli: &Cli) -> io::Result<()> {
         return run_print_prompt(cli);
     }
     let tick = Duration::from_millis(cli.tick_rate_ms);
-    run_inline(tick, cli)
+    run_inline(tick, cli, InitialSession::New)
 }
 
 /// Render the `--print-prompt` debug view as a string.
@@ -274,7 +286,7 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
         SessionCommand::Latest => run_session_latest(&dir, &mut lock),
         SessionCommand::Titles => run_session_titles(&dir, &mut lock),
         SessionCommand::Show { session_id } => run_session_show(&dir, session_id, &mut lock),
-        SessionCommand::Resume { session_id } => run_session_resume(&dir, session_id, &mut lock),
+        SessionCommand::Resume { .. } => Err(io::Error::other("session resume must start an interactive session")),
         SessionCommand::Inspect { session_id, format } => run_session_inspect(&dir, session_id, *format, &mut lock),
         SessionCommand::Export { session_id, format } => run_session_export(&dir, session_id, *format, &mut lock),
     }
@@ -355,15 +367,6 @@ fn run_session_show<W: io::Write>(dir: &Path, session_id: &str, writer: &mut W) 
             app::Entry::Error { text } => writeln!(writer, "error: {text}")?,
         }
     }
-    Ok(())
-}
-
-fn run_session_resume<W: io::Write>(dir: &Path, session_id: &str, writer: &mut W) -> io::Result<()> {
-    let path = session::resolve_session_file(dir, session_id).map_err(io::Error::other)?;
-    let id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or(session_id);
-    let session_writer = session::SessionWriter::resume(&path, id)?;
-    writeln!(writer, "resumed: {id}")?;
-    writeln!(writer, "path: {}", session_writer.path().display())?;
     Ok(())
 }
 
@@ -1124,13 +1127,17 @@ fn redact_secret(text: &str) -> String {
 }
 
 /// Interactive alternate-screen mode with one application-owned viewport.
-fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
+fn run_inline(tick: Duration, cli: &Cli, initial_session: InitialSession<'_>) -> io::Result<()> {
+    let app = match initial_session {
+        InitialSession::New => App::from_cli(cli),
+        InitialSession::Resume(session_id) => App::from_cli_resuming(cli, session_id)?,
+    };
     let mouse_enabled = cli.mouse && !cli.no_mouse;
     let _terminal_session = AlternateScreenSession::enter(mouse_enabled)?;
     let stdout = io::BufWriter::with_capacity(TERMINAL_WRITE_BUFFER_CAPACITY, io::stdout());
     let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
     let mut surface = RatatuiSurface::new(terminal);
-    interactive_loop(&mut surface, tick, cli)
+    interactive_loop(&mut surface, tick, cli, app)
 }
 
 trait InteractiveSurface {
@@ -1189,9 +1196,8 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
 
 /// Renderer-neutral interactive coordinator for application, agent, terminal,
 /// and render events.
-fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli: &Cli) -> io::Result<()> {
+fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli: &Cli, mut app: App) -> io::Result<()> {
     let tick = tick.max(MIN_RENDER_INTERVAL);
-    let mut app = App::from_cli(cli);
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let observability = init_tracing(&workspace_root, &app.session_id, app.run_persistence);
     if cli.verbose

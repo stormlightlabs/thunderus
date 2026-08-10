@@ -55,6 +55,45 @@ fn from_cli_starts_with_fresh_transcript_not_latest_session() {
 }
 
 #[test]
+fn resumed_startup_restores_the_session_without_creating_a_scratch_file() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let sessions_dir = dir.path().join("sessions");
+    let mut writer = session::SessionWriter::create(
+        &sessions_dir,
+        "session-resume",
+        &dir.path().display().to_string(),
+        "Saved work",
+        "opencode-go",
+        "opencode/big-pickle",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create saved session");
+    writer
+        .append_entry(&Entry::User { text: "earlier prompt".to_string() }, "turn_1")
+        .expect("append user entry");
+    writer.append_usage(7, 11).expect("append usage");
+    let saved_path = writer.path().to_path_buf();
+    drop(writer);
+
+    let cli = Cli { cwd: dir.path().to_path_buf(), session_dir: Some(sessions_dir.clone()), ..Cli::default() };
+    let app = App::from_cli_resuming(&cli, "session-resume").expect("resume saved session");
+
+    assert_eq!(app.session_id, "session-resume");
+    assert_eq!(app.session_tokens_in, 7);
+    assert_eq!(app.session_tokens_out, 11);
+    assert_eq!(app.turn_count, 1);
+    assert_eq!(app.session_writer.as_ref().expect("session writer").path(), saved_path);
+    assert_eq!(session::list_session_files(&sessions_dir), vec![saved_path]);
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::User { text } if text == "earlier prompt"))
+    );
+}
+
+#[test]
 fn ephemeral_startup_keeps_the_session_directory_empty_and_records_prompt_history() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let sessions_dir = dir.path().join("sessions");
