@@ -191,8 +191,8 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
 ///
 /// Returns `None` when the queue is empty or the agent is idle.
 pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
-    let steering = app.composer.queued_steering.len();
-    let followups = app.composer.queued_followups.len();
+    let steering = app.composer.queue.pending_count(crate::app::QueueTarget::Steering);
+    let followups = app.composer.queue.pending_count(crate::app::QueueTarget::FollowUp);
     if steering == 0 && followups == 0 {
         return None;
     }

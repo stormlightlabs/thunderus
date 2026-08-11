@@ -183,7 +183,12 @@ fn prompt_template_queues_rendered_followup_while_working() {
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.composer.queued_followups.len(), 1);
-    assert!(app.composer.queued_followups[0].starts_with("Review src/lib.rs."));
-    assert!(!app.composer.queued_followups[0].contains("/review"));
+    let queued = app
+        .composer
+        .queue
+        .pending(QueueTarget::FollowUp)
+        .next()
+        .expect("rendered follow-up");
+    assert!(queued.text.starts_with("Review src/lib.rs."));
+    assert!(!queued.text.contains("/review"));
 }

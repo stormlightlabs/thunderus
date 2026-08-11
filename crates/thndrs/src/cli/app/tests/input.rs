@@ -402,7 +402,23 @@ fn queued_input_append_failure_is_visible() {
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.composer.queued_followups, vec!["cannot audit this".to_string()]);
+    assert_eq!(
+        app.composer
+            .queue
+            .pending(QueueTarget::FollowUp)
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["cannot audit this"]
+    );
+    assert!(matches!(
+        &app.composer
+            .queue
+            .pending(QueueTarget::FollowUp)
+            .next()
+            .expect("retained queue item")
+            .audit,
+        QueueAuditState::Failed(_)
+    ));
     assert!(
         app.transcript
             .entries

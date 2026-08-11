@@ -11,8 +11,8 @@ mod tests;
 
 use crate::app::{
     App, BlockContentState, CONTEXT_INSPECTION_MAX_ITEMS, ChatGptOAuthMethod, Entry, FilePickerSource,
-    FirstRunRecovery, Mode, PromptAccessory, RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlock,
-    TranscriptBlockId, TranscriptBlockKind,
+    FirstRunRecovery, Mode, PromptAccessory, QueueAuditState, QueueTarget, RecoveryStage, RunState, ToolLifecycleState,
+    ToolStatus, TranscriptBlock, TranscriptBlockId, TranscriptBlockKind,
 };
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::renderer::row::{CursorCoord, Row};
@@ -107,6 +107,8 @@ pub enum FocusedSurfaceView {
     Help(HelpView),
     ToolDetail(ToolDetailView),
     DiffDetail(DiffDetailView),
+    TranscriptSearch(TranscriptSearchView),
+    Queue(QueueView),
     TranscriptLens {
         selected_entry: Option<usize>,
         scroll: usize,
@@ -134,6 +136,38 @@ impl From<&App> for FocusedSurfaceView {
         }
         if let Some(form) = app.render_setup_form_view() {
             return FocusedSurfaceView::SetupForm(form);
+        }
+        if let Some(search) = app.overlay.transcript_search() {
+            return FocusedSurfaceView::TranscriptSearch(TranscriptSearchView {
+                query: search.query.text(),
+                current: (!search.matches.is_empty()).then_some(search.selected + 1),
+                total: search.matches.len(),
+                truncated: search.truncated,
+            });
+        }
+        if let Some(pane) = app.overlay.queue() {
+            let items = app
+                .composer
+                .queue
+                .items
+                .iter()
+                .map(|item| QueueItemView {
+                    id: item.id.to_string(),
+                    target: item.target.label().to_string(),
+                    preview: item.preview(72),
+                    created_at: item.created_at.clone(),
+                    audit: match &item.audit {
+                        QueueAuditState::Recorded => "recorded".to_string(),
+                        QueueAuditState::Failed(_) => "audit failed".to_string(),
+                    },
+                    settlement: item.settlement.label().to_string(),
+                })
+                .collect();
+            return FocusedSurfaceView::Queue(QueueView {
+                items,
+                selected: pane.selected,
+                editing: pane.editing.as_ref().map(|input| input.text()),
+            });
         }
         if let Some(detail) = app.overlay.detail()
             && let Some(Entry::Tool { name, status, output, .. }) = app.transcript.entries.get(detail.entry_index)
@@ -185,6 +219,31 @@ impl From<&App> for FocusedSurfaceView {
             _ => FocusedSurfaceView::None,
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TranscriptSearchView {
+    pub query: String,
+    pub current: Option<usize>,
+    pub total: usize,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueueItemView {
+    pub id: String,
+    pub target: String,
+    pub preview: String,
+    pub created_at: String,
+    pub audit: String,
+    pub settlement: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueueView {
+    pub items: Vec<QueueItemView>,
+    pub selected: usize,
+    pub editing: Option<String>,
 }
 
 /// A semantic ACP permission decision surface.
@@ -796,12 +855,16 @@ impl LiveView {
         let accessory_rows = match &semantic.focused_surface {
             FocusedSurfaceView::ToolDetail(_)
             | FocusedSurfaceView::DiffDetail(_)
+            | FocusedSurfaceView::TranscriptSearch(_)
+            | FocusedSurfaceView::Queue(_)
             | FocusedSurfaceView::TranscriptLens { .. } => Vec::new(),
             _ => super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS),
         };
         let detail_pane = match &semantic.focused_surface {
             FocusedSurfaceView::ToolDetail(_)
             | FocusedSurfaceView::DiffDetail(_)
+            | FocusedSurfaceView::TranscriptSearch(_)
+            | FocusedSurfaceView::Queue(_)
             | FocusedSurfaceView::TranscriptLens { .. } => super::surface::render_surface(&SurfaceRenderInput::new(
                 &semantic.focused_surface,
                 &SurfaceThemeView::new(),
@@ -825,8 +888,8 @@ impl LiveView {
 
 impl App {
     fn render_queued_summary_view(&self) -> Option<QueuedSummaryView> {
-        let steering_count = self.composer.queued_steering.len();
-        let followup_count = self.composer.queued_followups.len();
+        let steering_count = self.composer.queue.pending_count(QueueTarget::Steering);
+        let followup_count = self.composer.queue.pending_count(QueueTarget::FollowUp);
         if steering_count == 0 && followup_count == 0 {
             None
         } else {

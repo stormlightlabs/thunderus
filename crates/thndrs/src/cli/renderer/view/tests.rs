@@ -1,7 +1,7 @@
 use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
 use crate::app::{
     App, BlockContentState, Entry, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, PromptAccessory,
-    RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlockKind, VISIBLE_ROWS,
+    QueueTarget, RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlockKind, VISIBLE_ROWS,
 };
 use crate::cli::{Cli, Theme, WebSearchMode, commands::setup::SetupProviderArg};
 use crate::renderer;
@@ -439,8 +439,12 @@ fn build_view_accessory_surfaces_are_present_when_active() {
 fn build_view_queued_summary_appears_when_prompts_queued() {
     let mut app = test_app();
     app.runtime.run_state = RunState::Working;
-    app.composer.queued_followups.push("next task".to_string());
-    app.composer.queued_steering.push("look at tests".to_string());
+    app.composer
+        .queue
+        .push(QueueTarget::FollowUp, "next task".to_string(), "test".to_string());
+    app.composer
+        .queue
+        .push(QueueTarget::Steering, "look at tests".to_string(), "test".to_string());
 
     let view = RendererView::build(&app, 80, 24);
 
@@ -818,10 +822,14 @@ fn semantic_view_represents_edit_and_diff_summaries() {
 fn semantic_prompt_has_queued_summary_without_queued_text() {
     let mut app = test_app();
     app.runtime.run_state = RunState::Working;
+    app.composer.queue.push(
+        QueueTarget::FollowUp,
+        "do the private next thing".to_string(),
+        "test".to_string(),
+    );
     app.composer
-        .queued_followups
-        .push("do the private next thing".to_string());
-    app.composer.queued_steering.push("steer quietly".to_string());
+        .queue
+        .push(QueueTarget::Steering, "steer quietly".to_string(), "test".to_string());
 
     let view = RendererView::build(&app, 80, 24);
     let prompt = &view.semantic.prompt;

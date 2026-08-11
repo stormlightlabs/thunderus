@@ -54,7 +54,7 @@ pub mod test_env {
     }
 }
 
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -63,7 +63,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event;
 use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::layout::Rect;
 
 use acp::config::provider_label;
@@ -1163,7 +1163,7 @@ trait InteractiveSurface {
     fn resize(&mut self, width: u16, height: u16) -> io::Result<()>;
     fn clear(&mut self) -> io::Result<()>;
     fn suspend(&mut self) -> io::Result<()>;
-    fn handle_navigation(&mut self, app: &App, action: &Action) -> bool;
+    fn handle_navigation(&mut self, app: &mut App, action: &Action) -> bool;
 }
 
 struct RatatuiSurface<W: io::Write> {
@@ -1222,9 +1222,51 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
         }
     }
 
-    fn handle_navigation(&mut self, app: &App, action: &Action) -> bool {
+    fn handle_navigation(&mut self, app: &mut App, action: &Action) -> bool {
+        if matches!(action, Action::CopyTranscriptSelection) {
+            let result = self
+                .viewport
+                .selected_text()
+                .ok_or_else(|| io::Error::other("no transcript text is selected"))
+                .and_then(|text| {
+                    if std::env::var("TERM").is_ok_and(|term| term == "dumb") {
+                        return Err(io::Error::other("terminal clipboard is unavailable"));
+                    }
+                    let encoded = encode_base64(text.as_bytes());
+                    Backend::flush(self.terminal.backend_mut())?;
+                    let mut stdout = io::stdout();
+                    write!(stdout, "\x1b]52;c;{encoded}\x07")?;
+                    stdout.flush()
+                });
+            match result {
+                Ok(()) => app
+                    .transcript
+                    .entries
+                    .push(app::Entry::Status { text: "Copied transcript selection.".to_string() }),
+                Err(error) => app
+                    .transcript
+                    .entries
+                    .push(app::Entry::Error { text: format!("Could not copy transcript selection: {error}") }),
+            }
+            return true;
+        }
         self.viewport.handle_navigation(app, action)
     }
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let value = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        encoded.push(ALPHABET[((value >> 18) & 63) as usize] as char);
+        encoded.push(ALPHABET[((value >> 12) & 63) as usize] as char);
+        encoded.push(if chunk.len() > 1 { ALPHABET[((value >> 6) & 63) as usize] as char } else { '=' });
+        encoded.push(if chunk.len() > 2 { ALPHABET[(value & 63) as usize] as char } else { '=' });
+    }
+    encoded
 }
 
 /// Renderer-neutral interactive coordinator for application, agent, terminal,
@@ -1290,7 +1332,7 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
             };
             let actions = translate_input(&app, terminal_input);
             for action in actions {
-                if surface.handle_navigation(&app, &action) {
+                if surface.handle_navigation(&mut app, &action) {
                     surface.draw(&mut app)?;
                     continue;
                 }
@@ -1647,13 +1689,20 @@ fn flush_steering(app: &mut App, agent: &Option<AgentSlot>) {
     let Some(slot) = agent else {
         return;
     };
-    let mut unsent = Vec::new();
-    for message in app.composer.queued_steering.drain(..) {
-        if slot.steering.send(message.clone()).is_err() {
-            unsent.push(message);
+    let pending = app
+        .composer
+        .queue
+        .items
+        .iter()
+        .filter(|item| item.target == app::QueueTarget::Steering && item.settlement == app::QueueSettlement::Pending)
+        .map(|item| (item.id, item.text.clone()))
+        .collect::<Vec<_>>();
+    for (id, message) in pending {
+        if slot.steering.send(message).is_ok() {
+            let _ = app.composer.queue.settle(id, app::QueueSettlement::Sent);
+            app::audit_queue_transition(app, id, "sent");
         }
     }
-    app.composer.queued_steering = unsent;
 }
 
 fn settle_agent(agent: &mut Option<AgentSlot>, request: &EffectRequest, stopping_timed_out: bool) {
@@ -1766,7 +1815,7 @@ mod tests {
             Ok(())
         }
 
-        fn handle_navigation(&mut self, _app: &App, _action: &Action) -> bool {
+        fn handle_navigation(&mut self, _app: &mut App, _action: &Action) -> bool {
             false
         }
     }
@@ -2498,9 +2547,11 @@ for line in sys.stdin:
         let mut app = App::from_cli(&cli);
         app.session.writer = None;
         app.runtime.run_state = RunState::Working;
-        app.composer
-            .queued_steering
-            .push("use the failing test first".to_string());
+        app.composer.queue.push(
+            app::QueueTarget::Steering,
+            "use the failing test first".to_string(),
+            "test".to_string(),
+        );
         let (event_tx, event_rx) = mpsc::channel();
         drop(event_tx);
         let (steering_tx, steering_rx) = mpsc::channel();
@@ -2509,7 +2560,7 @@ for line in sys.stdin:
         flush_steering(&mut app, &Some(slot));
 
         assert!(
-            app.composer.queued_steering.is_empty(),
+            app.composer.queue.pending_count(app::QueueTarget::Steering) == 0,
             "sent steering should leave the app queue"
         );
         assert_eq!(

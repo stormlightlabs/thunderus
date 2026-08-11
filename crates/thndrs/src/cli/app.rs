@@ -31,6 +31,7 @@ pub use context::start_auto_compaction;
 use input::accept_model_suggestion;
 
 pub use commands::command_suggestions_for_app;
+pub(crate) use input::audit_queue_transition;
 pub use input::{
     Action, FilePickerSource, InputFocus, KeyBinding, KeyHelp, Keymap, Mode, PickerItem, PickerState, PromptAccessory,
     translate_input, translate_input_with_keymap,
@@ -215,6 +216,118 @@ pub enum QueueTarget {
     FollowUp,
 }
 
+/// Stable identity for one queued input within a session.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub struct QueueItemId(pub u64);
+
+impl std::fmt::Display for QueueItemId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "q{}", self.0)
+    }
+}
+
+/// Durable audit state for a queued input.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum QueueAuditState {
+    Recorded,
+    Failed(String),
+}
+
+/// Settlement state for one queue item.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum QueueSettlement {
+    Pending,
+    Sent,
+    Cancelled,
+    Deleted,
+}
+
+impl QueueSettlement {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Sent => "sent",
+            Self::Cancelled => "cancelled",
+            Self::Deleted => "deleted",
+        }
+    }
+}
+
+/// One inspectable queued prompt or steering message.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueueItem {
+    pub id: QueueItemId,
+    pub target: QueueTarget,
+    pub text: String,
+    pub created_at: String,
+    pub audit: QueueAuditState,
+    pub settlement: QueueSettlement,
+}
+
+impl QueueItem {
+    /// A single-line, bounded, display-safe summary. The full text remains in
+    /// the queue and session journal, never in status or tracing output.
+    pub fn preview(&self, max_chars: usize) -> String {
+        let normalized = self.text.split_whitespace().collect::<Vec<_>>().join(" ");
+        crate::utils::truncate_ellipsis(&normalized, max_chars)
+    }
+}
+
+/// Ordered queue state, including settled items retained for inspection.
+#[derive(Debug, Default)]
+pub struct QueueState {
+    pub items: Vec<QueueItem>,
+    next_id: u64,
+}
+
+impl QueueState {
+    pub fn push(&mut self, target: QueueTarget, text: String, created_at: String) -> QueueItemId {
+        self.next_id = self.next_id.saturating_add(1);
+        let id = QueueItemId(self.next_id);
+        self.items.push(QueueItem {
+            id,
+            target,
+            text,
+            created_at,
+            audit: QueueAuditState::Recorded,
+            settlement: QueueSettlement::Pending,
+        });
+        id
+    }
+
+    pub fn pending(&self, target: QueueTarget) -> impl Iterator<Item = &QueueItem> {
+        self.items
+            .iter()
+            .filter(move |item| item.target == target && item.settlement == QueueSettlement::Pending)
+    }
+
+    pub fn pending_count(&self, target: QueueTarget) -> usize {
+        self.pending(target).count()
+    }
+
+    pub fn pending_id(&self, target: QueueTarget) -> Option<QueueItemId> {
+        self.pending(target).next().map(|item| item.id)
+    }
+
+    pub fn item(&self, id: QueueItemId) -> Option<&QueueItem> {
+        self.items.iter().find(|item| item.id == id)
+    }
+
+    pub fn item_mut(&mut self, id: QueueItemId) -> Option<&mut QueueItem> {
+        self.items.iter_mut().find(|item| item.id == id)
+    }
+
+    pub fn settle(&mut self, id: QueueItemId, settlement: QueueSettlement) -> Option<String> {
+        let item = self.item_mut(id)?;
+        item.settlement = settlement;
+        Some(item.text.clone())
+    }
+
+    pub fn restore_next_id(&mut self) {
+        self.next_id = self.items.iter().map(|item| item.id.0).max().unwrap_or_default();
+    }
+}
+
 impl QueueTarget {
     pub fn toggle(self) -> Self {
         match self {
@@ -260,6 +373,100 @@ impl DetailPane {
             self.scroll = self.scroll.saturating_add(1);
         }
     }
+}
+
+/// One bounded semantic transcript match. Byte offsets always lie on UTF-8
+/// boundaries in the entry's searchable projection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TranscriptMatch {
+    pub entry_index: usize,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Focused transcript search state kept separate from the composer draft.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TranscriptSearchState {
+    pub query: PromptInput,
+    pub matches: Vec<TranscriptMatch>,
+    pub selected: usize,
+    pub truncated: bool,
+}
+
+impl TranscriptSearchState {
+    pub const MAX_MATCHES: usize = 1_000;
+    const MAX_ENTRY_BYTES: usize = 32 * 1024;
+
+    pub fn refresh(&mut self, entries: &TranscriptBlocks) {
+        self.matches.clear();
+        self.selected = 0;
+        self.truncated = false;
+        let query = self.query.as_str();
+        if query.is_empty() {
+            return;
+        }
+        for (entry_index, entry) in entries.iter().enumerate() {
+            let text = transcript_search_text(entry);
+            let bounded = bounded_utf8(&text, Self::MAX_ENTRY_BYTES);
+            for (start, _) in bounded.match_indices(query) {
+                if self.matches.len() == Self::MAX_MATCHES {
+                    self.truncated = true;
+                    return;
+                }
+                self.matches
+                    .push(TranscriptMatch { entry_index, start, end: start.saturating_add(query.len()) });
+            }
+        }
+    }
+
+    pub fn next(&mut self) {
+        if !self.matches.is_empty() {
+            self.selected = (self.selected + 1) % self.matches.len();
+        }
+    }
+
+    pub fn previous(&mut self) {
+        if !self.matches.is_empty() {
+            self.selected = self.selected.checked_sub(1).unwrap_or(self.matches.len() - 1);
+        }
+    }
+
+    pub fn current(&self) -> Option<TranscriptMatch> {
+        self.matches.get(self.selected).copied()
+    }
+}
+
+fn transcript_search_text(entry: &Entry) -> String {
+    match entry {
+        Entry::User { text }
+        | Entry::Agent { text, .. }
+        | Entry::Reasoning { text, .. }
+        | Entry::Status { text }
+        | Entry::Error { text } => text.clone(),
+        Entry::Tool { name, arguments, status, .. } => {
+            // Compact transcript search deliberately excludes hidden tool output.
+            format!("{name} {arguments} {status:?}")
+        }
+    }
+}
+
+fn bounded_utf8(text: &str, max_bytes: usize) -> &str {
+    if text.len() <= max_bytes {
+        return text;
+    }
+    let mut end = max_bytes;
+    while !text.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    &text[..end]
+}
+
+/// Focused queue inspector/editor. Its private edit buffer cannot overwrite
+/// the composer draft or participate in prompt history.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct QueuePane {
+    pub selected: usize,
+    pub editing: Option<PromptInput>,
 }
 
 /// One transcript row.
@@ -480,10 +687,8 @@ pub struct ComposerState {
     pub history_draft: String,
     /// Current target for input submitted during an active run.
     pub queue_target: QueueTarget,
-    /// Steering messages waiting for the active agent thread.
-    pub queued_steering: Vec<String>,
-    /// Follow-up prompts waiting for later turns.
-    pub queued_followups: Vec<String>,
+    /// Inspectable, ordered steering and follow-up inputs.
+    pub queue: QueueState,
     /// Prompt restored after provider failure or retained for an internal turn.
     pub last_input: Option<String>,
     /// Kill-ring for readline-style yank.
@@ -531,6 +736,8 @@ enum OverlaySurface {
     },
     Context,
     Detail(DetailPane),
+    TranscriptSearch(TranscriptSearchState),
+    Queue(QueuePane),
     Setup(SetupState),
     Permission(PendingPermission),
 }
@@ -557,6 +764,8 @@ impl OverlayState {
         match &self.surface {
             OverlaySurface::None
             | OverlaySurface::Detail(_)
+            | OverlaySurface::TranscriptSearch(_)
+            | OverlaySurface::Queue(_)
             | OverlaySurface::Setup(_)
             | OverlaySurface::Permission(_) => PromptAccessory::None,
             OverlaySurface::Help => PromptAccessory::Help,
@@ -656,6 +865,42 @@ impl OverlayState {
     /// Whether the detail surface owns focus.
     pub fn is_detail(&self) -> bool {
         matches!(self.surface, OverlaySurface::Detail(_))
+    }
+
+    pub fn transcript_search(&self) -> Option<&TranscriptSearchState> {
+        match &self.surface {
+            OverlaySurface::TranscriptSearch(search) => Some(search),
+            _ => None,
+        }
+    }
+
+    pub fn transcript_search_mut(&mut self) -> Option<&mut TranscriptSearchState> {
+        match &mut self.surface {
+            OverlaySurface::TranscriptSearch(search) => Some(search),
+            _ => None,
+        }
+    }
+
+    pub fn queue(&self) -> Option<&QueuePane> {
+        match &self.surface {
+            OverlaySurface::Queue(queue) => Some(queue),
+            _ => None,
+        }
+    }
+
+    pub fn queue_mut(&mut self) -> Option<&mut QueuePane> {
+        match &mut self.surface {
+            OverlaySurface::Queue(queue) => Some(queue),
+            _ => None,
+        }
+    }
+
+    pub fn show_transcript_search(&mut self) {
+        self.surface = OverlaySurface::TranscriptSearch(TranscriptSearchState::default());
+    }
+
+    pub fn show_queue(&mut self) {
+        self.surface = OverlaySurface::Queue(QueuePane::default());
     }
 
     /// Close details without disturbing another focused surface.
@@ -930,8 +1175,7 @@ impl App {
                 history_cursor: None,
                 history_draft: String::new(),
                 queue_target: QueueTarget::default(),
-                queued_steering: Vec::new(),
-                queued_followups: Vec::new(),
+                queue: QueueState::default(),
                 last_input: None,
                 kill_ring: Vec::new(),
             },
@@ -1038,8 +1282,7 @@ impl App {
         self.session.turn_count = turn_count;
         self.composer.last_input = None;
         self.transcript.pending_manual_compaction = None;
-        self.composer.queued_steering.clear();
-        self.composer.queued_followups.clear();
+        self.composer.queue = restore_queue_state(&records);
         self.overlay.close();
         self.runtime.run_state = RunState::Idle;
         self.composer.input.clear();
@@ -1331,6 +1574,66 @@ impl App {
             .cloned()
             .unwrap_or_else(|| self.runtime.cli.context.reduction.clone())
     }
+}
+
+fn restore_queue_state(records: &[session::SessionRecord]) -> QueueState {
+    let mut queue = QueueState::default();
+    for record in records {
+        let session::SessionRecord::QueuedInput { seq, time, queue_id, kind, action, text, .. } = record else {
+            continue;
+        };
+        let id = QueueItemId(if *queue_id == 0 { *seq } else { *queue_id });
+        let target = if kind == "steering" { QueueTarget::Steering } else { QueueTarget::FollowUp };
+        if action == "add" || queue.item(id).is_none() {
+            queue.items.push(QueueItem {
+                id,
+                target,
+                text: text.clone(),
+                created_at: time.clone(),
+                audit: QueueAuditState::Recorded,
+                settlement: QueueSettlement::Pending,
+            });
+            continue;
+        }
+        match action.as_str() {
+            "edit" => {
+                if let Some(item) = queue.item_mut(id) {
+                    item.text = text.clone();
+                }
+            }
+            "retarget" | "send-after-step" | "send-now" => {
+                if let Some(item) = queue.item_mut(id) {
+                    item.target = target;
+                }
+            }
+            "reorder-up" => {
+                if let Some(index) = queue.items.iter().position(|item| item.id == id)
+                    && index > 0
+                {
+                    queue.items.swap(index, index - 1);
+                }
+            }
+            "reorder-down" => {
+                if let Some(index) = queue.items.iter().position(|item| item.id == id)
+                    && index + 1 < queue.items.len()
+                {
+                    queue.items.swap(index, index + 1);
+                }
+            }
+            "sent" => {
+                queue.settle(id, QueueSettlement::Sent);
+            }
+            "cancelled" => {
+                queue.settle(id, QueueSettlement::Cancelled);
+            }
+            "deleted" => {
+                queue.settle(id, QueueSettlement::Deleted);
+            }
+            _ => {}
+        }
+    }
+    queue.restore_next_id();
+    queue
 }
 
 fn running_tool_status(name: &str, arguments: &str) -> String {

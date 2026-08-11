@@ -744,9 +744,11 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
 fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
     let mut app = fresh_app();
     app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }].into();
-    app.composer
-        .queued_followups
-        .push("follow-up after restart".to_string());
+    app.composer.queue.push(
+        QueueTarget::FollowUp,
+        "follow-up after restart".to_string(),
+        "test".to_string(),
+    );
     let original_turn = "continue the work".to_string();
 
     assert_eq!(
@@ -761,7 +763,7 @@ fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
     assert_eq!(restart, Some(Msg::Agent(AgentEvent::Started)));
     assert!(matches!(app.transcript.entries.last(), Some(Entry::User { text }) if *text == original_turn));
     assert_eq!(
-        app.composer.queued_followups.len(),
+        app.composer.queue.pending_count(QueueTarget::FollowUp),
         1,
         "follow-up must wait until the restarted turn completes"
     );
@@ -2325,7 +2327,14 @@ fn submit_while_working_queues_followup_by_default() {
     app.composer.input = PromptInput::from("queued message");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(app.composer.input.is_empty());
-    assert_eq!(app.composer.queued_followups, vec!["queued message".to_string()]);
+    assert_eq!(
+        app.composer
+            .queue
+            .pending(QueueTarget::FollowUp)
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["queued message"]
+    );
     assert!(
         app.transcript
             .entries
@@ -2363,7 +2372,14 @@ fn submit_while_working_queues_steering_when_selected() {
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
     assert!(app.composer.input.is_empty());
-    assert_eq!(app.composer.queued_steering, vec!["look at tests first".to_string()]);
+    assert_eq!(
+        app.composer
+            .queue
+            .pending(QueueTarget::Steering)
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["look at tests first"]
+    );
     assert!(
         app.transcript
             .entries
@@ -2376,12 +2392,14 @@ fn submit_while_working_queues_steering_when_selected() {
 fn finished_starts_next_followup_turn() {
     let mut app = fresh_app();
     app.runtime.run_state = RunState::Working;
-    app.composer.queued_followups.push("next task".to_string());
+    app.composer
+        .queue
+        .push(QueueTarget::FollowUp, "next task".to_string(), "test".to_string());
 
     let next = update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
     assert_eq!(next, Some(Msg::Agent(AgentEvent::Started)));
-    assert!(app.composer.queued_followups.is_empty());
+    assert_eq!(app.composer.queue.pending_count(QueueTarget::FollowUp), 0);
     assert_eq!(app.session.turn_count, 1);
     assert!(matches!(app.transcript.entries.last(), Some(Entry::User { text }) if text == "next task"));
 }
@@ -2390,13 +2408,24 @@ fn finished_starts_next_followup_turn() {
 fn cancelled_clears_queued_steering_but_keeps_followups() {
     let mut app = fresh_app();
     app.runtime.run_state = RunState::Working;
-    app.composer.queued_steering.push("steer".to_string());
-    app.composer.queued_followups.push("after".to_string());
+    app.composer
+        .queue
+        .push(QueueTarget::Steering, "steer".to_string(), "test".to_string());
+    app.composer
+        .queue
+        .push(QueueTarget::FollowUp, "after".to_string(), "test".to_string());
 
     update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
 
-    assert!(app.composer.queued_steering.is_empty());
-    assert_eq!(app.composer.queued_followups, vec!["after".to_string()]);
+    assert_eq!(app.composer.queue.pending_count(QueueTarget::Steering), 0);
+    assert_eq!(
+        app.composer
+            .queue
+            .pending(QueueTarget::FollowUp)
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["after"]
+    );
 }
 
 #[test]
@@ -3035,4 +3064,63 @@ fn acp_permission_run_cancel_responds_cancelled() {
     );
     assert!(app.overlay.permission().is_none());
     assert_eq!(app.runtime.run_state, RunState::Idle);
+}
+
+#[test]
+fn transcript_search_counts_unicode_matches_without_searching_tool_output() {
+    let entries = vec![
+        Entry::User { text: "find 🦀 then find".to_string() },
+        Entry::Tool {
+            name: "lookup".to_string(),
+            arguments: "find public".to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["find hidden".to_string()],
+        },
+    ]
+    .into();
+    let mut search = TranscriptSearchState::default();
+    search.query.insert_str("find");
+
+    search.refresh(&entries);
+
+    assert_eq!(search.matches.len(), 3);
+    assert_eq!(search.current().expect("first match").entry_index, 0);
+    search.previous();
+    assert_eq!(search.current().expect("wrapped previous match").entry_index, 1);
+}
+
+#[test]
+fn queue_edits_are_cancelable_and_send_now_settles_only_the_selected_item() {
+    let mut app = fresh_app();
+    app.composer.input = PromptInput::from("draft remains");
+    let first = app
+        .composer
+        .queue
+        .push(QueueTarget::FollowUp, "first".to_string(), "now".to_string());
+    let second = app
+        .composer
+        .queue
+        .push(QueueTarget::FollowUp, "second".to_string(), "later".to_string());
+    app.overlay.show_queue();
+
+    update(&mut app, &Msg::Action(Action::QueueEdit));
+    update(&mut app, &Msg::Action(Action::InsertText(" changed".to_string())));
+    update(&mut app, &Msg::Action(Action::Cancel));
+    assert_eq!(app.composer.queue.item(first).expect("first item").text, "first");
+    assert!(
+        app.overlay.queue().is_some(),
+        "cancel should leave the queue open after abandoning an edit"
+    );
+
+    update(&mut app, &Msg::Action(Action::QueueSendNow));
+
+    assert_eq!(
+        app.composer.queue.item(first).expect("first item").settlement,
+        QueueSettlement::Sent
+    );
+    assert_eq!(
+        app.composer.queue.item(second).expect("second item").settlement,
+        QueueSettlement::Pending
+    );
+    assert_eq!(app.composer.input.as_str(), "draft remains");
 }

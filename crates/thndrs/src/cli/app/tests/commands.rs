@@ -155,10 +155,15 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
         .append_entry(&Entry::User { text: "earlier prompt".to_string() }, "turn_1")
         .expect("append user");
     writer.append_usage(7, 11).expect("append usage");
+    writer
+        .append_queued(42, "follow-up", "add", "persisted queue")
+        .expect("append queue");
     drop(writer);
 
     app.runtime.run_state = RunState::Error("stale state".to_string());
-    app.composer.queued_followups.push("stale queue".to_string());
+    app.composer
+        .queue
+        .push(QueueTarget::FollowUp, "stale queue".to_string(), "test".to_string());
     app.composer.input = PromptInput::from("/resume");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
@@ -172,7 +177,14 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
 
     assert_eq!(app.session.id, "session-resume");
     assert_eq!(app.runtime.run_state, RunState::Idle);
-    assert!(app.composer.queued_followups.is_empty());
+    assert_eq!(
+        app.composer
+            .queue
+            .pending(QueueTarget::FollowUp)
+            .map(|item| (item.id, item.text.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(QueueItemId(42), "persisted queue")]
+    );
     assert_eq!(app.runtime.session_tokens_in, 7);
     assert_eq!(app.runtime.session_tokens_out, 11);
     assert_eq!(app.session.turn_count, 1);

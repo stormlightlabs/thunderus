@@ -9,7 +9,8 @@ use crate::renderer::row::Row;
 use crate::renderer::style::{self, CellStyle, Span};
 use crate::renderer::view::{
     ColumnAlignment, ColumnWidthPolicy, DiffDetailView, FocusedSurfaceView, HelpView, PermissionView, PickerView,
-    SetupFormView, SurfaceRenderInput, SurfaceThemeView, TableCellView, TableView, ThemeRole, ToolDetailView,
+    QueueView, SetupFormView, SurfaceRenderInput, SurfaceThemeView, TableCellView, TableView, ThemeRole,
+    ToolDetailView, TranscriptSearchView,
 };
 use crate::utils;
 
@@ -67,12 +68,88 @@ pub fn render_surface(input: &SurfaceRenderInput<'_>) -> Vec<Row> {
         FocusedSurfaceView::Help(help) => help_rows(help, input.width, input.height, input.theme),
         FocusedSurfaceView::ToolDetail(detail) => tool_detail_rows(detail, input.width, input.height, input.theme),
         FocusedSurfaceView::DiffDetail(detail) => diff_detail_rows(detail, input.width, input.height, input.theme),
+        FocusedSurfaceView::TranscriptSearch(search) => {
+            transcript_search_rows(search, input.width, input.height, input.theme)
+        }
+        FocusedSurfaceView::Queue(queue) => queue_rows(queue, input.width, input.height, input.theme),
         FocusedSurfaceView::TranscriptLens { selected_entry, scroll } => {
             transcript_lens_surface_rows(selected_entry, *scroll, input.width, input.height, input.theme)
         }
         FocusedSurfaceView::SetupForm(form) => setup_form_rows(form, input.width, input.height, input.theme),
         FocusedSurfaceView::StructuredTable(table) => table_rows(table, input.width, input.height, input.theme),
     }
+}
+
+fn transcript_search_rows(
+    search: &TranscriptSearchView, width: usize, height: usize, theme: &SurfaceThemeView,
+) -> Vec<Row> {
+    let status = if search.query.is_empty() {
+        "type to search".to_string()
+    } else if search.total == 0 {
+        "no matches".to_string()
+    } else {
+        format!(
+            "{} of {}{}",
+            search.current.unwrap_or(0),
+            search.total,
+            if search.truncated { "+" } else { "" }
+        )
+    };
+    render_bounded_view(
+        &ViewContent {
+            title: format!("search  {}", search.query),
+            status,
+            body: Vec::new(),
+            focus: None,
+            hints: "Enter/↓ next · Shift+Enter/↑ previous · Esc cancel".to_string(),
+            border: ThemeRole::Selected,
+        },
+        width,
+        height,
+        theme,
+    )
+}
+
+fn queue_rows(queue: &QueueView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
+    let mut body = Vec::new();
+    if queue.items.is_empty() {
+        body.push(SurfaceLine::muted("queue is empty"));
+    } else {
+        body.extend(queue.items.iter().enumerate().map(|(index, item)| {
+            let line = format!(
+                "{}  {}  {:<9} {:<10} {}",
+                item.id, item.target, item.settlement, item.audit, item.preview
+            );
+            if index == queue.selected { SurfaceLine::selected(line) } else { SurfaceLine::text(line) }
+        }));
+        if let Some(item) = queue.items.get(queue.selected) {
+            body.push(SurfaceLine::muted(format!("created {} · {}", item.created_at, item.id)));
+        }
+    }
+    if let Some(editing) = &queue.editing {
+        body.push(SurfaceLine::title(format!("edit: {editing}")));
+    }
+    render_bounded_view(
+        &ViewContent {
+            title: format!("queue  {} items", queue.items.len()),
+            status: queue
+                .items
+                .get(queue.selected)
+                .map(|item| format!("{} · {}", item.target, item.settlement))
+                .unwrap_or_default(),
+            body,
+            focus: (!queue.items.is_empty()).then_some(queue.selected),
+            hints: if queue.editing.is_some() {
+                "Enter save · Esc close · typing edits".to_string()
+            } else {
+                "e edit · Ctrl+↑/↓ reorder · t retarget · d delete · a after step · s send now · Esc close".to_string()
+            },
+            border: ThemeRole::Selected,
+        },
+        width,
+        height,
+        theme,
+    )
 }
 
 /// Render a bounded transcript/detail lens.

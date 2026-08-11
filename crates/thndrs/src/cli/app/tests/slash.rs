@@ -143,7 +143,7 @@ fn slash_unknown_while_working_is_rejected() {
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert!(
-        app.composer.queued_followups.is_empty(),
+        app.composer.queue.pending_count(QueueTarget::FollowUp) == 0,
         "unknown slash command should not be queued as text"
     );
     assert!(
@@ -163,8 +163,12 @@ fn double_slash_while_working_queues_literal_slash_followup() {
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(
-        app.composer.queued_followups,
-        vec!["/clear after this run".to_string()],
+        app.composer
+            .queue
+            .pending(QueueTarget::FollowUp)
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["/clear after this run"],
         "double slash should escape a literal slash-prefixed follow-up"
     );
     assert!(app.composer.input.is_empty(), "input should be cleared after queueing");

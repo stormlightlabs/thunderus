@@ -4,104 +4,23 @@
 
 ### UI-1: Split `App` into cohesive state domains
 
-**Outcome:** Reduce field coupling while preserving one top-level update path.
-
-**Blocked by:** None.
-
-**Acceptance:**
-
-- [x] Move cohesive fields and invariants into concrete `SessionState`,
-      `TranscriptState`, `ComposerState`, `OverlayState`, and `RuntimeState`
-      structures; add `InstanceState` only when process instances begin.
-- [x] Keep a single `update(&mut App, Msg)` mutation path and existing external
-      behavior.
-- [x] Focus is represented once; impossible combinations of picker, details,
-      help, setup, and permission surfaces are unrepresentable or rejected.
-- [x] Session recording, auth recovery, process ownership, MCP audit, and
-      permission state have clear owners.
-- [x] Inline one-call helpers and avoid traits that do not mark an effect
-      boundary.
-
-**Verified:** Existing app/input/renderer tests, focused domain and overlay
-transition tests, workspace Clippy, and the full workspace test suite.
+Reduced field coupling while preserving one top-level update path.
 
 ### UI-2: Normalize input into semantic actions
 
-**Outcome:** Ensure raw Crossterm events do not directly implement product
+Ensured raw Crossterm events do not directly implement product
 behavior across large mode-specific branches.
-
-**Blocked by:** UI-1.
-
-**Acceptance:**
-
-- [x] Normalize keyboard, paste, mouse, resize, suspend, and terminal events in
-      one capture layer.
-- [x] Translate normalized input through the active focus/mode and configurable
-      keymap into small semantic actions.
-- [x] Components/domain handlers receive only actions they can handle; an
-      overlay consumes or rejects input before the underlying composer.
-- [x] Repeated keys, bracketed paste, modifier differences, escape sequences,
-      and unsupported terminal capabilities have deterministic behavior.
-- [x] Grapheme-aware insert, delete, backspace, cursor movement, word movement,
-      wrapping, and rendered cursor placement remain covered.
-- [x] Key help is generated from the same bindings used for dispatch where
-      practical.
-
-**Verify:** Table-driven translation tests by focus/mode, prompt-editor tests,
-and virtual-terminal tests for paste, resize, and escape behavior.
 
 ### UI-3: Isolate update effects from state transitions
 
-**Outcome:** Make state transitions pure where practical and make every
+Made state transitions pure where practical and make every
 terminal, filesystem, provider, process, clipboard, and session effect
 explicit.
 
-**Blocked by:** UI-1.
-
-**Acceptance:**
-
-- [x] Update handlers return bounded effect values instead of performing
-      hidden I/O in state mutation branches.
-- [x] Effects identify the state/action that requested them and return a
-      semantic success/failure message.
-- [x] Cancellation, stale completions, duplicate completions, and effects that
-      finish after a mode/session change are handled deterministically.
-- [x] JSONL and ACP receive semantic run/session events, not TUI projections.
-- [x] No generic effect framework or trait hierarchy is added beyond concrete
-      needs found during extraction.
-
-**Verify:** Pure update tests with deterministic fake executors and focused
-integration tests for terminal cleanup, session persistence, and cancellation.
-
 ### UI-4: Introduce stable transcript blocks
 
-**Outcome:** Model transcript history as semantic, identifiable blocks whose
+Modeled transcript history as semantic, identifiable blocks whose
 lifecycles update in place.
-
-**Blocked by:** UI-1 and UI-3.
-
-**Acceptance:**
-
-- [x] Every user prompt, assistant response, reasoning summary, tool call,
-      edit/diff, permission, status, error, and child activity has a stable block
-      identifier and explicit kind.
-- [x] Tool lifecycle is validated across queued, running, succeeded, failed,
-      and cancelled states; duplicate or invalid transitions are rejected.
-- [x] A tool block shows action, target, current state, and concise result;
-      lifecycle updates replace its live block instead of appending rows.
-- [x] Routine successful reads/searches collapse after completion. Edits,
-      failures, permissions, verification, truncation, and unknown diffs remain
-      prominent.
-- [x] Compact and detailed projections are bounded, redacted, deterministic,
-      and distinguish unknown from empty or unchanged.
-- [x] Sessions persist semantic events and state, never width-specific rows or
-      terminal cells.
-- [x] Assistant prose remains visually dominant; reasoning and status remain
-      readable; final-response boundaries are consistent and restrained.
-
-**Verify:** Transition tests, serialization round trips, compact/detail
-snapshots at normal and narrow widths, and regression fixtures for running,
-failed, cancelled, truncated, compiler, search, and diff tools.
 
 ### UI-5: Consolidate bounded rendering on Ratatui
 
@@ -157,24 +76,28 @@ application takes over from the terminal.
 
 **Acceptance:**
 
-- [ ] Search shows the query, current/total matches, next/previous navigation,
+- [x] Search shows the query, current/total matches, next/previous navigation,
       no-match state, and safe cancellation.
-- [ ] Keyboard selection works across wrapped lines and block boundaries;
+- [x] Keyboard selection works across wrapped lines and block boundaries;
       mouse selection is enabled only where terminal behavior is reliable.
-- [ ] Copy uses an explicit action, preserves exact semantic text where
+- [x] Copy uses an explicit action, preserves exact semantic text where
       possible, and reports unavailable clipboard support without losing the
       selection.
-- [ ] Scrolling away shows an anchored-away indicator; new activity never moves
+- [x] Scrolling away shows an anchored-away indicator; new activity never moves
       that viewport; returning to follow-latest is immediately visible.
-- [ ] Updating a live block preserves the user's semantic anchor rather than a
+- [x] Updating a live block preserves the user's semantic anchor rather than a
       fragile absolute row when wrapping changes.
-- [ ] Search and selection remain bounded on large transcripts and do not load
+- [x] Search and selection remain bounded on large transcripts and do not load
       hidden tool bodies unnecessarily.
-- [ ] Resize, suspend/resume, crash cleanup, mouse-off selection, narrow/short
+- [x] Resize, suspend/resume, crash cleanup, mouse-off selection, narrow/short
       terminals, and Unicode are deterministic.
 
 **Verify:** State/model tests, virtual-terminal navigation and selection tests,
 Ratatui snapshots, and a real-terminal smoke on the supported terminal matrix.
+
+**Completed:** 2026-08-10. Transcript search, keyboard selection, explicit copy,
+and semantic scroll anchors now work in the alternate-screen interface. Search
+and selection stay bounded and exclude hidden tool output.
 
 ### UI-7: Make queued input inspectable and editable
 
@@ -185,20 +108,25 @@ rather than an opaque count.
 
 **Acceptance:**
 
-- [ ] Every queue item has a stable identifier, order, target, kind
+- [x] Every queue item has a stable identifier, order, target, kind
       (follow-up/steer), bounded preview, created time, and audit/settlement state.
-- [ ] A focused queue surface supports inspect, edit, reorder, retarget, delete,
+- [x] A focused queue surface supports inspect, edit, reorder, retarget, delete,
       send after current step, and send now for exactly one item.
-- [ ] Up/down composer history and queued-item editing have unambiguous focus
+- [x] Up/down composer history and queued-item editing have unambiguous focus
       and never silently overwrite draft text.
-- [ ] Interruption/cancellation preserves unrelated follow-ups and settles
+- [x] Interruption/cancellation preserves unrelated follow-ups and settles
       steering according to documented rules.
-- [ ] Audit or persistence failure does not lose queued input.
-- [ ] Queue text and attachment metadata remain redacted and bounded in logs,
+- [x] Audit or persistence failure does not lose queued input.
+- [x] Queue text and attachment metadata remain redacted and bounded in logs,
       status, and child summaries.
 
 **Verify:** Queue transition and persistence tests, input/focus tests, snapshots,
 and an end-to-end streaming run with follow-up, steer, edit, and cancel.
+
+**Completed:** 2026-08-10. Queue items now have stable IDs, persisted lifecycle
+transitions, and a focused management surface. Editing preserves the composer
+draft, cancellation settles steering without dropping follow-ups, and failed
+audit writes retain the queued text without exposing it in status output.
 
 ### UI-8: Add a configurable status line
 

@@ -202,12 +202,10 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                 Some(None) => {}
                 Some(Some(restart)) => return Some(restart),
             }
-            if app.composer.queued_followups.is_empty() {
-                None
-            } else {
-                let next = app.composer.queued_followups.remove(0);
-                submit_user_turn(app, next)
-            }
+            let id = app.composer.queue.pending_id(QueueTarget::FollowUp)?;
+            let next = app.composer.queue.settle(id, QueueSettlement::Sent);
+            super::input::audit_queue_transition(app, id, "sent");
+            next.and_then(|next| submit_user_turn(app, next))
         }
         AgentEvent::Failed(msg) => {
             app.runtime.stopping_deadline = None;
@@ -245,7 +243,16 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             }
             app.runtime.run_state = RunState::Idle;
             app.composer.last_input = None;
-            app.composer.queued_steering.clear();
+            let cancelled = app
+                .composer
+                .queue
+                .pending(QueueTarget::Steering)
+                .map(|item| item.id)
+                .collect::<Vec<_>>();
+            for id in cancelled {
+                app.composer.queue.settle(id, QueueSettlement::Cancelled);
+                super::input::audit_queue_transition(app, id, "cancelled");
+            }
             persist_last_entry(app);
             app.refresh_git_status();
             None

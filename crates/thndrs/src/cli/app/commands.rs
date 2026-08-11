@@ -191,8 +191,7 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         "clear" => {
             app.transcript.entries.clear();
             app.composer.input.clear();
-            app.composer.queued_steering.clear();
-            app.composer.queued_followups.clear();
+            app.composer.queue = QueueState::default();
             Some(Msg::Clear)
         }
         "quit" | "exit" => {

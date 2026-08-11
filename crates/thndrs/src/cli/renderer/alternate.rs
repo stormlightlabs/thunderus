@@ -154,8 +154,13 @@ pub enum ViewportState {
 #[derive(Debug, Default)]
 pub struct AlternateViewport {
     state: ViewportState,
+    search_restore: Option<ViewportState>,
+    last_search_match: Option<(usize, usize, usize)>,
     transcript_cache: TranscriptProjectionCache,
     last_positions: Vec<TranscriptPosition>,
+    last_rows: Vec<Row>,
+    selection: Option<(TranscriptPosition, TranscriptPosition)>,
+    anchor_excerpt: Option<String>,
     last_top: usize,
     last_page_rows: usize,
 }
@@ -258,6 +263,10 @@ impl AlternateViewport {
             Action::ScrollTranscriptHalfDown => self.half_page_down(),
             Action::TranscriptTop => self.top(),
             Action::TranscriptFollowTail => self.follow_tail(),
+            Action::ExtendTranscriptSelectionUp => self.extend_selection(-1),
+            Action::ExtendTranscriptSelectionDown => self.extend_selection(1),
+            Action::ClearTranscriptSelection => self.selection = None,
+            Action::CopyTranscriptSelection => return false,
             _ => return false,
         }
         true
@@ -300,8 +309,66 @@ impl AlternateViewport {
         }
     }
 
+    /// Return the selected visual transcript rows as Unicode text.
+    pub fn selected_text(&self) -> Option<String> {
+        let (anchor, head) = self.selection?;
+        let anchor = self.last_positions.iter().position(|position| *position == anchor)?;
+        let head = self.last_positions.iter().position(|position| *position == head)?;
+        let (start, end) = if anchor <= head { (anchor, head) } else { (head, anchor) };
+        let text = self.last_rows[start..=end]
+            .iter()
+            .map(|row| row.spans.iter().map(|span| span.text.as_str()).collect::<String>())
+            .map(|line| line.trim_end().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        (!text.is_empty()).then_some(text)
+    }
+
+    fn extend_selection(&mut self, direction: isize) {
+        if self.last_positions.is_empty() {
+            return;
+        }
+        let initial = self.last_top.min(self.last_positions.len() - 1);
+        let (anchor, head) = self
+            .selection
+            .unwrap_or((self.last_positions[initial], self.last_positions[initial]));
+        let head_index = self
+            .last_positions
+            .iter()
+            .position(|position| *position == head)
+            .unwrap_or(initial);
+        let next = head_index
+            .saturating_add_signed(direction)
+            .min(self.last_positions.len() - 1);
+        let next_position = self.last_positions[next];
+        self.selection = Some((anchor, next_position));
+        self.state = ViewportState::Anchored(next_position);
+    }
+
     /// Build one complete terminal-sized logical frame.
     pub fn build_frame(&mut self, app: &App, width: usize, height: usize) -> Frame {
+        let search_match = app.overlay.transcript_search().and_then(|search| {
+            search
+                .current()
+                .map(|found| (search.selected, found.entry_index, found.start))
+        });
+        let search_changed = search_match != self.last_search_match;
+        if app.overlay.transcript_search().is_some() {
+            if self.search_restore.is_none() {
+                self.search_restore = Some(self.state);
+            }
+            if search_match != self.last_search_match
+                && let Some((_, entry_index, _)) = search_match
+            {
+                self.state = ViewportState::Anchored(TranscriptPosition::Entry { entry_index, row_in_entry: 0 });
+                self.anchor_excerpt = None;
+            }
+            self.last_search_match = search_match;
+        } else if let Some(previous) = self.search_restore.take() {
+            self.state = previous;
+            self.last_search_match = None;
+            self.anchor_excerpt = None;
+        }
         let semantic = SemanticUiView::from(app);
         let transcript = self.transcript_cache.project(app, width);
         let live = LiveView::build(app, width, height, &transcript, &semantic);
@@ -312,23 +379,57 @@ impl AlternateViewport {
         let transcript_height = height.saturating_sub(chrome_height);
         let rows = &view.transcript.rows;
         let positions = transcript_positions(rows);
+        let search_row = transcript_search_row(app, rows, &positions);
+        if search_changed && let Some(row) = search_row {
+            self.state = ViewportState::Anchored(positions[row]);
+            self.anchor_excerpt = Some(row_excerpt(&rows[row]));
+        }
         let max_top = rows.len().saturating_sub(transcript_height);
         let top = match self.state {
             ViewportState::FollowingTail => max_top,
-            ViewportState::Anchored(anchor) => resolve_position(&positions, anchor).unwrap_or(max_top).min(max_top),
+            ViewportState::Anchored(anchor) => {
+                resolve_position(&positions, rows, anchor, self.anchor_excerpt.as_deref())
+                    .unwrap_or(max_top)
+                    .min(max_top)
+            }
         };
 
         self.last_positions = positions;
+        self.last_rows = rows.clone();
         self.last_top = top;
         self.last_page_rows = transcript_height.max(1);
 
         let mut frame = Frame::new(width);
         let visible_end = top.saturating_add(transcript_height).min(rows.len());
-        let visible = &rows[top.min(rows.len())..visible_end];
+        let mut visible = rows[top.min(rows.len())..visible_end].to_vec();
+        if let Some(search_row) = search_row
+            && (top..visible_end).contains(&search_row)
+        {
+            for span in &mut visible[search_row - top].spans {
+                span.style = span.style.underlined();
+            }
+        }
+        if let Some((anchor, head)) = self.selection
+            && let (Some(anchor), Some(head)) = (
+                self.last_positions.iter().position(|position| *position == anchor),
+                self.last_positions.iter().position(|position| *position == head),
+            )
+        {
+            let (selection_start, selection_end) = if anchor <= head { (anchor, head) } else { (head, anchor) };
+            let palette = super::style::palette();
+            for (offset, row) in visible.iter_mut().enumerate() {
+                let index = top + offset;
+                if (selection_start..=selection_end).contains(&index) {
+                    for span in &mut row.spans {
+                        span.style = span.style.with_bg(palette.surface1);
+                    }
+                }
+            }
+        }
         for _ in 0..transcript_height.saturating_sub(visible.len()) {
             frame.push(Row::blank(width, CellStyle::new()));
         }
-        frame.rows.extend(visible.iter().cloned());
+        frame.rows.extend(visible);
 
         let chrome_start = chrome.rows.len().saturating_sub(chrome_height);
         let chrome_offset = frame.rows.len();
@@ -353,6 +454,11 @@ impl AlternateViewport {
         let target = self.last_top.saturating_sub(amount);
         if let Some(position) = self.last_positions.get(target).copied() {
             self.state = ViewportState::Anchored(position);
+            self.anchor_excerpt = self
+                .last_rows
+                .get(target)
+                .map(row_excerpt)
+                .filter(|text| !text.is_empty());
         }
     }
 
@@ -363,6 +469,11 @@ impl AlternateViewport {
             self.follow_tail();
         } else if let Some(position) = self.last_positions.get(target).copied() {
             self.state = ViewportState::Anchored(position);
+            self.anchor_excerpt = self
+                .last_rows
+                .get(target)
+                .map(row_excerpt)
+                .filter(|text| !text.is_empty());
         }
     }
 }
@@ -451,15 +562,62 @@ fn transcript_positions(rows: &[Row]) -> Vec<TranscriptPosition> {
         .collect()
 }
 
-fn resolve_position(positions: &[TranscriptPosition], anchor: TranscriptPosition) -> Option<usize> {
+fn resolve_position(
+    positions: &[TranscriptPosition], rows: &[Row], anchor: TranscriptPosition, excerpt: Option<&str>,
+) -> Option<usize> {
     positions.iter().position(|position| *position == anchor).or_else(|| {
         match anchor {
-        TranscriptPosition::Entry { entry_index, .. } => positions.iter().position(|position| {
-            matches!(position, TranscriptPosition::Entry { entry_index: candidate, .. } if *candidate == entry_index)
-        }),
+        TranscriptPosition::Entry { entry_index, .. } => excerpt
+            .and_then(|needle| {
+                positions.iter().zip(rows).position(|(position, row)| {
+                    matches!(position, TranscriptPosition::Entry { entry_index: candidate, .. } if *candidate == entry_index)
+                        && {
+                            let candidate = row_excerpt(row);
+                            candidate.contains(needle) || needle.contains(&candidate)
+                        }
+                })
+            })
+            .or_else(|| positions.iter().position(|position| {
+                matches!(position, TranscriptPosition::Entry { entry_index: candidate, .. } if *candidate == entry_index)
+            })),
         TranscriptPosition::Banner { .. } => positions.first().map(|_| 0),
     }
     })
+}
+
+fn row_excerpt(row: &Row) -> String {
+    row.spans
+        .iter()
+        .map(|span| span.text.as_str())
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+fn transcript_search_row(app: &App, rows: &[Row], positions: &[TranscriptPosition]) -> Option<usize> {
+    let search = app.overlay.transcript_search()?;
+    let current = search.current()?;
+    let query = search.query.as_str();
+    let ordinal = search.matches[..=search.selected]
+        .iter()
+        .filter(|found| found.entry_index == current.entry_index)
+        .count()
+        .saturating_sub(1);
+    let mut seen = 0;
+    let mut first_entry_row = None;
+    for (index, (row, position)) in rows.iter().zip(positions).enumerate() {
+        if !matches!(position, TranscriptPosition::Entry { entry_index, .. } if *entry_index == current.entry_index) {
+            continue;
+        }
+        first_entry_row.get_or_insert(index);
+        for _ in row_excerpt(row).match_indices(query) {
+            if seen == ordinal {
+                return Some(index);
+            }
+            seen += 1;
+        }
+    }
+    first_entry_row
 }
 
 /// Rectangles for an app-owned transcript above a bottom-pinned composer.
@@ -718,6 +876,7 @@ mod tests {
     fn chronological_projection_does_not_partition_later_settled_entries_first() {
         let mut app = App::from_cli(&Cli::default());
         app.session.writer = None;
+        app.overlay.close();
         app.transcript.entries = vec![
             Entry::Agent { text: "first mutable".to_string(), streaming: true },
             Entry::Status { text: "second settled".to_string() },
@@ -822,6 +981,31 @@ mod tests {
         let cursor = frame.cursor.expect("prompt cursor");
         assert!(cursor.row < 9);
         assert!(cursor.col < 24);
+    }
+
+    #[test]
+    fn keyboard_selection_crosses_wrapped_entry_boundaries_and_preserves_unicode() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session.writer = None;
+        app.overlay.close();
+        app.transcript.entries = vec![
+            Entry::User { text: "first wrapped 🦀 transcript line".to_string() },
+            Entry::Agent { text: "second block".to_string(), streaming: false },
+        ]
+        .into();
+        let mut viewport = AlternateViewport::default();
+        viewport.build_frame(&app, 14, 40);
+
+        for _ in 0..50 {
+            viewport.handle_navigation(&app, &Action::ExtendTranscriptSelectionDown);
+        }
+
+        let selected = viewport.selected_text().expect("selected transcript text");
+        assert!(selected.contains('🦀'));
+        assert!(
+            selected.contains("second"),
+            "selection should cross into the next transcript block"
+        );
     }
 
     #[test]

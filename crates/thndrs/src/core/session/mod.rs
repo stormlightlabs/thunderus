@@ -37,6 +37,10 @@ pub use contracts::{
 /// Current JSONL schema version.
 pub const SCHEMA_VERSION: u32 = 1;
 
+fn default_queue_action() -> String {
+    String::from("add")
+}
+
 /// Maximum amount of redacted log text returned by a reader.
 pub const MAX_LOG_OUTPUT_BYTES: usize = 32 * 1024;
 
@@ -360,14 +364,20 @@ pub enum SessionRecord {
         rendered_byte_count: usize,
         loaded_references: Vec<SkillReferenceRecord>,
     },
-    /// Queued input recorded for audit. Resume does not rebuild pending queues.
+    /// Queued input lifecycle event recorded for audit and resume.
     #[serde(rename = "queued_input")]
     QueuedInput {
         schema_version: u32,
         seq: u64,
         time: String,
+        /// Stable queue id. Older records use their sequence number on replay.
+        #[serde(default)]
+        queue_id: u64,
         /// "steering" or "follow-up".
         kind: String,
+        /// "add", "edit", "retarget", "reorder", "sent", "cancelled", or "deleted".
+        #[serde(default = "default_queue_action")]
+        action: String,
         text: String,
     },
     /// ACP permission request metadata.
@@ -1303,12 +1313,14 @@ impl SessionWriter {
     }
 
     /// Append a queued input audit record.
-    pub fn append_queued(&mut self, kind: &str, text: &str) -> std::io::Result<()> {
+    pub fn append_queued(&mut self, queue_id: u64, kind: &str, action: &str, text: &str) -> std::io::Result<()> {
         let record = SessionRecord::QueuedInput {
             schema_version: SCHEMA_VERSION,
             seq: self.seq,
             time: datetime::now_iso8601(),
+            queue_id,
             kind: kind.to_string(),
+            action: action.to_string(),
             text: text.to_string(),
         };
         self.seq += 1;

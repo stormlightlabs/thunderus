@@ -27,6 +27,8 @@ pub enum InputFocus {
     Context,
     Picker,
     Detail,
+    TranscriptSearch,
+    Queue,
     Setup,
     Permission,
 }
@@ -70,6 +72,8 @@ pub enum Action {
     EnterCommand,
     OpenHelp,
     OpenDetail,
+    OpenTranscriptSearch,
+    OpenQueue,
     ToggleQueueTarget,
     QuitConfirm,
     Interrupt,
@@ -88,6 +92,19 @@ pub enum Action {
     ScrollTranscriptHalfDown,
     TranscriptTop,
     TranscriptFollowTail,
+    ExtendTranscriptSelectionUp,
+    ExtendTranscriptSelectionDown,
+    CopyTranscriptSelection,
+    ClearTranscriptSelection,
+    SearchNext,
+    SearchPrevious,
+    QueueEdit,
+    QueueRetarget,
+    QueueDelete,
+    QueueReorderUp,
+    QueueReorderDown,
+    QueueSendNow,
+    QueueSendAfterStep,
     Resize { width: u16, height: u16 },
     Suspend,
     FocusGained,
@@ -102,6 +119,8 @@ impl Action {
             Self::CloseOverlay | Self::Cancel => "close help, files, or commands",
             Self::CursorUp | Self::CursorDown => "move cursor or recall history",
             Self::OpenHelp => "show help",
+            Self::OpenTranscriptSearch => "search transcript",
+            Self::OpenQueue => "inspect queued input",
             Self::ToggleQueueTarget => "toggle queue target",
             Self::Transpose => "transpose characters",
             Self::Newline => "insert newline",
@@ -212,6 +231,11 @@ const DEFAULT_HELP: &[(&str, &str)] = &[
     ("Escape", "close help, files, or commands"),
     ("Up/Down", "move cursor or recall history"),
     ("Ctrl+P", "open workspace file picker"),
+    ("Ctrl+Shift+F", "search transcript"),
+    ("Ctrl+Q", "inspect queued input"),
+    ("Alt+Shift+Up/Down", "extend transcript selection"),
+    ("Ctrl+Shift+C", "copy transcript selection"),
+    ("Ctrl+Shift+X", "clear transcript selection"),
     ("Ctrl+T", "transpose characters"),
     ("── Editing ──", ""),
     ("Shift+Enter", "insert newline"),
@@ -240,6 +264,10 @@ pub fn input_focus(app: &App) -> InputFocus {
         InputFocus::Setup
     } else if app.overlay.is_detail() {
         InputFocus::Detail
+    } else if app.overlay.transcript_search().is_some() {
+        InputFocus::TranscriptSearch
+    } else if app.overlay.queue().is_some() {
+        InputFocus::Queue
     } else if !matches!(app.overlay.accessory(), PromptAccessory::None) {
         match app.overlay.accessory() {
             PromptAccessory::Help => InputFocus::Help,
@@ -302,11 +330,26 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
     let modifiers = key.modifiers;
     let control = modifiers.contains(KeyModifiers::CONTROL);
     let alt = modifiers.contains(KeyModifiers::ALT);
+    let shift = modifiers.contains(KeyModifiers::SHIFT);
+    if matches!(focus, InputFocus::TranscriptSearch | InputFocus::Queue) {
+        return focused_surface_key_action(focus, key);
+    }
+    if matches!(focus, InputFocus::Prompt) && matches!(app.overlay.accessory(), PromptAccessory::None) {
+        match (key.code, control, alt, shift) {
+            (KeyCode::Char('c'), true, false, true) => return Some(Action::CopyTranscriptSelection),
+            (KeyCode::Char('x'), true, false, true) => return Some(Action::ClearTranscriptSelection),
+            (KeyCode::Char('f'), true, false, true) => return Some(Action::OpenTranscriptSearch),
+            (KeyCode::Up, false, true, true) => return Some(Action::ExtendTranscriptSelectionUp),
+            (KeyCode::Down, false, true, true) => return Some(Action::ExtendTranscriptSelectionDown),
+            _ => {}
+        }
+    }
     if control && !alt {
         let action = match key.code {
             KeyCode::Char('c') => Some(Action::Interrupt),
             KeyCode::Char('d') => Some(Action::QuitConfirm),
             KeyCode::Char('o') => Some(Action::OpenDetail),
+            KeyCode::Char('q') => Some(Action::OpenQueue),
             KeyCode::Char('t') if app.runtime.run_state == RunState::Working => Some(Action::ToggleQueueTarget),
             KeyCode::Char('z') => Some(Action::Suspend),
             _ => None,
@@ -365,6 +408,7 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
             KeyCode::Down | KeyCode::PageDown => Some(Action::ScrollOverlayDown),
             _ => None,
         },
+        InputFocus::TranscriptSearch | InputFocus::Queue => unreachable!("focused surfaces return above"),
         InputFocus::Help => (key.code == KeyCode::Esc).then_some(Action::CloseOverlay),
         InputFocus::Context => match app.composer.mode {
             Mode::Command => default_key_action(app, InputFocus::Command, key),
@@ -391,6 +435,39 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
             _ => None,
         },
         InputFocus::Prompt => prompt_key_action(app, key),
+    }
+}
+
+fn focused_surface_key_action(focus: InputFocus, key: KeyEvent) -> Option<Action> {
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    match focus {
+        InputFocus::TranscriptSearch => match key.code {
+            KeyCode::Esc => Some(Action::CloseOverlay),
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => Some(Action::SearchPrevious),
+            KeyCode::Enter | KeyCode::Down => Some(Action::SearchNext),
+            KeyCode::Up => Some(Action::SearchPrevious),
+            KeyCode::Backspace if !control && !alt => Some(Action::Backspace),
+            KeyCode::Char(ch) if !control && !alt => Some(Action::InsertText(ch.to_string())),
+            _ => None,
+        },
+        InputFocus::Queue => match key.code {
+            KeyCode::Esc => Some(Action::CloseOverlay),
+            KeyCode::Enter => Some(Action::Confirm),
+            KeyCode::Up if control => Some(Action::QueueReorderUp),
+            KeyCode::Down if control => Some(Action::QueueReorderDown),
+            KeyCode::Up => Some(Action::SelectPrevious),
+            KeyCode::Down => Some(Action::SelectNext),
+            KeyCode::Backspace => Some(Action::Backspace),
+            KeyCode::Char('e') if !control && !alt => Some(Action::QueueEdit),
+            KeyCode::Char('t') if !control && !alt => Some(Action::QueueRetarget),
+            KeyCode::Char('d') if !control && !alt => Some(Action::QueueDelete),
+            KeyCode::Char('s') if !control && !alt => Some(Action::QueueSendNow),
+            KeyCode::Char('a') if !control && !alt => Some(Action::QueueSendAfterStep),
+            KeyCode::Char(ch) if !control && !alt => Some(Action::InsertText(ch.to_string())),
+            _ => None,
+        },
+        _ => unreachable!("only focused surfaces are routed here"),
     }
 }
 
@@ -594,6 +671,14 @@ pub fn handle_action(app: &mut App, action: Action) -> Option<Msg> {
             open_detail_surface(app);
             None
         }
+        Action::OpenTranscriptSearch => {
+            app.overlay.show_transcript_search();
+            None
+        }
+        Action::OpenQueue => {
+            app.overlay.show_queue();
+            None
+        }
         Action::QuitConfirm => {
             if let Some(deadline) = app.runtime.ctrl_d_pending
                 && !agent_lifecycle::now_or_after_deadline(app.runtime.ui_tick, deadline)
@@ -626,7 +711,11 @@ pub fn handle_action(app: &mut App, action: Action) -> Option<Msg> {
         | Action::ScrollTranscriptHalfUp
         | Action::ScrollTranscriptHalfDown
         | Action::TranscriptTop
-        | Action::TranscriptFollowTail => None,
+        | Action::TranscriptFollowTail
+        | Action::ExtendTranscriptSelectionUp
+        | Action::ExtendTranscriptSelectionDown
+        | Action::CopyTranscriptSelection
+        | Action::ClearTranscriptSelection => None,
         action => {
             app.runtime.ctrl_d_pending = None;
             if app.overlay.permission().is_some() {
@@ -637,6 +726,13 @@ pub fn handle_action(app: &mut App, action: Action) -> Option<Msg> {
             }
             if app.overlay.is_detail() {
                 return handle_detail_action(app, &action);
+            }
+            if app.overlay.transcript_search().is_some() {
+                handle_transcript_search_action(app, action);
+                return None;
+            }
+            if app.overlay.queue().is_some() {
+                return handle_queue_action(app, action);
             }
             if !matches!(app.overlay.accessory(), PromptAccessory::None) {
                 match handle_accessory_action(app, action) {
@@ -836,6 +932,173 @@ fn handle_detail_action(app: &mut App, action: &Action) -> Option<Msg> {
         _ => {}
     }
     None
+}
+
+fn handle_transcript_search_action(app: &mut App, action: Action) {
+    match action {
+        Action::CloseOverlay | Action::Cancel => app.overlay.close(),
+        Action::Backspace => {
+            if let Some(search) = app.overlay.transcript_search_mut() {
+                search.query.backspace();
+                search.refresh(&app.transcript.entries);
+            }
+        }
+        Action::InsertText(text) => {
+            if let Some(search) = app.overlay.transcript_search_mut() {
+                search.query.insert_str(&text);
+                search.refresh(&app.transcript.entries);
+            }
+        }
+        Action::SearchNext => {
+            if let Some(search) = app.overlay.transcript_search_mut() {
+                search.next();
+            }
+        }
+        Action::SearchPrevious => {
+            if let Some(search) = app.overlay.transcript_search_mut() {
+                search.previous();
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_queue_action(app: &mut App, action: Action) -> Option<Msg> {
+    let count = app.composer.queue.items.len();
+    if matches!(action, Action::CloseOverlay | Action::Cancel) {
+        if app
+            .overlay
+            .queue_mut()
+            .is_some_and(|pane| pane.editing.take().is_some())
+        {
+            return None;
+        }
+        app.overlay.close();
+        return None;
+    }
+    if let Some(pane) = app.overlay.queue_mut() {
+        match action {
+            Action::SelectPrevious if pane.editing.is_none() => pane.selected = pane.selected.saturating_sub(1),
+            Action::SelectNext if pane.editing.is_none() => {
+                pane.selected = (pane.selected + 1).min(count.saturating_sub(1));
+            }
+            Action::Backspace if pane.editing.is_some() => {
+                pane.editing.as_mut().expect("editing checked above").backspace();
+                return None;
+            }
+            Action::InsertText(text) if pane.editing.is_some() => {
+                pane.editing.as_mut().expect("editing checked above").insert_str(&text);
+                return None;
+            }
+            _ => {}
+        }
+    }
+
+    let selected = app.overlay.queue().map(|pane| pane.selected).unwrap_or_default();
+    let id = app.composer.queue.items.get(selected).map(|item| item.id)?;
+    let pending = app
+        .composer
+        .queue
+        .item(id)
+        .is_some_and(|item| item.settlement == QueueSettlement::Pending);
+    match action {
+        Action::QueueEdit if pending => {
+            let text = app
+                .composer
+                .queue
+                .item(id)
+                .map(|item| item.text.clone())
+                .unwrap_or_default();
+            if let Some(pane) = app.overlay.queue_mut() {
+                pane.editing = Some(PromptInput::from(text));
+            }
+        }
+        Action::Confirm => {
+            let edited = app.overlay.queue_mut().and_then(|pane| pane.editing.take());
+            if let Some(edited) = edited
+                && let Some(item) = app.composer.queue.item_mut(id)
+            {
+                item.text = edited.text();
+                audit_queue_transition(app, id, "edit");
+            }
+        }
+        Action::QueueRetarget if pending => {
+            if let Some(item) = app.composer.queue.item_mut(id) {
+                item.target = item.target.toggle();
+            }
+            audit_queue_transition(app, id, "retarget");
+        }
+        Action::QueueDelete if pending => {
+            app.composer.queue.settle(id, QueueSettlement::Deleted);
+            audit_queue_transition(app, id, "deleted");
+        }
+        Action::QueueReorderUp if pending && selected > 0 => {
+            app.composer.queue.items.swap(selected, selected - 1);
+            if let Some(pane) = app.overlay.queue_mut() {
+                pane.selected -= 1;
+            }
+            audit_queue_transition(app, id, "reorder-up");
+        }
+        Action::QueueReorderDown if pending && selected + 1 < count => {
+            app.composer.queue.items.swap(selected, selected + 1);
+            if let Some(pane) = app.overlay.queue_mut() {
+                pane.selected += 1;
+            }
+            audit_queue_transition(app, id, "reorder-down");
+        }
+        Action::QueueSendAfterStep if pending => {
+            if let Some(item) = app.composer.queue.item_mut(id) {
+                item.target = QueueTarget::FollowUp;
+            }
+            audit_queue_transition(app, id, "send-after-step");
+        }
+        Action::QueueSendNow if pending => {
+            let text = app
+                .composer
+                .queue
+                .item(id)
+                .map(|item| item.text.clone())
+                .unwrap_or_default();
+            app.overlay.close();
+            if app.runtime.run_state == RunState::Working {
+                if let Some(item) = app.composer.queue.item_mut(id) {
+                    item.target = QueueTarget::Steering;
+                }
+                audit_queue_transition(app, id, "send-now");
+                return None;
+            } else {
+                app.composer.queue.settle(id, QueueSettlement::Sent);
+                audit_queue_transition(app, id, "sent");
+                let draft = app.composer.input.clone();
+                let followup = submit_user_turn(app, text);
+                app.composer.input = draft;
+                return followup;
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+pub(crate) fn audit_queue_transition(app: &mut App, id: QueueItemId, action: &str) {
+    let Some(item) = app.composer.queue.item(id) else {
+        return;
+    };
+    let kind = item.target.label().to_string();
+    let text = item.text.clone();
+    let result = app
+        .session
+        .writer
+        .as_mut()
+        .and_then(|writer| writer.append_queued(id.0, &kind, action, &text).err());
+    if let Some(err) = result {
+        if let Some(item) = app.composer.queue.item_mut(id) {
+            item.audit = QueueAuditState::Failed(err.to_string());
+        }
+        app.transcript
+            .entries
+            .push(Entry::Error { text: format!("queue audit failed for {id}; queued content was retained") });
+    }
 }
 
 fn handle_command_action(app: &mut App, action: Action) -> Option<Msg> {
@@ -1514,24 +1777,26 @@ pub fn handle_submit(app: &mut App) -> Option<Msg> {
 pub fn queue_running_input(app: &mut App, text: &str) {
     app.composer.input.clear();
     agent_lifecycle::remember_input(app, text);
-    let (kind, count) = match app.composer.queue_target {
-        QueueTarget::Steering => {
-            app.composer.queued_steering.push(text.to_string());
-            ("steering", app.composer.queued_steering.len())
-        }
-        QueueTarget::FollowUp => {
-            app.composer.queued_followups.push(text.to_string());
-            ("follow-up", app.composer.queued_followups.len())
-        }
-    };
+    let target = app.composer.queue_target;
+    let kind = target.label();
+    let id = app
+        .composer
+        .queue
+        .push(target, text.to_string(), crate::datetime::now_iso8601());
+    let count = app.composer.queue.pending_count(target);
     let audit_error = app
         .session
         .writer
         .as_mut()
-        .and_then(|writer| writer.append_queued(kind, text).err());
+        .and_then(|writer| writer.append_queued(id.0, kind, "add", text).err());
+    if let Some(err) = audit_error.as_ref()
+        && let Some(item) = app.composer.queue.item_mut(id)
+    {
+        item.audit = QueueAuditState::Failed(err.to_string());
+    }
     app.transcript
         .entries
-        .push(Entry::Status { text: format!("queued {kind} ({count})") });
+        .push(Entry::Status { text: format!("queued {kind} {id} ({count})") });
     if let Some(err) = audit_error {
         app.transcript
             .entries
