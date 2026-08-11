@@ -4,4 +4,4 @@ expression: contents
 ---
 │                                                                                   # [-]=                                                                                
 │     Activity                                                                      # [-]=   [fg=#f1fc79]=   [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
-│     ✓ run_shell [Done]  $ ls  20 lines · Ctrl+O details                           # [-]=   [fg=#f1fc79]=   [fg=#37f499]=✓  [fg=#ebfafa b]=run_shell [fg=#37f499]= [Done] [-]=   [fg=#abb4da]=$ ls [fg=#abb4da]=  20 lines · Ctrl+O details [-]=                        [-]=
+│   │ ✓ [DONE] run_shell  $ ls  20 lines · Ctrl+O details                           # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓ [DONE]  [fg=#ebfafa b]=run_shell [-]=   [fg=#abb4da]=$ ls [fg=#abb4da]=  20 lines · Ctrl+O details [-]=                        [-]=

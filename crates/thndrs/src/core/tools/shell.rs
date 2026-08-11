@@ -296,6 +296,7 @@ pub struct ProcessRegistry {
 #[derive(Debug, Default)]
 struct RegistryInner {
     state: Mutex<RegistryState>,
+    foreground_output: Mutex<Option<Arc<OutputCapture>>>,
 }
 
 #[derive(Debug, Default)]
@@ -428,6 +429,27 @@ impl ProcessRegistry {
     /// Create an empty registry.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Return the output captured so far for the active one-shot command.
+    pub fn foreground_output(&self) -> Option<ProcessOutput> {
+        self.inner
+            .foreground_output
+            .lock()
+            .ok()?
+            .as_ref()
+            .map(|output| output.snapshot().0)
+    }
+
+    fn set_foreground_output(&self, output: Arc<OutputCapture>) {
+        *recover_lock(&self.inner.foreground_output) = Some(output);
+    }
+
+    fn clear_foreground_output(&self, output: &Arc<OutputCapture>) {
+        let mut active = recover_lock(&self.inner.foreground_output);
+        if active.as_ref().is_some_and(|current| Arc::ptr_eq(current, output)) {
+            *active = None;
+        }
     }
 
     /// Number of currently active processes (one-shot + background).
@@ -649,10 +671,10 @@ impl ProcessRegistry {
             && let Some(child) = child_guard.as_mut()
         {
             if let Some(stdout) = child.stdout().take() {
-                spawn_output_reader(stdout, output.clone(), true);
+                let _ = spawn_output_reader(stdout, output.clone(), true);
             }
             if let Some(stderr) = child.stderr().take() {
-                spawn_output_reader(stderr, output.clone(), false);
+                let _ = spawn_output_reader(stderr, output.clone(), false);
             }
         }
 
@@ -870,7 +892,7 @@ pub fn run_command_with_registry(
         });
     }
 
-    run_foreground_command(args, cwd, argv, cancel)
+    run_foreground_command(args, cwd, argv, cancel, registry)
 }
 
 /// Execute a one-shot shell command and return a [`ToolOutput`] suitable for
@@ -958,42 +980,6 @@ fn resolve_cwd(root: &Path, cwd: &Option<PathBuf>) -> Result<PathBuf, String> {
     }
 }
 
-/// Read a piped stream to a capped byte buffer. Runs on a dedicated reader
-/// thread so the main thread can still poll try_wait for timeout/cancellation.
-fn read_to_capped_vec<R: Read>(mut stream: R) -> CapturedBytes {
-    let max_bytes: usize = MAX_OUTPUT_BYTES;
-    let mut buf = Vec::with_capacity(4096);
-    let mut truncated = false;
-    let mut chunk = [0u8; 4096];
-
-    loop {
-        match stream.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(n) => {
-                let remaining = max_bytes.saturating_sub(buf.len());
-                if remaining == 0 {
-                    // Keep draining the pipe after the retained prefix is
-                    // full so a verbose child cannot block before it exits.
-                    truncated = true;
-                    continue;
-                }
-                let take = n.min(remaining);
-                truncated |= take < n;
-                buf.extend_from_slice(&chunk[..take]);
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(_) => break,
-        }
-    }
-
-    CapturedBytes { bytes: buf, truncated }
-}
-
-struct CapturedBytes {
-    bytes: Vec<u8>,
-    truncated: bool,
-}
-
 /// Split a byte buffer into lines, capping the line count, truncating long
 /// lines, and redacting known secret patterns.
 fn split_and_cap(buf: &[u8]) -> (Vec<String>, bool) {
@@ -1045,7 +1031,9 @@ fn recover_lock<T>(lock: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn spawn_output_reader<R: Read + Send + 'static>(mut reader: R, output: Arc<OutputCapture>, stdout: bool) {
+fn spawn_output_reader<R: Read + Send + 'static>(
+    mut reader: R, output: Arc<OutputCapture>, stdout: bool,
+) -> JoinHandle<()> {
     output.readers.fetch_add(1, Ordering::SeqCst);
     std::thread::spawn(move || {
         let mut chunk = [0_u8; 4096];
@@ -1058,7 +1046,7 @@ fn spawn_output_reader<R: Read + Send + 'static>(mut reader: R, output: Arc<Outp
             }
         }
         output.readers.fetch_sub(1, Ordering::SeqCst);
-    });
+    })
 }
 
 impl BackgroundMonitor {
@@ -1210,7 +1198,7 @@ fn spawn_owned_command(command: Command) -> io::Result<OwnedChild> {
 }
 
 fn run_foreground_command(
-    args: &ShellArgs, cwd: PathBuf, argv: Vec<String>, cancel: &CancelToken,
+    args: &ShellArgs, cwd: PathBuf, argv: Vec<String>, cancel: &CancelToken, registry: Option<&ProcessRegistry>,
 ) -> Result<ProcessResult, String> {
     let mut cmd = Command::new(&args.program);
     cmd.args(&args.args)
@@ -1233,8 +1221,12 @@ fn run_foreground_command(
         .take()
         .ok_or_else(|| String::from("failed to capture child stderr"))?;
 
-    let stdout_handle = std::thread::spawn(move || read_to_capped_vec(stdout));
-    let stderr_handle = std::thread::spawn(move || read_to_capped_vec(stderr));
+    let output = Arc::new(OutputCapture::default());
+    let stdout_reader = spawn_output_reader(stdout, output.clone(), true);
+    let stderr_reader = spawn_output_reader(stderr, output.clone(), false);
+    if let Some(registry) = registry {
+        registry.set_foreground_output(output.clone());
+    }
 
     let final_status = wait_with_timeout(child.as_mut(), &timeout, cancel, &start);
 
@@ -1251,23 +1243,21 @@ fn run_foreground_command(
         WaitOutcome::Cancelled => (ProcessStatus::Cancelled, None),
     };
 
-    let stdout_capture = stdout_handle
-        .join()
-        .unwrap_or(CapturedBytes { bytes: Vec::new(), truncated: true });
-    let stderr_capture = stderr_handle
-        .join()
-        .unwrap_or(CapturedBytes { bytes: Vec::new(), truncated: true });
-    let (stdout, stdout_truncated) = split_and_cap(&stdout_capture.bytes);
-    let (stderr, stderr_truncated) = split_and_cap(&stderr_capture.bytes);
-    let output_truncated = stdout_capture.truncated || stderr_capture.truncated || stdout_truncated || stderr_truncated;
+    let stdout_read_ok = stdout_reader.join().is_ok();
+    let stderr_read_ok = stderr_reader.join().is_ok();
+    let (captured, mut output_truncated) = output.snapshot();
+    output_truncated |= !stdout_read_ok || !stderr_read_ok;
+    if let Some(registry) = registry {
+        registry.clear_foreground_output(&output);
+    }
     Ok(ProcessResult {
         process_id: None,
         command: argv,
         cwd,
         status,
         exit_code,
-        stdout,
-        stderr,
+        stdout: captured.stdout,
+        stderr: captured.stderr,
         output_truncated,
         elapsed,
         kind: ProcessKind::OneShot,

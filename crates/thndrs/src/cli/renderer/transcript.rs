@@ -24,6 +24,9 @@ pub const GUTTER: &str = "   · ";
 /// Role rail shown on transcript entry rows and partial-entry continuations.
 pub const ENTRY_RAIL: &str = "  ";
 
+/// Stable rail shared by consecutive tool activity rows.
+const ACTIVITY_RAIL: &str = "│ ";
+
 #[derive(Clone, Copy)]
 enum TableAlign {
     Left,
@@ -43,12 +46,18 @@ pub struct TranscriptRowContext<'a> {
     pub entry_index: Option<usize>,
     /// Whether this entry begins a consecutive group of tool activity.
     pub tool_group_start: bool,
+    /// Whether Ctrl+O currently targets this tool entry.
+    pub detail_target: bool,
+    /// Whether this tool's output is expanded inline.
+    pub detail_open: bool,
+    /// First raw output line displayed for an expanded tool.
+    pub detail_scroll: usize,
 }
 
 impl TranscriptRowContext<'_> {
     /// Build all rows for a single transcript entry.
     pub fn rows_for_entry(&self, entry: &Entry) -> Vec<Row> {
-        let mut rows = entry_to_rows(entry, self.user_label, self.width, self.cwd, self.tool_group_start);
+        let mut rows = entry_to_rows(entry, self);
         if let Some(index) = self.entry_index {
             let group_id = renderer::row::RowGroupId { entry_index: index };
             for row in &mut rows {
@@ -77,7 +86,16 @@ impl<'a> TranscriptRowContext<'a> {
     /// Build a context without entry grouping.
     #[cfg(test)]
     pub fn for_test(user_label: &'a str, cwd: &'a Path, width: usize) -> Self {
-        Self { user_label, cwd, width, entry_index: None, tool_group_start: true }
+        Self {
+            user_label,
+            cwd,
+            width,
+            entry_index: None,
+            tool_group_start: true,
+            detail_target: true,
+            detail_open: false,
+            detail_scroll: 0,
+        }
     }
 }
 
@@ -188,6 +206,9 @@ struct ToolBlockView<'a> {
     bg: Color,
     cwd: &'a Path,
     group_start: bool,
+    detail_target: bool,
+    detail_open: bool,
+    detail_scroll: usize,
 }
 
 impl ToolBlockView<'_> {
@@ -195,7 +216,7 @@ impl ToolBlockView<'_> {
         let p = super::style::palette();
         let (status_label, status_color, icon) = match self.status {
             ToolStatus::Running => ("Running", p.peach, "·"),
-            ToolStatus::Ok => ("Done", p.green, "✓"),
+            ToolStatus::Ok => ("DONE", p.green, "✓"),
             ToolStatus::Failed => ("Failed", p.red, "✕"),
             ToolStatus::Cancelled => ("Stopped", p.peach, "○"),
         };
@@ -225,11 +246,10 @@ impl ToolBlockView<'_> {
         }
 
         let mut header_spans = vec![
-            Span::styled(ENTRY_RAIL, rail_style),
-            Span::styled(format!("{icon} "), status_style),
+            Span::styled(ACTIVITY_RAIL, rail_style),
+            Span::styled(format!("{icon} [{status_label}] "), status_style),
             Span::styled(base_name.to_string(), header_style),
         ];
-        header_spans.push(Span::styled(format!(" [{status_label}]"), status_style));
 
         if !args_summary.is_empty() {
             let header_width: usize = header_spans.iter().map(|s| utils::text_width(&s.text)).sum();
@@ -240,7 +260,7 @@ impl ToolBlockView<'_> {
                 rows.push(Row::padded(header_spans, self.width, CellStyle::new().bg(self.bg)));
                 for wrapped in super::layout::wrap_text(&args_summary, content_width.saturating_sub(2)) {
                     let spans = vec![
-                        Span::styled(ENTRY_RAIL, rail_style),
+                        Span::styled(ACTIVITY_RAIL, rail_style),
                         Span::styled("  ", CellStyle::new().bg(self.bg)),
                         Span::styled(wrapped, muted_style),
                     ];
@@ -249,8 +269,13 @@ impl ToolBlockView<'_> {
                 header_spans = Vec::new();
             }
         }
-        let output_details = (self.status == ToolStatus::Ok && !self.output.is_empty())
-            .then(|| format!("{} lines · Ctrl+O details", self.output.len()));
+        let output_details = (!self.output.is_empty() && (self.detail_target || self.detail_open)).then(|| {
+            if self.detail_open {
+                format!("{} lines · Esc close", self.output.len())
+            } else {
+                format!("{} lines · Ctrl+O details", self.output.len())
+            }
+        });
         if let Some(details) = output_details.as_ref()
             && !header_spans.is_empty()
         {
@@ -261,7 +286,7 @@ impl ToolBlockView<'_> {
         } else if let Some(details) = output_details {
             rows.push(Row::padded(
                 vec![
-                    Span::styled(ENTRY_RAIL, rail_style),
+                    Span::styled(ACTIVITY_RAIL, rail_style),
                     Span::styled("  ", CellStyle::new().bg(self.bg)),
                     Span::styled(details, muted_style),
                 ],
@@ -273,7 +298,7 @@ impl ToolBlockView<'_> {
         if let Some(summary) = edit_summary_line(self.name, self.output, self.status, self.cwd) {
             rows.push(Row::padded(
                 vec![
-                    Span::styled(ENTRY_RAIL, rail_style),
+                    Span::styled(ACTIVITY_RAIL, rail_style),
                     Span::styled("   edit  ", CellStyle::new().fg(p.overlay0).bg(self.bg).bold()),
                     Span::styled(summary, muted_style),
                 ],
@@ -285,7 +310,7 @@ impl ToolBlockView<'_> {
         if let Some(summary) = diff_summary_line(self.output) {
             rows.push(Row::padded(
                 vec![
-                    Span::styled(ENTRY_RAIL, rail_style),
+                    Span::styled(ACTIVITY_RAIL, rail_style),
                     Span::styled("   diff  ", CellStyle::new().fg(p.overlay0).bg(self.bg).bold()),
                     Span::styled(summary, muted_style),
                 ],
@@ -294,16 +319,23 @@ impl ToolBlockView<'_> {
             ));
         }
 
-        if self.status == ToolStatus::Ok {
+        if self.status == ToolStatus::Ok && !self.detail_open {
             return rows;
         }
 
+        let preview_start = if self.detail_open {
+            self.detail_scroll.min(self.output.len())
+        } else if self.status == ToolStatus::Running {
+            self.output.len().saturating_sub(MAX_TOOL_OUTPUT_LINES)
+        } else {
+            0
+        };
+        let preview = &self.output[preview_start..];
+
         match lang {
             Some(lang_str) => {
-                let joined: String = self
-                    .output
+                let joined: String = preview
                     .iter()
-                    .take(MAX_TOOL_OUTPUT_LINES)
                     .map(|line| {
                         let line = super::path_display::transcript_line(line, self.cwd);
                         format!("{line}\n")
@@ -311,7 +343,10 @@ impl ToolBlockView<'_> {
                     .collect();
                 let highlighted = super::highlight::highlight_lines(&joined, Some(lang_str));
                 for hl_row in highlighted {
-                    let mut spans = vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(GUTTER, gutter_style)];
+                    let mut spans = vec![
+                        Span::styled(ACTIVITY_RAIL, rail_style),
+                        Span::styled(GUTTER, gutter_style),
+                    ];
                     let content_spans: Vec<_> = hl_row
                         .into_iter()
                         .map(|s| Span { text: s.text, style: s.style.bg(self.bg) })
@@ -325,7 +360,7 @@ impl ToolBlockView<'_> {
                 }
             }
             None => {
-                for line in self.output.iter().take(MAX_TOOL_OUTPUT_LINES) {
+                for line in preview {
                     let line = super::path_display::transcript_line(line, self.cwd);
                     let content_style = if is_section_header(&line) {
                         CellStyle::new().fg(p.overlay1).bg(self.bg).bold()
@@ -334,7 +369,7 @@ impl ToolBlockView<'_> {
                     };
                     for wrapped in super::layout::wrap_text_preserving_whitespace(&line, tool_content_width) {
                         let spans = vec![
-                            Span::styled(ENTRY_RAIL, rail_style),
+                            Span::styled(ACTIVITY_RAIL, rail_style),
                             Span::styled(GUTTER, gutter_style),
                             Span::styled(wrapped, content_style),
                         ];
@@ -344,15 +379,17 @@ impl ToolBlockView<'_> {
             }
         }
 
-        if self.output.len() > MAX_TOOL_OUTPUT_LINES {
+        if !self.detail_open && self.output.len() > MAX_TOOL_OUTPUT_LINES {
             rows.push(Row::padded(
                 vec![
-                    Span::styled(ENTRY_RAIL, rail_style),
+                    Span::styled(ACTIVITY_RAIL, rail_style),
                     Span::styled(
                         format!(
-                            "     … ({} lines stored, {} shown here) · Ctrl+O details",
+                            "     … ({} lines stored, {} {} shown here){}",
                             self.output.len(),
-                            MAX_TOOL_OUTPUT_LINES
+                            MAX_TOOL_OUTPUT_LINES,
+                            if self.status == ToolStatus::Running { "latest" } else { "first" },
+                            if self.detail_target { " · Ctrl+O details" } else { "" }
                         ),
                         muted_style,
                     ),
@@ -910,9 +947,10 @@ fn path_like_suffix(line: &str) -> Option<String> {
 }
 
 /// Convert a single transcript entry to padded rows for scrollback.
-fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path, tool_group_start: bool) -> Vec<Row> {
+fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> {
     let p = super::style::palette();
     let bg = Color::Reset;
+    let width = context.width;
     let body_width = super::layout::content_width(width);
     let railed_body_width = body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
 
@@ -922,7 +960,7 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path, tool
             let label_style = CellStyle::new().fg(p.blue).bg(bg).bold();
             let text_style = CellStyle::new().fg(p.subtext0).bg(bg).italic();
             let mut rows = LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
-                .build(user_label, text);
+                .build(context.user_label, text);
             rows.push(Row::blank(width, CellStyle::new().bg(bg)));
             rows
         }
@@ -947,8 +985,11 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path, tool
             width,
             body_width,
             bg,
-            cwd,
-            group_start: tool_group_start,
+            cwd: context.cwd,
+            group_start: context.tool_group_start,
+            detail_target: context.detail_target,
+            detail_open: context.detail_open,
+            detail_scroll: context.detail_scroll,
         }
         .rows(),
         Entry::Status { text } => {

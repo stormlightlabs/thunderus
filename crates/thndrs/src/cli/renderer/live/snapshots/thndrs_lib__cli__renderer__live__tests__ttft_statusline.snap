@@ -3,10 +3,10 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 pending:
-│     Idle · Editable                                                     test-model · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle · Editable [-]=                                                      [fg=#6473b7]=test-model · queue 0 [-]=   [-]=  
+│     Idle · Editable                                              test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle · Editable [-]=                                               [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=  
 measured:
-│     Idle · Editable                                                     test-model · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle · Editable [-]=                                                      [fg=#6473b7]=test-model · queue 0 [-]=   [-]=  
+│     Idle · Editable                                              test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle · Editable [-]=                                               [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=  
 retained:
-│     Idle · Editable                                                     test-model · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle · Editable [-]=                                                      [fg=#6473b7]=test-model · queue 0 [-]=   [-]=  
+│     Idle · Editable                                              test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle · Editable [-]=                                               [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=  
 narrow:
-│     Idle · Editable                                     test-model · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle · Editable [-]=                                      [fg=#6473b7]=test-model · queue 0 [-]=   [-]=
+│     Idle · Editable                              test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle · Editable [-]=                               [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=

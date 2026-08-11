@@ -4,4 +4,4 @@ expression: contents
 ---
 │                                                                                   # [-]=                                                                                
 │     Activity                                                                      # [-]=   [fg=#f1fc79]=   [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
-│     ✓ search_text [Done]  pattern: fn main  3 lines · Ctrl+O details              # [-]=   [fg=#f1fc79]=   [fg=#37f499]=✓  [fg=#ebfafa b]=search_text [fg=#37f499]= [Done] [-]=   [fg=#abb4da]=pattern: fn main [fg=#abb4da]=  3 lines · Ctrl+O details [-]=           [-]=
+│   │ ✓ [DONE] search_text  pattern: fn main  3 lines · Ctrl+O details              # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓ [DONE]  [fg=#ebfafa b]=search_text [-]=   [fg=#abb4da]=pattern: fn main [fg=#abb4da]=  3 lines · Ctrl+O details [-]=           [-]=

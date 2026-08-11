@@ -31,11 +31,11 @@ pub use context::start_auto_compaction;
 use input::accept_model_suggestion;
 
 pub use commands::command_suggestions_for_app;
-pub(crate) use input::audit_queue_transition;
 pub use input::{
     Action, FilePickerSource, InputFocus, KeyBinding, KeyHelp, Keymap, Mode, PickerItem, PickerState, PromptAccessory,
     translate_input, translate_input_with_keymap,
 };
+pub(crate) use input::{audit_queue_transition, next_detail_target};
 pub use onboarding::setup_model_options;
 pub use onboarding::{
     ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryIntent, RecoveryStage,
@@ -1721,6 +1721,7 @@ pub fn update_with_effects(app: &mut App, msg: &Msg) -> UpdateResult {
         }
         Msg::Tick => {
             app.runtime.ui_tick = app.runtime.ui_tick.wrapping_add(1);
+            agent_lifecycle::refresh_foreground_output(app);
             if let Some(deadline) = app.runtime.ctrl_d_pending
                 && agent_lifecycle::now_or_after_deadline(app.runtime.ui_tick, deadline)
             {

@@ -267,6 +267,27 @@ pub fn drain_background_processes(app: &mut App) {
     record_background_results(app, results);
 }
 
+/// Refresh the active shell transcript row with output captured since the last UI tick.
+pub fn refresh_foreground_output(app: &mut App) {
+    let Some(output) = app.runtime.process_registry.foreground_output() else {
+        return;
+    };
+    let mut lines = output.stdout;
+    lines.extend(output.stderr);
+    if lines.is_empty() {
+        return;
+    }
+    if let Some(Entry::Tool { output, .. }) = app
+        .transcript
+        .entries
+        .iter_mut()
+        .rev()
+        .find(|entry| matches!(entry, Entry::Tool { name, status: ToolStatus::Running, .. } if name.split('#').next() == Some(tools::shell::NAME)))
+    {
+        *output = lines;
+    }
+}
+
 /// Record terminal results returned while the application is shutting down or
 /// while a normal UI tick drains the process registry.
 pub fn record_background_results(app: &mut App, results: Vec<tools::shell::ProcessResult>) {

@@ -42,13 +42,13 @@ help buffer:
   help · focus: keyboard
   ── Navigation ──
   Ctrl+O          open output, diff, warning, or
-  … 27 rows below
+  … 28 rows below
   Up/Down scroll · Esc close
 styles:
 │   help · focus: keyboard                          # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=help · focus: keyboard [bg=#292e42]=                       [bg=#292e42]=  
 │   ── Navigation ──                                # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=── Navigation ── [bg=#292e42]=                             [bg=#292e42]=  
 │   Ctrl+O          open output, diff, warning, or …  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+O          open output, diff, warning, or …
-│   … 27 rows below                                 # [bg=#212337]=   [fg=#3b4261 bg=#212337]=… 27 rows below [bg=#212337]=                              [bg=#212337]=  
+│   … 28 rows below                                 # [bg=#212337]=   [fg=#3b4261 bg=#212337]=… 28 rows below [bg=#212337]=                              [bg=#212337]=  
 │   Up/Down scroll · Esc close                      # [bg=#212337]=   [fg=#3b4261 bg=#212337]=Up/Down scroll · Esc close [bg=#212337]=                   [bg=#212337]=  
 tool detail buffer:
   run_shell · failed · focus: output

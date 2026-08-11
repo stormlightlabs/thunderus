@@ -21,6 +21,13 @@ operating-system sandbox.
 
 Use a container, VM, or OS-level sandbox when the task needs isolation.
 
+## TUI shortcuts
+
+- `Shift+Tab` cycles supported reasoning effort while idle.
+- `Ctrl+O` opens inline tool details.
+- During a run, `Enter` queues the draft as a follow-up.
+- `Cmd+Enter` on macOS or `Ctrl+Enter` elsewhere steers the running turn.
+
 ## Documentation
 
 The [documentation site](https://thndrs.stormlightlabs.org/docs/) covers setup,

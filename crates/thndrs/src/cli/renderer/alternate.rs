@@ -14,7 +14,10 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use crossterm::cursor::{SetCursorStyle, Show};
-use crossterm::event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture};
+use crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::Frame as RatatuiFrame;
@@ -48,6 +51,7 @@ impl AlternateScreenSession {
                 io::stdout(),
                 EnterAlternateScreen,
                 EnableBracketedPaste,
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
                 EnableMouseCapture,
                 SetCursorStyle::BlinkingBlock
             )
@@ -56,6 +60,7 @@ impl AlternateScreenSession {
                 io::stdout(),
                 EnterAlternateScreen,
                 EnableBracketedPaste,
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
                 SetCursorStyle::BlinkingBlock
             )
         };
@@ -88,6 +93,7 @@ impl AlternateScreenSession {
                 io::stdout(),
                 EnterAlternateScreen,
                 EnableBracketedPaste,
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
                 EnableMouseCapture,
                 SetCursorStyle::BlinkingBlock
             )
@@ -96,6 +102,7 @@ impl AlternateScreenSession {
                 io::stdout(),
                 EnterAlternateScreen,
                 EnableBracketedPaste,
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
                 SetCursorStyle::BlinkingBlock
             )
         };
@@ -134,6 +141,7 @@ fn restore_terminal(mouse_capture: bool) -> io::Result<()> {
             Show,
             SetCursorStyle::DefaultUserShape,
             DisableMouseCapture,
+            PopKeyboardEnhancementFlags,
             DisableBracketedPaste,
             LeaveAlternateScreen
         )?;
@@ -142,6 +150,7 @@ fn restore_terminal(mouse_capture: bool) -> io::Result<()> {
             stdout,
             Show,
             SetCursorStyle::DefaultUserShape,
+            PopKeyboardEnhancementFlags,
             DisableBracketedPaste,
             LeaveAlternateScreen
         )?;

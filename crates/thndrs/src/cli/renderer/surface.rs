@@ -769,11 +769,7 @@ mod tests {
         let bindings = crate::app::Keymap::default().help_bindings(false);
         let first_key = bindings[0].key.clone();
         let last_key = bindings.last().unwrap().key.clone();
-        let surface = FocusedSurfaceView::Help(HelpView {
-            queue_target_toggle: false,
-            scroll: bindings.len().saturating_sub(1),
-            bindings,
-        });
+        let surface = FocusedSurfaceView::Help(HelpView { scroll: bindings.len().saturating_sub(1), bindings });
         let rows =
             render_surface(&SurfaceRenderInput { surface: &surface, theme: &test_theme(), width: 48, height: 8 });
         let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
@@ -888,7 +884,6 @@ mod tests {
             (
                 "help",
                 FocusedSurfaceView::Help(HelpView {
-                    queue_target_toggle: false,
                     scroll: 0,
                     bindings: crate::app::Keymap::default().help_bindings(false),
                 }),

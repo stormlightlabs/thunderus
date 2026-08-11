@@ -181,7 +181,7 @@ fn frame_prompt_rows_identifies_ephemeral_runs() {
 }
 
 #[test]
-fn frame_prompt_rows_shows_only_non_idle_status() {
+fn frame_prompt_rows_keeps_runtime_status_out_of_composer_header() {
     let mut app = test_app();
     app.session.id = "test-session".to_string();
     app.runtime.run_state = RunState::Working;
@@ -191,7 +191,8 @@ fn frame_prompt_rows_shows_only_non_idle_status() {
     let (body_rows, cursor) = prompt_rows_for(&app, 80);
     let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
 
-    assert!(rows[0].text().contains("Responding"));
+    assert!(rows[0].text().contains("test-session"));
+    assert!(!rows[0].text().contains("Responding"));
 }
 
 #[test]
@@ -242,7 +243,9 @@ fn static_status_row_names_active_work() {
         .entries
         .push(Entry::Reasoning { text: "checking".to_string(), streaming: true });
 
-    assert!(static_status_row(&app, 80).text().contains("Thinking"));
+    let text = static_status_row(&app, 80).text();
+    assert!(text.contains("Thinking"));
+    assert!(text.contains('⠋'));
 }
 
 #[test]
@@ -413,17 +416,19 @@ fn snapshot_help_rows() {
 }
 
 #[test]
-fn help_rows_show_running_ctrl_t_binding() {
+fn help_rows_show_running_steering_binding() {
     let mut app = test_app();
     app.runtime.run_state = RunState::Working;
     app.overlay.show_help();
     let rows = accessory_rows(&app, 80, 16);
     let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
 
+    let steering_key = if cfg!(target_os = "macos") { "Cmd+Enter" } else { "Ctrl+Enter" };
     assert!(
-        text.contains("Ctrl+T          toggle queue target"),
-        "running help should describe queue-target toggle: {text}"
+        text.contains(steering_key),
+        "running help should describe the steering chord: {text}"
     );
+    assert!(text.contains("steer the running turn"));
 }
 
 #[test]

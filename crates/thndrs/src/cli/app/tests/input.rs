@@ -68,6 +68,56 @@ fn semantic_translation_is_table_driven_by_focus_and_mode() {
 }
 
 #[test]
+fn shift_tab_cycles_supported_reasoning_effort_while_idle() {
+    let mut app = fresh_app();
+    app.runtime.model = "chatgpt-codex/gpt-5.6-terra".to_string();
+    let options = crate::providers::reasoning_options(&app.runtime.model);
+    assert!(options.len() > 1, "test model must support reasoning effort cycling");
+    app.runtime.cli.reasoning_effort = options[0];
+
+    update(&mut app, &key(KeyCode::BackTab, KeyModifiers::SHIFT));
+
+    assert_eq!(app.runtime.cli.reasoning_effort, options[1]);
+}
+
+#[test]
+fn shift_tab_does_not_cycle_reasoning_effort_while_working() {
+    let mut app = fresh_app();
+    app.runtime.model = "chatgpt-codex/gpt-5.6-terra".to_string();
+    let options = crate::providers::reasoning_options(&app.runtime.model);
+    assert!(options.len() > 1, "test model must support reasoning effort cycling");
+    app.runtime.cli.reasoning_effort = options[0];
+    app.runtime.run_state = RunState::Working;
+
+    update(&mut app, &key(KeyCode::BackTab, KeyModifiers::SHIFT));
+
+    assert_eq!(app.runtime.cli.reasoning_effort, options[0]);
+}
+
+#[test]
+fn shift_tab_does_not_bypass_a_focused_picker() {
+    let mut app = fresh_app();
+    app.runtime.model = "chatgpt-codex/gpt-5.6-terra".to_string();
+    let options = crate::providers::reasoning_options(&app.runtime.model);
+    assert!(options.len() > 1, "test model must support reasoning effort cycling");
+    app.runtime.cli.reasoning_effort = options[0];
+    app.overlay
+        .show_picker(
+            PromptAccessory::Files(FilePickerSource::Forced),
+            picker_from_paths(vec!["README.md".to_string()]),
+        )
+        .expect("show picker");
+
+    update(&mut app, &key(KeyCode::BackTab, KeyModifiers::SHIFT));
+
+    assert_eq!(app.runtime.cli.reasoning_effort, options[0]);
+    assert_eq!(
+        app.overlay.accessory(),
+        PromptAccessory::Files(FilePickerSource::Forced)
+    );
+}
+
+#[test]
 fn help_scrolls_without_editing_the_composer() {
     let mut app = fresh_app();
     app.composer.input = PromptInput::from("preserved draft");

@@ -125,6 +125,8 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 ### Tools and progress
 
 - Use a stable leading marker and concise verb for the current action.
+- Group related calls under one Activity rail, align their markers, outcomes, names, and metadata, and keep live output visible beneath the running call.
+- Render requested tool disclosure inline beneath its originating transcript entry. Show the disclosure key only on the current eligible entry; never replace the composer accessory area with transcript detail.
 - Keep spinner width constant so adjacent text does not move.
 - Replace transient progress with a durable outcome when work completes.
 - Show duration, exit status, or output counts only when they help interpret the result.

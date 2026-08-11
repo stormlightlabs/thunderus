@@ -2397,26 +2397,30 @@ fn submit_while_working_queues_followup_by_default() {
 }
 
 #[test]
-fn ctrl_t_toggles_running_queue_target() {
+fn steering_chord_queues_running_input_as_steering() {
     let mut app = fresh_app();
     app.runtime.run_state = RunState::Working;
-    assert_eq!(app.composer.queue_target, QueueTarget::FollowUp);
+    app.composer.input = PromptInput::from("look at tests first");
 
-    update(
-        &mut app,
-        &Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)),
-    );
-    assert_eq!(app.composer.queue_target, QueueTarget::Steering);
+    #[cfg(target_os = "macos")]
+    let modifiers = KeyModifiers::SUPER;
+    #[cfg(not(target_os = "macos"))]
+    let modifiers = KeyModifiers::CONTROL;
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, modifiers)));
 
-    update(
-        &mut app,
-        &Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)),
+    assert!(app.composer.input.is_empty());
+    assert_eq!(
+        app.composer
+            .queue
+            .pending(QueueTarget::Steering)
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["look at tests first"]
     );
-    assert_eq!(app.composer.queue_target, QueueTarget::FollowUp);
 }
 
 #[test]
-fn submit_while_working_queues_steering_when_selected() {
+fn plain_submit_while_working_always_queues_a_followup() {
     let mut app = fresh_app();
     app.runtime.run_state = RunState::Working;
     app.composer.queue_target = QueueTarget::Steering;
@@ -2428,7 +2432,7 @@ fn submit_while_working_queues_steering_when_selected() {
     assert_eq!(
         app.composer
             .queue
-            .pending(QueueTarget::Steering)
+            .pending(QueueTarget::FollowUp)
             .map(|item| item.text.as_str())
             .collect::<Vec<_>>(),
         vec!["look at tests first"]
@@ -2437,8 +2441,42 @@ fn submit_while_working_queues_steering_when_selected() {
         app.transcript
             .entries
             .iter()
-            .any(|e| matches!(e, Entry::Status { text } if text.contains("queued steering")))
+            .any(|e| matches!(e, Entry::Status { text } if text.contains("queued follow-up")))
     );
+}
+
+#[test]
+fn ctrl_o_opens_the_latest_tool_with_output() {
+    let mut app = fresh_app();
+    for entry in [
+        Entry::Tool {
+            name: "run_shell".to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Failed,
+            output: vec!["old failure".to_string()],
+        },
+        Entry::Tool {
+            name: "read_file".to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["latest output".to_string()],
+        },
+        Entry::Tool {
+            name: "write_patch".to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Running,
+            output: Vec::new(),
+        },
+    ] {
+        app.transcript.entries.push(entry);
+    }
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)),
+    );
+
+    assert_eq!(app.overlay.detail().map(|detail| detail.entry_index), Some(1));
 }
 
 #[test]

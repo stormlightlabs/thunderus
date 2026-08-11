@@ -182,7 +182,6 @@ impl From<&App> for FocusedSurfaceView {
         }
         match app.overlay.accessory() {
             PromptAccessory::Help => FocusedSurfaceView::Help(HelpView {
-                queue_target_toggle: matches!(app.runtime.run_state, RunState::Working),
                 scroll: app.overlay.help_scroll().unwrap_or_default(),
                 bindings: app
                     .runtime
@@ -267,7 +266,6 @@ pub struct PermissionOptionView {
 /// Semantic help state for the one context-sensitive keyboard binding.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HelpView {
-    pub queue_target_toggle: bool,
     pub scroll: usize,
     pub bindings: Vec<crate::app::KeyHelp>,
 }
@@ -340,12 +338,17 @@ pub fn project_transcript_entry(app: &App, entry_index: usize, width: usize) -> 
         .checked_sub(1)
         .and_then(|index| app.transcript.entries.get(index))
         .is_some_and(|entry| matches!(entry, Entry::Tool { .. }));
+    let detail_target = crate::app::next_detail_target(app) == Some(entry_index);
+    let detail = app.overlay.detail().filter(|detail| detail.entry_index == entry_index);
     TranscriptRowContext {
         user_label: &app.runtime.user_label,
         cwd: &app.runtime.cwd,
         width,
         entry_index: Some(entry_index),
         tool_group_start: !previous_was_tool,
+        detail_target,
+        detail_open: detail.is_some(),
+        detail_scroll: detail.map_or(0, |detail| detail.scroll),
     }
     .rows_for_entry_stable_and_live_rows(entry)
 }
@@ -369,13 +372,24 @@ impl TranscriptView {
             width,
             entry_index: None,
             tool_group_start: true,
+            detail_target: false,
+            detail_open: false,
+            detail_scroll: 0,
         };
+
+        let detail_target = crate::app::next_detail_target(app);
+        let open_detail = app.overlay.detail();
 
         let mut previous_was_tool = false;
         for (index, entry) in app.transcript.entries.iter().enumerate() {
             let mut entry_ctx = ctx.clone();
             entry_ctx.entry_index = Some(index);
             entry_ctx.tool_group_start = !previous_was_tool;
+            entry_ctx.detail_target = detail_target == Some(index);
+            entry_ctx.detail_open = open_detail.is_some_and(|detail| detail.entry_index == index);
+            entry_ctx.detail_scroll = open_detail
+                .filter(|detail| detail.entry_index == index)
+                .map_or(0, |detail| detail.scroll);
             let (entry_stable, entry_live) = entry_ctx.rows_for_entry_stable_and_live_rows(entry);
             rows.extend(entry_stable.iter().cloned());
             rows.extend(entry_live.iter().cloned());
@@ -865,16 +879,16 @@ impl LiveView {
         let accessory_height = accessory_limit.min(height.saturating_sub(reserved_chrome));
 
         let accessory_rows = match &semantic.focused_surface {
-            FocusedSurfaceView::ToolDetail(_)
-            | FocusedSurfaceView::DiffDetail(_)
+            FocusedSurfaceView::ToolDetail(_) => Vec::new(),
+            FocusedSurfaceView::DiffDetail(_)
             | FocusedSurfaceView::TranscriptSearch(_)
             | FocusedSurfaceView::Queue(_)
             | FocusedSurfaceView::TranscriptLens { .. } => Vec::new(),
             _ => super::live::accessory_rows(app, width, accessory_height),
         };
         let detail_pane = match &semantic.focused_surface {
-            FocusedSurfaceView::ToolDetail(_)
-            | FocusedSurfaceView::DiffDetail(_)
+            FocusedSurfaceView::ToolDetail(_) => Vec::new(),
+            FocusedSurfaceView::DiffDetail(_)
             | FocusedSurfaceView::TranscriptSearch(_)
             | FocusedSurfaceView::Queue(_)
             | FocusedSurfaceView::TranscriptLens { .. } => super::surface::render_surface(&SurfaceRenderInput::new(

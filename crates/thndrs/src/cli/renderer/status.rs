@@ -17,6 +17,7 @@ enum Truncation {
     None,
     End,
     Middle,
+    Route,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,10 +35,10 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
     let palette = super::style::palette();
     let background = CellStyle::new();
     if width < 8 {
-        let model = active_model(app);
+        let model = model_name(app);
         return Row::padded(
             vec![Span::styled(
-                utils::truncate_ellipsis_start(&model, width),
+                utils::truncate_ellipsis_start(model, width),
                 CellStyle::new().fg(palette.overlay1),
             )],
             width,
@@ -65,7 +66,13 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
         .saturating_sub(UnicodeWidthStr::width(left_text.as_str()))
         .saturating_sub(UnicodeWidthStr::width(right_text.as_str()));
     let urgent = left.first().is_some_and(|field| field.urgent);
-    let state_color = if urgent { palette.red } else { palette.teal };
+    let state_color = if urgent {
+        palette.red
+    } else if app.runtime.run_state == RunState::Working {
+        super::style::status_color(&app.status_label())
+    } else {
+        palette.teal
+    };
     let mut spans = vec![Span::styled(" ".repeat(inset), background)];
     if !left_text.is_empty() {
         spans.push(Span::styled(left_text, CellStyle::new().fg(state_color).bold()));
@@ -79,8 +86,11 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
 }
 
 fn fields(app: &App, configured: &[StatusSegment], anchored: bool) -> Vec<Field> {
+    let run_state_names_active_tool =
+        configured.contains(&StatusSegment::RunState) && app.status_label().starts_with("Running ");
     configured
         .iter()
+        .filter(|segment| !(run_state_names_active_tool && **segment == StatusSegment::ActiveTool))
         .filter_map(|segment| project(app, *segment, anchored))
         .collect()
 }
@@ -88,32 +98,43 @@ fn fields(app: &App, configured: &[StatusSegment], anchored: bool) -> Vec<Field>
 fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
     let (text, priority, min_width, truncation, urgent) = match segment {
         StatusSegment::RunState => {
-            let text = if app.overlay.permission().is_some() {
-                "Waiting for permission".to_string()
-            } else if app.compaction_in_flight() {
-                "Compacting".to_string()
-            } else {
-                match app.runtime.run_state {
+            let text =
+                if app.overlay.permission().is_some() {
+                    "Waiting for permission".to_string()
+                } else if app.compaction_in_flight() {
+                    "Compacting".to_string()
+                } else {
+                    match app.runtime.run_state {
                     RunState::Stopping => "Cancelling".to_string(),
                     RunState::Error(_) => "Failed".to_string(),
-                    RunState::Idle => match app
-                        .transcript
-                        .entries
-                        .iter()
-                        .rev()
-                        .find(|entry| !matches!(entry, Entry::Status { .. }))
-                    {
+                    RunState::Idle if app.transcript.entries.last().is_some_and(
+                        |entry| matches!(entry, Entry::Status { text } if text.eq_ignore_ascii_case("cancelled")),
+                    ) => "Stopped".to_string(),
+                    RunState::Idle => match app.transcript.entries.iter().rev().find(
+                        |entry| !matches!(entry, Entry::Status { .. }),
+                    ) {
                         Some(Entry::Agent { streaming: false, .. })
                         | Some(Entry::Tool { status: ToolStatus::Ok, .. }) => "Complete".to_string(),
                         Some(Entry::Tool { name, status: ToolStatus::Failed, .. }) => {
                             format!("Failed: tool {}", utils::truncate_ellipsis(name, 32))
                         }
+                        Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "Stopped".to_string(),
                         Some(Entry::Error { .. }) => "Failed".to_string(),
                         _ => "Idle".to_string(),
                     },
-                    RunState::Working => "Thinking".to_string(),
+                    RunState::Working => {
+                        let label = app.status_label();
+                        let icon = super::style::status_icon(
+                            &label,
+                            super::style::spinner_tick(
+                                app.runtime.ui_tick,
+                                app.runtime.cli.tick_rate_ms,
+                            ),
+                        );
+                        format!("{icon} {label}")
+                    }
                 }
-            };
+                };
             let urgent = text.starts_with("Failed") || matches!(text.as_str(), "Waiting for permission" | "Cancelling");
             (text, 0, 4, Truncation::End, urgent)
         }
@@ -131,7 +152,7 @@ fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
             Truncation::None,
             false,
         ),
-        StatusSegment::Route => (active_model(app), 0, 1, Truncation::Middle, false),
+        StatusSegment::Route => (active_model(app), 0, 1, Truncation::Route, false),
         StatusSegment::Workspace => (
             display_name(&app.runtime.cwd).to_string(),
             4,
@@ -153,10 +174,26 @@ fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
 }
 
 fn active_model(app: &App) -> String {
-    if app.runtime.model.trim().is_empty() {
-        "model unavailable".to_string()
-    } else {
-        app.runtime.model.clone()
+    let model = model_name(app);
+    format!("{model} · {}", app.runtime.cli.reasoning_effort.label())
+}
+
+fn model_name(app: &App) -> &str {
+    if app.runtime.model.trim().is_empty() { "model unavailable" } else { &app.runtime.model }
+}
+
+fn truncate_field(field: &Field, target: usize) -> String {
+    match field.truncation {
+        Truncation::End => utils::truncate_ellipsis(&field.text, target),
+        Truncation::Middle => utils::truncate_ellipsis_start(&field.text, target),
+        Truncation::Route => {
+            let model = field
+                .text
+                .split_once(" · ")
+                .map_or(field.text.as_str(), |(model, _)| model);
+            utils::truncate_ellipsis_start(model, target)
+        }
+        Truncation::None => field.text.clone(),
     }
 }
 
@@ -195,11 +232,7 @@ fn fit(left: &mut Vec<Field>, right: &mut Vec<Field>, available: usize) {
         }
         let current = UnicodeWidthStr::width(field.text.as_str());
         let target = current.saturating_sub(excess).max(field.min_width);
-        field.text = match field.truncation {
-            Truncation::End => utils::truncate_ellipsis(&field.text, target),
-            Truncation::Middle => utils::truncate_ellipsis_start(&field.text, target),
-            Truncation::None => field.text.clone(),
-        };
+        field.text = truncate_field(field, target);
     }
     for index in (0..left.len()).rev() {
         let excess = total_width(left, right).saturating_sub(available);
@@ -212,11 +245,7 @@ fn fit(left: &mut Vec<Field>, right: &mut Vec<Field>, available: usize) {
         }
         let current = UnicodeWidthStr::width(field.text.as_str());
         let target = current.saturating_sub(excess).max(field.min_width);
-        field.text = match field.truncation {
-            Truncation::End => utils::truncate_ellipsis(&field.text, target),
-            Truncation::Middle => utils::truncate_ellipsis_start(&field.text, target),
-            Truncation::None => field.text.clone(),
-        };
+        field.text = truncate_field(field, target);
     }
     while total_width(left, right) > available {
         let optional = left
@@ -249,11 +278,7 @@ fn fit(left: &mut Vec<Field>, right: &mut Vec<Field>, available: usize) {
         }
         let current = UnicodeWidthStr::width(field.text.as_str());
         let target = current.saturating_sub(excess).max(field.min_width);
-        field.text = match field.truncation {
-            Truncation::End => utils::truncate_ellipsis(&field.text, target),
-            Truncation::Middle => utils::truncate_ellipsis_start(&field.text, target),
-            Truncation::None => field.text.clone(),
-        };
+        field.text = truncate_field(field, target);
     }
     for index in (0..left.len()).rev() {
         let excess = total_width(left, right).saturating_sub(available);
@@ -266,11 +291,7 @@ fn fit(left: &mut Vec<Field>, right: &mut Vec<Field>, available: usize) {
         }
         let current = UnicodeWidthStr::width(field.text.as_str());
         let target = current.saturating_sub(excess).max(field.min_width);
-        field.text = match field.truncation {
-            Truncation::End => utils::truncate_ellipsis(&field.text, target),
-            Truncation::Middle => utils::truncate_ellipsis_start(&field.text, target),
-            Truncation::None => field.text.clone(),
-        };
+        field.text = truncate_field(field, target);
     }
 }
 
@@ -316,9 +337,10 @@ mod tests {
     fn active_model_is_default_required_and_movable() {
         let mut app = App::from_cli(&Cli::default());
         app.runtime.model = "opencode-go/glm-5.2".to_string();
+        app.runtime.cli.reasoning_effort = crate::cli::ReasoningEffort::High;
 
         let default = status_row(&app, 80, false).text();
-        assert!(default.contains("opencode-go/glm-5.2"));
+        assert!(default.contains("opencode-go/glm-5.2 · high"));
         assert!(default.find("Editable").unwrap() < default.find("opencode-go/glm-5.2").unwrap());
 
         app.runtime.cli.status_line.left =
@@ -383,8 +405,9 @@ mod tests {
             output: Vec::new(),
         });
         let working = status_row(&app, 80, false).text();
-        assert!(working.contains("Thinking"));
-        assert!(working.contains("tool search_text"));
+        assert!(working.contains("Running search text"));
+        assert!(working.contains('⠋'));
+        assert!(!working.contains("tool search_text"));
 
         app.runtime.run_state = RunState::Stopping;
         assert!(status_row(&app, 80, false).text().contains("Cancelling"));

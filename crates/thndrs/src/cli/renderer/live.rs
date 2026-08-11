@@ -134,29 +134,13 @@ pub fn frame_prompt_rows(
     let session = app.run_label();
     let session_budget = content_width.saturating_sub(LIVE_INSET).max(1);
     let label = utils::truncate_ellipsis(session, session_budget);
-    let status_label = app.status_label();
-    let status = (status_label != "Ready").then(|| {
-        let icon = super::style::status_icon(
-            &status_label,
-            super::style::spinner_tick(app.runtime.ui_tick, app.runtime.cli.tick_rate_ms),
-        );
-        format!(" {icon} {status_label} ")
-    });
-    let status_width = status.as_deref().map_or(0, utils::text_width);
-    let fixed = LIVE_INSET + utils::text_width(&label) + status_width;
+    let fixed = LIVE_INSET + utils::text_width(&label);
     let top_spans = if fixed < content_width {
-        let mut spans = vec![
+        vec![
             Span::styled(" ".repeat(LIVE_INSET), CellStyle::new()),
             Span::styled(label, label_style),
             Span::styled(" ".repeat(content_width - fixed), CellStyle::new()),
-        ];
-        if let Some(status) = status {
-            spans.push(Span::styled(
-                status,
-                CellStyle::new().fg(super::style::status_color(&status_label)),
-            ));
-        }
-        spans
+        ]
     } else {
         vec![
             Span::styled(" ".repeat(LIVE_INSET.min(content_width)), CellStyle::new()),

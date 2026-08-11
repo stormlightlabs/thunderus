@@ -86,6 +86,37 @@ fn run_command_captures_stdout() {
 }
 
 #[test]
+fn registry_exposes_foreground_output_before_command_finishes() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path().to_path_buf();
+    let registry = ProcessRegistry::new();
+    let worker_registry = registry.clone();
+    let worker = std::thread::spawn(move || {
+        let args = sh("printf 'first line\\n'; sleep 0.5; printf 'last line\\n'");
+        run_command_with_registry(&args, &root, &CancelToken::new(), Some(&worker_registry)).expect("run")
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let live = loop {
+        if let Some(output) = registry.foreground_output()
+            && output.stdout.iter().any(|line| line == "first line")
+        {
+            break output;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "foreground output was not published while the command ran"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+
+    assert_eq!(live.stdout, vec!["first line"]);
+    let result = worker.join().expect("worker thread");
+    assert_eq!(result.stdout, vec!["first line", "last line"]);
+    assert!(registry.foreground_output().is_none());
+}
+
+#[test]
 fn run_command_captures_stderr() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();

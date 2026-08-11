@@ -376,7 +376,7 @@ fn build_view_prompt_clipping_keeps_cursor_row() {
 }
 
 #[test]
-fn build_view_working_state_has_live_tail_and_composer_status() {
+fn build_view_working_state_has_live_tail_without_duplicate_composer_status() {
     let mut app = test_app();
     app.runtime.run_state = RunState::Working;
     app.transcript.entries.push(Entry::Agent {
@@ -387,7 +387,8 @@ fn build_view_working_state_has_live_tail_and_composer_status() {
     let view = RendererView::build(&app, 80, 24);
 
     assert!(!view.live.live_tail.is_empty(), "working state should have a live tail");
-    assert!(view.live.prompt_rows[0].text().contains("Responding"));
+    assert!(!view.live.prompt_rows[0].text().contains("Responding"));
+    assert!(view.live.static_status.text().contains("Responding"));
 }
 
 #[test]
@@ -525,7 +526,7 @@ fn build_view_pending_permission_takes_priority_over_focused_surface() {
 }
 
 #[test]
-fn build_view_detail_pane_appears_when_open() {
+fn build_view_expands_tool_detail_inline() {
     let mut app = test_app();
     app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
@@ -538,35 +539,45 @@ fn build_view_detail_pane_appears_when_open() {
     let view = RendererView::build(&app, 80, 24);
 
     assert!(
-        !view.live.detail_pane.is_empty(),
-        "detail pane should produce rows when open"
+        view.live.detail_pane.is_empty(),
+        "tool detail must not occupy the composer accessory area"
+    );
+    let transcript = view
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        transcript.contains("run_shell") && transcript.contains("Esc close"),
+        "expanded transcript row should retain its tool header: {transcript}"
     );
     assert!(
-        view.live.detail_pane.iter().any(|r| r.text().contains("run_shell")),
-        "detail pane should contain the tool name"
-    );
-    assert!(
-        view.live.detail_pane.iter().any(|r| r.text().contains("file_a.rs")),
-        "detail pane should contain tool output"
+        transcript.contains("file_a.rs"),
+        "expanded transcript row should contain tool output: {transcript}"
     );
 }
 
 #[test]
-fn build_view_detail_pane_scrolls_wrapped_rows() {
+fn build_view_inline_tool_detail_scrolls_wrapped_rows() {
     let mut app = test_app();
     app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program": "printf"}"#.to_string(),
         status: ToolStatus::Ok,
-        output: vec!["alpha beta gamma delta epsilon zeta eta theta iota kappa lambda".to_string()],
+        output: vec![
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda".to_string(),
+            "second output line".to_string(),
+        ],
     });
     app.overlay.show_detail(0);
     app.overlay.detail_mut().expect("detail overlay").scroll = 1;
 
     let view = RendererView::build(&app, 30, 24);
     let body = view
-        .live
-        .detail_pane
+        .transcript
+        .rows
         .iter()
         .map(|row| row.text())
         .collect::<Vec<_>>()
@@ -581,13 +592,13 @@ fn build_view_detail_pane_scrolls_wrapped_rows() {
         "scroll offset should skip the first wrapped visual row:\n{body}"
     );
     assert!(
-        body.contains("delta") || body.contains("epsilon"),
-        "scrolling should reveal later wrapped content:\n{body}"
+        body.contains("second output line"),
+        "scrolling should reveal the next output line:\n{body}"
     );
 }
 
 #[test]
-fn build_view_detail_pane_reports_clipped_content() {
+fn build_view_inline_tool_detail_scrolls_from_selected_line() {
     let mut app = test_app();
     app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
@@ -600,21 +611,21 @@ fn build_view_detail_pane_reports_clipped_content() {
 
     let view = RendererView::build(&app, 80, 24);
     let body = view
-        .live
-        .detail_pane
+        .transcript
+        .rows
         .iter()
         .map(|row| row.text())
         .collect::<Vec<_>>()
         .join("\n");
 
     assert!(
-        body.contains("rows above") && body.contains("below"),
-        "detail pane should report clipped content like a bounded scroll surface:\n{body}"
+        !body.contains("line 0") && body.contains("line 3") && body.contains("line 19"),
+        "inline detail should begin at its scroll offset without a detached clipping footer:\n{body}"
     );
 }
 
 #[test]
-fn build_view_handles_large_transcript_with_running_tool_and_detail_pane() {
+fn build_view_handles_large_transcript_with_running_tool_and_inline_detail() {
     let mut app = test_app();
     app.runtime.run_state = RunState::Working;
 
@@ -658,11 +669,11 @@ fn build_view_handles_large_transcript_with_running_tool_and_detail_pane() {
         "running tool output should stay live"
     );
     assert!(
-        view.live
-            .detail_pane
+        view.transcript
+            .stable_rows
             .iter()
             .any(|row| row.text().contains("finished output line")),
-        "detail pane should render from the large completed tool output"
+        "expanded completed tool output should remain inline in the transcript"
     );
 }
 
@@ -682,6 +693,38 @@ fn build_view_detail_pane_absent_when_closed() {
         view.live.detail_pane.is_empty(),
         "detail pane should be empty when closed"
     );
+}
+
+#[test]
+fn ctrl_o_affordance_only_appears_on_latest_eligible_tool() {
+    let mut app = test_app();
+    for (name, output) in [
+        ("run_shell", vec!["old output".to_string()]),
+        ("read_file", vec!["latest output".to_string()]),
+    ] {
+        app.transcript.entries.push(Entry::Tool {
+            name: name.to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Ok,
+            output,
+        });
+    }
+
+    let view = RendererView::build(&app, 80, 24);
+    let transcript = view
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert_eq!(transcript.matches("Ctrl+O details").count(), 1, "{transcript}");
+    let latest = transcript
+        .lines()
+        .find(|line| line.contains("read_file"))
+        .expect("latest tool row");
+    assert!(latest.contains("Ctrl+O details"), "{latest}");
 }
 
 #[test]

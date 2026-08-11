@@ -68,13 +68,14 @@ pub enum Action {
     Transpose,
     Newline,
     Submit,
+    SubmitSteering,
     AcceptSuggestion,
     EnterCommand,
     OpenHelp,
     OpenDetail,
     OpenTranscriptSearch,
     OpenQueue,
-    ToggleQueueTarget,
+    CycleReasoningEffort,
     QuitConfirm,
     Interrupt,
     Cancel,
@@ -116,12 +117,13 @@ impl Action {
         match self {
             Self::OpenDetail => "open output, diff, warning, or error detail",
             Self::Submit => "submit prompt",
+            Self::SubmitSteering => "steer the running turn",
             Self::CloseOverlay | Self::Cancel => "close help, files, or commands",
             Self::CursorUp | Self::CursorDown => "move cursor or recall history",
             Self::OpenHelp => "show help",
             Self::OpenTranscriptSearch => "search transcript",
             Self::OpenQueue => "inspect queued input",
-            Self::ToggleQueueTarget => "toggle queue target",
+            Self::CycleReasoningEffort => "cycle reasoning effort",
             Self::Transpose => "transpose characters",
             Self::Newline => "insert newline",
             Self::CursorStart | Self::CursorEnd => "move to start/end of line",
@@ -176,10 +178,8 @@ impl Keymap {
             .iter()
             .map(|(key, description)| KeyHelp { key: (*key).to_string(), description: (*description).to_string() })
             .collect::<Vec<_>>();
-        if working {
-            if let Some(binding) = bindings.iter_mut().find(|binding| binding.key == "Ctrl+T") {
-                binding.description = Action::ToggleQueueTarget.description().to_string();
-            }
+        if !working {
+            bindings.retain(|binding| binding.description != Action::SubmitSteering.description());
         }
         for (_, binding, action) in &self.overrides {
             let key = key_label(*binding);
@@ -214,6 +214,9 @@ fn key_label(binding: KeyBinding) -> String {
     if binding.modifiers.contains(KeyModifiers::ALT) {
         prefix.push_str("Alt+");
     }
+    if binding.modifiers.contains(KeyModifiers::SUPER) {
+        prefix.push_str(if cfg!(target_os = "macos") { "Cmd+" } else { "Super+" });
+    }
     format!("{prefix}{code}")
 }
 
@@ -233,10 +236,12 @@ const DEFAULT_HELP: &[(&str, &str)] = &[
     ("Ctrl+P", "open workspace file picker"),
     ("Ctrl+Shift+F", "search transcript"),
     ("Ctrl+Q", "inspect queued input"),
+    (STEERING_KEY_LABEL, "steer the running turn"),
     ("Alt+Shift+Up/Down", "extend transcript selection"),
     ("Ctrl+Shift+C", "copy transcript selection"),
     ("Ctrl+Shift+X", "clear transcript selection"),
     ("Ctrl+T", "transpose characters"),
+    ("Shift+Tab", "cycle reasoning effort"),
     ("── Editing ──", ""),
     ("Shift+Enter", "insert newline"),
     ("Ctrl+A/E", "move to start/end of line"),
@@ -255,6 +260,11 @@ const DEFAULT_HELP: &[(&str, &str)] = &[
     ("Tab", "accept a command or file suggestion"),
     ("Ctrl+D", "quit after double-press"),
 ];
+
+#[cfg(target_os = "macos")]
+const STEERING_KEY_LABEL: &str = "Cmd+Enter";
+#[cfg(not(target_os = "macos"))]
+const STEERING_KEY_LABEL: &str = "Ctrl+Enter";
 
 /// Resolve the active application focus without exposing overlay internals.
 pub fn input_focus(app: &App) -> InputFocus {
@@ -331,6 +341,8 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
     let control = modifiers.contains(KeyModifiers::CONTROL);
     let alt = modifiers.contains(KeyModifiers::ALT);
     let shift = modifiers.contains(KeyModifiers::SHIFT);
+    #[cfg(target_os = "macos")]
+    let command = modifiers.contains(KeyModifiers::SUPER);
     if matches!(
         focus,
         InputFocus::TranscriptSearch | InputFocus::Queue | InputFocus::Help
@@ -338,6 +350,16 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
         return focused_surface_key_action(focus, key);
     }
     if matches!(focus, InputFocus::Prompt) && matches!(app.overlay.accessory(), PromptAccessory::None) {
+        #[cfg(target_os = "macos")]
+        let steering_chord = key.code == KeyCode::Enter && command;
+        #[cfg(not(target_os = "macos"))]
+        let steering_chord = key.code == KeyCode::Enter && control && !alt;
+        if steering_chord && app.runtime.run_state == RunState::Working {
+            return Some(Action::SubmitSteering);
+        }
+        if key.code == KeyCode::BackTab && app.runtime.run_state == RunState::Idle {
+            return Some(Action::CycleReasoningEffort);
+        }
         match (key.code, control, alt, shift) {
             (KeyCode::Char('c'), true, false, true) => return Some(Action::CopyTranscriptSelection),
             (KeyCode::Char('x'), true, false, true) => return Some(Action::ClearTranscriptSelection),
@@ -353,7 +375,6 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
             KeyCode::Char('d') => Some(Action::QuitConfirm),
             KeyCode::Char('o') => Some(Action::OpenDetail),
             KeyCode::Char('q') => Some(Action::OpenQueue),
-            KeyCode::Char('t') if app.runtime.run_state == RunState::Working => Some(Action::ToggleQueueTarget),
             KeyCode::Char('z') => Some(Action::Suspend),
             _ => None,
         };
@@ -705,11 +726,10 @@ pub fn handle_action(app: &mut App, action: Action) -> Option<Msg> {
                 None
             }
         }
-        Action::ToggleQueueTarget if app.runtime.run_state == RunState::Working => {
-            app.composer.queue_target = app.composer.queue_target.toggle();
-            app.transcript
-                .entries
-                .push(Entry::Status { text: format!("queue target: {}", app.composer.queue_target.label()) });
+        Action::CycleReasoningEffort
+            if app.runtime.run_state == RunState::Idle && input_focus(app) == InputFocus::Prompt =>
+        {
+            cycle_reasoning_effort(app);
             None
         }
         Action::Resize { .. }
@@ -1230,6 +1250,7 @@ fn handle_prompt_action(app: &mut App, action: Action) -> Option<Msg> {
             app.overlay.show_commands();
         }
         Action::Submit => return handle_submit(app),
+        Action::SubmitSteering => return handle_running_submit(app, QueueTarget::Steering),
         Action::AcceptSuggestion => return accept_prompt_suggestion(app),
         Action::Cancel => {
             if app.runtime.run_state == RunState::Working {
@@ -1349,6 +1370,18 @@ pub fn open_model_picker(app: &mut App) {
         .show_picker(PromptAccessory::Models, PickerState::new(items, MODEL_PICKER_LIMIT));
 }
 
+fn cycle_reasoning_effort(app: &mut App) {
+    let options = crate::providers::reasoning_options(&app.runtime.model);
+    let Some(index) = options
+        .iter()
+        .position(|effort| *effort == app.runtime.cli.reasoning_effort)
+    else {
+        return;
+    };
+    let effort = options[(index + 1) % options.len()];
+    apply_reasoning_effort(app, effort);
+}
+
 pub fn open_reasoning_effort_picker(app: &mut App) {
     let options = crate::providers::reasoning_options(&app.runtime.model);
     let items = options
@@ -1458,12 +1491,7 @@ pub fn close_prompt_accessory(app: &mut App) {
     app.overlay.close();
 }
 
-/// Open the highest-priority detail surface target.
-///
-/// Priority:
-/// 1. Failed tool output.
-/// 2. Tool output that is likely truncated in the live transcript preview.
-/// 3. Latest available tool output.
+/// Open details for the most recent tool entry.
 pub fn open_detail_surface(app: &mut App) {
     let Some(index) = next_detail_target(app) else {
         return;
@@ -1472,28 +1500,12 @@ pub fn open_detail_surface(app: &mut App) {
 }
 
 pub fn next_detail_target(app: &App) -> Option<usize> {
-    const TOOL_PREVIEW_LINES: usize = 6;
-
-    let mut fallback = None;
-    let mut truncated = None;
-
-    for (index, entry) in app.transcript.entries.iter().enumerate().rev() {
-        let Entry::Tool { status, output, .. } = entry else {
-            continue;
-        };
-
-        fallback.get_or_insert(index);
-
-        if matches!(status, ToolStatus::Failed) {
-            return Some(index);
-        }
-
-        if output.len() > TOOL_PREVIEW_LINES && truncated.is_none() {
-            truncated = Some(index);
-        }
-    }
-
-    truncated.or(fallback)
+    app.transcript
+        .entries
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(index, entry)| matches!(entry, Entry::Tool { output, .. } if !output.is_empty()).then_some(index))
 }
 
 /// Count output lines available for the detail pane's current target entry.
@@ -1625,6 +1637,11 @@ pub fn accept_reasoning_effort_suggestion(app: &mut App) {
         return;
     }
 
+    apply_reasoning_effort(app, effort);
+    finish_reasoning_effort_picker(app);
+}
+
+fn apply_reasoning_effort(app: &mut App, effort: ReasoningEffort) {
     app.runtime.cli.reasoning_effort = effort;
     let pending_setup = app.overlay.pending_setup_reasoning_effort();
     match write_reasoning_effort_config(app, effort, pending_setup.map(|pending| pending.scope)) {
@@ -1642,7 +1659,6 @@ pub fn accept_reasoning_effort_suggestion(app: &mut App) {
                 .push(Entry::Error { text: format!("failed to save reasoning effort to project config: {err}") });
         }
     }
-    finish_reasoning_effort_picker(app);
 }
 
 pub fn write_reasoning_effort_config(
@@ -1768,21 +1784,7 @@ pub fn handle_submit(app: &mut App) -> Option<Msg> {
     }
 
     if app.runtime.run_state == RunState::Working {
-        let text = app.composer.input.as_str().trim().to_string();
-        if text.is_empty() {
-            app.composer.input.clear();
-            return None;
-        }
-        if let Some(literal) = text.strip_prefix("//") {
-            queue_running_input(app, &format!("/{literal}"));
-            return None;
-        }
-        if let Some(command) = text.strip_prefix('/') {
-            app.composer.input.clear();
-            return handle_running_command(app, command);
-        }
-        queue_running_input(app, &text);
-        return None;
+        return handle_running_submit(app, QueueTarget::FollowUp);
     }
 
     if !matches!(app.runtime.run_state, RunState::Idle | RunState::Error(_)) {
@@ -1802,10 +1804,34 @@ pub fn handle_submit(app: &mut App) -> Option<Msg> {
     submit_user_turn(app, text)
 }
 
+fn handle_running_submit(app: &mut App, target: QueueTarget) -> Option<Msg> {
+    if app.runtime.run_state != RunState::Working {
+        return None;
+    }
+    let text = app.composer.input.as_str().trim().to_string();
+    if text.is_empty() {
+        app.composer.input.clear();
+        return None;
+    }
+    if let Some(literal) = text.strip_prefix("//") {
+        queue_running_input_as(app, &format!("/{literal}"), target);
+        return None;
+    }
+    if let Some(command) = text.strip_prefix('/') {
+        app.composer.input.clear();
+        return handle_running_command(app, command);
+    }
+    queue_running_input_as(app, &text, target);
+    None
+}
+
 pub fn queue_running_input(app: &mut App, text: &str) {
+    queue_running_input_as(app, text, QueueTarget::FollowUp);
+}
+
+fn queue_running_input_as(app: &mut App, text: &str, target: QueueTarget) {
     app.composer.input.clear();
     agent_lifecycle::remember_input(app, text);
-    let target = app.composer.queue_target;
     let kind = target.label();
     let id = app
         .composer

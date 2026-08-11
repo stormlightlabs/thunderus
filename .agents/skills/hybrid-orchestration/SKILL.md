@@ -114,6 +114,20 @@ If the prompt does not appear, read the visible pane. Setup, authentication, or 
 parent or user action. Do not type through an unexpected screen. Prompt both workers before waiting when
 they are independent. Otherwise, finish and integrate the first worker before starting the second.
 
+Steer an active worker by writing the refinement into its composer and sending the platform chord:
+
+```sh
+herdr pane send-text <pane-id> '<refinement of the active task>'
+case "$(uname -s)" in
+  Darwin) herdr pane send-keys <pane-id> super+enter ;;
+  *)      herdr pane send-keys <pane-id> ctrl+enter ;;
+esac
+```
+
+The thndrs TUI enables the enhanced keyboard protocol needed to represent `super+enter`. Confirm the
+composer clears and the active turn reflects the refinement. If it remains visible, inspect the pane and
+report the failed steering attempt; do not send plain `Enter`, because that queues a follow-up instead.
+
 ## Observe and integrate
 
 Wait for the submitted turn to become active, then wait for its terminal status. `wait-output`
@@ -125,7 +139,7 @@ herdr pane wait-output <pane-id> \
   --regex '(Thinking|Waiting for permission)' \
   --source visible --timeout 5000
 herdr pane wait-output <pane-id> \
-  --regex '(Complete|Failed|cancelled)' \
+  --regex '(?m)^\\s*(Complete|Failed|Stopped)\\s+·\\s+Editable' \
   --source visible --timeout 60000
 ```
 
