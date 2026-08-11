@@ -503,7 +503,12 @@ fn bg_cancel_terminates_real_owned_child() {
     );
 
     for _ in 0..50 {
-        update(&mut app, &Msg::Tick);
+        let result = update_with_effects(&mut app, &Msg::Tick);
+        assert!(result.effects.contains(&Effect::DrainBackgroundProcesses));
+        let completed = app.runtime.process_registry.drain_completed();
+        if !completed.is_empty() {
+            update_with_effects(&mut app, &Msg::Effect(EffectResult::BackgroundProcesses(completed)));
+        }
         if app.runtime.process_registry.get(id).is_none() {
             break;
         }

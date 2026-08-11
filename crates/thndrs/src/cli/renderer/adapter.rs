@@ -17,33 +17,6 @@ use crate::renderer::view::{
 };
 use crate::utils;
 
-const HELP_ROWS: &[(&str, &str)] = &[
-    ("── Navigation ──", ""),
-    ("Ctrl+O", "open output, diff, warning, or error detail"),
-    ("Enter", "accept highlighted item"),
-    ("Escape", "close help, files, or commands"),
-    ("Up/Down", "move cursor or recall history"),
-    ("Ctrl+P", "open workspace file picker"),
-    ("Ctrl+T", "transpose characters"),
-    ("── Editing ──", ""),
-    ("Shift+Enter", "insert newline"),
-    ("Ctrl+A/E", "move to start/end of line"),
-    ("Ctrl+B/F", "move cursor left/right"),
-    ("Ctrl+W", "delete previous word"),
-    ("Ctrl+K", "delete to end of line"),
-    ("Ctrl+U", "delete to start of line"),
-    ("Ctrl+Y", "yank (paste) last kill"),
-    ("Alt+B/F", "move word left/right"),
-    ("Alt+D", "delete next word"),
-    ("Alt+Bksp", "delete previous word"),
-    ("── Files ──", ""),
-    ("@path", "mention a file from fuzzy search"),
-    ("── App ──", ""),
-    ("Ctrl+C", "stop a running turn"),
-    ("Tab", "accept a command or file suggestion"),
-    ("Ctrl+D", "quit after double-press"),
-];
-
 /// iocraft-backed renderer for bounded focused surfaces.
 #[derive(Default)]
 pub struct IocraftSurfaceRenderer;
@@ -225,15 +198,14 @@ fn quiet_picker_rows(picker: &PickerView, width: usize, height: usize) -> Vec<Ro
 }
 
 fn help_rows(help: &HelpView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
-    let body = HELP_ROWS
+    let body = help
+        .bindings
         .iter()
-        .map(|(key, description)| {
-            if description.is_empty() {
-                SurfaceLine::new((*key).to_string(), ThemeRole::Selected)
+        .map(|binding| {
+            if binding.description.is_empty() {
+                SurfaceLine::new(binding.key.clone(), ThemeRole::Selected)
             } else {
-                let description =
-                    if *key == "Ctrl+T" && help.queue_target_toggle { "toggle queue target" } else { description };
-                SurfaceLine::text(format!("{key:<16}{description}"))
+                SurfaceLine::text(format!("{:<16}{}", binding.key, binding.description))
             }
         })
         .collect();
@@ -982,7 +954,10 @@ mod tests {
             ),
             (
                 "help",
-                FocusedSurfaceView::Help(HelpView { queue_target_toggle: false }),
+                FocusedSurfaceView::Help(HelpView {
+                    queue_target_toggle: false,
+                    bindings: crate::app::Keymap::default().help_bindings(false),
+                }),
             ),
             (
                 "tool detail",

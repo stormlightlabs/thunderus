@@ -271,21 +271,19 @@ pub fn record_background_results(app: &mut App, results: Vec<tools::shell::Proce
     }
 }
 
-pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
-    match key.code {
-        KeyCode::Up => {
+pub fn handle_permission_action(app: &mut App, action: &Action) -> Option<Msg> {
+    match action {
+        Action::SelectPrevious => {
             if let Some(permission) = app.overlay.permission_mut() {
                 permission.move_up();
             }
-            None
         }
-        KeyCode::Down => {
+        Action::SelectNext => {
             if let Some(permission) = app.overlay.permission_mut() {
                 permission.move_down();
             }
-            None
         }
-        KeyCode::Enter => {
+        Action::Confirm => {
             if let Some(permission) = app.overlay.take_permission()
                 && let Some(PermissionDecision::Selected(option_id)) = permission.select()
             {
@@ -294,9 +292,8 @@ pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                 });
             }
             app.transcript.context_ledger = None;
-            None
         }
-        KeyCode::Esc => {
+        Action::Cancel => {
             if let Some(permission) = app.overlay.take_permission() {
                 let _ = permission.cancel();
                 app.transcript
@@ -304,10 +301,10 @@ pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                     .push(Entry::Status { text: format!("acp permission {}: cancelled", permission.tool_call_id) });
             }
             app.transcript.context_ledger = None;
-            None
         }
-        _ => None,
+        _ => {}
     }
+    None
 }
 
 /// Cancel an active stream by marking all streaming entries complete,

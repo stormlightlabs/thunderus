@@ -61,13 +61,16 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 
 use acp::config::provider_label;
-use app::{App, Msg, RunState, start_auto_compaction, update};
+use app::{
+    Action, App, Effect, EffectRequest, EffectResult, Msg, RunState, start_auto_compaction, translate_input,
+    update_with_effects,
+};
 use cli::{
     Cli, Command, MIN_TICK_RATE_MS, commands,
     commands::debug::DebugCommand,
@@ -78,6 +81,8 @@ use mcp::manager::McpManager;
 use prompt::PromptBundle;
 use renderer::alternate::{AlternateScreenSession, AlternateViewport, render_logical_frame};
 use utils::datetime;
+
+use crate::input::TerminalInput;
 
 use thndrs_agent::CancelToken;
 use thndrs_agent::context as agent_context;
@@ -115,6 +120,7 @@ pub fn exit_code(error: &io::Error) -> i32 {
 
 /// State carried by the main loop for a single agent run.
 struct AgentSlot {
+    request: EffectRequest,
     receiver: thndrs_agent::AgentRun<app::AgentEvent>,
     cancel: CancelToken,
     steering: mpsc::Sender<String>,
@@ -1145,10 +1151,10 @@ fn run_inline(tick: Duration, cli: &Cli, initial_session: InitialSession<'_>) ->
         InitialSession::Resume(session_id) => App::from_cli_resuming(cli, session_id)?,
     };
     let mouse_enabled = cli.mouse && !cli.no_mouse;
-    let _terminal_session = AlternateScreenSession::enter(mouse_enabled)?;
+    let terminal_session = AlternateScreenSession::enter(mouse_enabled)?;
     let stdout = io::BufWriter::with_capacity(TERMINAL_WRITE_BUFFER_CAPACITY, io::stdout());
     let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
-    let mut surface = RatatuiSurface::new(terminal);
+    let mut surface = RatatuiSurface::new(terminal, terminal_session);
     interactive_loop(&mut surface, tick, cli, app)
 }
 
@@ -1156,17 +1162,19 @@ trait InteractiveSurface {
     fn draw(&mut self, app: &mut App) -> io::Result<()>;
     fn resize(&mut self, width: u16, height: u16) -> io::Result<()>;
     fn clear(&mut self) -> io::Result<()>;
-    fn handle_navigation(&mut self, app: &App, event: &Event) -> bool;
+    fn suspend(&mut self) -> io::Result<()>;
+    fn handle_navigation(&mut self, app: &App, action: &Action) -> bool;
 }
 
 struct RatatuiSurface<W: io::Write> {
     terminal: Terminal<CrosstermBackend<W>>,
     viewport: AlternateViewport,
+    terminal_session: AlternateScreenSession,
 }
 
 impl<W: io::Write> RatatuiSurface<W> {
-    fn new(terminal: Terminal<CrosstermBackend<W>>) -> Self {
-        Self { terminal, viewport: AlternateViewport::default() }
+    fn new(terminal: Terminal<CrosstermBackend<W>>, terminal_session: AlternateScreenSession) -> Self {
+        Self { terminal, viewport: AlternateViewport::default(), terminal_session }
     }
 }
 
@@ -1201,8 +1209,21 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
         self.terminal.clear()
     }
 
-    fn handle_navigation(&mut self, app: &App, event: &Event) -> bool {
-        self.viewport.handle_navigation(app, event)
+    fn suspend(&mut self) -> io::Result<()> {
+        self.terminal_session.suspend()?;
+        let status = std::process::Command::new("kill")
+            .args(["-TSTP", &std::process::id().to_string()])
+            .status()?;
+        self.terminal_session.resume()?;
+        if status.success() {
+            self.terminal.clear()
+        } else {
+            Err(io::Error::other("failed to suspend process"))
+        }
+    }
+
+    fn handle_navigation(&mut self, app: &App, action: &Action) -> bool {
+        self.viewport.handle_navigation(app, action)
     }
 }
 
@@ -1248,8 +1269,6 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
         while Instant::now() < deadline {
             render_dirty |= drain_agent_events(&mut app, &mut agent, surface, &observability)?;
             render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, surface)?;
-            manage_agent_lifecycle(&app, &mut agent);
-            maybe_spawn_agent(&mut app, &mut agent);
             flush_steering(&mut app, &agent);
             if render_dirty {
                 surface.draw(&mut app)?;
@@ -1266,39 +1285,27 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
             if !event::poll(remaining)? {
                 break;
             }
-            let terminal_event = event::read()?;
-            if surface.handle_navigation(&app, &terminal_event) {
-                surface.draw(&mut app)?;
+            let Some(terminal_input) = TerminalInput::from_event(event::read()?) else {
                 continue;
-            }
-            match terminal_event {
-                Event::Key(key) if key.kind == KeyEventKind::Release => {}
-                Event::Key(key) => {
-                    handle_key(&mut app, key, &mut agent, surface)?;
+            };
+            let actions = translate_input(&app, terminal_input);
+            for action in actions {
+                if surface.handle_navigation(&app, &action) {
                     surface.draw(&mut app)?;
+                    continue;
                 }
-                Event::Mouse(mouse) => {
-                    handle_msg(&mut app, Msg::Mouse(mouse), surface)?;
-                    surface.draw(&mut app)?;
-                }
-                Event::Resize(width, height) => {
-                    surface.resize(width, height)?;
-                    surface.draw(&mut app)?;
-                }
-                Event::Paste(text) => {
-                    for ch in text.replace("\r\n", "\n").replace('\r', "\n").chars() {
-                        handle_msg(
-                            &mut app,
-                            Msg::Key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),
-                            surface,
-                        )?;
+                match action {
+                    Action::Resize { width, height } => {
+                        surface.resize(width, height)?;
+                        surface.draw(&mut app)?;
                     }
-                    surface.draw(&mut app)?;
+                    action => {
+                        handle_msg(&mut app, Msg::Action(action), surface, &mut agent)?;
+                        surface.draw(&mut app)?;
+                    }
                 }
-                _ => {}
             }
 
-            maybe_spawn_agent(&mut app, &mut agent);
             flush_steering(&mut app, &agent);
 
             if app.runtime.quit {
@@ -1308,7 +1315,7 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
             }
         }
         let run_state_before_tick = app.runtime.run_state.clone();
-        handle_msg(&mut app, Msg::Tick, surface)?;
+        handle_msg(&mut app, Msg::Tick, surface, &mut agent)?;
         render_dirty |= tick_requires_render(&run_state_before_tick, &app);
         render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, surface)?;
         if render_dirty {
@@ -1330,46 +1337,88 @@ fn tick_requires_render(previous_state: &RunState, app: &App) -> bool {
         || app.runtime.ctrl_d_pending.is_some()
 }
 
-/// Process a key through the shared application update path.
-fn handle_key<S: InteractiveSurface>(
-    app: &mut App, key: KeyEvent, agent: &mut Option<AgentSlot>, surface: &mut S,
-) -> io::Result<()> {
-    if key.code == crossterm::event::KeyCode::Esc
-        && app.runtime.run_state == RunState::Working
-        && let Some(slot) = agent
-    {
-        slot.cancel.cancel();
-    }
-    handle_msg(app, Msg::Key(key), surface)
-}
-
 /// Process a message and all pure follow-ups through one application path.
-fn handle_msg<S: InteractiveSurface>(app: &mut App, msg: Msg, surface: &mut S) -> io::Result<()> {
+fn handle_msg<S: InteractiveSurface>(
+    app: &mut App, msg: Msg, surface: &mut S, agent: &mut Option<AgentSlot>,
+) -> io::Result<()> {
     let mut next = Some(msg);
     while let Some(m) = next {
-        let is_clear = matches!(m, Msg::Clear);
-        next = update(app, &m);
-        if is_clear {
-            surface.clear()?;
+        let result = update_with_effects(app, &m);
+        next = result.follow_up;
+        for effect in result.effects {
+            if let Some(completion) = execute_effect(app, agent, surface, effect)? {
+                next = Some(completion);
+            }
         }
-        if app.runtime.quit {
-            return Ok(());
+        if app.runtime.quit && next.is_none() {
+            break;
         }
     }
     Ok(())
+}
+
+/// Execute one concrete application effect and return its semantic completion.
+fn execute_effect<S: InteractiveSurface>(
+    app: &mut App, agent: &mut Option<AgentSlot>, surface: &mut S, effect: Effect,
+) -> io::Result<Option<Msg>> {
+    match effect {
+        Effect::StartAgent(request) => {
+            spawn_agent(app, agent, request);
+            Ok(None)
+        }
+        Effect::CancelAgent(request) => {
+            if agent.as_ref().is_some_and(|slot| slot.request == request)
+                && let Some(slot) = agent.as_ref()
+            {
+                slot.cancel.cancel();
+            }
+            Ok(None)
+        }
+        Effect::SettleAgent(request) => {
+            settle_agent(agent, &request, app.runtime.stopping_timed_out);
+            Ok(None)
+        }
+        Effect::DrainBackgroundProcesses => {
+            let results = app.runtime.process_registry.drain_completed();
+            Ok((!results.is_empty()).then(|| Msg::Effect(EffectResult::BackgroundProcesses(results))))
+        }
+        Effect::ShutdownProcesses => {
+            let results = app.runtime.process_registry.shutdown();
+            Ok((!results.is_empty()).then(|| Msg::Effect(EffectResult::BackgroundProcesses(results))))
+        }
+        Effect::ClearTerminal => Ok(surface.clear().err().map(|error| {
+            Msg::Effect(EffectResult::Failed {
+                request: app.runtime.active_effect_request.clone(),
+                operation: "clear terminal",
+                error: error.to_string(),
+            })
+        })),
+        Effect::SuspendTerminal => Ok(surface.suspend().err().map(|error| {
+            Msg::Effect(EffectResult::Failed {
+                request: app.runtime.active_effect_request.clone(),
+                operation: "suspend terminal",
+                error: error.to_string(),
+            })
+        })),
+    }
 }
 
 /// Drain a bounded burst of agent events through the shared update path.
 fn drain_agent_events<S: InteractiveSurface>(
     app: &mut App, agent: &mut Option<AgentSlot>, surface: &mut S, observability: &Option<Observability>,
 ) -> io::Result<bool> {
-    let Some(slot) = agent else {
-        return Ok(false);
-    };
     let mut changed = false;
 
     for _ in 0..MAX_AGENT_EVENTS_PER_RENDER {
-        match slot.receiver.try_recv() {
+        let Some(slot) = agent.as_mut() else {
+            break;
+        };
+        let request = slot.request.clone();
+        if app.runtime.active_effect_request.is_none() {
+            app.runtime.active_effect_request = Some(request.clone());
+        }
+        let received = slot.receiver.try_recv();
+        match received {
             Ok(event) => {
                 match &event {
                     app::AgentEvent::Failed(msg) => {
@@ -1391,22 +1440,30 @@ fn drain_agent_events<S: InteractiveSurface>(
                     }
                     _ => {}
                 }
-                handle_msg(app, Msg::Agent(event), surface)?;
+                handle_msg(app, Msg::Effect(EffectResult::Agent { request, event }), surface, agent)?;
                 changed = true;
             }
             Err(mpsc::TryRecvError::Empty) => break,
             Err(mpsc::TryRecvError::Disconnected) => {
-                let worker_result = slot.receiver.wait();
-                *agent = None;
+                let worker_result = agent.take().expect("disconnected slot remains present").receiver.wait();
                 if let Err(error) = worker_result {
                     handle_msg(
                         app,
-                        Msg::Agent(app::AgentEvent::Failed(format!("agent worker failed: {error}"))),
+                        Msg::Effect(EffectResult::Agent {
+                            request,
+                            event: app::AgentEvent::Failed(format!("agent worker failed: {error}")),
+                        }),
                         surface,
+                        agent,
                     )?;
                     changed = true;
                 } else if app.runtime.run_state == RunState::Stopping {
-                    handle_msg(app, Msg::Agent(app::AgentEvent::Cancelled), surface)?;
+                    handle_msg(
+                        app,
+                        Msg::Effect(EffectResult::Agent { request, event: app::AgentEvent::Cancelled }),
+                        surface,
+                        agent,
+                    )?;
                     changed = true;
                 }
                 break;
@@ -1417,11 +1474,11 @@ fn drain_agent_events<S: InteractiveSurface>(
 }
 
 fn drain_git_status_watcher<S: InteractiveSurface>(
-    app: &mut App, watcher: &GitStatusWatcher, surface: &mut S,
+    app: &mut App, watcher: &GitStatusWatcher, _surface: &mut S,
 ) -> io::Result<bool> {
     let mut changed = false;
     while let Ok(status) = watcher.receiver.try_recv() {
-        handle_msg(app, Msg::GitStatusChanged(status), surface)?;
+        let _ = update_with_effects(app, &Msg::GitStatusChanged(status));
         changed = true;
     }
     Ok(changed)
@@ -1433,7 +1490,7 @@ fn drain_git_status_watcher<S: InteractiveSurface>(
 /// The run chooses a provider from the selected model id. The
 /// [`agent::CancelToken`] is retained so `Escape` can signal cooperative
 /// cancellation.
-fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
+fn spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>, request: EffectRequest) {
     if app.runtime.run_state != RunState::Working {
         return;
     }
@@ -1475,7 +1532,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
         }
         let cancel = handle.cancel.clone();
         let receiver = handle.spawn();
-        *agent = Some(AgentSlot { receiver, cancel, steering: steering_tx });
+        *agent = Some(AgentSlot { request, receiver, cancel, steering: steering_tx });
         return;
     }
     let mcp_manager = load_mcp_manager_for_workspace(&config.root).ok();
@@ -1508,6 +1565,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
 
     if !app.compaction_in_flight() && preflight_requires_auto_compaction(app, &bundle) {
         start_auto_compaction(app, prompt);
+        spawn_agent(app, agent, request);
         return;
     }
 
@@ -1523,7 +1581,21 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
     let expects_write = agent::prompt_expects_workspace_write(&prompt);
     let (steering_tx, steering_rx) = mpsc::channel();
     let turn = harness::HarnessTurn::provider_with_steering(config, messages, expects_write, steering_rx).start();
-    *agent = Some(AgentSlot { receiver: turn.events, cancel: turn.cancel, steering: steering_tx });
+    *agent = Some(AgentSlot { request, receiver: turn.events, cancel: turn.cancel, steering: steering_tx });
+}
+
+/// Headless adapter compatibility: execute the pending start effect directly.
+fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
+    if app.runtime.run_state != RunState::Working || agent.is_some() {
+        return;
+    }
+    let request = app
+        .runtime
+        .active_effect_request
+        .clone()
+        .unwrap_or_else(|| EffectRequest { session_id: app.session.id.clone(), turn: app.session.turn_count });
+    app.runtime.active_effect_request = Some(request.clone());
+    spawn_agent(app, agent, request);
 }
 
 /// Return the prompt for the turn that is about to start.
@@ -1584,29 +1656,16 @@ fn flush_steering(app: &mut App, agent: &Option<AgentSlot>) {
     app.composer.queued_steering = unsent;
 }
 
-/// Keep the active agent slot aligned with the app lifecycle.
-///
-/// `Stopping` is a pending terminal state: keep the receiver alive so the app
-/// can observe `Cancelled`/`Finished`/`Failed` and transition back to idle.
-fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
-    match app.runtime.run_state {
-        RunState::Working => {}
-        RunState::Stopping => {
-            if let Some(slot) = agent {
-                slot.cancel.cancel();
-            }
-        }
-        RunState::Idle | RunState::Error(_) => {
-            if let Some(mut slot) = agent.take() {
-                tracing::info!("cancelling dropped agent slot");
-                if app.runtime.stopping_timed_out {
-                    slot.receiver.detach();
-                } else {
-                    slot.cancel.cancel();
-                    if let Err(error) = slot.receiver.wait() {
-                        tracing::error!(%error, "agent worker failed while settling");
-                    }
-                }
+fn settle_agent(agent: &mut Option<AgentSlot>, request: &EffectRequest, stopping_timed_out: bool) {
+    if agent.as_ref().is_some_and(|slot| &slot.request == request)
+        && let Some(mut slot) = agent.take()
+    {
+        if stopping_timed_out {
+            slot.receiver.detach();
+        } else {
+            slot.cancel.cancel();
+            if let Err(error) = slot.receiver.wait() {
+                tracing::error!(%error, "agent worker failed while settling");
             }
         }
     }
@@ -1624,7 +1683,11 @@ mod tests {
         receiver: mpsc::Receiver<app::AgentEvent>, cancel: CancelToken, steering: mpsc::Sender<String>,
     ) -> AgentSlot {
         let handle = harness::HarnessHandle::from_test_receiver(receiver, cancel);
-        AgentSlot { receiver: handle.events, cancel: handle.cancel, steering }
+        AgentSlot { request: test_request(), receiver: handle.events, cancel: handle.cancel, steering }
+    }
+
+    fn test_request() -> EffectRequest {
+        EffectRequest { session_id: "test-session".to_string(), turn: 1 }
     }
 
     fn snapshot_bundle() -> PromptBundle {
@@ -1679,6 +1742,7 @@ mod tests {
     #[derive(Default)]
     struct TestSurface {
         clears: usize,
+        suspends: usize,
         size: (u16, u16),
     }
 
@@ -1697,7 +1761,12 @@ mod tests {
             Ok(())
         }
 
-        fn handle_navigation(&mut self, _app: &App, _event: &Event) -> bool {
+        fn suspend(&mut self) -> io::Result<()> {
+            self.suspends += 1;
+            Ok(())
+        }
+
+        fn handle_navigation(&mut self, _app: &App, _action: &Action) -> bool {
             false
         }
     }
@@ -2406,9 +2475,21 @@ for line in sys.stdin:
             .push(app::Entry::User { text: "hello".to_string() });
 
         let mut surface = TestSurface::default();
-        handle_msg(&mut app, Msg::Clear, &mut surface).expect("clear");
+        handle_msg(&mut app, Msg::Clear, &mut surface, &mut None).expect("clear");
         assert!(app.transcript.entries.is_empty());
         assert_eq!(surface.clears, 1);
+    }
+
+    #[test]
+    fn suspend_action_uses_the_terminal_effect_boundary() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session.writer = None;
+        let mut surface = TestSurface::default();
+
+        handle_msg(&mut app, Msg::Action(Action::Suspend), &mut surface, &mut None).expect("suspend");
+
+        assert_eq!(surface.suspends, 1);
     }
 
     #[test]
@@ -2438,7 +2519,7 @@ for line in sys.stdin:
     }
 
     #[test]
-    fn manage_agent_lifecycle_keeps_stopping_slot_until_terminal_event() {
+    fn cancel_effect_keeps_stopping_slot_until_terminal_event() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
         app.session.writer = None;
@@ -2448,7 +2529,13 @@ for line in sys.stdin:
         let cancel = CancelToken::new();
         let mut agent = Some(test_agent_slot(event_rx, cancel.clone(), steering_tx));
 
-        manage_agent_lifecycle(&app, &mut agent);
+        execute_effect(
+            &mut app,
+            &mut agent,
+            &mut TestSurface::default(),
+            Effect::CancelAgent(test_request()),
+        )
+        .expect("cancel effect");
 
         assert!(agent.is_some(), "stopping should keep the receiver for terminal events");
         assert!(
@@ -2470,7 +2557,7 @@ for line in sys.stdin:
         let mut surface = TestSurface::default();
         let before = app.runtime.run_state.clone();
 
-        handle_msg(&mut app, Msg::Tick, &mut surface).expect("tick");
+        handle_msg(&mut app, Msg::Tick, &mut surface, &mut None).expect("tick");
 
         assert_eq!(app.runtime.run_state, RunState::Idle);
         assert_eq!(app.status_label(), "Stopped");
@@ -2494,10 +2581,10 @@ for line in sys.stdin:
         });
         let cancel = run.cancel().clone();
         let (steering_tx, _steering_rx) = mpsc::channel();
-        let mut agent = Some(AgentSlot { receiver: run, cancel, steering: steering_tx });
+        let mut agent = Some(AgentSlot { request: test_request(), receiver: run, cancel, steering: steering_tx });
         let started = Instant::now();
 
-        manage_agent_lifecycle(&app, &mut agent);
+        settle_agent(&mut agent, &test_request(), true);
 
         assert!(agent.is_none());
         assert!(
@@ -2535,7 +2622,7 @@ for line in sys.stdin:
         assert!(receiver.recv().is_err(), "worker should disconnect its event stream");
         let cancel = receiver.cancel().clone();
         let (steering_tx, _steering_rx) = mpsc::channel();
-        let mut agent = Some(AgentSlot { receiver, cancel, steering: steering_tx });
+        let mut agent = Some(AgentSlot { request: test_request(), receiver, cancel, steering: steering_tx });
         let mut surface = TestSurface::default();
 
         drain_agent_events(&mut app, &mut agent, &mut surface, &None).expect("drain events");
@@ -2617,7 +2704,7 @@ for line in sys.stdin:
     }
 
     #[test]
-    fn maybe_spawn_agent_auto_compacts_oversized_turn_instead_of_spawning() {
+    fn maybe_spawn_agent_auto_compacts_oversized_turn_before_spawning() {
         let mut config = config::Config::default();
         config.context.compaction.mode = agent_context::CompactionMode::Auto;
         let cli = Cli {
@@ -2649,8 +2736,8 @@ for line in sys.stdin:
         maybe_spawn_agent(&mut app, &mut agent);
 
         assert!(
-            agent.is_none(),
-            "the known-oversized request must never be sent to the main provider"
+            agent.is_some(),
+            "the compaction request should be sent instead of the oversized turn"
         );
         assert!(
             app.compaction_in_flight(),

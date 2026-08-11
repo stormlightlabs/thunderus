@@ -2,9 +2,116 @@ use super::super::input::finish_reasoning_effort_picker;
 use super::super::onboarding::after_setup_model_config;
 use super::*;
 use crate::input::PromptInput;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use crate::input::{MouseInput, TerminalInput};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
 use helpers::*;
+
+#[test]
+fn semantic_translation_is_table_driven_by_focus_and_mode() {
+    let mut app = fresh_app();
+    let cases = [
+        (
+            "prompt cursor",
+            KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+            Action::CursorLeft,
+        ),
+        (
+            "command submit",
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            Action::Submit,
+        ),
+    ];
+
+    for (label, key, expected) in cases {
+        if label == "command submit" {
+            app.composer.mode = Mode::Command;
+        }
+        assert_eq!(
+            translate_input(&app, TerminalInput::Key(key)),
+            vec![expected],
+            "{label}"
+        );
+    }
+
+    app.composer.mode = Mode::Prompt;
+    app.overlay.show_help();
+    assert_eq!(
+        translate_input(
+            &app,
+            TerminalInput::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+        ),
+        vec![Action::CloseOverlay]
+    );
+
+    app.overlay.close();
+    app.overlay
+        .show_picker(
+            PromptAccessory::Files(FilePickerSource::Forced),
+            picker_from_paths(vec!["a".into()]),
+        )
+        .unwrap();
+    assert_eq!(
+        translate_input(
+            &app,
+            TerminalInput::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
+        ),
+        vec![Action::SelectNext]
+    );
+}
+
+#[test]
+fn custom_keymap_and_terminal_actions_are_deterministic() {
+    let app = fresh_app();
+    let mut keymap = Keymap::default();
+    keymap.bind(
+        InputFocus::Prompt,
+        KeyBinding::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
+        Action::CursorEnd,
+    );
+    assert_eq!(
+        translate_input_with_keymap(
+            &app,
+            TerminalInput::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            &keymap,
+        ),
+        vec![Action::CursorEnd]
+    );
+    assert_eq!(
+        translate_input(&app, TerminalInput::from_event(Event::Resize(80, 24)).unwrap()),
+        vec![Action::Resize { width: 80, height: 24 }]
+    );
+    assert_eq!(
+        translate_input(&app, TerminalInput::Mouse(MouseInput::ScrollUp),),
+        vec![Action::ScrollTranscriptUp]
+    );
+}
+
+#[test]
+fn bracketed_paste_is_one_grapheme_preserving_action_and_overlay_first() {
+    let mut app = fresh_app();
+    let input = TerminalInput::from_event(Event::Paste("a\r\n👩‍🔬".to_string())).unwrap();
+    let actions = translate_input(&app, input);
+    assert_eq!(actions, vec![Action::InsertText("a\n👩‍🔬".to_string())]);
+    update(&mut app, &Msg::Action(actions[0].clone()));
+    assert_eq!(app.composer.input.as_str(), "a\n👩‍🔬");
+    assert_eq!(app.composer.input.len_graphemes(), 3);
+
+    app.overlay.show_help();
+    update(&mut app, &Msg::Action(Action::InsertText("blocked".to_string())));
+    assert_eq!(app.composer.input.as_str(), "a\n👩‍🔬");
+}
+
+#[test]
+fn mouse_wheel_routes_to_the_detail_overlay_before_the_transcript() {
+    let mut app = fresh_app();
+    app.overlay.show_detail(0);
+
+    assert_eq!(
+        translate_input(&app, TerminalInput::Mouse(MouseInput::ScrollDown)),
+        vec![Action::ScrollOverlayDown]
+    );
+}
 
 #[test]
 fn q_appends_to_input_and_does_not_quit() {

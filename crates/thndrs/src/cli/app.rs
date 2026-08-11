@@ -2,7 +2,8 @@
 //!
 //! `App` holds the mutable session and prompt state. `Msg` represents input,
 //! provider, tool, permission, and lifecycle events. [`update`] applies one
-//! message and may return another message for the caller to process.
+//! message and returns pure follow-up messages plus bounded effects for the
+//! application adapter to execute.
 //!
 //! The root module declares the shared state and message vocabulary. The child
 //! modules implement the event families that [`update`] dispatches:
@@ -29,16 +30,18 @@ pub use context::start_auto_compaction;
 use input::accept_model_suggestion;
 
 pub use commands::command_suggestions_for_app;
-pub use input::{FilePickerSource, Mode, PickerItem, PickerState, PromptAccessory};
+pub use input::{
+    Action, FilePickerSource, InputFocus, KeyBinding, KeyHelp, Keymap, Mode, PickerItem, PickerState, PromptAccessory,
+    translate_input, translate_input_with_keymap,
+};
 pub use onboarding::setup_model_options;
 pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryStage};
 
 use input::{
-    handle_key, handle_mouse, offline_model_picker_items, open_model_picker, open_reasoning_effort_picker,
-    open_session_picker, open_skill_picker,
+    offline_model_picker_items, open_model_picker, open_reasoning_effort_picker, open_session_picker, open_skill_picker,
 };
 use onboarding::{
-    PendingSetupReasoningEffort, advance_after_setup_model_config, handle_first_run_key, poll_chatgpt_oauth_on_tick,
+    PendingSetupReasoningEffort, advance_after_setup_model_config, handle_first_run_action, poll_chatgpt_oauth_on_tick,
     provider_authenticated, provider_for_model, selected_provider_missing,
 };
 
@@ -50,7 +53,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
 use thndrs_agent::CancelToken;
 use thndrs_agent::ProviderRequestAccounting;
@@ -69,7 +71,7 @@ use crate::cli::commands::setup::SetupProviderArg;
 use crate::cli::git::{self, GitStatusSummary};
 use crate::cli::input::history::{INPUT_HISTORY_LIMIT, InputHistoryStore};
 use crate::cli::{Cli, MIN_TICK_RATE_MS, ReasoningEffort, Theme, WebSearchMode};
-use crate::input::PromptInput;
+use crate::input::{PromptInput, TerminalInput};
 use crate::providers::{codex, opencode};
 use crate::thndrs_core::auth;
 use crate::tools::shell::ProcessRegistry;
@@ -332,12 +334,57 @@ pub enum AgentEvent {
     Cancelled,
 }
 
+/// Identity attached to an effect and its eventual completion.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EffectRequest {
+    /// Session that requested the effect.
+    pub session_id: String,
+    /// Monotonic session turn associated with the request.
+    pub turn: u64,
+}
+
+/// Side effects requested by the pure application update path.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Effect {
+    StartAgent(EffectRequest),
+    CancelAgent(EffectRequest),
+    SettleAgent(EffectRequest),
+    DrainBackgroundProcesses,
+    ShutdownProcesses,
+    ClearTerminal,
+    SuspendTerminal,
+}
+
+/// Semantic completion values returned by effect executors.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EffectResult {
+    Agent {
+        request: EffectRequest,
+        event: AgentEvent,
+    },
+    BackgroundProcesses(Vec<tools::shell::ProcessResult>),
+    Failed {
+        request: Option<EffectRequest>,
+        operation: &'static str,
+        error: String,
+    },
+}
+
+/// Pure result of applying one application message.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct UpdateResult {
+    pub follow_up: Option<Msg>,
+    pub effects: Vec<Effect>,
+}
+
 /// The single message type fed into `update`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Msg {
-    /// A raw key event from the terminal.
+    /// A semantic action from the normalized terminal input boundary.
+    Action(Action),
+    /// Compatibility adapter for callers that still provide a raw key.
     Key(crossterm::event::KeyEvent),
-    /// A raw mouse event from the terminal.
+    /// Compatibility adapter for callers that still provide a raw mouse event.
     Mouse(crossterm::event::MouseEvent),
     /// Periodic tick.
     Tick,
@@ -347,6 +394,8 @@ pub enum Msg {
     Quit,
     /// An agent stream event.
     Agent(AgentEvent),
+    /// A semantic result returned by an application effect executor.
+    Effect(EffectResult),
     /// Updated git working tree summary from the background watcher.
     GitStatusChanged(Option<GitStatusSummary>),
 }
@@ -735,7 +784,11 @@ pub struct RuntimeState {
     pub verbose: bool,
     pub user_label: String,
     pub model_picker_items: Vec<PickerItem>,
+    /// Configurable semantic bindings used by the input translation boundary.
+    pub keymap: Keymap,
     pub run_state: RunState,
+    /// Identity of the agent run whose effect results are currently accepted.
+    pub active_effect_request: Option<EffectRequest>,
     pub git_status: Option<GitStatusSummary>,
     pub session_tokens_in: u64,
     pub session_tokens_out: u64,
@@ -887,7 +940,9 @@ impl App {
                 verbose: value.verbose,
                 user_label: default_user_label(),
                 model_picker_items: offline_model_picker_items(),
+                keymap: Keymap::default(),
                 run_state: RunState::default(),
+                active_effect_request: None,
                 git_status: git::collect(&workspace_root),
                 session_tokens_in: 0,
                 session_tokens_out: 0,
@@ -1312,14 +1367,27 @@ fn display_token(value: Option<u64>) -> String {
     value.map_or_else(|| "unknown".to_string(), |value| value.to_string())
 }
 
-/// The only mutation path. Returns an optional follow-up message.
-pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
-    match msg {
-        Msg::Key(key) => handle_key(app, *key),
-        Msg::Mouse(mouse) => handle_mouse(app, *mouse),
+/// Apply one message without performing terminal, process, or agent I/O.
+pub fn update_with_effects(app: &mut App, msg: &Msg) -> UpdateResult {
+    let previous_run_state = app.runtime.run_state.clone();
+    let previous_request = app.runtime.active_effect_request.clone();
+    let follow_up = match msg {
+        Msg::Action(action) => input::handle_action(app, action.clone()),
+        Msg::Key(key) => {
+            let input = TerminalInput::Key(*key);
+            translate_input(app, input)
+                .into_iter()
+                .find_map(|action| input::handle_action(app, action))
+        }
+        Msg::Mouse(mouse) => {
+            let Some(input) = TerminalInput::from_event(crossterm::event::Event::Mouse(*mouse)) else {
+                return UpdateResult::default();
+            };
+            translate_input(app, input)
+                .into_iter()
+                .find_map(|action| input::handle_action(app, action))
+        }
         Msg::Quit => {
-            let results = app.runtime.process_registry.shutdown();
-            agent_lifecycle::record_background_results(app, results);
             app.runtime.quit = true;
             None
         }
@@ -1330,7 +1398,6 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
             {
                 app.runtime.ctrl_d_pending = None;
             }
-            agent_lifecycle::drain_background_processes(app);
             agent_lifecycle::finish_stopping_if_due(app);
             poll_chatgpt_oauth_on_tick(app);
             None
@@ -1341,11 +1408,64 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
             None
         }
         Msg::Agent(event) => agent_lifecycle::handle_agent_event(app, event.clone()),
+        Msg::Effect(result) => match result {
+            EffectResult::Agent { request, event } if app.runtime.active_effect_request.as_ref() == Some(request) => {
+                agent_lifecycle::handle_agent_event(app, event.clone())
+            }
+            EffectResult::Agent { .. } => None,
+            EffectResult::BackgroundProcesses(results) => {
+                agent_lifecycle::record_background_results(app, results.clone());
+                None
+            }
+            EffectResult::Failed { request, operation, error }
+                if request.is_none() || request.as_ref() == app.runtime.active_effect_request.as_ref() =>
+            {
+                app.transcript
+                    .entries
+                    .push(Entry::Error { text: format!("{operation} failed: {error}") });
+                None
+            }
+            EffectResult::Failed { .. } => None,
+        },
         Msg::GitStatusChanged(status) => {
             app.runtime.git_status = status.clone();
             None
         }
+    };
+
+    let mut effects = Vec::new();
+    match msg {
+        Msg::Action(Action::Suspend) => effects.push(Effect::SuspendTerminal),
+        Msg::Clear => effects.push(Effect::ClearTerminal),
+        Msg::Quit => effects.push(Effect::ShutdownProcesses),
+        Msg::Tick => effects.push(Effect::DrainBackgroundProcesses),
+        _ => {}
     }
+
+    if previous_run_state != RunState::Working && app.runtime.run_state == RunState::Working {
+        let request = EffectRequest { session_id: app.session.id.clone(), turn: app.session.turn_count };
+        app.runtime.active_effect_request = Some(request.clone());
+        effects.push(Effect::StartAgent(request));
+    } else if previous_run_state == RunState::Working && app.runtime.run_state == RunState::Stopping {
+        if let Some(request) = previous_request.clone() {
+            effects.push(Effect::CancelAgent(request));
+        }
+    } else if matches!(previous_run_state, RunState::Working | RunState::Stopping)
+        && matches!(app.runtime.run_state, RunState::Idle | RunState::Error(_))
+    {
+        if let Some(request) = previous_request {
+            effects.push(Effect::SettleAgent(request));
+        }
+        app.runtime.active_effect_request = None;
+    }
+
+    UpdateResult { follow_up, effects }
+}
+
+/// Compatibility projection for tests and adapters that only consume pure
+/// follow-up messages. Interactive callers should use [`update_with_effects`].
+pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
+    update_with_effects(app, msg).follow_up
 }
 
 fn default_user_label() -> String {

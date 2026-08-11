@@ -14,10 +14,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use crossterm::cursor::Show;
-use crossterm::event::{
-    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event, KeyCode, KeyEventKind,
-    KeyModifiers, MouseEventKind,
-};
+use crossterm::event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::Frame as RatatuiFrame;
@@ -26,7 +23,7 @@ use ratatui::style::{Color as RatatuiColor, Modifier, Style};
 use ratatui::text::{Line, Span as RatatuiSpan};
 use ratatui::widgets::{Clear, Paragraph};
 
-use crate::app::{App, Entry, PromptAccessory, PromptState};
+use crate::app::{Action, App, Entry, PromptAccessory, PromptState};
 
 use super::row::{Frame, Row};
 use super::style::{CellStyle, Color, Span};
@@ -246,7 +243,7 @@ impl AlternateViewport {
     }
 
     /// Apply transcript navigation when no higher-priority surface owns input.
-    pub fn handle_navigation(&mut self, app: &App, event: &Event) -> bool {
+    pub fn handle_navigation(&mut self, app: &App, action: &Action) -> bool {
         let transcript_focused = app.overlay.setup().is_none()
             && !app.overlay.is_detail()
             && app.overlay.permission().is_none()
@@ -254,55 +251,16 @@ impl AlternateViewport {
         if !transcript_focused {
             return false;
         }
-        match event {
-            Event::Key(key) if key.kind != KeyEventKind::Release => match (key.code, key.modifiers) {
-                (KeyCode::PageUp, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.half_page_up();
-                    true
-                }
-                (KeyCode::PageDown, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.half_page_down();
-                    true
-                }
-                (KeyCode::PageUp, _) => {
-                    self.page_up();
-                    true
-                }
-                (KeyCode::PageDown, _) => {
-                    self.page_down();
-                    true
-                }
-                (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::ALT) => {
-                    self.line_up();
-                    true
-                }
-                (KeyCode::Down, modifiers) if modifiers.contains(KeyModifiers::ALT) => {
-                    self.line_down();
-                    true
-                }
-                (KeyCode::Home, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.top();
-                    true
-                }
-                (KeyCode::End, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.follow_tail();
-                    true
-                }
-                _ => false,
-            },
-            Event::Mouse(mouse) => match mouse.kind {
-                MouseEventKind::ScrollUp => {
-                    self.line_up();
-                    true
-                }
-                MouseEventKind::ScrollDown => {
-                    self.line_down();
-                    true
-                }
-                _ => false,
-            },
-            _ => false,
+        match action {
+            Action::ScrollTranscriptUp => self.line_up(),
+            Action::ScrollTranscriptDown => self.line_down(),
+            Action::ScrollTranscriptHalfUp => self.half_page_up(),
+            Action::ScrollTranscriptHalfDown => self.half_page_down(),
+            Action::TranscriptTop => self.top(),
+            Action::TranscriptFollowTail => self.follow_tail(),
+            _ => return false,
         }
+        true
     }
 
     /// Scroll one visual row toward older content.
@@ -830,14 +788,14 @@ mod tests {
         app.overlay.close();
         app.overlay.show_help();
         let mut viewport = AlternateViewport::default();
-        let event = Event::Key(crossterm::event::KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        let action = Action::ScrollTranscriptUp;
 
-        assert!(!viewport.handle_navigation(&app, &event));
+        assert!(!viewport.handle_navigation(&app, &action));
         assert_eq!(viewport.state(), ViewportState::FollowingTail);
 
         app.overlay.close();
         viewport.build_frame(&app, 80, 12);
-        assert!(viewport.handle_navigation(&app, &event));
+        assert!(viewport.handle_navigation(&app, &action));
     }
 
     #[test]
@@ -854,14 +812,9 @@ mod tests {
 
         let mut viewport = AlternateViewport::default();
         viewport.build_frame(&app, 80, 12);
-        let event = Event::Mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::ScrollUp,
-            column: 0,
-            row: 0,
-            modifiers: KeyModifiers::NONE,
-        });
+        let action = Action::ScrollTranscriptUp;
 
-        assert!(viewport.handle_navigation(&app, &event));
+        assert!(viewport.handle_navigation(&app, &action));
         assert!(matches!(viewport.state(), ViewportState::Anchored(_)));
         assert_eq!(app.composer.input.as_str(), "current draft");
         assert_eq!(app.composer.history_cursor, None);

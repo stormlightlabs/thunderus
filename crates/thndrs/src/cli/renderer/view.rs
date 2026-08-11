@@ -144,6 +144,10 @@ impl From<&App> for FocusedSurfaceView {
         match app.overlay.accessory() {
             PromptAccessory::Help => FocusedSurfaceView::Help(HelpView {
                 queue_target_toggle: matches!(app.runtime.run_state, RunState::Working),
+                bindings: app
+                    .runtime
+                    .keymap
+                    .help_bindings(matches!(app.runtime.run_state, RunState::Working)),
             }),
             PromptAccessory::Commands { selected } => {
                 let items = crate::app::command_suggestions_for_app(app)
@@ -199,6 +203,7 @@ pub struct PermissionOptionView {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HelpView {
     pub queue_target_toggle: bool,
+    pub bindings: Vec<crate::app::KeyHelp>,
 }
 
 /// Table column alignment.

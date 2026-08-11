@@ -22,6 +22,68 @@ use thndrs_agent::CancelToken;
 use helpers::*;
 
 #[test]
+fn submitting_and_cancelling_emit_run_scoped_effects() {
+    let mut app = fresh_app();
+
+    let _ = update_with_effects(&mut app, &Msg::Action(Action::InsertText("hello".to_string())));
+    let submitted = update_with_effects(&mut app, &Msg::Action(Action::Submit));
+    let started = update_with_effects(&mut app, &submitted.follow_up.expect("agent start follow-up"));
+    let request = app.runtime.active_effect_request.clone().expect("active request");
+
+    assert_eq!(started.effects, vec![Effect::StartAgent(request.clone())]);
+    assert_eq!(app.runtime.run_state, RunState::Working);
+
+    let cancelled = update_with_effects(&mut app, &Msg::Action(Action::Cancel));
+    assert_eq!(cancelled.effects, vec![Effect::CancelAgent(request)]);
+    assert_eq!(app.runtime.run_state, RunState::Stopping);
+}
+
+#[test]
+fn stale_and_duplicate_agent_completions_are_ignored() {
+    let mut app = fresh_app();
+    app.runtime.run_state = RunState::Working;
+    let current = EffectRequest { session_id: app.session.id.clone(), turn: 2 };
+    let stale = EffectRequest { session_id: app.session.id.clone(), turn: 1 };
+    app.runtime.active_effect_request = Some(current.clone());
+
+    let stale_result = update_with_effects(
+        &mut app,
+        &Msg::Effect(EffectResult::Agent { request: stale, event: AgentEvent::Finished }),
+    );
+    assert_eq!(app.runtime.run_state, RunState::Working);
+    assert!(stale_result.effects.is_empty());
+
+    let completed = update_with_effects(
+        &mut app,
+        &Msg::Effect(EffectResult::Agent { request: current.clone(), event: AgentEvent::Finished }),
+    );
+    assert_eq!(app.runtime.run_state, RunState::Idle);
+    assert_eq!(completed.effects, vec![Effect::SettleAgent(current.clone())]);
+    assert!(app.runtime.active_effect_request.is_none());
+
+    let duplicate = update_with_effects(
+        &mut app,
+        &Msg::Effect(EffectResult::Agent { request: current, event: AgentEvent::Finished }),
+    );
+    assert_eq!(app.runtime.run_state, RunState::Idle);
+    assert!(duplicate.effects.is_empty());
+}
+
+#[test]
+fn terminal_actions_are_returned_as_effects() {
+    let mut app = fresh_app();
+
+    assert_eq!(
+        update_with_effects(&mut app, &Msg::Clear).effects,
+        vec![Effect::ClearTerminal]
+    );
+    assert_eq!(
+        update_with_effects(&mut app, &Msg::Action(Action::Suspend)).effects,
+        vec![Effect::SuspendTerminal]
+    );
+}
+
+#[test]
 fn from_cli_starts_with_fresh_transcript_not_latest_session() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let sessions_dir = session::sessions_dir(dir.path());
@@ -2580,8 +2642,13 @@ fn quit_cancels_all_background_processes() {
     );
     assert_eq!(app.runtime.process_registry.background_count(), 1);
 
-    update(&mut app, &Msg::Quit);
+    let result = update_with_effects(&mut app, &Msg::Quit);
     assert!(app.runtime.quit);
+    assert_eq!(result.effects, vec![Effect::ShutdownProcesses]);
+    assert!(!cancel.is_cancelled(), "pure update should not execute process effects");
+
+    let completed = app.runtime.process_registry.shutdown();
+    update_with_effects(&mut app, &Msg::Effect(EffectResult::BackgroundProcesses(completed)));
     assert!(cancel.is_cancelled(), "cancel_all should signal cancellation");
 }
 

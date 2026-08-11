@@ -34,17 +34,17 @@ behavior across large mode-specific branches.
 
 **Acceptance:**
 
-- [ ] Normalize keyboard, paste, mouse, resize, suspend, and terminal events in
+- [x] Normalize keyboard, paste, mouse, resize, suspend, and terminal events in
       one capture layer.
-- [ ] Translate normalized input through the active focus/mode and configurable
+- [x] Translate normalized input through the active focus/mode and configurable
       keymap into small semantic actions.
-- [ ] Components/domain handlers receive only actions they can handle; an
+- [x] Components/domain handlers receive only actions they can handle; an
       overlay consumes or rejects input before the underlying composer.
-- [ ] Repeated keys, bracketed paste, modifier differences, escape sequences,
+- [x] Repeated keys, bracketed paste, modifier differences, escape sequences,
       and unsupported terminal capabilities have deterministic behavior.
-- [ ] Grapheme-aware insert, delete, backspace, cursor movement, word movement,
+- [x] Grapheme-aware insert, delete, backspace, cursor movement, word movement,
       wrapping, and rendered cursor placement remain covered.
-- [ ] Key help is generated from the same bindings used for dispatch where
+- [x] Key help is generated from the same bindings used for dispatch where
       practical.
 
 **Verify:** Table-driven translation tests by focus/mode, prompt-editor tests,
@@ -60,14 +60,14 @@ explicit.
 
 **Acceptance:**
 
-- [ ] Update handlers return bounded effect values instead of performing
+- [x] Update handlers return bounded effect values instead of performing
       hidden I/O in state mutation branches.
-- [ ] Effects identify the state/action that requested them and return a
+- [x] Effects identify the state/action that requested them and return a
       semantic success/failure message.
-- [ ] Cancellation, stale completions, duplicate completions, and effects that
+- [x] Cancellation, stale completions, duplicate completions, and effects that
       finish after a mode/session change are handled deterministically.
-- [ ] JSONL and ACP receive semantic run/session events, not TUI projections.
-- [ ] No generic effect framework or trait hierarchy is added beyond concrete
+- [x] JSONL and ACP receive semantic run/session events, not TUI projections.
+- [x] No generic effect framework or trait hierarchy is added beyond concrete
       needs found during extraction.
 
 **Verify:** Pure update tests with deterministic fake executors and focused

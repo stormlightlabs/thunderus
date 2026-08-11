@@ -18,7 +18,65 @@ mod tests;
 use std::convert::Infallible;
 use std::str::FromStr;
 
+use crossterm::event::{Event, KeyEvent, KeyEventKind, MouseEventKind};
 use unicode_segmentation::UnicodeSegmentation;
+
+/// One terminal event after the capture layer has removed release noise and
+/// normalized text payloads. Application code should translate this type into
+/// semantic actions instead of matching on Crossterm events directly.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TerminalInput {
+    /// A key press or repeat, represented as a deterministic press.
+    Key(KeyEvent),
+    /// Bracketed paste, normalized to LF line endings.
+    Paste(String),
+    /// A normalized mouse gesture. Unsupported mouse kinds are retained as
+    /// `Other` so routing remains deterministic.
+    Mouse(MouseInput),
+    /// The terminal's current dimensions.
+    Resize { width: u16, height: u16 },
+    /// The terminal gained focus.
+    FocusGained,
+    /// The terminal lost focus.
+    FocusLost,
+}
+
+/// Mouse gestures understood by the bounded UI input layer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MouseInput {
+    ScrollUp,
+    ScrollDown,
+    Other,
+}
+
+impl TerminalInput {
+    /// Normalize one Crossterm event at the terminal boundary.
+    pub fn from_event(event: Event) -> Option<Self> {
+        match event {
+            Event::Key(key) if key.kind == KeyEventKind::Release => None,
+            Event::Key(mut key) => {
+                // Key repeat is a real edit/navigation request, but downstream
+                // routing should not need to branch on terminal capabilities.
+                key.kind = KeyEventKind::Press;
+                Some(Self::Key(key))
+            }
+            Event::Paste(text) => Some(Self::Paste(normalize_paste(&text))),
+            Event::Mouse(mouse) => Some(Self::Mouse(match mouse.kind {
+                MouseEventKind::ScrollUp => MouseInput::ScrollUp,
+                MouseEventKind::ScrollDown => MouseInput::ScrollDown,
+                _ => MouseInput::Other,
+            })),
+            Event::Resize(width, height) => Some(Self::Resize { width, height }),
+            Event::FocusGained => Some(Self::FocusGained),
+            Event::FocusLost => Some(Self::FocusLost),
+        }
+    }
+}
+
+/// Normalize CRLF and CR paste payloads without turning a paste into submits.
+pub fn normalize_paste(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
 
 /// A cursor-aware text buffer used for the prompt input line.
 ///
@@ -199,21 +257,19 @@ impl PromptInput {
 
     /// Insert a character at the cursor, then advance the cursor past it.
     pub fn insert_char(&mut self, ch: char) {
-        let byte_idx = self.byte_offset_of(self.cursor);
-        self.text.insert(byte_idx, ch);
-        self.cursor += 1;
+        let mut encoded = [0; 4];
+        self.insert_str(ch.encode_utf8(&mut encoded));
     }
 
     /// Insert a string at the cursor, advancing the cursor to the end of the
     /// inserted text.
     pub fn insert_str(&mut self, s: &str) {
-        let count = s.graphemes(true).count();
-        if count == 0 {
+        if s.is_empty() {
             return;
         }
         let byte_idx = self.byte_offset_of(self.cursor);
         self.text.insert_str(byte_idx, s);
-        self.cursor += count;
+        self.cursor = grapheme_cursor_at_or_after_byte(&self.text, byte_idx + s.len());
     }
 
     /// Replace a grapheme-cluster range and place the cursor after the inserted text.
@@ -224,7 +280,11 @@ impl PromptInput {
         let start_byte = self.byte_offset_of(start);
         let end_byte = self.byte_offset_of(end);
         self.text.replace_range(start_byte..end_byte, replacement);
-        self.cursor = start + replacement.graphemes(true).count();
+        self.cursor = if replacement.is_empty() {
+            start.min(self.len_graphemes())
+        } else {
+            grapheme_cursor_at_or_after_byte(&self.text, start_byte + replacement.len())
+        };
     }
 
     /// Delete the grapheme cluster to the **left** of the cursor (backspace).
@@ -364,6 +424,18 @@ impl PromptInput {
         let byte_idx = self.byte_offset_of(self.cursor);
         &self.text[..byte_idx]
     }
+}
+
+/// Return the first grapheme boundary at or after a byte offset.
+///
+/// Inserting combining marks or joiners can merge text across the insertion
+/// boundary, so advancing by the inserted text's standalone grapheme count is
+/// not safe.
+fn grapheme_cursor_at_or_after_byte(text: &str, byte_offset: usize) -> usize {
+    text.grapheme_indices(true)
+        .enumerate()
+        .find_map(|(index, (start, grapheme))| (start + grapheme.len() >= byte_offset).then_some(index + 1))
+        .unwrap_or_else(|| text.graphemes(true).count())
 }
 
 /// Find the line start (grapheme index) and column (grapheme offset from line

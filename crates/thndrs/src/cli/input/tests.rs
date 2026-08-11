@@ -1,6 +1,46 @@
 use crate::{renderer, utils};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::*;
+
+#[test]
+fn terminal_capture_normalizes_event_kinds_and_payloads() {
+    let cases = [
+        (
+            Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char('a'),
+                KeyModifiers::NONE,
+                KeyEventKind::Repeat,
+            )),
+            Some(TerminalInput::Key(KeyEvent::new(
+                KeyCode::Char('a'),
+                KeyModifiers::NONE,
+            ))),
+        ),
+        (
+            Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+                KeyEventKind::Release,
+            )),
+            None,
+        ),
+        (
+            Event::Paste("one\r\ntwo\rthree".to_string()),
+            Some(TerminalInput::Paste("one\ntwo\nthree".to_string())),
+        ),
+        (
+            Event::Resize(100, 40),
+            Some(TerminalInput::Resize { width: 100, height: 40 }),
+        ),
+        (Event::FocusGained, Some(TerminalInput::FocusGained)),
+        (Event::FocusLost, Some(TerminalInput::FocusLost)),
+    ];
+
+    for (event, expected) in cases {
+        assert_eq!(TerminalInput::from_event(event), expected);
+    }
+}
 
 /// Generate a prompt string of approximately `target_bytes` by repeating
 /// a prose fragment. The result is valid UTF-8 with word boundaries.
@@ -224,6 +264,25 @@ fn insert_str_empty_is_noop() {
     p.insert_str("");
     assert_eq!(p.as_str(), "hi");
     assert_eq!(p.cursor(), 2);
+}
+
+#[test]
+fn insert_str_recomputes_cursor_when_graphemes_merge_across_boundaries() {
+    let mut combining = PromptInput::from("ab");
+    combining.cursor_left();
+    combining.insert_str("\u{301}");
+    assert_eq!(combining.as_str(), "a\u{301}b");
+    assert_eq!(combining.cursor(), 1);
+    combining.backspace();
+    assert_eq!(combining.as_str(), "b");
+
+    let mut joined = PromptInput::from("👩🔬");
+    joined.cursor_left();
+    joined.insert_str("\u{200d}");
+    assert_eq!(joined.as_str(), "👩‍🔬");
+    assert_eq!(joined.cursor(), 1);
+    joined.backspace();
+    assert!(joined.is_empty());
 }
 
 #[test]

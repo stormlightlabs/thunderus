@@ -379,12 +379,12 @@ pub fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
     }
 }
 
-pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
+pub fn handle_first_run_action(app: &mut App, action: Action) -> Option<Msg> {
     let recovery = app.overlay.setup_mut()?;
 
     if recovery.stage == RecoveryStage::EnterKey || recovery.stage == RecoveryStage::ChatGptOAuthPasteRedirect {
-        match key.code {
-            KeyCode::Esc => {
+        match action {
+            Action::Cancel => {
                 recovery.secret_input.clear();
                 recovery.stage = if recovery.stage == RecoveryStage::ChatGptOAuthPasteRedirect {
                     RecoveryStage::ChatGptOAuthPolling
@@ -393,10 +393,10 @@ pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                 };
                 recovery.selected = 0;
             }
-            KeyCode::Backspace => {
+            Action::Backspace => {
                 recovery.secret_input.pop();
             }
-            KeyCode::Enter => {
+            Action::Confirm => {
                 if recovery.secret_input.trim().is_empty() {
                     app.transcript.entries.push(Entry::Error {
                         text: if recovery.stage == RecoveryStage::ChatGptOAuthPasteRedirect {
@@ -414,7 +414,7 @@ pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                     recovery.selected = 0;
                 }
             }
-            KeyCode::Char(ch) => recovery.secret_input.push(ch),
+            Action::InsertText(text) => recovery.secret_input.push_str(&text),
             _ => {}
         }
         return None;
@@ -423,7 +423,7 @@ pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     if matches!(
         recovery.stage,
         RecoveryStage::ChatGptOAuthRequesting | RecoveryStage::ChatGptOAuthPolling
-    ) && key.code == KeyCode::Esc
+    ) && matches!(action, Action::Cancel)
     {
         recovery.stage = RecoveryStage::MissingCredential;
         recovery.selected = 0;
@@ -432,23 +432,17 @@ pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         return None;
     }
 
-    match key.code {
-        KeyCode::Esc => {
-            app.overlay.close();
-            None
-        }
-        KeyCode::Up => {
-            recovery.selected = recovery.selected.saturating_sub(1);
-            None
-        }
-        KeyCode::Down => {
+    match action {
+        Action::Cancel => app.overlay.close(),
+        Action::SelectPrevious => recovery.selected = recovery.selected.saturating_sub(1),
+        Action::SelectNext => {
             let max = recovery.action_count().saturating_sub(1);
             recovery.selected = (recovery.selected + 1).min(max);
-            None
         }
-        KeyCode::Enter => accept_recovery_action(app),
-        _ => None,
+        Action::Confirm => return accept_recovery_action(app),
+        _ => {}
     }
+    None
 }
 
 pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
