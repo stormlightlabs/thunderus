@@ -19,9 +19,36 @@ use std::io;
 
 use super::*;
 
+/// User-facing purpose of the focused authentication flow.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RecoveryIntent {
+    /// First-run or provider setup.
+    Setup,
+    /// An explicit sign-in request.
+    Login,
+    /// Recovery after a provider rejected the active credential.
+    Reauthenticate,
+    /// An explicit sign-out request.
+    Logout,
+}
+
+impl RecoveryIntent {
+    /// Returns the concise user-facing action represented by this flow.
+    pub fn label(self) -> &'static str {
+        match self {
+            RecoveryIntent::Setup => "setup",
+            RecoveryIntent::Login => "sign in",
+            RecoveryIntent::Reauthenticate => "sign in again",
+            RecoveryIntent::Logout => "sign out",
+        }
+    }
+}
+
 /// Focused first-run and credential recovery surface.
 #[derive(Clone, Eq, PartialEq)]
 pub struct FirstRunRecovery {
+    /// User-facing purpose of this flow.
+    pub intent: RecoveryIntent,
     /// Provider being configured or diagnosed.
     pub provider: Option<SetupProviderArg>,
     /// Current recovery step.
@@ -40,6 +67,7 @@ impl std::fmt::Debug for FirstRunRecovery {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("FirstRunRecovery")
+            .field("intent", &self.intent)
             .field("provider", &self.provider)
             .field("stage", &self.stage)
             .field("pending_provider_prompt", &self.pending_provider_prompt)
@@ -73,6 +101,7 @@ impl FirstRunRecovery {
             SetupProviderArg::Umans => 0,
         };
         Self {
+            intent: RecoveryIntent::Setup,
             provider: Some(default_provider),
             stage: RecoveryStage::ChooseProvider,
             pending_provider_prompt: false,
@@ -84,6 +113,7 @@ impl FirstRunRecovery {
 
     pub fn missing_provider(provider: SetupProviderArg, pending_provider_prompt: bool) -> Self {
         Self {
+            intent: RecoveryIntent::Setup,
             provider: Some(provider),
             stage: RecoveryStage::MissingCredential,
             pending_provider_prompt,
@@ -95,6 +125,7 @@ impl FirstRunRecovery {
 
     pub fn unsupported_route(pending_provider_prompt: bool) -> Self {
         Self {
+            intent: RecoveryIntent::Setup,
             provider: Some(SetupProviderArg::Umans),
             stage: RecoveryStage::UnsupportedRoute,
             pending_provider_prompt,
@@ -106,6 +137,7 @@ impl FirstRunRecovery {
 
     pub fn acp_missing(pending_provider_prompt: bool) -> Self {
         Self {
+            intent: RecoveryIntent::Setup,
             provider: None,
             stage: RecoveryStage::AcpMissing,
             pending_provider_prompt,
@@ -117,6 +149,7 @@ impl FirstRunRecovery {
 
     pub fn login(provider: SetupProviderArg) -> Self {
         Self {
+            intent: RecoveryIntent::Login,
             provider: Some(provider),
             stage: if provider == SetupProviderArg::ChatgptCodex {
                 RecoveryStage::MissingCredential
@@ -130,8 +163,37 @@ impl FirstRunRecovery {
         }
     }
 
+    pub fn reauthenticate(provider: SetupProviderArg) -> Self {
+        Self {
+            intent: RecoveryIntent::Reauthenticate,
+            provider: Some(provider),
+            stage: if provider == SetupProviderArg::ChatgptCodex {
+                RecoveryStage::MissingCredential
+            } else {
+                RecoveryStage::EnterKey
+            },
+            pending_provider_prompt: true,
+            selected: 0,
+            secret_input: String::new(),
+            chatgpt_oauth: None,
+        }
+    }
+
+    pub fn rejected_environment(provider: SetupProviderArg) -> Self {
+        Self {
+            intent: RecoveryIntent::Reauthenticate,
+            provider: Some(provider),
+            stage: RecoveryStage::EnvironmentCredentialRejected,
+            pending_provider_prompt: true,
+            selected: 0,
+            secret_input: String::new(),
+            chatgpt_oauth: None,
+        }
+    }
+
     pub fn logout(provider: SetupProviderArg) -> Self {
         Self {
+            intent: RecoveryIntent::Logout,
             provider: Some(provider),
             stage: RecoveryStage::LogoutConfirm,
             pending_provider_prompt: false,
@@ -164,6 +226,7 @@ impl FirstRunRecovery {
                 .filter(|oauth| oauth.method == ChatGptOAuthMethod::Browser)
                 .map_or(1, |_| 2),
             RecoveryStage::ChatGptOAuthFailed => 3,
+            RecoveryStage::EnvironmentCredentialRejected => 3,
             RecoveryStage::AcpMissing => 4,
         }
     }
@@ -247,6 +310,8 @@ pub enum RecoveryStage {
     ChatGptOAuthPasteRedirect,
     /// ChatGPT OAuth failed with a redacted, user-readable error.
     ChatGptOAuthFailed,
+    /// The provider rejected a credential supplied by the process environment.
+    EnvironmentCredentialRejected,
     /// Confirm logout and storage scope.
     LogoutConfirm,
     /// ACP model recovery, separate from provider API-key setup.
@@ -268,6 +333,7 @@ impl RecoveryStage {
             RecoveryStage::ChatGptOAuthPolling => "OAuth in progress",
             RecoveryStage::ChatGptOAuthPasteRedirect => "paste redirect",
             RecoveryStage::ChatGptOAuthFailed => "OAuth failed",
+            RecoveryStage::EnvironmentCredentialRejected => "environment credential rejected",
             RecoveryStage::LogoutConfirm => "remove credential",
             RecoveryStage::AcpMissing => "ACP setup required",
         }
@@ -452,6 +518,7 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
         RecoveryStage::ChooseProvider => {
             let Some(provider) = first_run_provider(recovery.selected) else {
                 app.overlay.show_setup(FirstRunRecovery {
+                    intent: recovery.intent,
                     provider: None,
                     stage: RecoveryStage::Instructions,
                     pending_provider_prompt: recovery.pending_provider_prompt,
@@ -467,6 +534,7 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 RecoveryStage::MissingCredential
             };
             app.overlay.show_setup(FirstRunRecovery {
+                intent: recovery.intent,
                 provider: Some(provider),
                 stage,
                 pending_provider_prompt: recovery.pending_provider_prompt,
@@ -640,6 +708,18 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
             }
             _ => {}
         },
+        RecoveryStage::EnvironmentCredentialRejected => match recovery.selected {
+            0 => {
+                app.overlay.close();
+                open_model_picker(app);
+            }
+            1 => app.overlay.close(),
+            2 => {
+                app.runtime.quit = true;
+                return Some(Msg::Quit);
+            }
+            _ => {}
+        },
         RecoveryStage::LogoutConfirm => remove_recovery_credential(app, &recovery),
         RecoveryStage::AcpMissing => match recovery.selected {
             0 => {
@@ -792,6 +872,10 @@ pub fn setup_model_options(provider: SetupProviderArg) -> Vec<PickerItem> {
 
 /// Start the browser-first ChatGPT Codex OAuth recovery.
 pub fn start_chatgpt_browser_oauth_recovery(app: &mut App) {
+    let intent = app
+        .overlay
+        .setup()
+        .map_or(RecoveryIntent::Login, |recovery| recovery.intent);
     let pending_provider_prompt = app
         .overlay
         .setup()
@@ -814,6 +898,7 @@ pub fn start_chatgpt_browser_oauth_recovery(app: &mut App) {
             let expires_at_tick = app.runtime.ui_tick.wrapping_add(seconds_to_ticks(app, 5 * 60));
             app.overlay.set_browser_login(Some(login));
             app.overlay.show_setup(FirstRunRecovery {
+                intent,
                 provider: Some(SetupProviderArg::ChatgptCodex),
                 stage: RecoveryStage::ChatGptOAuthPolling,
                 pending_provider_prompt,
@@ -843,6 +928,10 @@ pub fn start_chatgpt_browser_oauth_recovery(app: &mut App) {
 
 /// Start the explicitly selected headless ChatGPT Codex device-code recovery.
 pub fn start_chatgpt_device_oauth_recovery(app: &mut App) {
+    let intent = app
+        .overlay
+        .setup()
+        .map_or(RecoveryIntent::Login, |recovery| recovery.intent);
     let pending_provider_prompt = app
         .overlay
         .setup()
@@ -866,6 +955,7 @@ pub fn start_chatgpt_device_oauth_recovery(app: &mut App) {
                 .ui_tick
                 .wrapping_add(seconds_to_ticks(app, code.expires_in.unwrap_or(900).max(1)));
             app.overlay.show_setup(FirstRunRecovery {
+                intent,
                 provider: Some(SetupProviderArg::ChatgptCodex),
                 stage: RecoveryStage::ChatGptOAuthPolling,
                 pending_provider_prompt,
@@ -896,8 +986,13 @@ pub fn start_chatgpt_device_oauth_recovery(app: &mut App) {
 }
 
 fn set_chatgpt_oauth_failure(app: &mut App, method: ChatGptOAuthMethod, pending_provider_prompt: bool, status: String) {
+    let intent = app
+        .overlay
+        .setup()
+        .map_or(RecoveryIntent::Login, |recovery| recovery.intent);
     app.overlay.set_browser_login(None);
     app.overlay.show_setup(FirstRunRecovery {
+        intent,
         provider: Some(SetupProviderArg::ChatgptCodex),
         stage: RecoveryStage::ChatGptOAuthFailed,
         pending_provider_prompt,
@@ -919,6 +1014,10 @@ fn finish_chatgpt_oauth(
     app: &mut App, credentials: &auth::ChatGptCodexCredentials, pending_provider_prompt: bool,
     method: ChatGptOAuthMethod,
 ) {
+    let intent = app
+        .overlay
+        .setup()
+        .map_or(RecoveryIntent::Login, |recovery| recovery.intent);
     match (app.overlay.oauth_driver().write_credentials)(credentials) {
         Ok(()) => {
             app.overlay.set_browser_login(None);
@@ -928,6 +1027,7 @@ fn finish_chatgpt_oauth(
             });
             if needs_model {
                 app.overlay.show_setup(FirstRunRecovery {
+                    intent,
                     provider: Some(SetupProviderArg::ChatgptCodex),
                     stage: RecoveryStage::ModelSelection,
                     pending_provider_prompt,
@@ -1176,6 +1276,7 @@ pub fn store_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
                 .push(Entry::Status { text: format!("{} credential stored in {}", provider.label(), scope.label()) });
             if app.runtime.model.trim().is_empty() {
                 app.overlay.show_setup(FirstRunRecovery {
+                    intent: recovery.intent,
                     provider: Some(provider),
                     stage: RecoveryStage::ModelSelection,
                     pending_provider_prompt: recovery.pending_provider_prompt,
@@ -1252,6 +1353,7 @@ fn select_setup_model(app: &mut App, recovery: &FirstRunRecovery) {
         .entries
         .push(Entry::Status { text: format!("model selected: {model}") });
     app.overlay.show_setup(FirstRunRecovery {
+        intent: recovery.intent,
         provider: Some(provider),
         stage: RecoveryStage::ModelConfigScope,
         pending_provider_prompt: recovery.pending_provider_prompt,

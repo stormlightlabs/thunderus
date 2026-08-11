@@ -234,19 +234,28 @@ complete for the exercised flows.
 
 **Acceptance:**
 
-- [ ] Re-run the recorded orientation/follow-up, implementation, diagnosis,
+- [x] Re-run the recorded orientation/follow-up, implementation, diagnosis,
       review, verification, failure-recovery, cancellation, queue, and resume flows.
-- [ ] Sol completes the workflow repeatedly without transcript corruption,
+- [x] Sol completes the workflow repeatedly without transcript corruption,
       lost drafts/queues, unclear authority, or terminal cleanup failure.
-- [ ] Normal and constrained terminal fixtures pass deterministic checks and
+- [x] Normal and constrained terminal fixtures pass deterministic checks and
       real-terminal review.
-- [ ] Reproduced harness failures become focused regression tests.
-- [ ] Long transcripts, streaming updates, resize, and long wrapped prompts
+- [x] Reproduced harness failures become focused regression tests.
+- [x] Long transcripts, streaming updates, resize, and long wrapped prompts
       remain responsive. Add a focused before/after benchmark only when a touched
       path shows risk or a measurable regression.
 
 **Verify:** Focused flow results, current workspace checks, regressions added for
 reproduced failures, and the real-terminal QA checklist.
+
+**Completed:** 2026-08-11. The recorded workflows pass in the workspace suite,
+including draft and queue preservation, cancellation, recovery, resize, long
+prompt, streaming, and session-resume coverage. Rejected ChatGPT sessions and
+OpenCode keys now open focused in-app sign-in recovery without losing the failed
+prompt; environment overrides explain the required restart. Normal, narrow, and
+short setup fixtures are deterministic, and the rebuilt binary passed a
+real-terminal review in a dedicated Herdr tab. The touched renderer work remains
+bounded to the setup accessory, so no performance benchmark was warranted.
 
 ## P2 — Dispatchable Instances
 

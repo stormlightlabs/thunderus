@@ -1194,24 +1194,48 @@ fn opencode_provider_failure_is_actionable_and_restores_prompt_draft() {
             )
         );
         assert_eq!(app.composer.input.as_str(), prompt);
-        assert_eq!(
-            app.overlay
-                .setup()
-                .as_ref()
-                .map(|recovery| (recovery.provider, recovery.stage)),
-            Some((Some(SetupProviderArg::OpencodeZen), RecoveryStage::EnterKey))
-        );
-        assert!(
-            app.transcript
-                .entries
-                .iter()
-                .any(|entry| matches!(entry, Entry::Status { text } if text.contains("/login opencode-zen")))
-        );
+        let recovery = app.overlay.setup().expect("sign-in recovery opens");
+        assert_eq!(recovery.intent, RecoveryIntent::Reauthenticate);
+        assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
+        assert_eq!(recovery.stage, RecoveryStage::EnterKey);
+        assert!(app.transcript.entries.iter().any(
+            |entry| matches!(entry, Entry::Status { text } if text.contains("opened sign-in recovery for opencode-zen"))
+        ));
     });
 }
 
 #[test]
-fn rejected_environment_credential_names_the_override_without_opening_login() {
+fn chatgpt_provider_failure_opens_browser_reauthentication_and_restores_prompt_draft() {
+    with_provider_env_removed(|| {
+        let mut app = fresh_app();
+        app.runtime.model = "chatgpt-codex/gpt-5.5".to_string();
+        app.runtime.cli.model = app.runtime.model.clone();
+        app.overlay.close();
+        let prompt = "continue the bounded ChatGPT change";
+
+        assert_eq!(
+            submit_user_turn(&mut app, prompt.to_string()),
+            Some(Msg::Agent(AgentEvent::Started))
+        );
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::Failed(
+                "authentication failed (HTTP 401): ChatGPT Codex credential rejected".to_string(),
+            )),
+        );
+
+        assert_eq!(app.composer.input.as_str(), prompt);
+        let recovery = app.overlay.setup().expect("sign-in recovery opens");
+        assert_eq!(recovery.intent, RecoveryIntent::Reauthenticate);
+        assert_eq!(recovery.provider, Some(SetupProviderArg::ChatgptCodex));
+        assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
+        assert!(recovery.pending_provider_prompt);
+    });
+}
+
+#[test]
+fn rejected_environment_credential_opens_restart_recovery_and_preserves_draft() {
     with_provider_env_removed(|| {
         unsafe {
             std::env::set_var(auth::OPENCODE_ZEN_KEY_ENV, "rejected-environment-key");
@@ -1220,9 +1244,10 @@ fn rejected_environment_credential_names_the_override_without_opening_login() {
         app.runtime.model = "opencode/big-pickle".to_string();
         app.runtime.cli.model = app.runtime.model.clone();
         app.overlay.close();
+        let prompt = "make the bounded OpenCode change";
 
         assert_eq!(
-            submit_user_turn(&mut app, "make the bounded OpenCode change".to_string()),
+            submit_user_turn(&mut app, prompt.to_string()),
             Some(Msg::Agent(AgentEvent::Started))
         );
         update(&mut app, &Msg::Agent(AgentEvent::Started));
@@ -1234,16 +1259,15 @@ fn rejected_environment_credential_names_the_override_without_opening_login() {
             )),
         );
 
-        assert!(app.overlay.setup().is_none());
+        assert_eq!(app.composer.input.as_str(), prompt);
+        let recovery = app.overlay.setup().expect("restart recovery opens");
+        assert_eq!(recovery.intent, RecoveryIntent::Reauthenticate);
+        assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
+        assert_eq!(recovery.stage, RecoveryStage::EnvironmentCredentialRejected);
         assert!(app.transcript.entries.iter().any(|entry| {
-            matches!(entry, Entry::Status { text } if text.contains("OPENCODE_ZEN_KEY takes precedence"))
+            matches!(entry, Entry::Status { text } if text.contains("OPENCODE_ZEN_KEY was rejected") && text.contains("restart thndrs"))
         }));
-        assert!(
-            !app.transcript
-                .entries
-                .iter()
-                .any(|entry| { matches!(entry, Entry::Status { text } if text.contains("opened `/login")) })
-        );
+        assert!(!format!("{app:?}").contains("rejected-environment-key"));
     });
 }
 
@@ -1274,13 +1298,10 @@ fn rejected_credential_failure_is_persisted_before_opening_login_recovery() {
         assert!(records.iter().any(|record| {
             matches!(record, session::SessionRecord::Failed { error, .. } if error.contains("authentication failed"))
         }));
-        assert_eq!(
-            app.overlay
-                .setup()
-                .as_ref()
-                .map(|recovery| (recovery.provider, recovery.stage)),
-            Some((Some(SetupProviderArg::OpencodeZen), RecoveryStage::EnterKey))
-        );
+        let recovery = app.overlay.setup().expect("sign-in recovery opens");
+        assert_eq!(recovery.intent, RecoveryIntent::Reauthenticate);
+        assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
+        assert_eq!(recovery.stage, RecoveryStage::EnterKey);
     });
 }
 

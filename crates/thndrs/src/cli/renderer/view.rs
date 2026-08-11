@@ -736,6 +736,7 @@ pub struct DiffDetailView {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SetupFormView {
     pub title: String,
+    pub attention: bool,
     pub stage: String,
     pub status: String,
     pub details: Vec<String>,
@@ -843,7 +844,7 @@ pub struct LiveView {
 
 impl LiveView {
     pub fn build(
-        app: &App, width: usize, _height: usize, transcript: &TranscriptView, semantic: &SemanticUiView, anchored: bool,
+        app: &App, width: usize, height: usize, transcript: &TranscriptView, semantic: &SemanticUiView, anchored: bool,
     ) -> LiveView {
         let live_tail = transcript.live_rows.clone();
         let (prompt_rows, prompt_cursor) = super::live::prompt_rows_for(app, width);
@@ -851,6 +852,15 @@ impl LiveView {
         let (prompt_rows, prompt_cursor) =
             clip_prompt_rows_around_cursor(prompt_rows, prompt_cursor, prompt_body_budget);
         let (prompt_rows, prompt_cursor) = super::live::frame_prompt_rows(app, width, prompt_rows, prompt_cursor);
+        let min_prompt_chrome = prompt_rows.len() + 1;
+        let keep_prompt_gutters = height >= min_prompt_chrome + 3;
+        let reserved_chrome = prompt_rows.len() + if keep_prompt_gutters { 3 } else { 1 };
+        let accessory_limit = if matches!(semantic.focused_surface, FocusedSurfaceView::SetupForm(_)) {
+            super::live::MAX_SETUP_ROWS
+        } else {
+            super::live::MAX_ACCESSORY_ROWS
+        };
+        let accessory_height = accessory_limit.min(height.saturating_sub(reserved_chrome));
 
         let accessory_rows = match &semantic.focused_surface {
             FocusedSurfaceView::ToolDetail(_)
@@ -858,7 +868,7 @@ impl LiveView {
             | FocusedSurfaceView::TranscriptSearch(_)
             | FocusedSurfaceView::Queue(_)
             | FocusedSurfaceView::TranscriptLens { .. } => Vec::new(),
-            _ => super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS),
+            _ => super::live::accessory_rows(app, width, accessory_height),
         };
         let detail_pane = match &semantic.focused_surface {
             FocusedSurfaceView::ToolDetail(_)
@@ -961,14 +971,43 @@ impl App {
             .map(|provider| provider.label().to_string())
             .unwrap_or_else(|| "advanced / ACP".to_string());
         let stage = recovery.stage.label().to_string();
-        let status = format!("{provider} · {stage}");
+        let step = match (recovery.intent, recovery.stage) {
+            (crate::app::RecoveryIntent::Reauthenticate, RecoveryStage::MissingCredential) => "session rejected",
+            (crate::app::RecoveryIntent::Reauthenticate, RecoveryStage::EnterKey) => "replace API key",
+            (crate::app::RecoveryIntent::Reauthenticate, RecoveryStage::EnvironmentCredentialRejected) => {
+                "restart required"
+            }
+            (_, RecoveryStage::MissingCredential) if recovery.provider == Some(SetupProviderArg::ChatgptCodex) => {
+                "connect ChatGPT"
+            }
+            (_, RecoveryStage::MissingCredential) => "add API key",
+            (_, RecoveryStage::EnterKey) => "enter API key",
+            _ => stage.as_str(),
+        };
+        let status = format!("{provider} · {step}");
         let details = setup_details(recovery);
+        let fields = if matches!(
+            recovery.stage,
+            RecoveryStage::EnterKey | RecoveryStage::ChatGptOAuthPasteRedirect
+        ) {
+            Vec::new()
+        } else {
+            vec![SetupFieldView {
+                label,
+                value,
+                focused: recovery.action_count() == 0,
+                secret,
+                multiline: false,
+                error: None,
+            }]
+        };
         Some(SetupFormView {
-            title: "setup".to_string(),
+            title: recovery.intent.label().to_string(),
+            attention: recovery.intent == crate::app::RecoveryIntent::Reauthenticate,
             stage,
             status,
             details,
-            fields: vec![SetupFieldView { label, value, focused: true, secret, multiline: false, error: None }],
+            fields,
             focus_index: 0,
             actions: setup_actions(recovery),
             selected: recovery.selected,
@@ -978,7 +1017,7 @@ impl App {
             } else {
                 "continue".to_string()
             },
-            cancel_label: "cancel".to_string(),
+            cancel_label: setup_cancel_label(recovery).to_string(),
             complete: false,
         })
     }
@@ -1164,8 +1203,12 @@ fn setup_details(recovery: &FirstRunRecovery) -> Vec<String> {
         RecoveryStage::UnsupportedRoute => {
             details.push(crate::cli::commands::setup::UNSUPPORTED_PROVIDER_ROUTE_MESSAGE.to_string())
         }
-        RecoveryStage::MissingCredential => match recovery.provider {
-            Some(SetupProviderArg::ChatgptCodex) => details.push(
+        RecoveryStage::MissingCredential => match (recovery.intent, recovery.provider) {
+            (crate::app::RecoveryIntent::Reauthenticate, Some(SetupProviderArg::ChatgptCodex)) => details.push(
+                "Session rejected. Sign in again in your browser, or use device code on a headless machine. Your draft is preserved."
+                    .to_string(),
+            ),
+            (_, Some(SetupProviderArg::ChatgptCodex)) => details.push(
                 "Browser PKCE is the default. Device code is an explicit headless route; neither asks for an API key."
                     .to_string(),
             ),
@@ -1173,7 +1216,11 @@ fn setup_details(recovery: &FirstRunRecovery) -> Vec<String> {
                 .push("The credential stays hidden and is written only after an explicit scope choice.".to_string()),
         },
         RecoveryStage::EnterKey => {
-            details.push("Input is hidden. Enter continues; Esc preserves the draft.".to_string())
+            if recovery.intent == crate::app::RecoveryIntent::Reauthenticate {
+                details.push("Key rejected. Enter a replacement; your draft is preserved.".to_string());
+            } else {
+                details.push("Input is hidden. Enter continues; Esc preserves the draft.".to_string());
+            }
         }
         RecoveryStage::ConfirmStore => details.push("Choose where the credential may be stored.".to_string()),
         RecoveryStage::Instructions => details.push(setup_instruction(recovery).to_string()),
@@ -1213,6 +1260,18 @@ fn setup_details(recovery: &FirstRunRecovery) -> Vec<String> {
                 .map(|oauth| oauth.status.clone())
                 .unwrap_or_else(|| "ChatGPT OAuth failed.".to_string()),
         ),
+        RecoveryStage::EnvironmentCredentialRejected => {
+            let env_var = recovery
+                .provider
+                .and_then(|provider| match provider {
+                    SetupProviderArg::ChatgptCodex => Some(crate::thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV),
+                    _ => provider.api_key_env_var(),
+                })
+                .unwrap_or("environment variable");
+            details.push(format!(
+                "{env_var} was rejected. Replace or unset it, then restart thndrs. Stored credentials cannot override it; your draft is preserved."
+            ));
+        }
         RecoveryStage::LogoutConfirm => details.push("Remove the credential from the selected store.".to_string()),
         RecoveryStage::AcpMissing => {
             details.push("ACP models use ACP agent config, not provider API keys.".to_string())
@@ -1286,6 +1345,11 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
             "retry browser PKCE".to_string(),
             "use headless device code".to_string(),
             "back".to_string(),
+        ],
+        RecoveryStage::EnvironmentCredentialRejected => vec![
+            "switch model/provider".to_string(),
+            "close".to_string(),
+            "quit".to_string(),
         ],
         RecoveryStage::AcpMissing => vec![
             "switch model/provider".to_string(),
@@ -1373,6 +1437,18 @@ fn setup_field(recovery: &FirstRunRecovery) -> (String, String, bool) {
             true,
         ),
         RecoveryStage::ChatGptOAuthFailed => ("provider".to_string(), "ChatGPT OAuth failed".to_string(), false),
+        RecoveryStage::EnvironmentCredentialRejected => (
+            "credential source".to_string(),
+            recovery
+                .provider
+                .and_then(|provider| match provider {
+                    SetupProviderArg::ChatgptCodex => Some(crate::thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV),
+                    _ => provider.api_key_env_var(),
+                })
+                .unwrap_or("environment variable")
+                .to_string(),
+            false,
+        ),
         RecoveryStage::LogoutConfirm => (
             "credential scope".to_string(),
             match recovery.selected {
@@ -1384,6 +1460,16 @@ fn setup_field(recovery: &FirstRunRecovery) -> (String, String, bool) {
             false,
         ),
         RecoveryStage::AcpMissing => ("provider".to_string(), "ACP agent config".to_string(), false),
+    }
+}
+
+fn setup_cancel_label(recovery: &FirstRunRecovery) -> &'static str {
+    match recovery.stage {
+        RecoveryStage::EnterKey
+        | RecoveryStage::ChatGptOAuthRequesting
+        | RecoveryStage::ChatGptOAuthPolling
+        | RecoveryStage::ChatGptOAuthPasteRedirect => "back",
+        _ => "close",
     }
 }
 

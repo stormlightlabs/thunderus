@@ -133,6 +133,7 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 ### Pickers, command palettes, and permissions
 
 - Anchor a popup to its invoking control when space allows.
+- Render one input surface for the focused interaction. If a prompt routes typing through the global composer, use the prompt for context and actions without drawing a second field.
 - Use one clear selected row, a persistent query, and visible empty/no-match behavior.
 - Keep selection visible while filtering and resizing.
 - Put the safest or most common choice in a predictable position; do not rely on color to signal risk.

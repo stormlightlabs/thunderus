@@ -2,11 +2,14 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│   setup · chatgpt-codex · authentication required · focus: choice                 # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=setup · chatgpt-codex · authentication required · focus: choice [bg=#292e42]=              [bg=#292e42]=  
-│   Browser PKCE is the default. Device code is an explicit headless route; neither…  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=Browser PKCE is the default. Device code is an explicit headless route; neither…
-│   ❯ provider: chatgpt-codex                                                       # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=❯ provider: chatgpt-codex [bg=#292e42]=                                                    [bg=#292e42]=  
+│   setup · chatgpt-codex · connect ChatGPT                                         # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=setup · chatgpt-codex · connect ChatGPT [bg=#292e42]=                                      [bg=#292e42]=  
+│   Browser PKCE is the default. Device code is an explicit headless route;         # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Browser PKCE is the default. Device code is an explicit headless route; [bg=#212337]=      [bg=#212337]=  
+│   neither asks for an API key.                                                    # [bg=#212337]=   [fg=#ebfafa bg=#212337]=neither asks for an API key. [bg=#212337]=                                                 [bg=#212337]=  
+│     provider: chatgpt-codex                                                       # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  provider: chatgpt-codex [bg=#212337]=                                                    [bg=#212337]=  
 │   ❯ start browser PKCE login                                                      # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=❯ start browser PKCE login [bg=#292e42]=                                                   [bg=#292e42]=  
 │     use headless device code                                                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  use headless device code [bg=#212337]=                                                   [bg=#212337]=  
 │     switch model/provider                                                         # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  switch model/provider [bg=#212337]=                                                      [bg=#212337]=  
-│   … 3 rows below                                                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=… 3 rows below [bg=#212337]=                                                               [bg=#212337]=  
-│   continue · cancel · Esc cancel                                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=continue · cancel · Esc cancel [bg=#212337]=                                               [bg=#212337]=
+│     show setup instructions                                                       # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  show setup instructions [bg=#212337]=                                                    [bg=#212337]=  
+│     continue without setup                                                        # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  continue without setup [bg=#212337]=                                                     [bg=#212337]=  
+│     quit                                                                          # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  quit [bg=#212337]=                                                                       [bg=#212337]=  
+│   ↑/↓ choose · Enter confirm · Esc close                                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=↑/↓ choose · Enter confirm · Esc close [bg=#212337]=                                       [bg=#212337]=

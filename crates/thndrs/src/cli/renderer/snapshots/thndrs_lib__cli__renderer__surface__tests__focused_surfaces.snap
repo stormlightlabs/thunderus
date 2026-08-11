@@ -85,17 +85,17 @@ styles:
 │   scroll: 3                                       # [bg=#212337]=   [fg=#ebfafa bg=#212337]=scroll: 3 [bg=#212337]=                                    [bg=#212337]=  
 │   ↑/↓ scroll · Esc close                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=↑/↓ scroll · Esc close [bg=#212337]=                       [bg=#212337]=  
 setup form buffer:
-  setup · OpenCode Go · credential entry · focus
+  setup · OpenCode Go · credential entry
   ! credential is required
   Input is hidden.
   ❯ credential: [hidden]
-  submit · cancel · Esc cancel
+  Enter submit · Esc cancel
 styles:
-│   setup · OpenCode Go · credential entry · focus:…  # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=setup · OpenCode Go · credential entry · focus:…
+│   setup · OpenCode Go · credential entry          # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=setup · OpenCode Go · credential entry [bg=#292e42]=       [bg=#292e42]=  
 │   ! credential is required                        # [bg=#212337]=   [fg=#f16c75 bg=#212337]=! credential is required [bg=#212337]=                     [bg=#212337]=  
-│   Input is hidden.                                # [bg=#212337]=   [fg=#3b4261 bg=#212337]=Input is hidden. [bg=#212337]=                             [bg=#212337]=  
+│   Input is hidden.                                # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Input is hidden. [bg=#212337]=                             [bg=#212337]=  
 │   ❯ credential: [hidden]                          # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=❯ credential: [hidden] [bg=#292e42]=                       [bg=#292e42]=  
-│   submit · cancel · Esc cancel                    # [bg=#212337]=   [fg=#3b4261 bg=#212337]=submit · cancel · Esc cancel [bg=#212337]=                 [bg=#212337]=  
+│   Enter submit · Esc cancel                       # [bg=#212337]=   [fg=#3b4261 bg=#212337]=Enter submit · Esc cancel [bg=#212337]=                    [bg=#212337]=  
 table buffer:
   context · focus: row 2/2
   command                        status

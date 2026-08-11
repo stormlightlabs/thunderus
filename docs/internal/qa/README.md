@@ -109,8 +109,10 @@ provider checks in a repository that contains work you care about.
 - [ ] `thndrs setup` provides the equivalent CLI route.
 - [ ] `thndrs doctor` and `thndrs doctor --json` provide redacted, actionable
       diagnostics.
-- [ ] A rejected credential blocks a coding prompt and names the correct
-      `thndrs login <provider>` recovery command.
+- [ ] A rejected credential preserves the coding prompt and opens focused
+      in-app sign-in recovery for the active provider.
+- [ ] A rejected environment credential names the variable that takes
+      precedence and explains that replacing or unsetting it requires a restart.
 - [ ] A network, rate-limit, or service failure asks the user to retry rather
       than reporting a valid credential as invalid.
 - [ ] Session inspection, export, logs, diagnostics, and prompt inspection do

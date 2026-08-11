@@ -627,19 +627,19 @@ fn open_credential_recovery_after_rejection(app: &mut App) {
 
     let provider = super::onboarding::provider_for_model(&app.runtime.model);
     if let Some(env_var) = active_environment_credential(provider, &app.runtime.cwd) {
+        app.overlay.show_setup(FirstRunRecovery::rejected_environment(provider));
         app.transcript.entries.push(Entry::Status {
             text: format!(
-                "{env_var} takes precedence over stored credentials; replace or unset it, then use `/login {}` if needed",
-                provider.label()
+                "{env_var} was rejected and overrides stored credentials; replace or unset it, then restart thndrs. The prompt draft is preserved"
             ),
         });
         return;
     }
 
-    app.overlay.show_setup(FirstRunRecovery::login(provider));
+    app.overlay.show_setup(FirstRunRecovery::reauthenticate(provider));
     app.transcript.entries.push(Entry::Status {
         text: format!(
-            "credential rejected; opened `/login {}` recovery while keeping the prompt draft",
+            "credential rejected; opened sign-in recovery for {} while keeping the prompt draft",
             provider.label()
         ),
     });

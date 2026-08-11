@@ -20,6 +20,10 @@ pub const MAX_PROMPT_ROWS: usize = 8;
 /// Maximum accessory rows (help/commands/files) shown in the live region.
 pub const MAX_ACCESSORY_ROWS: usize = 8;
 
+/// Maximum rows for setup and authentication, whose complete action set is
+/// more important than preserving extra transcript space.
+pub const MAX_SETUP_ROWS: usize = 12;
+
 const LIVE_INSET: usize = 2;
 const COMPOSER_MIN_CONTENT_WIDTH: usize = 8;
 
@@ -43,15 +47,21 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let row_body_width = super::layout::content_width(width);
     let body_width = row_body_width.saturating_sub(LIVE_INSET + prefix_width).max(1);
     let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
-    let hidden_entry_active = app.overlay.setup().is_some_and(|recovery| {
+    let hidden_entry = app.overlay.setup().filter(|recovery| {
         matches!(
             recovery.stage,
             RecoveryStage::EnterKey | RecoveryStage::ChatGptOAuthPasteRedirect
         )
     });
-    let hidden_display = String::from("credential: [hidden]");
-    let input_text = if hidden_entry_active { hidden_display.as_str() } else { app.composer.input.as_str() };
-    let cursor_pos = if hidden_entry_active { input_text.len() } else { app.composer.input.cursor() };
+    let hidden_display = hidden_entry.map(|recovery| {
+        let label = if recovery.stage == RecoveryStage::EnterKey { "API key" } else { "redirect URL" };
+        let secret_len = recovery.secret_input.chars().count();
+        let visible_len = secret_len.min(12);
+        let overflow = if secret_len > visible_len { "…" } else { "" };
+        format!("{label}: {}{overflow}", "•".repeat(visible_len))
+    });
+    let input_text = hidden_display.as_deref().unwrap_or_else(|| app.composer.input.as_str());
+    let cursor_pos = if hidden_entry.is_some() { input_text.len() } else { app.composer.input.cursor() };
 
     let visual_rows = prompt_rows(input_text, body_width);
     let cursor = prompt_cursor(input_text, cursor_pos, body_width, cursor_indent);
@@ -96,7 +106,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         rows.push(composer_input_row(spans, width, row_body_width, surface));
     }
 
-    (rows, if hidden_entry_active { None } else { Some(cursor) })
+    (rows, if hidden_entry.is_some() { None } else { Some(cursor) })
 }
 
 /// Number of metadata rows reserved by the composer at this width.

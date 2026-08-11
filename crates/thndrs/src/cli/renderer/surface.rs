@@ -391,11 +391,17 @@ fn setup_form_rows(form: &SetupFormView, width: usize, height: usize, theme: &Su
         .iter()
         .map(|error| SurfaceLine::new(format!("! {error}"), theme.error))
         .collect::<Vec<_>>();
-    body.extend(form.details.iter().cloned().map(SurfaceLine::muted));
+    let detail_width = width.saturating_sub(4).max(1);
+    body.extend(
+        form.details
+            .iter()
+            .flat_map(|detail| super::layout::wrap_text(detail, detail_width))
+            .map(SurfaceLine::text),
+    );
 
     let field_focus = if form.actions.is_empty() { Some(form.focus_index) } else { None };
     body.extend(form.fields.iter().enumerate().map(|(index, field)| {
-        let focused = index == form.focus_index || field.focused;
+        let focused = form.actions.is_empty() && (index == form.focus_index || field.focused);
         let marker = if focused { "❯" } else { " " };
         let value = if field.secret && !field.value.is_empty() { "[hidden]".to_string() } else { field.value.clone() };
         let multiline = if field.multiline { " multiline" } else { "" };
@@ -416,19 +422,19 @@ fn setup_form_rows(form: &SetupFormView, width: usize, height: usize, theme: &Su
     render_bounded_view(
         &ViewContent {
             title: form.title.clone(),
-            status: format!(
-                "{} · focus: {}",
-                form.status,
-                if form.actions.is_empty() { "input" } else { "choice" }
-            ),
+            status: form.status.clone(),
             body,
             focus: form
                 .actions
                 .is_empty()
                 .then_some(field_focus.unwrap_or_default())
                 .or_else(|| (!form.actions.is_empty()).then_some(action_offset + form.selected)),
-            hints: format!("{} · {} · Esc cancel", form.submit_label, form.cancel_label),
-            border: ThemeRole::Selected,
+            hints: if form.actions.is_empty() {
+                format!("Enter {} · Esc {}", form.submit_label, form.cancel_label)
+            } else {
+                format!("↑/↓ choose · Enter confirm · Esc {}", form.cancel_label)
+            },
+            border: if form.attention { ThemeRole::Warning } else { ThemeRole::Selected },
         },
         width,
         height,
@@ -900,6 +906,7 @@ mod tests {
                 "setup form",
                 FocusedSurfaceView::SetupForm(SetupFormView {
                     title: "setup".to_string(),
+                    attention: false,
                     stage: "credential entry".to_string(),
                     status: "OpenCode Go · credential entry".to_string(),
                     details: vec!["Input is hidden.".to_string()],

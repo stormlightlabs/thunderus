@@ -37,7 +37,9 @@ pub use input::{
     translate_input, translate_input_with_keymap,
 };
 pub use onboarding::setup_model_options;
-pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryStage};
+pub use onboarding::{
+    ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryIntent, RecoveryStage,
+};
 pub use transcript_blocks::{
     BlockContentState, ToolLifecycleError, ToolLifecycleState, TranscriptBlock, TranscriptBlockId, TranscriptBlockKind,
     TranscriptBlocks,

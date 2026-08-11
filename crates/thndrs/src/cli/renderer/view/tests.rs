@@ -978,6 +978,8 @@ fn semantic_setup_surface_projects_selection_and_masks_credentials() {
     let view = RendererView::build(&app, 80, 24);
     match &view.semantic.focused_surface {
         FocusedSurfaceView::SetupForm(form) => {
+            assert_eq!(form.title, "setup");
+            assert!(!form.attention);
             assert_eq!(form.fields[0].label, "provider");
             assert_eq!(form.fields[0].value, "choose provider");
             assert!(!form.fields[0].secret);
@@ -987,6 +989,7 @@ fn semantic_setup_surface_projects_selection_and_masks_credentials() {
     }
 
     app.overlay.show_setup(FirstRunRecovery {
+        intent: crate::app::RecoveryIntent::Setup,
         provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::EnterKey,
         pending_provider_prompt: false,
@@ -997,11 +1000,61 @@ fn semantic_setup_surface_projects_selection_and_masks_credentials() {
     let view = RendererView::build(&app, 80, 24);
     match &view.semantic.focused_surface {
         FocusedSurfaceView::SetupForm(form) => {
-            assert_eq!(form.fields[0].label, "opencode-go API key");
-            assert_eq!(form.fields[0].value, "[hidden]");
-            assert!(form.fields[0].secret);
+            assert!(form.fields.is_empty());
             assert!(form.details.iter().any(|detail| detail.contains("Input is hidden")));
             assert!(!format!("{form:?}").contains("sk-view-secret"));
+        }
+        surface => panic!("expected setup surface, got {surface:?}"),
+    }
+}
+
+#[test]
+fn setup_surface_keeps_all_authentication_actions_visible_at_normal_height() {
+    let mut app = test_app();
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+
+    for width in [80, 40] {
+        let view = RendererView::build(&app, width, 24);
+        let text = view
+            .live
+            .accessory_rows
+            .iter()
+            .map(|row| row.text())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            text.contains("start browser PKCE login"),
+            "browser login missing at width {width}:\n{text}"
+        );
+        assert!(
+            text.contains("use headless device code"),
+            "device login missing at width {width}:\n{text}"
+        );
+        assert!(text.contains("quit"), "last action clipped at width {width}:\n{text}");
+        assert!(
+            !text.contains("rows below"),
+            "setup actions clipped at width {width}:\n{text}"
+        );
+    }
+}
+
+#[test]
+fn semantic_reauthentication_surface_names_environment_override() {
+    let mut app = test_app();
+    app.overlay
+        .show_setup(FirstRunRecovery::rejected_environment(SetupProviderArg::OpencodeZen));
+
+    let view = RendererView::build(&app, 80, 24);
+    match &view.semantic.focused_surface {
+        FocusedSurfaceView::SetupForm(form) => {
+            assert_eq!(form.title, "sign in again");
+            assert!(form.attention);
+            assert_eq!(form.fields[0].label, "credential source");
+            assert_eq!(form.fields[0].value, "OPENCODE_ZEN_KEY");
+            assert!(form.details.iter().any(|detail| detail.contains("restart thndrs")));
+            assert_eq!(form.actions[0].label, "switch model/provider");
         }
         surface => panic!("expected setup surface, got {surface:?}"),
     }

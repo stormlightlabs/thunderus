@@ -66,6 +66,28 @@ fn prompt_rows_with_text() {
 }
 
 #[test]
+fn credential_prompt_uses_one_responsive_masked_input() {
+    let mut app = test_app();
+    app.overlay.show_setup(FirstRunRecovery {
+        intent: crate::app::RecoveryIntent::Setup,
+        provider: Some(SetupProviderArg::OpencodeGo),
+        stage: RecoveryStage::EnterKey,
+        pending_provider_prompt: true,
+        selected: 0,
+        secret_input: "sk-view-secret".to_string(),
+        chatgpt_oauth: None,
+    });
+
+    let (rows, cursor) = prompt_rows_for(&app, 80);
+    let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
+
+    assert!(text.contains("API key: ••••••••••••…"));
+    assert!(!text.contains("sk-view-secret"));
+    assert!(!text.contains("[hidden]"));
+    assert!(cursor.is_none());
+}
+
+#[test]
 fn prompt_rows_multiline() {
     let mut app = test_app();
     app.composer.input.set_text("line one\nline two");
@@ -420,6 +442,7 @@ fn snapshot_first_run_recovery_normal() {
     let mut app = test_app();
     app.runtime.model = "opencode/big-pickle".to_string();
     app.overlay.show_setup(FirstRunRecovery {
+        intent: crate::app::RecoveryIntent::Setup,
         provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::MissingCredential,
         pending_provider_prompt: true,
@@ -427,7 +450,7 @@ fn snapshot_first_run_recovery_normal() {
         secret_input: String::new(),
         chatgpt_oauth: None,
     });
-    let rows = accessory_rows(&app, 80, 8);
+    let rows = accessory_rows(&app, 80, 12);
     let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
     insta::assert_snapshot!("first_run_recovery_normal", frame.render_styled());
 }
@@ -437,6 +460,7 @@ fn snapshot_first_run_recovery_narrow() {
     let mut app = test_app();
     app.runtime.model = "opencode-go/kimi-k2.7-code".to_string();
     app.overlay.show_setup(FirstRunRecovery {
+        intent: crate::app::RecoveryIntent::Setup,
         provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::MissingCredential,
         pending_provider_prompt: true,
@@ -444,7 +468,7 @@ fn snapshot_first_run_recovery_narrow() {
         secret_input: String::new(),
         chatgpt_oauth: None,
     });
-    let rows = accessory_rows(&app, 40, 8);
+    let rows = accessory_rows(&app, 40, 12);
     let frame = Frame { rows, width: 40, cursor: None, cursor_visible: true };
     insta::assert_snapshot!("first_run_recovery_narrow", frame.render_styled());
 }
@@ -454,6 +478,7 @@ fn snapshot_first_run_recovery_tiny() {
     let mut app = test_app();
     app.runtime.model = "opencode/big-pickle".to_string();
     app.overlay.show_setup(FirstRunRecovery {
+        intent: crate::app::RecoveryIntent::Setup,
         provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::ConfirmStore,
         pending_provider_prompt: true,
@@ -473,6 +498,7 @@ fn snapshot_chatgpt_recovery_normal() {
     let mut app = test_app();
     app.runtime.model = "chatgpt-codex/gpt-5.5".to_string();
     app.overlay.show_setup(FirstRunRecovery {
+        intent: crate::app::RecoveryIntent::Setup,
         provider: Some(SetupProviderArg::ChatgptCodex),
         stage: RecoveryStage::MissingCredential,
         pending_provider_prompt: true,
@@ -480,7 +506,7 @@ fn snapshot_chatgpt_recovery_normal() {
         secret_input: String::new(),
         chatgpt_oauth: None,
     });
-    let rows = accessory_rows(&app, 80, 8);
+    let rows = accessory_rows(&app, 80, 12);
     let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
     insta::assert_snapshot!("chatgpt_recovery_normal", frame.render_styled());
 }
@@ -490,6 +516,7 @@ fn snapshot_chatgpt_recovery_narrow() {
     let mut app = test_app();
     app.runtime.model = "chatgpt-codex/gpt-5.5".to_string();
     app.overlay.show_setup(FirstRunRecovery {
+        intent: crate::app::RecoveryIntent::Setup,
         provider: Some(SetupProviderArg::ChatgptCodex),
         stage: RecoveryStage::MissingCredential,
         pending_provider_prompt: true,
@@ -497,7 +524,7 @@ fn snapshot_chatgpt_recovery_narrow() {
         secret_input: String::new(),
         chatgpt_oauth: None,
     });
-    let rows = accessory_rows(&app, 40, 8);
+    let rows = accessory_rows(&app, 40, 12);
     let frame = Frame { rows, width: 40, cursor: None, cursor_visible: true };
     insta::assert_snapshot!("chatgpt_recovery_narrow", frame.render_styled());
 }
@@ -507,6 +534,7 @@ fn snapshot_chatgpt_recovery_tiny() {
     let mut app = test_app();
     app.runtime.model = "chatgpt-codex/gpt-5.5".to_string();
     app.overlay.show_setup(FirstRunRecovery {
+        intent: crate::app::RecoveryIntent::Setup,
         provider: Some(SetupProviderArg::ChatgptCodex),
         stage: RecoveryStage::ChatGptOAuthPolling,
         pending_provider_prompt: true,
