@@ -55,56 +55,59 @@ fn with_isolated_setup_env<T>(home: &Path, f: impl FnOnce() -> T) -> T {
 #[test]
 fn slash_clear_while_working_is_rejected() {
     let mut app = working_app_with_streaming();
-    app.transcript.push(Entry::User { text: "keep me".to_string() });
-    app.input = PromptInput::from("/clear");
+    app.transcript.entries.push(Entry::User { text: "keep me".to_string() });
+    app.composer.input = PromptInput::from("/clear");
 
     let result = update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(result, None, "/clear should not execute while working");
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|e| matches!(e, Entry::User { text } if text == "keep me")),
         "transcript should not be cleared while an agent can still emit events"
     );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|e| matches!(e, Entry::Status { text } if text.contains("not available"))),
         "/clear should be rejected with a status message"
     );
-    assert!(app.input.is_empty(), "input should be cleared after /clear");
+    assert!(app.composer.input.is_empty(), "input should be cleared after /clear");
 }
 
 #[test]
 fn slash_help_while_working_executes_immediately() {
     let mut app = working_app_with_streaming();
-    app.input = PromptInput::from("/help");
+    app.composer.input = PromptInput::from("/help");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(
-        app.prompt_accessory,
+        app.overlay.accessory(),
         PromptAccessory::Help,
         "/help should open help while working"
     );
-    assert!(app.input.is_empty(), "input should be cleared after /help");
+    assert!(app.composer.input.is_empty(), "input should be cleared after /help");
 }
 
 #[test]
 fn slash_model_while_working_is_rejected() {
     let mut app = working_app_with_streaming();
-    app.input = PromptInput::from("/model");
+    app.composer.input = PromptInput::from("/model");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(
-        app.prompt_accessory,
+        app.overlay.accessory(),
         PromptAccessory::None,
         "/model should not open picker while working"
     );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|e| matches!(e, Entry::Status { text } if text.contains("not available"))),
         "/model should be rejected with a status message"
@@ -114,17 +117,18 @@ fn slash_model_while_working_is_rejected() {
 #[test]
 fn slash_skills_while_working_is_rejected() {
     let mut app = working_app_with_streaming();
-    app.input = PromptInput::from("/skills");
+    app.composer.input = PromptInput::from("/skills");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(
-        app.prompt_accessory,
+        app.overlay.accessory(),
         PromptAccessory::None,
         "/skills should not open picker while working"
     );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|e| matches!(e, Entry::Status { text } if text.contains("not available"))),
         "/skills should be rejected with a status message"
@@ -134,16 +138,17 @@ fn slash_skills_while_working_is_rejected() {
 #[test]
 fn slash_unknown_while_working_is_rejected() {
     let mut app = working_app_with_streaming();
-    app.input = PromptInput::from("/unknown");
+    app.composer.input = PromptInput::from("/unknown");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert!(
-        app.queued_followups.is_empty(),
+        app.composer.queued_followups.is_empty(),
         "unknown slash command should not be queued as text"
     );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|e| matches!(e, Entry::Status { text } if text.contains("not available"))),
         "unknown slash command should be rejected with a status message"
@@ -153,53 +158,55 @@ fn slash_unknown_while_working_is_rejected() {
 #[test]
 fn double_slash_while_working_queues_literal_slash_followup() {
     let mut app = working_app_with_streaming();
-    app.input = PromptInput::from("//clear after this run");
+    app.composer.input = PromptInput::from("//clear after this run");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(
-        app.queued_followups,
+        app.composer.queued_followups,
         vec!["/clear after this run".to_string()],
         "double slash should escape a literal slash-prefixed follow-up"
     );
-    assert!(app.input.is_empty(), "input should be cleared after queueing");
+    assert!(app.composer.input.is_empty(), "input should be cleared after queueing");
 }
 
 #[test]
 fn slash_clear_clears_transcript_and_input() {
     let mut app = fresh_app();
-    app.transcript.push(Entry::User { text: String::from("old") });
-    app.input = PromptInput::from("/clear");
+    app.transcript.entries.push(Entry::User { text: String::from("old") });
+    app.composer.input = PromptInput::from("/clear");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert!(app.transcript.is_empty());
-    assert_eq!(app.input.as_str(), "");
-    assert!(!app.quit);
+    assert!(app.transcript.entries.is_empty());
+    assert_eq!(app.composer.input.as_str(), "");
+    assert!(!app.runtime.quit);
 }
 
 #[test]
 fn slash_auth_config_and_doctor_append_redacted_output() {
     let mut app = fresh_app();
 
-    app.input = PromptInput::from("/auth status");
+    app.composer.input = PromptInput::from("/auth status");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(
-        app.transcript.last(),
+        app.transcript.entries.last(),
         Some(Entry::Status { text }) if text.contains("chatgpt-codex") && text.contains("opencode-zen")
     ));
 
-    app.input = PromptInput::from("/config path");
+    app.composer.input = PromptInput::from("/config path");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
-        matches!(app.transcript.last(), Some(Entry::Status { text }) if text.contains("global:") && text.contains("project:"))
+        matches!(app.transcript.entries.last(), Some(Entry::Status { text }) if text.contains("global:") && text.contains("project:"))
     );
 
-    app.input = PromptInput::from("/config show");
+    app.composer.input = PromptInput::from("/config show");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(matches!(app.transcript.last(), Some(Entry::Status { text }) if text.contains("effective_config:")));
+    assert!(
+        matches!(app.transcript.entries.last(), Some(Entry::Status { text }) if text.contains("effective_config:"))
+    );
 
-    app.input = PromptInput::from("/doctor");
+    app.composer.input = PromptInput::from("/doctor");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    let transcript = format!("{:?}", app.transcript);
+    let transcript = format!("{:?}", app.transcript.entries);
     assert!(transcript.contains("thndrs doctor"));
     assert!(!transcript.contains("test-umans-key"));
 }
@@ -207,14 +214,14 @@ fn slash_auth_config_and_doctor_append_redacted_output() {
 #[test]
 fn context_surface_is_bounded_and_does_not_render_source_content() {
     let mut app = fresh_app();
-    let source = app.cwd.join("AGENTS.md");
+    let source = app.runtime.cwd.join("AGENTS.md");
     std::fs::write(&source, "api_key=source-secret-that-must-not-be-rendered\n").expect("write instructions");
-    app.context_sources = vec![crate::context::load_agents_md(&app.cwd).expect("load instructions")];
-    app.input = PromptInput::from("/context");
+    app.transcript.context_sources = vec![crate::context::load_agents_md(&app.runtime.cwd).expect("load instructions")];
+    app.composer.input = PromptInput::from("/context");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.prompt_accessory, PromptAccessory::Context);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::Context);
     let table = app.render_context_table();
     let text = table
         .rows
@@ -250,13 +257,14 @@ fn tokens_command_exposes_estimate_provider_components_and_error() {
         }
         .normalize("fixture", thndrs_agent::ProviderUsageRule::AnthropicMessages),
     );
-    app.last_request_accounting = Some(accounting);
-    app.input = PromptInput::from("/tokens");
+    app.session.last_request_accounting = Some(accounting);
+    app.composer.input = PromptInput::from("/tokens");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     let output = app
         .transcript
+        .entries
         .iter()
         .find_map(|entry| match entry {
             Entry::Status { text } if text.starts_with("tokens\n") => Some(text.as_str()),
@@ -273,15 +281,15 @@ fn tokens_command_exposes_estimate_provider_components_and_error() {
 #[test]
 fn context_export_command_writes_versioned_json_and_markdown() {
     let mut app = fresh_app();
-    let json_path = app.cwd.join("context-export.json");
-    app.input = PromptInput::from("/context export context-export.json");
+    let json_path = app.runtime.cwd.join("context-export.json");
+    app.composer.input = PromptInput::from("/context export context-export.json");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let json = std::fs::read_to_string(&json_path).expect("json export");
     assert!(json.contains("context-export-v1"));
     assert!(json.contains("model_projection"));
 
-    let markdown_path = app.cwd.join("context-export.md");
-    app.input = PromptInput::from("/context export context-export.md markdown");
+    let markdown_path = app.runtime.cwd.join("context-export.md");
+    app.composer.input = PromptInput::from("/context export context-export.md markdown");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let markdown = std::fs::read_to_string(&markdown_path).expect("markdown export");
     assert!(markdown.starts_with("# Context export"));
@@ -291,13 +299,17 @@ fn context_export_command_writes_versioned_json_and_markdown() {
 #[test]
 fn context_pin_drop_recover_and_failed_pin_preserve_prompt_input() {
     let mut app = fresh_app();
-    let file = app.cwd.join("notes.md");
+    let file = app.runtime.cwd.join("notes.md");
     std::fs::write(&file, "private notes").expect("write file");
 
-    app.input = PromptInput::from("/context pin notes.md");
+    app.composer.input = PromptInput::from("/context pin notes.md");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(app.input.is_empty(), "successful context action clears its command");
+    assert!(
+        app.composer.input.is_empty(),
+        "successful context action clears its command"
+    );
     let pinned_id = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("ledger")
@@ -308,10 +320,11 @@ fn context_pin_drop_recover_and_failed_pin_preserve_prompt_input() {
         .id
         .clone();
 
-    app.input = PromptInput::from(format!("/context drop {pinned_id}"));
+    app.composer.input = PromptInput::from(format!("/context drop {pinned_id}"));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
-        app.context_ledger
+        app.transcript
+            .context_ledger
             .as_ref()
             .expect("ledger")
             .items
@@ -319,10 +332,11 @@ fn context_pin_drop_recover_and_failed_pin_preserve_prompt_input() {
             .any(|item| item.id == pinned_id && item.visibility == thndrs_agent::context::ContextVisibility::Dropped)
     );
 
-    app.input = PromptInput::from(format!("/context recover {pinned_id}"));
+    app.composer.input = PromptInput::from(format!("/context recover {pinned_id}"));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
-        app.context_ledger
+        app.transcript
+            .context_ledger
             .as_ref()
             .expect("ledger")
             .items
@@ -330,6 +344,7 @@ fn context_pin_drop_recover_and_failed_pin_preserve_prompt_input() {
             .any(|item| item.id == pinned_id && item.visibility == thndrs_agent::context::ContextVisibility::Pinned)
     );
     let recovered = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("ledger after recovery")
@@ -340,19 +355,19 @@ fn context_pin_drop_recover_and_failed_pin_preserve_prompt_input() {
             && relation.status == thndrs_agent::context::ContextRelationStatus::Applied
     }));
 
-    app.input = PromptInput::from("/context pin missing.md");
+    app.composer.input = PromptInput::from("/context pin missing.md");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(app.input.as_str(), "/context pin missing.md");
-    assert!(format!("{:?}", app.transcript).contains("cannot pin"));
+    assert_eq!(app.composer.input.as_str(), "/context pin missing.md");
+    assert!(format!("{:?}", app.transcript.entries).contains("cannot pin"));
 }
 
 #[test]
 fn context_verification_requires_review_before_release_and_survives_refresh() {
     let mut app = fresh_app();
     let writer = session::SessionWriter::create(
-        &session::sessions_dir(&app.cwd),
+        &session::sessions_dir(&app.runtime.cwd),
         "verification-recording",
-        &app.cwd.display().to_string(),
+        &app.runtime.cwd.display().to_string(),
         "verification test",
         "umans",
         "umans-coder",
@@ -362,13 +377,14 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
     )
     .expect("create verification session");
     let session_path = writer.path().to_path_buf();
-    app.session_writer = Some(writer);
-    let file = app.cwd.join("unverified.md");
+    app.session.writer = Some(writer);
+    let file = app.runtime.cwd.join("unverified.md");
     std::fs::write(&file, "pending edit").expect("write file");
 
-    app.input = PromptInput::from("/context pin unverified.md");
+    app.composer.input = PromptInput::from("/context pin unverified.md");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let evidence_id = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger")
@@ -380,9 +396,11 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
         .clone();
 
     app.transcript
+        .entries
         .push(Entry::User { text: "run the verification check".to_string() });
     app.refresh_context_ledger(None);
     let candidate_id = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger")
@@ -393,9 +411,10 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
         .id
         .clone();
 
-    app.input = PromptInput::from(format!("/context verify propose {evidence_id} {candidate_id}"));
+    app.composer.input = PromptInput::from(format!("/context verify propose {evidence_id} {candidate_id}"));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let relation_id = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger")
@@ -408,7 +427,8 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
         .id
         .clone();
     assert!(
-        app.context_ledger
+        app.transcript
+            .context_ledger
             .as_ref()
             .expect("context ledger")
             .find(&evidence_id)
@@ -417,9 +437,10 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
             .is_protected()
     );
 
-    app.input = PromptInput::from(format!("/context verify approve {relation_id}"));
+    app.composer.input = PromptInput::from(format!("/context verify approve {relation_id}"));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let approved = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger")
@@ -430,7 +451,8 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
         .expect("approved relation");
     assert_eq!(approved.status, thndrs_agent::context::ContextRelationStatus::Approved);
     assert!(
-        app.context_ledger
+        app.transcript
+            .context_ledger
             .as_ref()
             .expect("context ledger")
             .find(&evidence_id)
@@ -439,9 +461,10 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
             .is_protected()
     );
 
-    app.input = PromptInput::from(format!("/context verify release {relation_id}"));
+    app.composer.input = PromptInput::from(format!("/context verify release {relation_id}"));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let released = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger")
@@ -457,7 +480,8 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
 
     app.refresh_context_ledger(None);
     assert_eq!(
-        app.context_ledger
+        app.transcript
+            .context_ledger
             .as_ref()
             .expect("refreshed context ledger")
             .find(&evidence_id)
@@ -467,7 +491,7 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
     );
 
     let records = {
-        let writer = app.session_writer.take().expect("verification session writer");
+        let writer = app.session.writer.take().expect("verification session writer");
         assert_eq!(writer.path(), session_path.as_path());
         drop(writer);
         session::SessionReader::read_records(&session_path)
@@ -492,11 +516,12 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
         ]
     );
 
-    let cli = Cli { cwd: app.cwd.clone(), model: "umans-coder".to_string(), ..Cli::default() };
+    let cli = Cli { cwd: app.runtime.cwd.clone(), model: "umans-coder".to_string(), ..Cli::default() };
     let mut resumed = App::from_cli(&cli);
     resumed.restore_context_state(&records);
     resumed.refresh_context_ledger(None);
     let resumed_lifecycle = resumed
+        .transcript
         .context_ledger
         .as_ref()
         .expect("resumed context ledger")
@@ -518,9 +543,9 @@ fn context_verification_requires_review_before_release_and_survives_refresh() {
 fn context_verification_record_failure_does_not_mutate_in_memory_state() {
     let mut app = fresh_app();
     let writer = session::SessionWriter::create(
-        &session::sessions_dir(&app.cwd),
+        &session::sessions_dir(&app.runtime.cwd),
         "verification-failure",
-        &app.cwd.display().to_string(),
+        &app.runtime.cwd.display().to_string(),
         "verification failure test",
         "umans",
         "umans-coder",
@@ -530,13 +555,14 @@ fn context_verification_record_failure_does_not_mutate_in_memory_state() {
     )
     .expect("create verification session");
     let session_path = writer.path().to_path_buf();
-    app.session_writer = Some(writer);
+    app.session.writer = Some(writer);
 
-    let file = app.cwd.join("failure.md");
+    let file = app.runtime.cwd.join("failure.md");
     std::fs::write(&file, "failed write evidence").expect("write file");
-    app.input = PromptInput::from("/context pin failure.md");
+    app.composer.input = PromptInput::from("/context pin failure.md");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let evidence_id = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger")
@@ -547,9 +573,11 @@ fn context_verification_record_failure_does_not_mutate_in_memory_state() {
         .id
         .clone();
     app.transcript
+        .entries
         .push(Entry::User { text: "check the failed write".to_string() });
     app.refresh_context_ledger(None);
     let candidate_id = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger")
@@ -569,6 +597,7 @@ fn context_verification_record_failure_does_not_mutate_in_memory_state() {
         .expect_err("approval should fail when the audit append fails");
     assert!(error.contains("failed to record context lifecycle action"));
     let lifecycle = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger after failed append")
@@ -586,11 +615,12 @@ fn context_verification_record_failure_does_not_mutate_in_memory_state() {
 #[test]
 fn context_verification_rejection_survives_refresh_and_keeps_protection() {
     let mut app = fresh_app();
-    let file = app.cwd.join("rejected.md");
+    let file = app.runtime.cwd.join("rejected.md");
     std::fs::write(&file, "evidence awaiting review").expect("write file");
-    app.input = PromptInput::from("/context pin rejected.md");
+    app.composer.input = PromptInput::from("/context pin rejected.md");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let evidence_id = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger")
@@ -601,9 +631,11 @@ fn context_verification_rejection_survives_refresh_and_keeps_protection() {
         .id
         .clone();
     app.transcript
+        .entries
         .push(Entry::User { text: "review the evidence".to_string() });
     app.refresh_context_ledger(None);
     let candidate_id = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger")
@@ -617,10 +649,11 @@ fn context_verification_rejection_survives_refresh_and_keeps_protection() {
         .propose_context_verification(&evidence_id, &candidate_id)
         .expect("propose verification");
 
-    app.input = PromptInput::from(format!("/context verify reject {relation_id}"));
+    app.composer.input = PromptInput::from(format!("/context verify reject {relation_id}"));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     app.refresh_context_ledger(None);
     let lifecycle = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("refreshed context ledger")
@@ -638,17 +671,19 @@ fn context_verification_rejection_survives_refresh_and_keeps_protection() {
 #[test]
 fn successful_commands_and_assistant_prose_never_release_write_protection() {
     let mut app = fresh_app();
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: "create_file#successful-write".to_string(),
         arguments: "{}".to_string(),
         status: ToolStatus::Ok,
         output: vec!["created file".to_string()],
     });
     app.transcript
+        .entries
         .push(Entry::Agent { text: "The verification command succeeded.".to_string(), streaming: false });
     app.refresh_context_ledger(None);
 
     let write_item = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger")
@@ -664,9 +699,10 @@ fn successful_commands_and_assistant_prose_never_release_write_protection() {
             .contains(thndrs_agent::context::ContextProtectionReason::UnverifiedWriteEdit)
     );
 
-    app.input = PromptInput::from("/context show");
+    app.composer.input = PromptInput::from("/context show");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let write_item = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("context ledger after command")
@@ -680,7 +716,7 @@ fn successful_commands_and_assistant_prose_never_release_write_protection() {
 #[test]
 fn context_reclassification_adds_failure_and_recovery_protection() {
     let mut app = fresh_app();
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell#dynamic-tool".to_string(),
         arguments: "{}".to_string(),
         status: ToolStatus::Running,
@@ -688,6 +724,7 @@ fn context_reclassification_adds_failure_and_recovery_protection() {
     });
     app.refresh_context_ledger(None);
     let initial = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("initial context ledger")
@@ -699,14 +736,16 @@ fn context_reclassification_adds_failure_and_recovery_protection() {
         .clone();
     assert!(!initial.is_protected());
 
-    let Some(Entry::Tool { status, .. }) = app.transcript.last_mut() else {
+    let Some(Entry::Tool { status, .. }) = app.transcript.entries.last_mut() else {
         panic!("running tool transcript entry");
     };
     *status = ToolStatus::Failed;
-    app.tool_artifacts
+    app.transcript
+        .tool_artifacts
         .insert("dynamic-tool".to_string(), "artifact_dynamic".to_string());
     app.refresh_context_ledger(None);
     let reclassified = app
+        .transcript
         .context_ledger
         .as_ref()
         .expect("reclassified context ledger")
@@ -731,11 +770,11 @@ fn context_reclassification_adds_failure_and_recovery_protection() {
 #[test]
 fn slash_config_edit_reports_cli_only() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/config edit");
+    app.composer.input = PromptInput::from("/config edit");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert!(matches!(
-        app.transcript.last(),
+        app.transcript.entries.last(),
         Some(Entry::Status { text }) if text.contains("config edit is CLI-only")
     ));
 }
@@ -743,20 +782,20 @@ fn slash_config_edit_reports_cli_only() {
 #[test]
 fn slash_command_rejects_api_key_like_extra_argument() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/login umans sk-secret-should-not-appear");
+    app.composer.input = PromptInput::from("/login umans sk-secret-should-not-appear");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert!(app.first_run_recovery.is_none());
-    let transcript = format!("{:?}", app.transcript);
+    assert!(app.overlay.setup().is_none());
+    let transcript = format!("{:?}", app.transcript.entries);
     assert!(transcript.contains("do not accept API keys"));
     assert!(!transcript.contains("sk-secret-should-not-appear"));
 
     let mut app = fresh_app();
-    app.input = PromptInput::from("/login chatgpt-codex access_token=secret-should-not-appear");
+    app.composer.input = PromptInput::from("/login chatgpt-codex access_token=secret-should-not-appear");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert!(app.first_run_recovery.is_none());
-    let transcript = format!("{:?}", app.transcript);
+    assert!(app.overlay.setup().is_none());
+    let transcript = format!("{:?}", app.transcript.entries);
     assert!(transcript.contains("do not accept API keys"));
     assert!(!transcript.contains("secret-should-not-appear"));
 }
@@ -764,12 +803,12 @@ fn slash_command_rejects_api_key_like_extra_argument() {
 #[test]
 fn slash_logout_rejects_retired_umans_provider() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/logout umans");
+    app.composer.input = PromptInput::from("/logout umans");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert!(app.first_run_recovery.is_none());
+    assert!(app.overlay.setup().is_none());
     assert!(matches!(
-        app.transcript.last(),
+        app.transcript.entries.last(),
         Some(Entry::Error { text }) if text.contains("no longer supported")
     ));
 }
@@ -777,12 +816,12 @@ fn slash_logout_rejects_retired_umans_provider() {
 #[test]
 fn slash_chatgpt_codex_logout_stays_cli_only() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/logout chatgpt-codex");
+    app.composer.input = PromptInput::from("/logout chatgpt-codex");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert!(app.first_run_recovery.is_none());
+    assert!(app.overlay.setup().is_none());
     assert!(matches!(
-        app.transcript.last(),
+        app.transcript.entries.last(),
         Some(Entry::Status { text }) if text.contains("ChatGPT Codex logout is CLI-only")
     ));
 }
@@ -790,17 +829,17 @@ fn slash_chatgpt_codex_logout_stays_cli_only() {
 #[test]
 fn slash_setup_and_login_open_recovery_surfaces() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/setup");
+    app.composer.input = PromptInput::from("/setup");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(
-        app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+        app.overlay.setup().map(|recovery| recovery.stage),
         Some(RecoveryStage::ChooseProvider)
     ));
 
-    app.first_run_recovery = None;
-    app.input = PromptInput::from("/login opencode-go");
+    app.overlay.close();
+    app.composer.input = PromptInput::from("/login opencode-go");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    let recovery = app.first_run_recovery.as_ref().expect("login recovery");
+    let recovery = app.overlay.setup().expect("login recovery");
     assert_eq!(recovery.stage, RecoveryStage::EnterKey);
     assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeGo));
 }
@@ -808,13 +847,13 @@ fn slash_setup_and_login_open_recovery_surfaces() {
 #[test]
 fn slash_setup_uses_chatgpt_provider_aware_recovery_for_chatgpt_model() {
     let mut app = fresh_app();
-    app.model = "chatgpt-codex/gpt-5.5".to_string();
-    app.cli.model = app.model.clone();
-    app.input = PromptInput::from("/setup");
+    app.runtime.model = "chatgpt-codex/gpt-5.5".to_string();
+    app.runtime.cli.model = app.runtime.model.clone();
+    app.composer.input = PromptInput::from("/setup");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    let recovery = app.first_run_recovery.as_ref().expect("setup recovery");
+    let recovery = app.overlay.setup().expect("setup recovery");
     assert_eq!(recovery.stage, RecoveryStage::ChooseProvider);
     assert_eq!(recovery.provider, Some(SetupProviderArg::ChatgptCodex));
 }
@@ -827,18 +866,18 @@ fn slash_setup_selects_opencode_zen_and_prompts_for_api_key() {
     with_isolated_setup_env(&home, || {
         let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.first_run_recovery = None;
-        app.input = PromptInput::from("/setup");
+        app.session.writer = None;
+        app.overlay.close();
+        app.composer.input = PromptInput::from("/setup");
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-        let recovery = app.first_run_recovery.as_ref().expect("credential entry");
+        let recovery = app.overlay.setup().expect("credential entry");
         assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
         assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
-        assert!(app.model.is_empty(), "authentication precedes model selection");
+        assert!(app.runtime.model.is_empty(), "authentication precedes model selection");
     });
 }
 
@@ -852,16 +891,16 @@ fn slash_setup_can_choose_chatgpt_and_write_project_model() {
     with_isolated_setup_env(&home, || {
         let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.first_run_recovery = None;
-        app.model = "chatgpt-codex/gpt-5.5".to_string();
-        app.cli.model = app.model.clone();
-        app.input = PromptInput::from("/setup");
+        app.session.writer = None;
+        app.overlay.close();
+        app.runtime.model = "chatgpt-codex/gpt-5.5".to_string();
+        app.runtime.cli.model = app.runtime.model.clone();
+        app.composer.input = PromptInput::from("/setup");
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-        let recovery = app.first_run_recovery.as_ref().expect("chatgpt recovery");
+        let recovery = app.overlay.setup().expect("chatgpt recovery");
         assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
         assert_eq!(recovery.provider, Some(SetupProviderArg::ChatgptCodex));
     });
@@ -870,10 +909,10 @@ fn slash_setup_can_choose_chatgpt_and_write_project_model() {
 #[test]
 fn slash_chatgpt_codex_login_opens_oauth_recovery_surface() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/login chatgpt-codex");
+    app.composer.input = PromptInput::from("/login chatgpt-codex");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    let recovery = app.first_run_recovery.as_ref().expect("login recovery");
+    let recovery = app.overlay.setup().expect("login recovery");
     assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
     assert_eq!(recovery.provider, Some(SetupProviderArg::ChatgptCodex));
 }
@@ -881,19 +920,19 @@ fn slash_chatgpt_codex_login_opens_oauth_recovery_surface() {
 #[test]
 fn slash_chatgpt_codex_login_surface_starts_tui_oauth() {
     let mut app = fresh_app();
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         request_device_code: oauth_request_ok,
         poll_device_code_once: oauth_poll_pending,
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
-    app.input = PromptInput::from("/login chatgpt-codex");
+    app.composer.input = PromptInput::from("/login chatgpt-codex");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    let recovery = app.first_run_recovery.as_ref().expect("oauth recovery");
+    let recovery = app.overlay.setup().expect("oauth recovery");
     assert_eq!(recovery.stage, RecoveryStage::ChatGptOAuthPolling);
     assert!(recovery.chatgpt_oauth.is_some());
 }
@@ -901,50 +940,52 @@ fn slash_chatgpt_codex_login_surface_starts_tui_oauth() {
 #[test]
 fn slash_quit_sets_quit_flag() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/quit");
+    app.composer.input = PromptInput::from("/quit");
     let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert!(app.quit);
+    assert!(app.runtime.quit);
     assert_eq!(follow, Some(Msg::Quit));
-    assert_eq!(app.input.as_str(), "");
+    assert_eq!(app.composer.input.as_str(), "");
 }
 
 #[test]
 fn slash_exit_also_quits() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/exit");
+    app.composer.input = PromptInput::from("/exit");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert!(app.quit);
+    assert!(app.runtime.quit);
 }
 
 #[test]
 fn unknown_slash_command_is_ignored() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/bogus");
+    app.composer.input = PromptInput::from("/bogus");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert!(!app.quit);
-    assert!(app.transcript.is_empty());
-    assert_eq!(app.input.as_str(), "/bogus");
+    assert!(!app.runtime.quit);
+    assert!(app.transcript.entries.is_empty());
+    assert_eq!(app.composer.input.as_str(), "/bogus");
 }
 
 #[test]
 fn slash_mcp_lists_empty_config() {
     let temp = tempfile::tempdir().expect("tempdir");
     let mut app = fresh_app();
-    app.cwd = temp.path().to_path_buf();
-    app.input = PromptInput::from("/mcp");
+    app.runtime.cwd = temp.path().to_path_buf();
+    app.composer.input = PromptInput::from("/mcp");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
     assert!(
-        matches!(app.transcript.last(), Some(Entry::Status { text }) if text.contains("no MCP servers configured"))
+        matches!(app.transcript.entries.last(), Some(Entry::Status { text }) if text.contains("no MCP servers configured"))
     );
 }
 
 #[test]
 fn slash_mcp_tools_requires_name() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/mcp tools ");
+    app.composer.input = PromptInput::from("/mcp tools ");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("usage: /mcp tools <name>")));
+    assert!(
+        matches!(app.transcript.entries.last(), Some(Entry::Error { text }) if text.contains("usage: /mcp tools <name>"))
+    );
 }

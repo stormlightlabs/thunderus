@@ -120,8 +120,8 @@ pub fn fresh_app() -> App {
     let _kept = dir.keep();
     let cli = Cli { cwd, model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
-    app.session_writer = None;
-    app.first_run_recovery = None;
+    app.session.writer = None;
+    app.overlay.close();
     app
 }
 
@@ -233,9 +233,12 @@ pub fn oauth_browser_complete(
 
 pub fn working_app_with_streaming() -> App {
     let mut app = fresh_app();
-    app.run_state = RunState::Working;
-    app.transcript.push(Entry::User { text: "do the thing".to_string() });
+    app.runtime.run_state = RunState::Working;
     app.transcript
+        .entries
+        .push(Entry::User { text: "do the thing".to_string() });
+    app.transcript
+        .entries
         .push(Entry::Agent { text: "working on it".to_string(), streaming: true });
     app
 }

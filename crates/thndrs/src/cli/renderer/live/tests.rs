@@ -37,8 +37,9 @@ fn test_app() -> App {
         context: thndrs_agent::context::ContextConfig::default(),
         command: None,
     });
-    app.first_run_recovery = None;
-    app.git_status = Some(GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
+    app.overlay.close();
+    app.runtime.git_status =
+        Some(GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
     app
 }
 
@@ -55,7 +56,7 @@ fn prompt_rows_empty_input() {
 #[test]
 fn prompt_rows_with_text() {
     let mut app = test_app();
-    app.input.set_text("hello world");
+    app.composer.input.set_text("hello world");
     let (rows, cursor) = prompt_rows_for(&app, 80);
     assert_eq!(rows.len(), 1, "short text should fit on one row");
     assert!(cursor.is_some());
@@ -65,7 +66,7 @@ fn prompt_rows_with_text() {
 #[test]
 fn prompt_rows_multiline() {
     let mut app = test_app();
-    app.input.set_text("line one\nline two");
+    app.composer.input.set_text("line one\nline two");
     let (rows, _cursor) = prompt_rows_for(&app, 80);
     assert_eq!(rows.len(), 2, "two logical lines should produce two rows");
 }
@@ -73,7 +74,7 @@ fn prompt_rows_multiline() {
 #[test]
 fn prompt_rows_wraps_long_text() {
     let mut app = test_app();
-    app.input.set_text(&"x".repeat(100));
+    app.composer.input.set_text(&"x".repeat(100));
     let (rows, _cursor) = prompt_rows_for(&app, 20);
     assert!(rows.len() > 1, "long text should wrap to multiple rows");
 }
@@ -81,13 +82,13 @@ fn prompt_rows_wraps_long_text() {
 #[test]
 fn prompt_rows_wrap_at_visible_content_width() {
     let mut app = test_app();
-    app.input.set_text(&"x".repeat(9));
+    app.composer.input.set_text(&"x".repeat(9));
     let (rows, cursor) = prompt_rows_for(&app, 20);
 
     assert_eq!(rows.len(), 1);
     assert_eq!(cursor, Some(CursorCoord::new(0, 16)));
 
-    app.input.insert_char('x');
+    app.composer.input.insert_char('x');
     let (rows, cursor) = prompt_rows_for(&app, 20);
 
     assert_eq!(rows.len(), 2);
@@ -97,8 +98,8 @@ fn prompt_rows_wrap_at_visible_content_width() {
 #[test]
 fn frame_prompt_rows_adds_complete_composer_border_and_offsets_cursor() {
     let mut app = test_app();
-    app.session_id = "test-session".to_string();
-    app.input.set_text("hello");
+    app.session.id = "test-session".to_string();
+    app.composer.input.set_text("hello");
     let (body_rows, cursor) = prompt_rows_for(&app, 80);
     let (rows, cursor) = frame_prompt_rows(&app, 80, body_rows, cursor);
 
@@ -122,7 +123,7 @@ fn frame_prompt_rows_adds_complete_composer_border_and_offsets_cursor() {
 #[test]
 fn frame_prompt_rows_identifies_ephemeral_runs() {
     let mut app = test_app();
-    app.run_persistence = crate::app::RunPersistence::Ephemeral;
+    app.session.run_persistence = crate::app::RunPersistence::Ephemeral;
     let (body_rows, cursor) = prompt_rows_for(&app, 80);
     let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
 
@@ -132,9 +133,10 @@ fn frame_prompt_rows_identifies_ephemeral_runs() {
 #[test]
 fn frame_prompt_rows_shows_only_non_idle_status() {
     let mut app = test_app();
-    app.session_id = "test-session".to_string();
-    app.run_state = RunState::Working;
+    app.session.id = "test-session".to_string();
+    app.runtime.run_state = RunState::Working;
     app.transcript
+        .entries
         .push(Entry::Agent { text: "working".to_string(), streaming: true });
     let (body_rows, cursor) = prompt_rows_for(&app, 80);
     let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
@@ -145,7 +147,7 @@ fn frame_prompt_rows_shows_only_non_idle_status() {
 #[test]
 fn prompt_rows_command_mode_shows_colon() {
     let mut app = test_app();
-    app.mode = Mode::Command;
+    app.composer.mode = Mode::Command;
     let (rows, _) = prompt_rows_for(&app, 80);
     assert!(rows[0].text().contains(':'), "command mode should show colon prefix");
 }
@@ -153,7 +155,7 @@ fn prompt_rows_command_mode_shows_colon() {
 #[test]
 fn prompt_rows_submitted_shows_queue_icon() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
+    app.runtime.run_state = RunState::Working;
 
     let (rows, _) = prompt_rows_for(&app, 80);
     assert!(
@@ -184,8 +186,9 @@ fn static_status_row_prioritizes_immediate_state() {
 #[test]
 fn static_status_row_names_active_work() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
+    app.runtime.run_state = RunState::Working;
     app.transcript
+        .entries
         .push(Entry::Reasoning { text: "checking".to_string(), streaming: true });
 
     assert!(static_status_row(&app, 80).text().contains("Thinking"));
@@ -201,7 +204,7 @@ fn accessory_rows_none_when_no_accessory() {
 #[test]
 fn accessory_rows_help_has_entries() {
     let mut app = test_app();
-    app.prompt_accessory = PromptAccessory::Help;
+    app.overlay.show_help();
 
     let rows = accessory_rows(&app, 80, 16);
     assert!(!rows.is_empty(), "help should produce rows");
@@ -221,8 +224,10 @@ fn truncate_row_helper_works() {
 fn picker_app(files: &[String]) -> App {
     let mut app = test_app();
     let items: Vec<PickerItem> = files.iter().map(|file| PickerItem::new(file.clone(), "")).collect();
-    app.picker = Some(PickerState::new(items, 200));
-    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
+    let _ = app.overlay.show_picker(
+        PromptAccessory::Files(FilePickerSource::Forced),
+        PickerState::new(items, 200),
+    );
     app
 }
 
@@ -242,7 +247,7 @@ fn snapshot_file_picker_empty_query() {
 fn snapshot_permission_prompt() {
     let mut app = test_app();
     let (tx, _rx) = mpsc::channel();
-    app.pending_permission = Some(PendingPermission {
+    app.overlay.show_permission(PendingPermission {
         tool_call_id: "call_1".to_string(),
         title: "Write src/main.rs".to_string(),
         options: vec![
@@ -273,7 +278,7 @@ fn snapshot_file_picker_filtered_results() {
         "src/lib.rs".to_string(),
         "Cargo.toml".to_string(),
     ]);
-    if let Some(picker) = app.picker.as_mut() {
+    if let Some(picker) = app.overlay.picker_mut() {
         picker.query = "main".to_string();
         picker.matches = vec![PickerItem::new("src/main.rs", "")];
         picker.match_indices = vec![vec![4, 5, 6, 7]];
@@ -286,7 +291,7 @@ fn snapshot_file_picker_filtered_results() {
 #[test]
 fn snapshot_file_picker_no_matches() {
     let mut app = picker_app(&["src/main.rs".to_string()]);
-    if let Some(picker) = app.picker.as_mut() {
+    if let Some(picker) = app.overlay.picker_mut() {
         picker.query = "xyz".to_string();
         picker.matches = Vec::new();
         picker.match_indices = Vec::new();
@@ -308,7 +313,7 @@ fn snapshot_file_picker_long_path_clipping() {
 fn snapshot_file_picker_scrolled_selection() {
     let files: Vec<String> = (0..15).map(|i| format!("src/file_{i:02}.rs")).collect();
     let mut app = picker_app(&files);
-    if let Some(picker) = app.picker.as_mut() {
+    if let Some(picker) = app.overlay.picker_mut() {
         picker.selected = 5;
         picker.scroll = 3;
     }
@@ -320,17 +325,19 @@ fn snapshot_file_picker_scrolled_selection() {
 #[test]
 fn snapshot_model_picker() {
     let mut app = test_app();
-    app.picker = Some(PickerState::new(
-        vec![
-            PickerItem::new("opencode/big-pickle", "Recommended route to Kimi K2.7-Code"),
-            PickerItem::new("opencode/gpt-5.6-luna", "Largest context window"),
-        ],
-        50,
-    ));
-    if let Some(picker) = app.picker.as_mut() {
+    let _ = app.overlay.show_picker(
+        PromptAccessory::Models,
+        PickerState::new(
+            vec![
+                PickerItem::new("opencode/big-pickle", "Recommended route to Kimi K2.7-Code"),
+                PickerItem::new("opencode/gpt-5.6-luna", "Largest context window"),
+            ],
+            50,
+        ),
+    );
+    if let Some(picker) = app.overlay.picker_mut() {
         picker.selected = 1;
     }
-    app.prompt_accessory = PromptAccessory::Models;
     let rows = accessory_rows(&app, 80, 12);
     let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
     insta::assert_snapshot!("model_picker", frame.render_styled());
@@ -339,7 +346,7 @@ fn snapshot_model_picker() {
 #[test]
 fn snapshot_mention_styling_in_prompt() {
     let mut app = test_app();
-    app.input.set_text("check @src/main.rs for details");
+    app.composer.input.set_text("check @src/main.rs for details");
     let (rows, _) = prompt_rows_for(&app, 80);
     let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
     insta::assert_snapshot!("mention_styling", frame.render_styled());
@@ -348,7 +355,7 @@ fn snapshot_mention_styling_in_prompt() {
 #[test]
 fn snapshot_help_rows() {
     let mut app = test_app();
-    app.prompt_accessory = PromptAccessory::Help;
+    app.overlay.show_help();
     let rows = accessory_rows(&app, 80, 16);
     let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
     insta::assert_snapshot!("help_rows", frame.render_styled());
@@ -357,8 +364,8 @@ fn snapshot_help_rows() {
 #[test]
 fn help_rows_show_running_ctrl_t_binding() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
-    app.prompt_accessory = PromptAccessory::Help;
+    app.runtime.run_state = RunState::Working;
+    app.overlay.show_help();
     let rows = accessory_rows(&app, 80, 16);
     let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
 
@@ -371,9 +378,9 @@ fn help_rows_show_running_ctrl_t_binding() {
 #[test]
 fn snapshot_command_suggestions() {
     let mut app = test_app();
-    app.input.set_text("c");
-    app.mode = Mode::Command;
-    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+    app.composer.input.set_text("c");
+    app.composer.mode = Mode::Command;
+    app.overlay.show_commands();
     let rows = accessory_rows(&app, 80, 8);
     let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
     insta::assert_snapshot!("command_suggestions", frame.render_styled());
@@ -382,8 +389,8 @@ fn snapshot_command_suggestions() {
 #[test]
 fn snapshot_first_run_recovery_normal() {
     let mut app = test_app();
-    app.model = "opencode/big-pickle".to_string();
-    app.first_run_recovery = Some(FirstRunRecovery {
+    app.runtime.model = "opencode/big-pickle".to_string();
+    app.overlay.show_setup(FirstRunRecovery {
         provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::MissingCredential,
         pending_provider_prompt: true,
@@ -399,8 +406,8 @@ fn snapshot_first_run_recovery_normal() {
 #[test]
 fn snapshot_first_run_recovery_narrow() {
     let mut app = test_app();
-    app.model = "opencode-go/kimi-k2.7-code".to_string();
-    app.first_run_recovery = Some(FirstRunRecovery {
+    app.runtime.model = "opencode-go/kimi-k2.7-code".to_string();
+    app.overlay.show_setup(FirstRunRecovery {
         provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::MissingCredential,
         pending_provider_prompt: true,
@@ -416,8 +423,8 @@ fn snapshot_first_run_recovery_narrow() {
 #[test]
 fn snapshot_first_run_recovery_tiny() {
     let mut app = test_app();
-    app.model = "opencode/big-pickle".to_string();
-    app.first_run_recovery = Some(FirstRunRecovery {
+    app.runtime.model = "opencode/big-pickle".to_string();
+    app.overlay.show_setup(FirstRunRecovery {
         provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::ConfirmStore,
         pending_provider_prompt: true,
@@ -435,8 +442,8 @@ fn snapshot_first_run_recovery_tiny() {
 #[test]
 fn snapshot_chatgpt_recovery_normal() {
     let mut app = test_app();
-    app.model = "chatgpt-codex/gpt-5.5".to_string();
-    app.first_run_recovery = Some(FirstRunRecovery {
+    app.runtime.model = "chatgpt-codex/gpt-5.5".to_string();
+    app.overlay.show_setup(FirstRunRecovery {
         provider: Some(SetupProviderArg::ChatgptCodex),
         stage: RecoveryStage::MissingCredential,
         pending_provider_prompt: true,
@@ -452,8 +459,8 @@ fn snapshot_chatgpt_recovery_normal() {
 #[test]
 fn snapshot_chatgpt_recovery_narrow() {
     let mut app = test_app();
-    app.model = "chatgpt-codex/gpt-5.5".to_string();
-    app.first_run_recovery = Some(FirstRunRecovery {
+    app.runtime.model = "chatgpt-codex/gpt-5.5".to_string();
+    app.overlay.show_setup(FirstRunRecovery {
         provider: Some(SetupProviderArg::ChatgptCodex),
         stage: RecoveryStage::MissingCredential,
         pending_provider_prompt: true,
@@ -469,8 +476,8 @@ fn snapshot_chatgpt_recovery_narrow() {
 #[test]
 fn snapshot_chatgpt_recovery_tiny() {
     let mut app = test_app();
-    app.model = "chatgpt-codex/gpt-5.5".to_string();
-    app.first_run_recovery = Some(FirstRunRecovery {
+    app.runtime.model = "chatgpt-codex/gpt-5.5".to_string();
+    app.overlay.show_setup(FirstRunRecovery {
         provider: Some(SetupProviderArg::ChatgptCodex),
         stage: RecoveryStage::ChatGptOAuthPolling,
         pending_provider_prompt: true,
@@ -503,7 +510,7 @@ fn snapshot_prompt_at_widths(name: &str, text: &str) {
     let mut combined = String::new();
     for width in [80, 40] {
         let mut app = test_app();
-        app.input.set_text(text);
+        app.composer.input.set_text(text);
         let (rows, _) = prompt_rows_for(&app, width);
         let frame = Frame { rows, width, cursor: None, cursor_visible: true };
         combined.push_str(&format!("width={width}:\n"));
@@ -556,8 +563,10 @@ fn snapshot_picker_cjk() {
         PickerItem::new("src/テスト.rs".to_string(), ""),
         PickerItem::new("Cargo.toml".to_string(), ""),
     ];
-    app.picker = Some(PickerState::new(items, 200));
-    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
+    let _ = app.overlay.show_picker(
+        PromptAccessory::Files(FilePickerSource::Forced),
+        PickerState::new(items, 200),
+    );
 
     let mut combined = String::new();
     for width in [80, 40] {
@@ -573,7 +582,7 @@ fn snapshot_picker_cjk() {
 #[test]
 fn snapshot_footer_cjk() {
     let mut app = test_app();
-    app.cwd = std::path::PathBuf::from("/Users/owais/日本語プロジェクト");
+    app.runtime.cwd = std::path::PathBuf::from("/Users/owais/日本語プロジェクト");
 
     let mut combined = String::new();
     for width in [80, 40] {
@@ -591,7 +600,7 @@ fn snapshot_ttft_statusline() {
     let mut combined = String::new();
 
     let mut pending = test_app();
-    pending.ttft.set_pending_for_test();
+    pending.runtime.ttft.set_pending_for_test();
     combined.push_str("pending:\n");
     combined.push_str(
         &Frame { rows: vec![static_status_row(&pending, 96)], width: 96, cursor: None, cursor_visible: true }
@@ -601,6 +610,7 @@ fn snapshot_ttft_statusline() {
 
     let mut measured = test_app();
     measured
+        .runtime
         .ttft
         .set_last_completed_for_test(std::time::Duration::from_millis(842));
     combined.push_str("measured:\n");
@@ -612,6 +622,7 @@ fn snapshot_ttft_statusline() {
 
     let mut retained = test_app();
     retained
+        .runtime
         .ttft
         .set_last_completed_for_test(std::time::Duration::from_millis(1_340));
     combined.push_str("retained:\n");
@@ -622,7 +633,7 @@ fn snapshot_ttft_statusline() {
     combined.push('\n');
 
     let mut narrow = test_app();
-    narrow.ttft.set_pending_for_test();
+    narrow.runtime.ttft.set_pending_for_test();
     combined.push_str("narrow:\n");
     combined.push_str(
         &Frame { rows: vec![static_status_row(&narrow, 80)], width: 80, cursor: None, cursor_visible: true }

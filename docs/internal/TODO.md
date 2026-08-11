@@ -10,20 +10,20 @@
 
 **Acceptance:**
 
-- [ ] Move cohesive fields and invariants into concrete `SessionState`,
+- [x] Move cohesive fields and invariants into concrete `SessionState`,
       `TranscriptState`, `ComposerState`, `OverlayState`, and `RuntimeState`
       structures; add `InstanceState` only when process instances begin.
-- [ ] Keep a single `update(&mut App, Msg)` mutation path and existing external
+- [x] Keep a single `update(&mut App, Msg)` mutation path and existing external
       behavior.
-- [ ] Focus is represented once; impossible combinations of picker, details,
+- [x] Focus is represented once; impossible combinations of picker, details,
       help, setup, and permission surfaces are unrepresentable or rejected.
-- [ ] Session recording, auth recovery, process ownership, MCP audit, and
+- [x] Session recording, auth recovery, process ownership, MCP audit, and
       permission state have clear owners.
-- [ ] Inline one-call helpers and avoid traits that do not mark an effect
+- [x] Inline one-call helpers and avoid traits that do not mark an effect
       boundary.
 
-**Verify:** Existing app/input/renderer tests plus focused tests for domain
-invariants and overlay transitions.
+**Verified:** Existing app/input/renderer tests, focused domain and overlay
+transition tests, workspace Clippy, and the full workspace test suite.
 
 ### UI-2: Normalize input into semantic actions
 

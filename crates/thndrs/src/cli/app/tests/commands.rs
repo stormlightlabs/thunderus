@@ -8,10 +8,10 @@ use helpers::*;
 #[test]
 fn ctrl_a_in_command_mode_inserts_literal_a() {
     let mut app = fresh_app();
-    app.mode = Mode::Command;
-    app.input = PromptInput::from("test");
+    app.composer.mode = Mode::Command;
+    app.composer.input = PromptInput::from("test");
     update(&mut app, &key(KeyCode::Char('a'), KeyModifiers::CONTROL));
-    assert_eq!(app.input.as_str(), "testa");
+    assert_eq!(app.composer.input.as_str(), "testa");
 }
 
 #[test]
@@ -23,7 +23,7 @@ fn colon_enters_command_mode_from_error_state() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE)),
     );
-    assert_eq!(app.mode, Mode::Command);
+    assert_eq!(app.composer.mode, Mode::Command);
 }
 
 #[test]
@@ -33,26 +33,30 @@ fn colon_enters_command_mode() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE)),
     );
-    assert_eq!(app.mode, Mode::Command);
-    assert_eq!(app.prompt_accessory, PromptAccessory::Commands { selected: 0 });
-    assert!(app.input.is_empty());
+    assert_eq!(app.composer.mode, Mode::Command);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::Commands { selected: 0 });
+    assert!(app.composer.input.is_empty());
 }
 
 #[test]
 fn colon_does_not_enter_command_mode_while_working() {
     let mut app = fresh_app();
-    app.run_state = RunState::Working;
+    app.runtime.run_state = RunState::Working;
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE)),
     );
-    assert_eq!(app.mode, Mode::Prompt, "should not enter command mode while working");
+    assert_eq!(
+        app.composer.mode,
+        Mode::Prompt,
+        "should not enter command mode while working"
+    );
 }
 
 #[test]
 fn command_mode_typing_appends_to_input() {
     let mut app = fresh_app();
-    app.mode = Mode::Command;
+    app.composer.mode = Mode::Command;
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)),
@@ -61,8 +65,8 @@ fn command_mode_typing_appends_to_input() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE)),
     );
-    assert_eq!(app.input.as_str(), "cl");
-    assert_eq!(app.mode, Mode::Command);
+    assert_eq!(app.composer.input.as_str(), "cl");
+    assert_eq!(app.composer.mode, Mode::Command);
 }
 
 #[test]
@@ -81,13 +85,13 @@ fn session_commands_are_suggested() {
 #[test]
 fn status_command_shows_secondary_telemetry() {
     let mut app = fresh_app();
-    app.session_tokens_in = 12;
-    app.session_tokens_out = 7;
-    app.input = PromptInput::from("/status");
+    app.runtime.session_tokens_in = 12;
+    app.runtime.session_tokens_out = 7;
+    app.composer.input = PromptInput::from("/status");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    let Some(Entry::Status { text }) = app.transcript.last() else {
+    let Some(Entry::Status { text }) = app.transcript.entries.last() else {
         panic!("status command should append a status entry");
     };
     assert!(text.contains("state: Ready"));
@@ -99,18 +103,18 @@ fn status_command_shows_secondary_telemetry() {
 #[test]
 fn read_only_session_command_failure_preserves_prompt_draft() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/session missing");
+    app.composer.input = PromptInput::from("/session missing");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.input.as_str(), "/session missing");
-    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("not found")));
+    assert_eq!(app.composer.input.as_str(), "/session missing");
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::Error { text }) if text.contains("not found")));
 }
 
 #[test]
 fn ephemeral_runs_cannot_resume_a_durable_session() {
     let mut app = fresh_app();
-    app.run_persistence = RunPersistence::Ephemeral;
+    app.session.run_persistence = RunPersistence::Ephemeral;
 
     update(
         &mut app,
@@ -124,9 +128,9 @@ fn ephemeral_runs_cannot_resume_a_durable_session() {
     }
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
-    assert!(app.session_writer.is_none());
+    assert!(app.session.writer.is_none());
     assert!(
-        matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("ephemeral mode")),
+        matches!(app.transcript.entries.last(), Some(Entry::Error { text }) if text.contains("ephemeral mode")),
         "ephemeral mode must reject session resumption"
     );
 }
@@ -134,11 +138,11 @@ fn ephemeral_runs_cannot_resume_a_durable_session() {
 #[test]
 fn resume_restores_transcript_and_usage_without_live_run_state() {
     let mut app = fresh_app();
-    let sessions_dir = session::sessions_dir(&app.cwd);
+    let sessions_dir = session::sessions_dir(&app.runtime.cwd);
     let mut writer = session::SessionWriter::create(
         &sessions_dir,
         "session-resume",
-        &app.cwd.display().to_string(),
+        &app.runtime.cwd.display().to_string(),
         "Saved work",
         "opencode-go",
         "opencode/big-pickle",
@@ -153,32 +157,34 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
     writer.append_usage(7, 11).expect("append usage");
     drop(writer);
 
-    app.run_state = RunState::Error("stale state".to_string());
-    app.queued_followups.push("stale queue".to_string());
-    app.input = PromptInput::from("/resume");
+    app.runtime.run_state = RunState::Error("stale state".to_string());
+    app.composer.queued_followups.push("stale queue".to_string());
+    app.composer.input = PromptInput::from("/resume");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.prompt_accessory, PromptAccessory::Sessions);
-    let picker = app.picker.as_ref().expect("session picker");
+    assert_eq!(app.overlay.accessory(), PromptAccessory::Sessions);
+    let picker = app.overlay.picker().expect("session picker");
     assert_eq!(picker.matches[0].label, "Saved work");
     assert!(picker.matches[0].detail.contains("session-resume"));
     assert!(picker.matches[0].detail.contains("opencode/big-pickle"));
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.session_id, "session-resume");
-    assert_eq!(app.run_state, RunState::Idle);
-    assert!(app.queued_followups.is_empty());
-    assert_eq!(app.session_tokens_in, 7);
-    assert_eq!(app.session_tokens_out, 11);
-    assert_eq!(app.turn_count, 1);
+    assert_eq!(app.session.id, "session-resume");
+    assert_eq!(app.runtime.run_state, RunState::Idle);
+    assert!(app.composer.queued_followups.is_empty());
+    assert_eq!(app.runtime.session_tokens_in, 7);
+    assert_eq!(app.runtime.session_tokens_out, 11);
+    assert_eq!(app.session.turn_count, 1);
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::User { text } if text == "earlier prompt"))
     );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::Status { text } if text == "resumed session: session-resume"))
     );
@@ -187,12 +193,12 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
 #[test]
 fn cancelling_the_session_picker_preserves_the_current_session_and_draft() {
     let mut app = fresh_app();
-    let current_id = app.session_id.clone();
-    let sessions_dir = session::sessions_dir(&app.cwd);
+    let current_id = app.session.id.clone();
+    let sessions_dir = session::sessions_dir(&app.runtime.cwd);
     session::SessionWriter::create(
         &sessions_dir,
         "session-other",
-        &app.cwd.display().to_string(),
+        &app.runtime.cwd.display().to_string(),
         "Other work",
         "opencode-go",
         "opencode/big-pickle",
@@ -201,25 +207,25 @@ fn cancelling_the_session_picker_preserves_the_current_session_and_draft() {
         None,
     )
     .expect("create session");
-    app.input = PromptInput::from("/resume");
+    app.composer.input = PromptInput::from("/resume");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
 
-    assert_eq!(app.session_id, current_id);
-    assert_eq!(app.input.as_str(), "/resume");
-    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert_eq!(app.session.id, current_id);
+    assert_eq!(app.composer.input.as_str(), "/resume");
+    assert_eq!(app.overlay.accessory(), PromptAccessory::None);
 }
 
 #[test]
 fn locked_session_picker_selection_preserves_the_current_session_and_draft() {
     let mut app = fresh_app();
-    let current_id = app.session_id.clone();
-    let sessions_dir = session::sessions_dir(&app.cwd);
+    let current_id = app.session.id.clone();
+    let sessions_dir = session::sessions_dir(&app.runtime.cwd);
     let _locked = session::SessionWriter::create(
         &sessions_dir,
         "session-locked",
-        &app.cwd.display().to_string(),
+        &app.runtime.cwd.display().to_string(),
         "Locked work",
         "opencode-go",
         "opencode/big-pickle",
@@ -228,25 +234,25 @@ fn locked_session_picker_selection_preserves_the_current_session_and_draft() {
         None,
     )
     .expect("create locked session");
-    app.input = PromptInput::from("/resume");
+    app.composer.input = PromptInput::from("/resume");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.session_id, current_id);
-    assert_eq!(app.input.as_str(), "/resume");
-    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("active writer")));
+    assert_eq!(app.session.id, current_id);
+    assert_eq!(app.composer.input.as_str(), "/resume");
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::Error { text }) if text.contains("active writer")));
 }
 
 #[test]
 fn corrupt_session_picker_selection_preserves_the_current_session_and_draft() {
     let mut app = fresh_app();
-    let current_id = app.session_id.clone();
-    let sessions_dir = session::sessions_dir(&app.cwd);
+    let current_id = app.session.id.clone();
+    let sessions_dir = session::sessions_dir(&app.runtime.cwd);
     let writer = session::SessionWriter::create(
         &sessions_dir,
         "session-corrupt",
-        &app.cwd.display().to_string(),
+        &app.runtime.cwd.display().to_string(),
         "Corrupt work",
         "opencode-go",
         "opencode/big-pickle",
@@ -258,25 +264,25 @@ fn corrupt_session_picker_selection_preserves_the_current_session_and_draft() {
     let path = writer.path().to_path_buf();
     drop(writer);
     std::fs::write(&path, "not json\n").expect("corrupt session");
-    app.input = PromptInput::from("/resume");
+    app.composer.input = PromptInput::from("/resume");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.session_id, current_id);
-    assert_eq!(app.input.as_str(), "/resume");
-    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("corrupt")));
+    assert_eq!(app.session.id, current_id);
+    assert_eq!(app.composer.input.as_str(), "/resume");
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::Error { text }) if text.contains("corrupt")));
 }
 
 #[test]
 fn missing_session_picker_selection_preserves_the_current_session_and_draft() {
     let mut app = fresh_app();
-    let current_id = app.session_id.clone();
-    let sessions_dir = session::sessions_dir(&app.cwd);
+    let current_id = app.session.id.clone();
+    let sessions_dir = session::sessions_dir(&app.runtime.cwd);
     let writer = session::SessionWriter::create(
         &sessions_dir,
         "session-removed",
-        &app.cwd.display().to_string(),
+        &app.runtime.cwd.display().to_string(),
         "Removed work",
         "opencode-go",
         "opencode/big-pickle",
@@ -287,30 +293,30 @@ fn missing_session_picker_selection_preserves_the_current_session_and_draft() {
     .expect("create session");
     let path = writer.path().to_path_buf();
     drop(writer);
-    app.input = PromptInput::from("/resume");
+    app.composer.input = PromptInput::from("/resume");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     std::fs::remove_file(path).expect("remove selected session");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.session_id, current_id);
-    assert_eq!(app.input.as_str(), "/resume");
-    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("not found")));
+    assert_eq!(app.session.id, current_id);
+    assert_eq!(app.composer.input.as_str(), "/resume");
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::Error { text }) if text.contains("not found")));
 }
 
 #[test]
 fn name_command_appends_changes_without_replacing_the_session_id() {
     let mut app = fresh_app();
-    let id = app.session_id.clone();
-    let path = session::resolve_session_file(&session::sessions_dir(&app.cwd), &id).expect("current session");
-    app.session_writer = Some(session::SessionWriter::resume(&path, &id).expect("resume current writer"));
+    let id = app.session.id.clone();
+    let path = session::resolve_session_file(&session::sessions_dir(&app.runtime.cwd), &id).expect("current session");
+    app.session.writer = Some(session::SessionWriter::resume(&path, &id).expect("resume current writer"));
 
-    app.input = PromptInput::from("/name First name");
+    app.composer.input = PromptInput::from("/name First name");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    app.input = PromptInput::from("/name Changed name");
+    app.composer.input = PromptInput::from("/name Changed name");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.session_id, id);
+    assert_eq!(app.session.id, id);
     assert_eq!(session::SessionReader::read_title(&path), "Changed name");
     assert_eq!(
         session::SessionReader::read_records(&path)
@@ -324,106 +330,107 @@ fn name_command_appends_changes_without_replacing_the_session_id() {
 #[test]
 fn invalid_name_command_preserves_the_prompt_draft() {
     let mut app = fresh_app();
-    let id = app.session_id.clone();
-    let path = session::resolve_session_file(&session::sessions_dir(&app.cwd), &id).expect("current session");
-    app.session_writer = Some(session::SessionWriter::resume(&path, &id).expect("resume current writer"));
+    let id = app.session.id.clone();
+    let path = session::resolve_session_file(&session::sessions_dir(&app.runtime.cwd), &id).expect("current session");
+    app.session.writer = Some(session::SessionWriter::resume(&path, &id).expect("resume current writer"));
     let draft = format!("/name {}", "x".repeat(session::MAX_SESSION_NAME_CHARS + 1));
-    app.input = PromptInput::from(draft.as_str());
+    app.composer.input = PromptInput::from(draft.as_str());
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.input.as_str(), draft);
-    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("cannot exceed")));
+    assert_eq!(app.composer.input.as_str(), draft);
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::Error { text }) if text.contains("cannot exceed")));
 }
 
 #[test]
 fn command_mode_enter_executes_and_returns_to_prompt() {
     let mut app = fresh_app();
-    app.mode = Mode::Command;
-    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
-    app.input = PromptInput::from("clear");
+    app.composer.mode = Mode::Command;
+    app.overlay.show_commands();
+    app.composer.input = PromptInput::from("clear");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.mode, Mode::Prompt);
-    assert!(app.input.is_empty());
-    assert!(app.transcript.is_empty(), "clear should clear the transcript");
+    assert_eq!(app.composer.mode, Mode::Prompt);
+    assert!(app.composer.input.is_empty());
+    assert!(app.transcript.entries.is_empty(), "clear should clear the transcript");
 }
 
 #[test]
 fn command_mode_enter_completes_partial_command() {
     let mut app = fresh_app();
-    app.mode = Mode::Command;
-    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
-    app.input = PromptInput::from("cl");
+    app.composer.mode = Mode::Command;
+    app.overlay.show_commands();
+    app.composer.input = PromptInput::from("cl");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
-    assert_eq!(app.mode, Mode::Command);
-    assert_eq!(app.prompt_accessory, PromptAccessory::None);
-    assert_eq!(app.input.as_str(), "clear ");
+    assert_eq!(app.composer.mode, Mode::Command);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::None);
+    assert_eq!(app.composer.input.as_str(), "clear ");
 }
 
 #[test]
 fn command_mode_esc_returns_to_prompt() {
     let mut app = fresh_app();
-    app.mode = Mode::Command;
-    app.input = PromptInput::from("qui");
+    app.composer.mode = Mode::Command;
+    app.composer.input = PromptInput::from("qui");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-    assert_eq!(app.mode, Mode::Prompt);
-    assert!(app.input.is_empty());
+    assert_eq!(app.composer.mode, Mode::Prompt);
+    assert!(app.composer.input.is_empty());
 }
 
 #[test]
 fn command_mode_backspace_on_empty_returns_to_prompt() {
     let mut app = fresh_app();
-    app.mode = Mode::Command;
-    app.input.clear();
+    app.composer.mode = Mode::Command;
+    app.composer.input.clear();
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
     );
-    assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.composer.mode, Mode::Prompt);
 }
 
 #[test]
 fn command_mode_backspace_on_nonempty_pops_char() {
     let mut app = fresh_app();
-    app.mode = Mode::Command;
-    app.input = PromptInput::from("cl");
+    app.composer.mode = Mode::Command;
+    app.composer.input = PromptInput::from("cl");
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
     );
-    assert_eq!(app.input.as_str(), "c");
-    assert_eq!(app.mode, Mode::Command);
+    assert_eq!(app.composer.input.as_str(), "c");
+    assert_eq!(app.composer.mode, Mode::Command);
 }
 
 #[test]
 fn command_mode_quit_command_exits_app() {
     let mut app = fresh_app();
-    app.mode = Mode::Command;
-    app.input = PromptInput::from("quit");
+    app.composer.mode = Mode::Command;
+    app.composer.input = PromptInput::from("quit");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert!(app.quit);
+    assert!(app.runtime.quit);
 }
 
 #[test]
 fn command_mode_help_command_enters_help_overlay() {
     let mut app = fresh_app();
-    app.mode = Mode::Command;
-    app.input = PromptInput::from("help");
+    app.composer.mode = Mode::Command;
+    app.composer.input = PromptInput::from("help");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.mode, Mode::Prompt);
-    assert_eq!(app.prompt_accessory, PromptAccessory::Help);
+    assert_eq!(app.composer.mode, Mode::Prompt);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::Help);
 }
 
 #[test]
 fn bg_command_with_no_processes_shows_empty_message() {
     let mut app = fresh_app();
-    app.mode = Mode::Command;
-    app.input = PromptInput::from("bg");
+    app.composer.mode = Mode::Command;
+    app.composer.input = PromptInput::from("bg");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|e| matches!(e, Entry::Status { text } if text.contains("no background"))),
         "should show no background processes"
@@ -434,19 +441,20 @@ fn bg_command_with_no_processes_shows_empty_message() {
 fn bg_command_lists_registered_background_processes() {
     let mut app = fresh_app();
     let cancel = CancelToken::new();
-    let id = app.process_registry.register(
+    let id = app.runtime.process_registry.register(
         vec!["cargo".to_string(), "build".to_string()],
         std::path::PathBuf::from("."),
         tools::shell::ProcessKind::Background,
         cancel,
     );
 
-    app.mode = Mode::Command;
-    app.input = PromptInput::from("bg");
+    app.composer.mode = Mode::Command;
+    app.composer.input = PromptInput::from("bg");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
     let status_text = app
         .transcript
+        .entries
         .iter()
         .rev()
         .find_map(|e| match e {
@@ -474,35 +482,40 @@ fn bg_cancel_terminates_real_owned_child() {
         &args,
         dir.path(),
         &CancelToken::new(),
-        Some(&app.process_registry),
+        Some(&app.runtime.process_registry),
     )
     .expect("spawn background child");
     let id = result.process_id.expect("process id");
-    app.process_registry.announce(id);
+    app.runtime.process_registry.announce(id);
 
-    app.mode = Mode::Command;
-    app.input = PromptInput::from(format!("bg cancel {id}"));
+    app.composer.mode = Mode::Command;
+    app.composer.input = PromptInput::from(format!("bg cancel {id}"));
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert!(app.process_registry.get(id).is_some(), "cancellation is asynchronous");
+    assert!(
+        app.runtime.process_registry.get(id).is_some(),
+        "cancellation is asynchronous"
+    );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| { matches!(entry, Entry::Status { text } if text.contains("cancellation requested")) })
     );
 
     for _ in 0..50 {
         update(&mut app, &Msg::Tick);
-        if app.process_registry.get(id).is_none() {
+        if app.runtime.process_registry.get(id).is_none() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     assert!(
-        app.process_registry.get(id).is_none(),
+        app.runtime.process_registry.get(id).is_none(),
         "child should be reaped on a tick"
     );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| { matches!(entry, Entry::Status { text } if text.contains("cancelled")) })
     );
@@ -517,47 +530,47 @@ fn model_command_opens_picker_and_selects_model() {
     }
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.prompt_accessory, PromptAccessory::Models);
-    assert!(app.picker.is_some());
+    assert_eq!(app.overlay.accessory(), PromptAccessory::Models);
+    assert!(app.overlay.picker().is_some());
 
-    if let Some(picker) = app.picker.as_mut() {
+    if let Some(picker) = app.overlay.picker_mut() {
         picker.query = "opencode/gpt-5.6-luna".to_string();
         picker.refresh_matches();
     }
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.prompt_accessory, PromptAccessory::ReasoningEffort);
-    assert_eq!(app.model, "opencode/gpt-5.6-luna");
-    assert!(app.picker.is_some());
+    assert_eq!(app.overlay.accessory(), PromptAccessory::ReasoningEffort);
+    assert_eq!(app.runtime.model, "opencode/gpt-5.6-luna");
+    assert!(app.overlay.picker().is_some());
 }
 
 #[test]
 fn gpt_5_6_model_selection_prompts_for_and_saves_reasoning_effort() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("/model");
+    app.composer.input = PromptInput::from("/model");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    let picker = app.picker.as_mut().expect("model picker");
+    let picker = app.overlay.picker_mut().expect("model picker");
     picker.query = "opencode/gpt-5.6-terra".to_string();
     picker.refresh_matches();
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.model, "opencode/gpt-5.6-terra");
+    assert_eq!(app.runtime.model, "opencode/gpt-5.6-terra");
     assert!(
-        app.input.is_empty(),
+        app.composer.input.is_empty(),
         "the typed /model command must not remain in the prompt"
     );
-    assert_eq!(app.prompt_accessory, PromptAccessory::ReasoningEffort);
-    let picker = app.picker.as_mut().expect("reasoning effort picker");
+    assert_eq!(app.overlay.accessory(), PromptAccessory::ReasoningEffort);
+    let picker = app.overlay.picker_mut().expect("reasoning effort picker");
     picker.query = "xhigh".to_string();
     picker.refresh_matches();
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.cli.reasoning_effort, ReasoningEffort::Xhigh);
-    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert_eq!(app.runtime.cli.reasoning_effort, ReasoningEffort::Xhigh);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::None);
     assert_eq!(
-        std::fs::read_to_string(app.cwd.join(".thndrs").join("config.toml")).expect("read config"),
+        std::fs::read_to_string(app.runtime.cwd.join(".thndrs").join("config.toml")).expect("read config"),
         "model = \"opencode/gpt-5.6-terra\"\nreasoning_effort = \"xhigh\"\n"
     );
 }
@@ -565,16 +578,17 @@ fn gpt_5_6_model_selection_prompts_for_and_saves_reasoning_effort() {
 #[test]
 fn reasoning_command_opens_the_current_effort_picker() {
     let mut app = fresh_app();
-    app.model = "opencode/gpt-5.6-sol".to_string();
-    app.cli.model = app.model.clone();
-    app.cli.reasoning_effort = ReasoningEffort::High;
-    app.input = PromptInput::from("/reasoning");
+    app.runtime.model = "opencode/gpt-5.6-sol".to_string();
+    app.runtime.cli.model = app.runtime.model.clone();
+    app.runtime.cli.reasoning_effort = ReasoningEffort::High;
+    app.composer.input = PromptInput::from("/reasoning");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.prompt_accessory, PromptAccessory::ReasoningEffort);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::ReasoningEffort);
     assert_eq!(
-        app.picker
+        app.overlay
+            .picker()
             .as_ref()
             .expect("reasoning picker")
             .selected()
@@ -589,17 +603,17 @@ fn skills_command_opens_picker_and_renders_selected_skill_markdown() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let markdown = "---\nname: example-skill\ndescription: Helps test.\n---\n# Example Skill\n\nUse carefully.\n";
     let mut app = fresh_app();
-    app.skills = vec![test_skill(dir.path().join("example-skill").join("SKILL.md"), markdown)];
-    app.input = PromptInput::from("/skills");
+    app.transcript.skills = vec![test_skill(dir.path().join("example-skill").join("SKILL.md"), markdown)];
+    app.composer.input = PromptInput::from("/skills");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.prompt_accessory, PromptAccessory::Skills);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::Skills);
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
-    assert_eq!(app.prompt_accessory, PromptAccessory::None);
-    assert!(app.picker.is_none());
-    assert!(app.transcript.iter().any(|entry| matches!(
+    assert_eq!(app.overlay.accessory(), PromptAccessory::None);
+    assert!(app.overlay.picker().is_none());
+    assert!(app.transcript.entries.iter().any(|entry| matches!(
         entry,
         Entry::Agent { text, streaming: false }
             if text.contains("# Skill: example-skill") && text.contains("# Example Skill")
@@ -614,17 +628,17 @@ fn skills_command_surfaces_activation_reference_diagnostics() {
     skill.references = vec![PathBuf::from("missing.md")];
 
     let mut app = fresh_app();
-    app.skills = vec![skill];
-    app.input = PromptInput::from("/skills");
+    app.transcript.skills = vec![skill];
+    app.composer.input = PromptInput::from("/skills");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
-    assert!(app.transcript.iter().any(|entry| matches!(
+    assert!(app.transcript.entries.iter().any(|entry| matches!(
         entry,
         Entry::Error { text } if text.contains("missing.md") && text.contains("does not exist")
     )));
-    assert!(app.transcript.iter().any(|entry| matches!(
+    assert!(app.transcript.entries.iter().any(|entry| matches!(
         entry,
         Entry::Agent { text, streaming: false } if text.contains("# Example Skill")
     )));

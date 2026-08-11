@@ -425,7 +425,7 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
     cancellation: &CancelToken,
 ) -> Result<()> {
     let mut app = App::from_cli(cli);
-    if let Some(recovery) = &app.first_run_recovery {
+    if let Some(recovery) = app.overlay.setup() {
         return Err(RunError::new(
             Exit::Setup,
             format!(
@@ -462,7 +462,7 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
         }
 
         let Some(slot) = &agent else {
-            return match &app.run_state {
+            return match &app.runtime.run_state {
                 RunState::Idle => finish_output(stdout, &mut output),
                 RunState::Error(message) => {
                     finish_output(stdout, &mut output).and(Err(RunError::new(Exit::Failure, message.clone())))
@@ -515,7 +515,7 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
                         return Err(RunError::new(Exit::Cancelled, "headless run cancelled"));
                     }
                     match terminal {
-                        Terminal::Finished if app.run_state == RunState::Idle => return Ok(()),
+                        Terminal::Finished if app.runtime.run_state == RunState::Idle => return Ok(()),
                         Terminal::Finished => continue,
                         Terminal::Failed(message) => return Err(RunError::new(Exit::Failure, message)),
                         Terminal::Cancelled => return Err(RunError::new(Exit::Cancelled, "headless run cancelled")),

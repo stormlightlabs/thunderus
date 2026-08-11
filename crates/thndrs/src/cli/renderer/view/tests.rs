@@ -1,7 +1,7 @@
 use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
 use crate::app::{
-    App, DetailPane, Entry, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, PromptAccessory,
-    RecoveryStage, RunState, ToolStatus, VISIBLE_ROWS,
+    App, Entry, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, PromptAccessory, RecoveryStage,
+    RunState, ToolStatus, VISIBLE_ROWS,
 };
 use crate::cli::{Cli, Theme, WebSearchMode, commands::setup::SetupProviderArg};
 use crate::renderer;
@@ -35,14 +35,14 @@ fn test_app() -> App {
         context: thndrs_agent::context::ContextConfig::default(),
         command: None,
     });
-    app.first_run_recovery = None;
-    app.session_id = "test-session".to_string();
-    app.git_status =
+    app.overlay.close();
+    app.session.id = "test-session".to_string();
+    app.runtime.git_status =
         Some(renderer::git::GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
-    app.transcript.clear();
-    app.context_sources.clear();
-    app.skills.clear();
-    app.skill_diagnostics.clear();
+    app.transcript.entries.clear();
+    app.transcript.context_sources.clear();
+    app.transcript.skills.clear();
+    app.transcript.skill_diagnostics.clear();
     app
 }
 
@@ -74,7 +74,7 @@ fn build_view_idle_has_empty_transcript_and_banner() {
 fn context_surface_stays_bounded_at_normal_narrow_and_small_height() {
     let mut app = test_app();
     app.refresh_context_ledger(None);
-    app.prompt_accessory = PromptAccessory::Context;
+    app.overlay.show_context();
 
     for (width, height) in [(80, 24), (30, 8), (20, 3)] {
         let view = RendererView::build(&app, width, height);
@@ -92,8 +92,10 @@ fn context_surface_stays_bounded_at_normal_narrow_and_small_height() {
 #[test]
 fn build_view_submitted_user_is_rendered() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
-    app.transcript.push(Entry::User { text: "do the thing".to_string() });
+    app.runtime.run_state = RunState::Working;
+    app.transcript
+        .entries
+        .push(Entry::User { text: "do the thing".to_string() });
 
     let view = RendererView::build(&app, 80, 24);
 
@@ -121,10 +123,11 @@ fn build_view_submitted_user_is_rendered() {
 #[test]
 fn build_view_streaming_assistant_is_all_live() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
+    app.runtime.run_state = RunState::Working;
 
     let text = "line one. line two. line three. line four. line five. line six. line seven. line eight.";
     app.transcript
+        .entries
         .push(Entry::Agent { text: text.to_string(), streaming: true });
 
     let view = RendererView::build(&app, 80, 24);
@@ -156,8 +159,8 @@ fn build_view_streaming_assistant_is_all_live() {
 #[test]
 fn build_view_long_streaming_reasoning_is_all_live() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
-    app.transcript.push(Entry::Reasoning {
+    app.runtime.run_state = RunState::Working;
+    app.transcript.entries.push(Entry::Reasoning {
         text: (0..40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n"),
         streaming: true,
     });
@@ -191,8 +194,9 @@ fn build_view_long_streaming_reasoning_is_all_live() {
 #[test]
 fn build_view_streaming_assistant_short_block_is_all_live() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
+    app.runtime.run_state = RunState::Working;
     app.transcript
+        .entries
         .push(Entry::Agent { text: "short".to_string(), streaming: true });
 
     let view = RendererView::build(&app, 80, 24);
@@ -221,8 +225,8 @@ fn build_view_streaming_assistant_short_block_is_all_live() {
 #[test]
 fn build_view_running_tool_is_live_only() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
-    app.transcript.push(Entry::Tool {
+    app.runtime.run_state = RunState::Working;
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program": "cargo test"}"#.to_string(),
         status: ToolStatus::Running,
@@ -256,7 +260,7 @@ fn build_view_running_tool_is_live_only() {
 fn consecutive_tools_share_one_activity_heading() {
     let mut app = test_app();
     for name in ["find_files", "search_text"] {
-        app.transcript.push(Entry::Tool {
+        app.transcript.entries.push(Entry::Tool {
             name: name.to_string(),
             arguments: "{}".to_string(),
             status: ToolStatus::Ok,
@@ -278,8 +282,11 @@ fn consecutive_tools_share_one_activity_heading() {
 #[test]
 fn build_view_narrow_changes_row_counts() {
     let mut app = test_app();
-    app.input.set_text("a longer prompt that should wrap at narrow width");
+    app.composer
+        .input
+        .set_text("a longer prompt that should wrap at narrow width");
     app.transcript
+        .entries
         .push(Entry::User { text: "This is a user message that will wrap differently at narrow width.".to_string() });
 
     let wide = RendererView::build(&app, 80, 24);
@@ -304,7 +311,7 @@ fn build_view_narrow_changes_row_counts() {
 #[test]
 fn build_view_preserves_cursor_for_editable_prompt() {
     let mut app = test_app();
-    app.input.set_text("hello world");
+    app.composer.input.set_text("hello world");
     let view = RendererView::build(&app, 80, 24);
 
     assert!(
@@ -316,7 +323,8 @@ fn build_view_preserves_cursor_for_editable_prompt() {
 #[test]
 fn build_view_prompt_clipping_keeps_cursor_row() {
     let mut app = test_app();
-    app.input
+    app.composer
+        .input
         .set_text(&(0..20).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n"));
 
     let view = RendererView::build(&app, 80, 24);
@@ -348,8 +356,8 @@ fn build_view_prompt_clipping_keeps_cursor_row() {
 #[test]
 fn build_view_working_state_has_live_tail_and_composer_status() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
-    app.transcript.push(Entry::Agent {
+    app.runtime.run_state = RunState::Working;
+    app.transcript.entries.push(Entry::Agent {
         text: "streaming text that is currently being generated by the model".to_string(),
         streaming: true,
     });
@@ -363,8 +371,8 @@ fn build_view_working_state_has_live_tail_and_composer_status() {
 #[test]
 fn build_view_streaming_with_tool_has_live_tail_and_running_status() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
-    app.transcript.push(Entry::Tool {
+    app.runtime.run_state = RunState::Working;
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program": "cargo test"}"#.to_string(),
         status: ToolStatus::Running,
@@ -386,9 +394,11 @@ fn build_view_streaming_with_tool_has_live_tail_and_running_status() {
 #[test]
 fn build_view_accessory_surfaces_are_present_when_active() {
     let mut app = test_app();
-    app.input.set_text("@src");
-    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
-    app.picker = Some(PickerState::new(vec![PickerItem::new("src/main.rs", "main entry")], 50));
+    app.composer.input.set_text("@src");
+    let _ = app.overlay.show_picker(
+        PromptAccessory::Files(FilePickerSource::Forced),
+        PickerState::new(vec![PickerItem::new("src/main.rs", "main entry")], 50),
+    );
 
     let view = RendererView::build(&app, 80, 24);
 
@@ -408,9 +418,9 @@ fn build_view_accessory_surfaces_are_present_when_active() {
 #[test]
 fn build_view_queued_summary_appears_when_prompts_queued() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
-    app.queued_followups.push("next task".to_string());
-    app.queued_steering.push("look at tests".to_string());
+    app.runtime.run_state = RunState::Working;
+    app.composer.queued_followups.push("next task".to_string());
+    app.composer.queued_steering.push("look at tests".to_string());
 
     let view = RendererView::build(&app, 80, 24);
 
@@ -445,7 +455,8 @@ fn build_view_queued_summary_absent_when_nothing_queued() {
 fn build_view_pending_permission_takes_priority_over_focused_surface() {
     let mut app = test_app();
     let (tx, _rx) = mpsc::channel();
-    app.pending_permission = Some(PendingPermission {
+    app.overlay.show_help();
+    app.overlay.show_permission(PendingPermission {
         tool_call_id: "call_1".to_string(),
         title: "Write src/main.rs".to_string(),
         options: vec![
@@ -463,7 +474,6 @@ fn build_view_pending_permission_takes_priority_over_focused_surface() {
         selected: 0,
         responder: tx,
     });
-    app.prompt_accessory = PromptAccessory::Help;
 
     let view = RendererView::build(&app, 80, 24);
     let text = view
@@ -491,13 +501,13 @@ fn build_view_pending_permission_takes_priority_over_focused_surface() {
 #[test]
 fn build_view_detail_pane_appears_when_open() {
     let mut app = test_app();
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program": "ls"}"#.to_string(),
         status: ToolStatus::Ok,
         output: vec!["file_a.rs".to_string(), "file_b.rs".to_string()],
     });
-    app.detail_pane = DetailPane { entry_index: 0, scroll: 0, open: true };
+    app.overlay.show_detail(0);
 
     let view = RendererView::build(&app, 80, 24);
 
@@ -518,13 +528,14 @@ fn build_view_detail_pane_appears_when_open() {
 #[test]
 fn build_view_detail_pane_scrolls_wrapped_rows() {
     let mut app = test_app();
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program": "printf"}"#.to_string(),
         status: ToolStatus::Ok,
         output: vec!["alpha beta gamma delta epsilon zeta eta theta iota kappa lambda".to_string()],
     });
-    app.detail_pane = DetailPane { entry_index: 0, scroll: 1, open: true };
+    app.overlay.show_detail(0);
+    app.overlay.detail_mut().expect("detail overlay").scroll = 1;
 
     let view = RendererView::build(&app, 30, 24);
     let body = view
@@ -552,13 +563,14 @@ fn build_view_detail_pane_scrolls_wrapped_rows() {
 #[test]
 fn build_view_detail_pane_reports_clipped_content() {
     let mut app = test_app();
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program": "seq 20"}"#.to_string(),
         status: ToolStatus::Ok,
         output: (0..20).map(|index| format!("line {index}")).collect(),
     });
-    app.detail_pane = DetailPane { entry_index: 0, scroll: 3, open: true };
+    app.overlay.show_detail(0);
+    app.overlay.detail_mut().expect("detail overlay").scroll = 3;
 
     let view = RendererView::build(&app, 80, 24);
     let body = view
@@ -578,31 +590,33 @@ fn build_view_detail_pane_reports_clipped_content() {
 #[test]
 fn build_view_handles_large_transcript_with_running_tool_and_detail_pane() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
+    app.runtime.run_state = RunState::Working;
 
     for index in 0..300 {
         app.transcript
+            .entries
             .push(Entry::User { text: format!("user message {index}") });
-        app.transcript.push(Entry::Agent {
+        app.transcript.entries.push(Entry::Agent {
             text: format!("assistant response {index} with enough prose to wrap at least sometimes"),
             streaming: false,
         });
     }
 
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program": "cargo test"}"#.to_string(),
         status: ToolStatus::Ok,
         output: (0..200).map(|index| format!("finished output line {index}")).collect(),
     });
-    let detail_index = app.transcript.len() - 1;
-    app.transcript.push(Entry::Tool {
+    let detail_index = app.transcript.entries.len() - 1;
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program": "cargo test renderer"}"#.to_string(),
         status: ToolStatus::Running,
         output: (0..200).map(|index| format!("running output line {index}")).collect(),
     });
-    app.detail_pane = DetailPane { entry_index: detail_index, scroll: 120, open: true };
+    app.overlay.show_detail(detail_index);
+    app.overlay.detail_mut().expect("detail overlay").scroll = 120;
 
     let view = RendererView::build(&app, 100, 32);
 
@@ -629,7 +643,7 @@ fn build_view_handles_large_transcript_with_running_tool_and_detail_pane() {
 #[test]
 fn build_view_detail_pane_absent_when_closed() {
     let mut app = test_app();
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program": "ls"}"#.to_string(),
         status: ToolStatus::Ok,
@@ -647,9 +661,12 @@ fn build_view_detail_pane_absent_when_closed() {
 #[test]
 fn build_view_narrow_width_still_has_prompt_and_footer() {
     let mut app = test_app();
-    app.input
+    app.composer
+        .input
         .set_text("a long prompt that wraps at narrow width definitely");
-    app.transcript.push(Entry::User { text: "user message".to_string() });
+    app.transcript
+        .entries
+        .push(Entry::User { text: "user message".to_string() });
 
     let view = RendererView::build(&app, 20, 24);
 
@@ -670,10 +687,10 @@ fn build_view_narrow_width_still_has_prompt_and_footer() {
 #[test]
 fn build_view_tiny_height_clips_live_tail() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
+    app.runtime.run_state = RunState::Working;
 
     let text = "line one. line two. line three. line four. line five. line six. line seven. line eight.".to_string();
-    app.transcript.push(Entry::Agent { text, streaming: true });
+    app.transcript.entries.push(Entry::Agent { text, streaming: true });
 
     let view = RendererView::build(&app, 80, 8);
 
@@ -718,18 +735,22 @@ fn build_view_view_dimensions_match_input() {
 #[test]
 fn semantic_view_maps_transcript_row_kinds_and_tool_states() {
     let mut app = test_app();
-    app.transcript.push(Entry::User { text: "hello".to_string() });
+    app.transcript.entries.push(Entry::User { text: "hello".to_string() });
     app.transcript
+        .entries
         .push(Entry::Agent { text: "answer".to_string(), streaming: false });
     app.transcript
+        .entries
         .push(Entry::Reasoning { text: "thinking".to_string(), streaming: true });
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program":"cargo test"}"#.to_string(),
         status: ToolStatus::Failed,
         output: vec!["failure".to_string()],
     });
-    app.transcript.push(Entry::Status { text: "cancelled".to_string() });
+    app.transcript
+        .entries
+        .push(Entry::Status { text: "cancelled".to_string() });
 
     let view = RendererView::build(&app, 80, 24);
     let rows = &view.semantic.transcript.rows;
@@ -746,7 +767,7 @@ fn semantic_view_maps_transcript_row_kinds_and_tool_states() {
 #[test]
 fn semantic_view_represents_edit_and_diff_summaries() {
     let mut app = test_app();
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: "replace_range#tool1".to_string(),
         arguments: r#"{"path":"src/lib.rs"}"#.to_string(),
         status: ToolStatus::Ok,
@@ -776,9 +797,11 @@ fn semantic_view_represents_edit_and_diff_summaries() {
 #[test]
 fn semantic_prompt_has_queued_summary_without_queued_text() {
     let mut app = test_app();
-    app.run_state = RunState::Working;
-    app.queued_followups.push("do the private next thing".to_string());
-    app.queued_steering.push("steer quietly".to_string());
+    app.runtime.run_state = RunState::Working;
+    app.composer
+        .queued_followups
+        .push("do the private next thing".to_string());
+    app.composer.queued_steering.push("steer quietly".to_string());
 
     let view = RendererView::build(&app, 80, 24);
     let prompt = &view.semantic.prompt;
@@ -797,9 +820,9 @@ fn semantic_prompt_has_queued_summary_without_queued_text() {
 #[test]
 fn semantic_prompt_represents_command_suggestions() {
     let mut app = test_app();
-    app.mode = Mode::Command;
-    app.input.set_text("he");
-    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+    app.composer.mode = Mode::Command;
+    app.composer.input.set_text("he");
+    app.overlay.show_commands();
 
     let view = RendererView::build(&app, 80, 24);
     let suggestions = &view.semantic.prompt.suggestions;
@@ -815,9 +838,11 @@ fn semantic_prompt_represents_command_suggestions() {
 #[test]
 fn semantic_prompt_represents_file_mention_suggestions() {
     let mut app = test_app();
-    app.input.set_text("read @src");
-    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Mention { token_start: 5 });
-    app.picker = Some(PickerState::new(vec![PickerItem::new("src/lib.rs", "library")], 50));
+    app.composer.input.set_text("read @src");
+    let _ = app.overlay.show_picker(
+        PromptAccessory::Files(FilePickerSource::Mention { token_start: 5 }),
+        PickerState::new(vec![PickerItem::new("src/lib.rs", "library")], 50),
+    );
 
     let view = RendererView::build(&app, 80, 24);
     let suggestions = &view.semantic.prompt.suggestions;
@@ -830,14 +855,16 @@ fn semantic_prompt_represents_file_mention_suggestions() {
 #[test]
 fn semantic_session_picker_projects_recent_session_metadata() {
     let mut app = test_app();
-    app.prompt_accessory = PromptAccessory::Sessions;
-    app.picker = Some(PickerState::new(
-        vec![PickerItem::new(
-            "Named work",
-            "session-20260809 · opencode/big-pickle · 12 in / 7 out",
-        )],
-        50,
-    ));
+    let _ = app.overlay.show_picker(
+        PromptAccessory::Sessions,
+        PickerState::new(
+            vec![PickerItem::new(
+                "Named work",
+                "session-20260809 · opencode/big-pickle · 12 in / 7 out",
+            )],
+            50,
+        ),
+    );
 
     let view = RendererView::build(&app, 80, 24);
 
@@ -875,7 +902,7 @@ fn semantic_orientation_has_truncation_metadata() {
 #[test]
 fn semantic_orientation_identifies_ephemeral_runs() {
     let mut app = test_app();
-    app.run_persistence = crate::app::RunPersistence::Ephemeral;
+    app.session.run_persistence = crate::app::RunPersistence::Ephemeral;
     let view = RendererView::build(&app, 80, 24);
 
     assert!(
@@ -890,13 +917,14 @@ fn semantic_orientation_identifies_ephemeral_runs() {
 #[test]
 fn semantic_focused_surface_represents_tool_detail() {
     let mut app = test_app();
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: "{}".to_string(),
         status: ToolStatus::Ok,
         output: vec!["one".to_string(), "two".to_string()],
     });
-    app.detail_pane = DetailPane { entry_index: 0, scroll: 1, open: true };
+    app.overlay.show_detail(0);
+    app.overlay.detail_mut().expect("detail overlay").scroll = 1;
 
     let view = RendererView::build(&app, 80, 24);
 
@@ -914,7 +942,8 @@ fn semantic_focused_surface_represents_tool_detail() {
 #[test]
 fn semantic_setup_surface_projects_selection_and_masks_credentials() {
     let mut app = test_app();
-    app.first_run_recovery = Some(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
+    app.overlay
+        .show_setup(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
 
     let view = RendererView::build(&app, 80, 24);
     match &view.semantic.focused_surface {
@@ -927,7 +956,7 @@ fn semantic_setup_surface_projects_selection_and_masks_credentials() {
         surface => panic!("expected setup surface, got {surface:?}"),
     }
 
-    app.first_run_recovery = Some(FirstRunRecovery {
+    app.overlay.show_setup(FirstRunRecovery {
         provider: Some(SetupProviderArg::OpencodeGo),
         stage: RecoveryStage::EnterKey,
         pending_provider_prompt: false,

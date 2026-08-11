@@ -629,7 +629,7 @@ impl App {
         let diagnostics = self
             .startup_section_lines(&sections, "Diagnostics")
             .into_iter()
-            .skip(self.skill_diagnostics.len())
+            .skip(self.transcript.skill_diagnostics.len())
             .collect::<Vec<_>>();
 
         let mut rows = Vec::new();
@@ -658,8 +658,8 @@ impl App {
             1 => "1 skill available".to_string(),
             count => format!("{count} skills available"),
         };
-        if !self.skill_diagnostics.is_empty() {
-            skills_text.push_str(&format!(" · {} skipped", self.skill_diagnostics.len()));
+        if !self.transcript.skill_diagnostics.is_empty() {
+            skills_text.push_str(&format!(" · {} skipped", self.transcript.skill_diagnostics.len()));
         }
         push_banner_readiness_row(&mut rows, &skills_text, "skills", skill_count > 0, theme);
 
@@ -689,7 +689,7 @@ impl App {
                     .lines
                     .iter()
                     .map(|line| match section.heading {
-                        "Context" | "Diagnostics" => super::path_display::transcript_line(line, &self.cwd),
+                        "Context" | "Diagnostics" => super::path_display::transcript_line(line, &self.runtime.cwd),
                         _ => line.clone(),
                     })
                     .collect()

@@ -39,21 +39,21 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         PromptState::Errored => (p.red, "✕"),
     };
 
-    let prefix_width = if app.mode == Mode::Command { 4 } else { 3 };
+    let prefix_width = if app.composer.mode == Mode::Command { 4 } else { 3 };
     let row_body_width = super::layout::content_width(width);
     let framed = composer_frame_height(width) > 0;
     let horizontal_chrome = if framed { 4 } else { LIVE_INSET };
     let body_width = row_body_width.saturating_sub(horizontal_chrome + prefix_width).max(1);
     let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
-    let hidden_entry_active = app.first_run_recovery.as_ref().is_some_and(|recovery| {
+    let hidden_entry_active = app.overlay.setup().is_some_and(|recovery| {
         matches!(
             recovery.stage,
             RecoveryStage::EnterKey | RecoveryStage::ChatGptOAuthPasteRedirect
         )
     });
     let hidden_display = String::from("credential: [hidden]");
-    let input_text = if hidden_entry_active { hidden_display.as_str() } else { app.input.as_str() };
-    let cursor_pos = if hidden_entry_active { input_text.len() } else { app.input.cursor() };
+    let input_text = if hidden_entry_active { hidden_display.as_str() } else { app.composer.input.as_str() };
+    let cursor_pos = if hidden_entry_active { input_text.len() } else { app.composer.input.cursor() };
 
     let visual_rows = prompt_rows(input_text, body_width);
     let cursor = prompt_cursor(input_text, cursor_pos, body_width, cursor_indent);
@@ -71,7 +71,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
                 Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
                 Span::styled("  ", CellStyle::new().bg(surface)),
             ];
-            if app.mode == Mode::Command {
+            if app.composer.mode == Mode::Command {
                 s.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
             }
             s
@@ -86,7 +86,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
                 Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
                 Span::styled("  ", CellStyle::new().bg(surface)),
             ];
-            if app.mode == Mode::Command {
+            if app.composer.mode == Mode::Command {
                 s.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
             }
             s
@@ -124,7 +124,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
                 Span::styled("  ", CellStyle::new().bg(surface)),
             ]
         };
-        if app.mode == Mode::Command {
+        if app.composer.mode == Mode::Command {
             spans.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
         }
         if framed {
@@ -171,7 +171,7 @@ pub fn frame_prompt_rows(
     let status = (status_label != "Ready").then(|| {
         let icon = super::style::status_icon(
             &status_label,
-            super::style::spinner_tick(app.ui_tick, app.cli.tick_rate_ms),
+            super::style::spinner_tick(app.runtime.ui_tick, app.runtime.cli.tick_rate_ms),
         );
         format!(" {icon} {status_label} ")
     });
@@ -250,8 +250,8 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
 ///
 /// Returns `None` when the queue is empty or the agent is idle.
 pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
-    let steering = app.queued_steering.len();
-    let followups = app.queued_followups.len();
+    let steering = app.composer.queued_steering.len();
+    let followups = app.composer.queued_followups.len();
     if steering == 0 && followups == 0 {
         return None;
     }
@@ -285,7 +285,10 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
         return Vec::new();
     }
 
-    let Some(entry) = app.transcript.get(app.detail_pane.entry_index) else {
+    let Some(detail) = app.overlay.detail() else {
+        return Vec::new();
+    };
+    let Some(entry) = app.transcript.entries.get(detail.entry_index) else {
         return Vec::new();
     };
     let Entry::Tool { name, arguments, status, output } = entry else {
@@ -320,7 +323,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
         Span::styled(format!(" [{status_label}]"), status_style),
     ];
 
-    let args_summary = renderer::transcript::summarize_tool_invocation(base_name, arguments, &app.cwd);
+    let args_summary = renderer::transcript::summarize_tool_invocation(base_name, arguments, &app.runtime.cwd);
     if !args_summary.is_empty() {
         title_spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
         title_spans.push(Span::styled(args_summary, muted_style));
@@ -330,7 +333,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
     let mut body_rows = Vec::new();
 
     for line in output {
-        let line = renderer::path_display::transcript_line(line, &app.cwd);
+        let line = renderer::path_display::transcript_line(line, &app.runtime.cwd);
         for wrapped in super::layout::wrap_text(&line, body_width) {
             let spans = vec![Span::styled(GUTTER, gutter_style), Span::styled(wrapped, body_style)];
             body_rows.push(Row::padded(spans, width, CellStyle::new().bg(bg)));
@@ -338,7 +341,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
     }
 
     let mut rows = Vec::with_capacity(max_height);
-    let scroll = app.detail_pane.scroll.min(body_rows.len().saturating_sub(1));
+    let scroll = detail.scroll.min(body_rows.len().saturating_sub(1));
     let body_budget = max_height.saturating_sub(1);
     let hidden_above = scroll;
     let hidden_below = body_rows.len().saturating_sub(scroll + body_budget);

@@ -157,11 +157,11 @@ impl PickerState {
 /// - Up/Down recall prompt history.
 pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        if app.run_state == RunState::Working {
+        if app.runtime.run_state == RunState::Working {
             agent_lifecycle::cancel_stream(app);
             return None;
         }
-        app.quit = true;
+        app.runtime.quit = true;
         return Some(Msg::Quit);
     }
 
@@ -174,16 +174,17 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         && key.modifiers.contains(KeyModifiers::CONTROL)
         && !key.modifiers.contains(KeyModifiers::ALT)
     {
-        if let Some(deadline) = app.ctrl_d_pending
-            && !agent_lifecycle::now_or_after_deadline(app.ui_tick, deadline)
+        if let Some(deadline) = app.runtime.ctrl_d_pending
+            && !agent_lifecycle::now_or_after_deadline(app.runtime.ui_tick, deadline)
         {
-            app.ctrl_d_pending = None;
-            app.quit = true;
+            app.runtime.ctrl_d_pending = None;
+            app.runtime.quit = true;
             return Some(Msg::Quit);
         } else {
-            let deadline = app.ui_tick.wrapping_add(quit_confirm_timeout_ticks(app));
-            app.ctrl_d_pending = Some(deadline);
+            let deadline = app.runtime.ui_tick.wrapping_add(quit_confirm_timeout_ticks(app));
+            app.runtime.ctrl_d_pending = Some(deadline);
             app.transcript
+                .entries
                 .push(Entry::Status { text: String::from("Press CTRL+D again to quit.") });
             return None;
         }
@@ -191,29 +192,30 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 
     if key.code == KeyCode::Char('t')
         && key.modifiers.contains(KeyModifiers::CONTROL)
-        && app.run_state == RunState::Working
+        && app.runtime.run_state == RunState::Working
     {
-        app.queue_target = app.queue_target.toggle();
+        app.composer.queue_target = app.composer.queue_target.toggle();
         app.transcript
-            .push(Entry::Status { text: format!("queue target: {}", app.queue_target.label()) });
+            .entries
+            .push(Entry::Status { text: format!("queue target: {}", app.composer.queue_target.label()) });
         return None;
     }
 
-    app.ctrl_d_pending = None;
+    app.runtime.ctrl_d_pending = None;
 
-    if app.pending_permission.is_some() {
+    if app.overlay.permission().is_some() {
         return agent_lifecycle::handle_permission_key(app, key);
     }
 
-    if app.first_run_recovery.is_some() {
+    if app.overlay.setup().is_some() {
         return handle_first_run_key(app, key);
     }
 
-    if app.detail_pane.open {
+    if app.overlay.is_detail() {
         return handle_detail_pane_key(app, key);
     }
 
-    if !matches!(app.prompt_accessory, PromptAccessory::None) {
+    if !matches!(app.overlay.accessory(), PromptAccessory::None) {
         match handle_accessory_key(app, key) {
             KeyOutcome::Unhandled => {}
             KeyOutcome::Handled => return None,
@@ -221,25 +223,25 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         }
     }
 
-    match app.mode {
+    match app.composer.mode {
         Mode::Command => handle_command_key(app, key),
         Mode::Prompt => handle_prompt_key(app, key),
     }
 }
 
 pub fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
-    if app.first_run_recovery.is_some() {
+    if app.overlay.setup().is_some() {
         return None;
     }
 
-    match app.prompt_accessory {
+    match app.overlay.accessory() {
         PromptAccessory::Files(_)
         | PromptAccessory::Models
         | PromptAccessory::ReasoningEffort
         | PromptAccessory::Skills
         | PromptAccessory::Sessions
         | PromptAccessory::Context => {
-            if let Some(picker) = app.picker.as_mut() {
+            if let Some(picker) = app.overlay.picker_mut() {
                 match mouse.kind {
                     MouseEventKind::ScrollUp => picker.move_up(),
                     MouseEventKind::ScrollDown => picker.move_down(),
@@ -253,7 +255,7 @@ pub fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
 }
 
 pub fn handle_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
-    match app.prompt_accessory {
+    match app.overlay.accessory() {
         PromptAccessory::Help => match key.code {
             KeyCode::Esc => {
                 close_prompt_accessory(app);
@@ -286,13 +288,13 @@ pub fn handle_command_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome 
             KeyOutcome::Handled
         }
         KeyCode::Up => {
-            if let PromptAccessory::Commands { selected } = &mut app.prompt_accessory {
+            if let Some(selected) = app.overlay.command_selected_mut() {
                 *selected = selected.saturating_sub(1);
             }
             KeyOutcome::Handled
         }
         KeyCode::Down => {
-            if let PromptAccessory::Commands { selected } = &mut app.prompt_accessory {
+            if let Some(selected) = app.overlay.command_selected_mut() {
                 *selected = (*selected + 1).min(count.saturating_sub(1));
             }
             KeyOutcome::Handled
@@ -310,11 +312,11 @@ pub fn handle_command_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome 
 }
 
 pub fn handle_file_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
-    let source = match app.prompt_accessory {
+    let source = match app.overlay.accessory() {
         PromptAccessory::Files(source) => source,
         _ => return KeyOutcome::Unhandled,
     };
-    let Some(picker) = app.picker.as_mut() else {
+    let Some(picker) = app.overlay.picker_mut() else {
         return KeyOutcome::Unhandled;
     };
     match key.code {
@@ -357,7 +359,7 @@ pub fn handle_file_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
 }
 
 pub fn handle_model_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
-    let Some(picker) = app.picker.as_mut() else {
+    let Some(picker) = app.overlay.picker_mut() else {
         return KeyOutcome::Unhandled;
     };
     match key.code {
@@ -400,7 +402,7 @@ pub fn handle_model_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
 }
 
 pub fn handle_reasoning_effort_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
-    let Some(picker) = app.picker.as_mut() else {
+    let Some(picker) = app.overlay.picker_mut() else {
         return KeyOutcome::Unhandled;
     };
     match key.code {
@@ -443,7 +445,7 @@ pub fn handle_reasoning_effort_accessory_key(app: &mut App, key: KeyEvent) -> Ke
 }
 
 pub fn handle_skill_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
-    let Some(picker) = app.picker.as_mut() else {
+    let Some(picker) = app.overlay.picker_mut() else {
         return KeyOutcome::Unhandled;
     };
     match key.code {
@@ -486,7 +488,7 @@ pub fn handle_skill_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
 }
 
 pub fn handle_session_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
-    let Some(picker) = app.picker.as_mut() else {
+    let Some(picker) = app.overlay.picker_mut() else {
         return KeyOutcome::Unhandled;
     };
     match key.code {
@@ -533,17 +535,17 @@ pub fn handle_session_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome 
 pub fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     match key.code {
         KeyCode::Esc => {
-            app.mode = Mode::Prompt;
-            app.input.clear();
+            app.composer.mode = Mode::Prompt;
+            app.composer.input.clear();
             close_prompt_accessory(app);
             None
         }
         KeyCode::Backspace => {
-            if app.input.is_empty() {
-                app.mode = Mode::Prompt;
+            if app.composer.input.is_empty() {
+                app.composer.mode = Mode::Prompt;
                 close_prompt_accessory(app);
             } else {
-                app.input.backspace();
+                app.composer.input.backspace();
                 sync_prompt_accessory(app);
             }
             None
@@ -553,14 +555,14 @@ pub fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             None
         }
         KeyCode::Enter => {
-            let text = app.input.as_str().trim().to_string();
-            app.input.clear();
-            app.mode = Mode::Prompt;
+            let text = app.composer.input.as_str().trim().to_string();
+            app.composer.input.clear();
+            app.composer.mode = Mode::Prompt;
             close_prompt_accessory(app);
             if text.is_empty() { None } else { handle_command(app, &text) }
         }
         KeyCode::Char(ch) => {
-            app.input.insert_char(ch);
+            app.composer.input.insert_char(ch);
             sync_prompt_accessory(app);
             None
         }
@@ -581,35 +583,35 @@ pub fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 /// - `backspace`: delete char before cursor
 /// - `delete`: delete char after cursor (forward delete)
 pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
-    if app.pending_permission.is_some() {
+    if app.overlay.permission().is_some() {
         return None;
     }
 
     if key.modifiers.contains(KeyModifiers::ALT) {
         let handled = match key.code {
             KeyCode::Left | KeyCode::Char('b') => {
-                app.input.cursor_word_left();
+                app.composer.input.cursor_word_left();
                 agent_lifecycle::exit_history_navigation(app);
                 true
             }
             KeyCode::Right | KeyCode::Char('f') => {
-                app.input.cursor_word_right();
+                app.composer.input.cursor_word_right();
                 agent_lifecycle::exit_history_navigation(app);
                 true
             }
             KeyCode::Backspace => {
-                let killed = app.input.kill_word_left();
+                let killed = app.composer.input.kill_word_left();
                 if !killed.is_empty() {
-                    app.kill_ring.push(killed);
+                    app.composer.kill_ring.push(killed);
                 }
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('d') => {
-                let killed = app.input.kill_word_right();
+                let killed = app.composer.input.kill_word_right();
                 if !killed.is_empty() {
-                    app.kill_ring.push(killed);
+                    app.composer.kill_ring.push(killed);
                 }
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
@@ -625,12 +627,12 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     if key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
         let handled = match key.code {
             KeyCode::Left => {
-                app.input.cursor_word_left();
+                app.composer.input.cursor_word_left();
                 agent_lifecycle::exit_history_navigation(app);
                 true
             }
             KeyCode::Right => {
-                app.input.cursor_word_right();
+                app.composer.input.cursor_word_right();
                 agent_lifecycle::exit_history_navigation(app);
                 true
             }
@@ -644,72 +646,72 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     if key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
         let handled = match key.code {
             KeyCode::Char('a') => {
-                app.input.cursor_to_start();
+                app.composer.input.cursor_to_start();
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('e') => {
-                app.input.cursor_to_end();
+                app.composer.input.cursor_to_end();
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('b') => {
-                app.input.cursor_left();
+                app.composer.input.cursor_left();
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('f') => {
-                app.input.cursor_right();
+                app.composer.input.cursor_right();
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('j') => {
                 agent_lifecycle::exit_history_navigation(app);
-                app.input.insert_char('\n');
+                app.composer.input.insert_char('\n');
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('k') => {
-                let killed = app.input.kill_to_end_of_line();
+                let killed = app.composer.input.kill_to_end_of_line();
                 if !killed.is_empty() {
-                    app.kill_ring.push(killed);
+                    app.composer.kill_ring.push(killed);
                 }
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('u') => {
-                let killed = app.input.kill_to_start_of_line();
+                let killed = app.composer.input.kill_to_start_of_line();
                 if !killed.is_empty() {
-                    app.kill_ring.push(killed);
+                    app.composer.kill_ring.push(killed);
                 }
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('w') => {
-                let killed = app.input.kill_word_left();
+                let killed = app.composer.input.kill_word_left();
                 if !killed.is_empty() {
-                    app.kill_ring.push(killed);
+                    app.composer.kill_ring.push(killed);
                 }
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('y') => {
-                if let Some(killed) = app.kill_ring.last() {
-                    app.input.yank(killed);
+                if let Some(killed) = app.composer.kill_ring.last() {
+                    app.composer.input.yank(killed);
                 }
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('t') => {
-                app.input.transpose_chars();
+                app.composer.input.transpose_chars();
                 agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
@@ -722,23 +724,26 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     }
 
     match key.code {
-        KeyCode::Char('?') if app.input.is_empty() => {
-            app.prompt_accessory = PromptAccessory::Help;
+        KeyCode::Char('?') if app.composer.input.is_empty() => {
+            app.overlay.show_help();
             None
         }
-        KeyCode::Char(':') if app.input.is_empty() && matches!(app.run_state, RunState::Idle | RunState::Error(_)) => {
-            app.mode = Mode::Command;
-            app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+        KeyCode::Char(':')
+            if app.composer.input.is_empty()
+                && matches!(app.runtime.run_state, RunState::Idle | RunState::Error(_)) =>
+        {
+            app.composer.mode = Mode::Command;
+            app.overlay.show_commands();
             None
         }
         KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
             agent_lifecycle::exit_history_navigation(app);
-            app.input.insert_char('\n');
+            app.composer.input.insert_char('\n');
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Up => {
-            if !app.input.cursor_up() {
+            if !app.composer.input.cursor_up() {
                 agent_lifecycle::recall_older_input(app);
             } else {
                 agent_lifecycle::exit_history_navigation(app);
@@ -747,7 +752,7 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             None
         }
         KeyCode::Down => {
-            if !app.input.cursor_down() {
+            if !app.composer.input.cursor_down() {
                 agent_lifecycle::recall_newer_input(app);
             } else {
                 agent_lifecycle::exit_history_navigation(app);
@@ -756,25 +761,25 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             None
         }
         KeyCode::Left => {
-            app.input.cursor_left();
+            app.composer.input.cursor_left();
             agent_lifecycle::exit_history_navigation(app);
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Right => {
-            app.input.cursor_right();
+            app.composer.input.cursor_right();
             agent_lifecycle::exit_history_navigation(app);
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Home => {
-            app.input.cursor_to_start();
+            app.composer.input.cursor_to_start();
             agent_lifecycle::exit_history_navigation(app);
             sync_prompt_accessory(app);
             None
         }
         KeyCode::End => {
-            app.input.cursor_to_end();
+            app.composer.input.cursor_to_end();
             agent_lifecycle::exit_history_navigation(app);
             sync_prompt_accessory(app);
             None
@@ -782,25 +787,25 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         KeyCode::PageUp | KeyCode::PageDown => None,
         KeyCode::Delete => {
             agent_lifecycle::exit_history_navigation(app);
-            app.input.delete_forward();
+            app.composer.input.delete_forward();
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Char(ch) => {
             agent_lifecycle::exit_history_navigation(app);
-            app.input.insert_char(ch);
+            app.composer.input.insert_char(ch);
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Backspace => {
             agent_lifecycle::exit_history_navigation(app);
-            app.input.backspace();
+            app.composer.input.backspace();
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Enter => handle_submit(app),
         KeyCode::Tab => accept_prompt_suggestion(app),
-        KeyCode::Esc if app.run_state == RunState::Working => {
+        KeyCode::Esc if app.runtime.run_state == RunState::Working => {
             agent_lifecycle::cancel_stream(app);
             None
         }
@@ -809,10 +814,11 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 }
 
 pub fn command_query(app: &App) -> String {
-    if app.mode == Mode::Command {
-        app.input.as_str().trim_start().to_string()
+    if app.composer.mode == Mode::Command {
+        app.composer.input.as_str().trim_start().to_string()
     } else {
-        app.input
+        app.composer
+            .input
             .as_str()
             .strip_prefix('/')
             .unwrap_or("")
@@ -826,14 +832,14 @@ pub fn accept_command_suggestion(app: &mut App) -> Option<Msg> {
     if suggestions.is_empty() {
         return None;
     }
-    let selected = match app.prompt_accessory {
+    let selected = match app.overlay.accessory() {
         PromptAccessory::Commands { selected } => selected.min(suggestions.len() - 1),
         _ => 0,
     };
     let command = &suggestions[selected].name;
-    let replacement = if app.mode == Mode::Command { format!("{command} ") } else { format!("/{command} ") };
-    app.input.set_text(&replacement);
-    app.prompt_accessory = PromptAccessory::None;
+    let replacement = if app.composer.mode == Mode::Command { format!("{command} ") } else { format!("/{command} ") };
+    app.composer.input.set_text(&replacement);
+    app.overlay.close();
     None
 }
 
@@ -843,7 +849,7 @@ pub fn accept_command_suggestion(app: &mut App) -> Option<Msg> {
 /// mention suggestions (`@path`). This helper keeps the selection model
 /// centralized and safely no-ops when no suggestion is available.
 pub fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
-    match app.prompt_accessory {
+    match app.overlay.accessory() {
         PromptAccessory::Commands { selected: _ } => accept_command_suggestion(app),
         PromptAccessory::Files(_) => {
             accept_file_suggestion(app);
@@ -856,7 +862,7 @@ pub fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
         | PromptAccessory::Skills
         | PromptAccessory::Sessions
         | PromptAccessory::Context => {
-            if app.mode == Mode::Command || app.input.as_str().starts_with('/') {
+            if app.composer.mode == Mode::Command || app.composer.input.as_str().starts_with('/') {
                 accept_command_suggestion(app)
             } else {
                 None
@@ -866,40 +872,45 @@ pub fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
 }
 
 pub fn open_file_picker(app: &mut App, source: FilePickerSource) {
-    match tools::searchable_file_paths(&app.cwd, 2_000) {
+    match tools::searchable_file_paths(&app.runtime.cwd, 2_000) {
         Ok(files) => {
             let items = files.into_iter().map(|path| PickerItem::new(path, "")).collect();
-            app.picker = Some(PickerState::new(items, LARGE_PICKER_LIMIT));
-            app.prompt_accessory = PromptAccessory::Files(source);
+            let _ = app.overlay.show_picker(
+                PromptAccessory::Files(source),
+                PickerState::new(items, LARGE_PICKER_LIMIT),
+            );
             sync_file_picker_query(app);
         }
         Err(err) => {
             app.transcript
+                .entries
                 .push(Entry::Error { text: format!("file picker failed: {err}") });
         }
     }
 }
 
 pub fn open_model_picker(app: &mut App) {
-    let items = if app.model_picker_items.is_empty() {
+    let items = if app.runtime.model_picker_items.is_empty() {
         offline_model_picker_items()
     } else {
-        app.model_picker_items.clone()
+        app.runtime.model_picker_items.clone()
     }
     .into_iter()
-    .filter(|item| provider_authenticated(provider_for_model(&item.label), &app.cwd))
+    .filter(|item| provider_authenticated(provider_for_model(&item.label), &app.runtime.cwd))
     .collect::<Vec<_>>();
     if items.is_empty() {
         app.transcript
+            .entries
             .push(Entry::Status { text: String::from("no authenticated providers; run /login <provider> or /setup") });
         return;
     }
-    app.picker = Some(PickerState::new(items, MODEL_PICKER_LIMIT));
-    app.prompt_accessory = PromptAccessory::Models;
+    let _ = app
+        .overlay
+        .show_picker(PromptAccessory::Models, PickerState::new(items, MODEL_PICKER_LIMIT));
 }
 
 pub fn open_reasoning_effort_picker(app: &mut App) {
-    let options = crate::providers::reasoning_options(&app.model);
+    let options = crate::providers::reasoning_options(&app.runtime.model);
     let items = options
         .into_iter()
         .map(|effort| {
@@ -910,37 +921,40 @@ pub fn open_reasoning_effort_picker(app: &mut App) {
         })
         .collect();
     let mut picker = PickerState::new(items, MODEL_PICKER_LIMIT);
-    picker.selected = crate::providers::reasoning_options(&app.model)
+    picker.selected = crate::providers::reasoning_options(&app.runtime.model)
         .iter()
-        .position(|effort| *effort == app.cli.reasoning_effort)
+        .position(|effort| *effort == app.runtime.cli.reasoning_effort)
         .unwrap_or_default();
-    app.picker = Some(picker);
-    app.prompt_accessory = PromptAccessory::ReasoningEffort;
+    let _ = app.overlay.show_picker(PromptAccessory::ReasoningEffort, picker);
 }
 
 pub fn open_skill_picker(app: &mut App) {
-    for diagnostic in &app.skill_diagnostics {
-        app.transcript.push(Entry::Error { text: diagnostic.summary() });
+    for diagnostic in &app.transcript.skill_diagnostics {
+        app.transcript.entries.push(Entry::Error { text: diagnostic.summary() });
     }
 
-    if app.skills.is_empty() {
+    if app.transcript.skills.is_empty() {
         app.transcript
+            .entries
             .push(Entry::Status { text: String::from("skills  none loaded") });
         return;
     }
 
     let items = app
+        .transcript
         .skills
         .iter()
         .map(|skill| PickerItem::new(skill.name.clone(), skill.description.clone()))
         .collect();
-    app.picker = Some(PickerState::new(items, LARGE_PICKER_LIMIT));
-    app.prompt_accessory = PromptAccessory::Skills;
+    let _ = app
+        .overlay
+        .show_picker(PromptAccessory::Skills, PickerState::new(items, LARGE_PICKER_LIMIT));
 }
 
 pub fn open_session_picker(app: &mut App) {
     if app.is_ephemeral() {
         app.transcript
+            .entries
             .push(Entry::Error { text: String::from("cannot resume a session in ephemeral mode") });
         return;
     }
@@ -949,7 +963,7 @@ pub fn open_session_picker(app: &mut App) {
         .into_iter()
         .filter_map(|path| {
             let id = path.file_stem()?.to_str()?.to_string();
-            if id == app.session_id {
+            if id == app.session.id {
                 return None;
             }
             let summary = session::SessionReader::read_summary(&path);
@@ -965,24 +979,26 @@ pub fn open_session_picker(app: &mut App) {
         .collect::<Vec<_>>();
     if items.is_empty() {
         app.transcript
+            .entries
             .push(Entry::Status { text: String::from("no other sessions found") });
         return;
     }
-    app.picker = Some(PickerState::new(items, LARGE_PICKER_LIMIT));
-    app.prompt_accessory = PromptAccessory::Sessions;
+    let _ = app
+        .overlay
+        .show_picker(PromptAccessory::Sessions, PickerState::new(items, LARGE_PICKER_LIMIT));
 }
 
 fn accept_session_suggestion(app: &mut App) {
     let session_id = app
-        .picker
-        .as_ref()
+        .overlay
+        .picker()
         .and_then(PickerState::selected)
         .map(|item| item.value.clone());
     close_prompt_accessory(app);
     if let Some(session_id) = session_id
         && let Err(error) = app.resume_session(&session_id)
     {
-        app.transcript.push(Entry::Error { text: error.to_string() });
+        app.transcript.entries.push(Entry::Error { text: error.to_string() });
     }
 }
 
@@ -999,17 +1015,7 @@ pub fn offline_model_picker_items() -> Vec<PickerItem> {
 }
 
 pub fn close_prompt_accessory(app: &mut App) {
-    if matches!(
-        app.prompt_accessory,
-        PromptAccessory::Files(_)
-            | PromptAccessory::Models
-            | PromptAccessory::ReasoningEffort
-            | PromptAccessory::Skills
-            | PromptAccessory::Sessions
-    ) {
-        app.picker = None;
-    }
-    app.prompt_accessory = PromptAccessory::None;
+    app.overlay.close();
 }
 
 /// Open the highest-priority detail surface target.
@@ -1022,7 +1028,7 @@ pub fn open_detail_surface(app: &mut App) {
     let Some(index) = next_detail_target(app) else {
         return;
     };
-    app.detail_pane = DetailPane { entry_index: index, scroll: 0, open: true };
+    app.overlay.show_detail(index);
 }
 
 pub fn next_detail_target(app: &App) -> Option<usize> {
@@ -1031,7 +1037,7 @@ pub fn next_detail_target(app: &App) -> Option<usize> {
     let mut fallback = None;
     let mut truncated = None;
 
-    for (index, entry) in app.transcript.iter().enumerate().rev() {
+    for (index, entry) in app.transcript.entries.iter().enumerate().rev() {
         let Entry::Tool { status, output, .. } = entry else {
             continue;
         };
@@ -1061,15 +1067,19 @@ pub fn handle_detail_pane_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     let total = detail_pane_output_count(app);
     match key.code {
         KeyCode::Tab | KeyCode::Esc => {
-            app.detail_pane.open = false;
+            app.overlay.close();
             None
         }
         KeyCode::Up | KeyCode::PageUp => {
-            app.detail_pane.scroll_up();
+            if let Some(detail) = app.overlay.detail_mut() {
+                detail.scroll_up();
+            }
             None
         }
         KeyCode::Down | KeyCode::PageDown => {
-            app.detail_pane.scroll_down(total);
+            if let Some(detail) = app.overlay.detail_mut() {
+                detail.scroll_down(total);
+            }
             None
         }
         _ => None,
@@ -1078,7 +1088,10 @@ pub fn handle_detail_pane_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 
 /// Count output lines available for the detail pane's current target entry.
 pub fn detail_pane_output_count(app: &App) -> usize {
-    let Some(entry) = app.transcript.get(app.detail_pane.entry_index) else {
+    let Some(detail) = app.overlay.detail() else {
+        return 0;
+    };
+    let Some(entry) = app.transcript.entries.get(detail.entry_index) else {
         return 0;
     };
     match entry {
@@ -1112,26 +1125,27 @@ pub fn split_filter_items(all_items: &[PickerItem], query: &str, limit: usize) -
 }
 
 pub fn insert_file_path(app: &mut App, path: &str) {
-    if !app.input.is_empty() && !app.input.text_before_cursor().ends_with(char::is_whitespace) {
-        app.input.insert_char(' ');
+    if !app.composer.input.is_empty() && !app.composer.input.text_before_cursor().ends_with(char::is_whitespace) {
+        app.composer.input.insert_char(' ');
     }
-    app.input.insert_str(path);
+    app.composer.input.insert_str(path);
 }
 
 pub fn accept_file_suggestion(app: &mut App) {
     let Some(path) = app
-        .picker
+        .overlay
+        .picker()
         .as_ref()
         .and_then(|picker| picker.selected().map(|item| item.label.clone()))
     else {
         return;
     };
 
-    match app.prompt_accessory {
+    match app.overlay.accessory() {
         PromptAccessory::Files(FilePickerSource::Mention { token_start }) => {
-            let end = app.input.cursor();
+            let end = app.composer.input.cursor();
             let replacement = format!("@{path} ");
-            app.input.replace_range(token_start, end, &replacement);
+            app.composer.input.replace_range(token_start, end, &replacement);
         }
         PromptAccessory::Files(FilePickerSource::Forced) => {
             insert_file_path(app, &path);
@@ -1144,26 +1158,31 @@ pub fn accept_file_suggestion(app: &mut App) {
 
 pub fn accept_model_suggestion(app: &mut App) {
     let Some(model) = app
-        .picker
+        .overlay
+        .picker()
         .as_ref()
         .and_then(|picker| picker.selected().map(|item| item.label.clone()))
     else {
         return;
     };
 
-    app.model = model.clone();
-    app.cli.model = model.clone();
-    app.input.clear();
-    app.codex_usage = None;
-    match config::write_project_model(&app.cwd, &model) {
+    app.runtime.model = model.clone();
+    app.runtime.cli.model = model.clone();
+    app.composer.input.clear();
+    app.runtime.codex_usage = None;
+    match config::write_project_model(&app.runtime.cwd, &model) {
         Ok(path) => {
-            let display = config::project_config_path_display(&path, &app.cwd);
+            let display = config::project_config_path_display(&path, &app.runtime.cwd);
             app.transcript
+                .entries
                 .push(Entry::Status { text: format!("model: {model} (saved to {display})") });
         }
         Err(err) => {
-            app.transcript.push(Entry::Status { text: format!("model: {model}") });
             app.transcript
+                .entries
+                .push(Entry::Status { text: format!("model: {model}") });
+            app.transcript
+                .entries
                 .push(Entry::Error { text: format!("failed to save selected model to project config: {err}") });
         }
     }
@@ -1176,7 +1195,8 @@ pub fn accept_model_suggestion(app: &mut App) {
 
 pub fn accept_reasoning_effort_suggestion(app: &mut App) {
     let Some(effort) = app
-        .picker
+        .overlay
+        .picker()
         .as_ref()
         .and_then(|picker| picker.selected())
         .and_then(|item| ReasoningEffort::parse(&item.label))
@@ -1184,28 +1204,31 @@ pub fn accept_reasoning_effort_suggestion(app: &mut App) {
         return;
     };
 
-    if !crate::providers::reasoning_option_is_supported(&app.model, effort) {
-        app.transcript.push(Entry::Error {
+    if !crate::providers::reasoning_option_is_supported(&app.runtime.model, effort) {
+        app.transcript.entries.push(Entry::Error {
             text: format!(
                 "reasoning control `{}` is not supported by {}",
                 effort.label(),
-                app.model
+                app.runtime.model
             ),
         });
         return;
     }
 
-    app.cli.reasoning_effort = effort;
-    let pending_setup = app.pending_setup_reasoning_effort;
+    app.runtime.cli.reasoning_effort = effort;
+    let pending_setup = app.overlay.pending_setup_reasoning_effort();
     match write_reasoning_effort_config(app, effort, pending_setup.map(|pending| pending.scope)) {
         Ok((_path, display)) => {
             app.transcript
+                .entries
                 .push(Entry::Status { text: format!("reasoning effort: {} (saved to {display})", effort.label()) });
         }
         Err(err) => {
             app.transcript
+                .entries
                 .push(Entry::Status { text: format!("reasoning effort: {}", effort.label()) });
             app.transcript
+                .entries
                 .push(Entry::Error { text: format!("failed to save reasoning effort to project config: {err}") });
         }
     }
@@ -1223,8 +1246,8 @@ pub fn write_reasoning_effort_config(
             (path, display)
         }
         Some(CredentialScope::Project) | None => {
-            let path = config::project_config_path(&app.cwd);
-            let display = config::project_config_path_display(&path, &app.cwd);
+            let path = config::project_config_path(&app.runtime.cwd);
+            let display = config::project_config_path_display(&path, &app.runtime.cwd);
             (path, display)
         }
     };
@@ -1233,21 +1256,23 @@ pub fn write_reasoning_effort_config(
 }
 
 pub fn finish_reasoning_effort_picker(app: &mut App) {
+    let pending_setup = app.overlay.take_pending_setup_reasoning_effort();
     close_prompt_accessory(app);
-    if let Some(pending) = app.pending_setup_reasoning_effort.take() {
+    if let Some(pending) = pending_setup {
         advance_after_setup_model_config(app, pending.provider);
     }
 }
 
 pub fn accept_skill_suggestion(app: &mut App) {
     let Some(name) = app
-        .picker
+        .overlay
+        .picker()
         .as_ref()
         .and_then(|picker| picker.selected().map(|item| item.label.clone()))
     else {
         return;
     };
-    let Some(skill) = app.skills.iter().find(|skill| skill.name == name).cloned() else {
+    let Some(skill) = app.transcript.skills.iter().find(|skill| skill.name == name).cloned() else {
         close_prompt_accessory(app);
         return;
     };
@@ -1255,7 +1280,7 @@ pub fn accept_skill_suggestion(app: &mut App) {
     match skills::load_skill(&skill) {
         Ok(loaded) => {
             for diagnostic in &loaded.diagnostics {
-                app.transcript.push(Entry::Error { text: diagnostic.summary() });
+                app.transcript.entries.push(Entry::Error { text: diagnostic.summary() });
             }
             let text = format!(
                 "# Skill: {}\n\n_Source: {}_\n\n{}",
@@ -1263,29 +1288,29 @@ pub fn accept_skill_suggestion(app: &mut App) {
                 loaded.activation.path.display(),
                 loaded.markdown
             );
-            app.transcript.push(Entry::Agent { text, streaming: false });
-            if let Some(ref mut writer) = app.session_writer {
+            app.transcript.entries.push(Entry::Agent { text, streaming: false });
+            if let Some(ref mut writer) = app.session.writer {
                 let _ = writer.append_skill_activation(&loaded.activation);
             }
         }
-        Err(diagnostic) => app.transcript.push(Entry::Error { text: diagnostic.summary() }),
+        Err(diagnostic) => app.transcript.entries.push(Entry::Error { text: diagnostic.summary() }),
     }
     close_prompt_accessory(app);
 }
 
 pub fn sync_prompt_accessory(app: &mut App) {
-    if app.mode == Mode::Command {
-        app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+    if app.composer.mode == Mode::Command {
+        app.overlay.show_commands();
         return;
     }
 
-    if app.input.as_str().starts_with('/') {
-        app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+    if app.composer.input.as_str().starts_with('/') {
+        app.overlay.show_commands();
         return;
     }
 
     if let Some((token_start, _query)) = active_at_token(app) {
-        if !matches!(app.prompt_accessory, PromptAccessory::Files(FilePickerSource::Mention { token_start: existing }) if existing == token_start)
+        if !matches!(app.overlay.accessory(), PromptAccessory::Files(FilePickerSource::Mention { token_start: existing }) if existing == token_start)
         {
             open_file_picker(app, FilePickerSource::Mention { token_start });
         } else {
@@ -1294,13 +1319,13 @@ pub fn sync_prompt_accessory(app: &mut App) {
         return;
     }
 
-    if !matches!(app.prompt_accessory, PromptAccessory::Help) {
+    if !matches!(app.overlay.accessory(), PromptAccessory::Help) {
         close_prompt_accessory(app);
     }
 }
 
 pub fn active_at_token(app: &App) -> Option<(usize, String)> {
-    let before = app.input.text_before_cursor();
+    let before = app.composer.input.text_before_cursor();
     let chars: Vec<char> = before.chars().collect();
     let token_start = chars.iter().rposition(|ch| ch.is_whitespace()).map_or(0, |idx| idx + 1);
     if chars.get(token_start) != Some(&'@') {
@@ -1311,15 +1336,15 @@ pub fn active_at_token(app: &App) -> Option<(usize, String)> {
 }
 
 pub fn sync_file_picker_query(app: &mut App) {
-    let query = match app.prompt_accessory {
+    let query = match app.overlay.accessory() {
         PromptAccessory::Files(FilePickerSource::Mention { .. }) => active_at_token(app).map(|(_, query)| query),
-        PromptAccessory::Files(FilePickerSource::Forced) => app.picker.as_ref().map(|picker| picker.query.clone()),
+        PromptAccessory::Files(FilePickerSource::Forced) => app.overlay.picker().map(|picker| picker.query.clone()),
         _ => None,
     };
     let Some(query) = query else {
         return;
     };
-    if let Some(picker) = app.picker.as_mut()
+    if let Some(picker) = app.overlay.picker_mut()
         && picker.query != query
     {
         picker.query = query;
@@ -1328,14 +1353,14 @@ pub fn sync_file_picker_query(app: &mut App) {
 }
 
 pub fn handle_submit(app: &mut App) -> Option<Msg> {
-    if app.pending_permission.is_some() {
+    if app.overlay.permission().is_some() {
         return None;
     }
 
-    if app.run_state == RunState::Working {
-        let text = app.input.as_str().trim().to_string();
+    if app.runtime.run_state == RunState::Working {
+        let text = app.composer.input.as_str().trim().to_string();
         if text.is_empty() {
-            app.input.clear();
+            app.composer.input.clear();
             return None;
         }
         if let Some(literal) = text.strip_prefix("//") {
@@ -1343,20 +1368,20 @@ pub fn handle_submit(app: &mut App) -> Option<Msg> {
             return None;
         }
         if let Some(command) = text.strip_prefix('/') {
-            app.input.clear();
+            app.composer.input.clear();
             return handle_running_command(app, command);
         }
         queue_running_input(app, &text);
         return None;
     }
 
-    if !matches!(app.run_state, RunState::Idle | RunState::Error(_)) {
+    if !matches!(app.runtime.run_state, RunState::Idle | RunState::Error(_)) {
         return None;
     }
 
-    let text = app.input.as_str().trim().to_string();
+    let text = app.composer.input.as_str().trim().to_string();
     if text.is_empty() {
-        app.input.clear();
+        app.composer.input.clear();
         return None;
     }
 
@@ -1368,26 +1393,29 @@ pub fn handle_submit(app: &mut App) -> Option<Msg> {
 }
 
 pub fn queue_running_input(app: &mut App, text: &str) {
-    app.input.clear();
+    app.composer.input.clear();
     agent_lifecycle::remember_input(app, text);
-    let (kind, count) = match app.queue_target {
+    let (kind, count) = match app.composer.queue_target {
         QueueTarget::Steering => {
-            app.queued_steering.push(text.to_string());
-            ("steering", app.queued_steering.len())
+            app.composer.queued_steering.push(text.to_string());
+            ("steering", app.composer.queued_steering.len())
         }
         QueueTarget::FollowUp => {
-            app.queued_followups.push(text.to_string());
-            ("follow-up", app.queued_followups.len())
+            app.composer.queued_followups.push(text.to_string());
+            ("follow-up", app.composer.queued_followups.len())
         }
     };
     let audit_error = app
-        .session_writer
+        .session
+        .writer
         .as_mut()
         .and_then(|writer| writer.append_queued(kind, text).err());
     app.transcript
+        .entries
         .push(Entry::Status { text: format!("queued {kind} ({count})") });
     if let Some(err) = audit_error {
         app.transcript
+            .entries
             .push(Entry::Error { text: format!("failed to record queued {kind} in session audit log: {err}") });
     }
 }
@@ -1407,31 +1435,32 @@ pub fn submit_internal_turn(app: &mut App, text: String) -> Option<Msg> {
 }
 
 fn start_turn(app: &mut App, text: String, record_user_entry: bool) -> Option<Msg> {
-    if app.pending_compaction_review.is_some() {
+    if app.transcript.pending_compaction_review.is_some() {
         app.transcript
+            .entries
             .push(Entry::Error { text: "review the pending compaction before submitting another turn".to_string() });
-        app.input.set_text(&text);
+        app.composer.input.set_text(&text);
         return None;
     }
     if let Some(recovery) = selected_provider_missing(app) {
-        app.first_run_recovery = Some(recovery);
+        app.overlay.show_setup(recovery);
         return None;
     }
 
     let user_entry = record_user_entry.then(|| Entry::User { text: text.clone() });
     if let Some(entry) = user_entry.as_ref() {
         agent_lifecycle::remember_input(app, &text);
-        app.transcript.push(entry.clone());
+        app.transcript.entries.push(entry.clone());
     }
-    app.input.clear();
-    app.history_cursor = None;
-    app.history_draft.clear();
-    app.last_input = Some(text);
-    app.ttft.start_turn();
-    app.turn_count += 1;
-    let turn_id = format!("turn_{}", app.turn_count);
+    app.composer.input.clear();
+    app.composer.history_cursor = None;
+    app.composer.history_draft.clear();
+    app.composer.last_input = Some(text);
+    app.runtime.ttft.start_turn();
+    app.session.turn_count += 1;
+    let turn_id = format!("turn_{}", app.session.turn_count);
     agent_lifecycle::refresh_mcp_config_audit(app, &turn_id);
-    if let Some(ref mut writer) = app.session_writer
+    if let Some(ref mut writer) = app.session.writer
         && let Some(entry) = user_entry.as_ref()
     {
         let _ = writer.append_entry(entry, &turn_id);

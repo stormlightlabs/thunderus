@@ -185,11 +185,11 @@ impl TranscriptProjectionCache {
             self.banner_rows = app.render_banner_rows(width);
             self.banner_width = Some(width);
         }
-        self.entries.truncate(app.transcript.len());
-        for (entry_index, entry) in app.transcript.iter().enumerate() {
+        self.entries.truncate(app.transcript.entries.len());
+        for (entry_index, entry) in app.transcript.entries.iter().enumerate() {
             let tool_group_start = entry_index
                 .checked_sub(1)
-                .and_then(|index| app.transcript.get(index))
+                .and_then(|index| app.transcript.entries.get(index))
                 .is_none_or(|entry| !matches!(entry, Entry::Tool { .. }));
             let reusable = self.entries.get(entry_index).is_some_and(|cached| {
                 cached.width == width && cached.tool_group_start == tool_group_start && cached.source == *entry
@@ -207,7 +207,7 @@ impl TranscriptProjectionCache {
             }
         }
 
-        if app.transcript.is_empty() {
+        if app.transcript.entries.is_empty() {
             return TranscriptView {
                 rows: self.banner_rows.clone(),
                 banner_rows: self.banner_rows.clone(),
@@ -247,10 +247,10 @@ impl AlternateViewport {
 
     /// Apply transcript navigation when no higher-priority surface owns input.
     pub fn handle_navigation(&mut self, app: &App, event: &Event) -> bool {
-        let transcript_focused = app.first_run_recovery.is_none()
-            && !app.detail_pane.open
-            && app.pending_permission.is_none()
-            && matches!(app.prompt_accessory, PromptAccessory::None);
+        let transcript_focused = app.overlay.setup().is_none()
+            && !app.overlay.is_detail()
+            && app.overlay.permission().is_none()
+            && matches!(app.overlay.accessory(), PromptAccessory::None);
         if !transcript_focused {
             return false;
         }
@@ -716,8 +716,8 @@ mod tests {
     #[test]
     fn chronological_projection_does_not_partition_later_settled_entries_first() {
         let mut app = App::from_cli(&Cli::default());
-        app.session_writer = None;
-        app.transcript = vec![
+        app.session.writer = None;
+        app.transcript.entries = vec![
             Entry::Agent { text: "first mutable".to_string(), streaming: true },
             Entry::Status { text: "second settled".to_string() },
         ];
@@ -737,8 +737,8 @@ mod tests {
     #[test]
     fn anchored_reader_stays_on_same_entry_while_new_content_arrives() {
         let mut app = App::from_cli(&Cli::default());
-        app.session_writer = None;
-        app.transcript = (0..12)
+        app.session.writer = None;
+        app.transcript.entries = (0..12)
             .map(|index| Entry::Status { text: format!("entry {index}") })
             .collect();
         let mut viewport = AlternateViewport::default();
@@ -747,6 +747,7 @@ mod tests {
         let anchored = viewport.state();
 
         app.transcript
+            .entries
             .push(Entry::Agent { text: "streaming tail".to_string(), streaming: true });
         viewport.build_frame(&app, 48, 12);
 
@@ -760,8 +761,8 @@ mod tests {
     #[test]
     fn anchored_hint_disappears_after_following_latest() {
         let mut app = App::from_cli(&Cli::default());
-        app.session_writer = None;
-        app.transcript = (0..12)
+        app.session.writer = None;
+        app.transcript.entries = (0..12)
             .map(|index| Entry::Status { text: format!("entry {index}") })
             .collect();
         let mut viewport = AlternateViewport::default();
@@ -785,8 +786,8 @@ mod tests {
     #[test]
     fn anchored_entry_identity_survives_width_changes() {
         let mut app = App::from_cli(&Cli::default());
-        app.session_writer = None;
-        app.transcript = (0..8)
+        app.session.writer = None;
+        app.transcript.entries = (0..8)
             .map(|index| Entry::Status {
                 text: format!("entry {index} with enough text to wrap across a narrow viewport"),
             })
@@ -811,8 +812,8 @@ mod tests {
     #[test]
     fn following_tail_frame_keeps_composer_cursor_in_terminal_bounds() {
         let mut app = App::from_cli(&Cli::default());
-        app.session_writer = None;
-        app.input.insert_str("one\ntwo\nthree\nwide 🦀 text");
+        app.session.writer = None;
+        app.composer.input.insert_str("one\ntwo\nthree\nwide 🦀 text");
         let frame = AlternateViewport::default().build_frame(&app, 24, 9);
 
         assert_eq!(frame.rows.len(), 9);
@@ -825,16 +826,16 @@ mod tests {
     fn focused_overlay_keeps_page_navigation_for_itself() {
         let cli = Cli { model: "fake-agent".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.first_run_recovery = None;
-        app.prompt_accessory = PromptAccessory::Help;
+        app.session.writer = None;
+        app.overlay.close();
+        app.overlay.show_help();
         let mut viewport = AlternateViewport::default();
         let event = Event::Key(crossterm::event::KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
 
         assert!(!viewport.handle_navigation(&app, &event));
         assert_eq!(viewport.state(), ViewportState::FollowingTail);
 
-        app.prompt_accessory = PromptAccessory::None;
+        app.overlay.close();
         viewport.build_frame(&app, 80, 12);
         assert!(viewport.handle_navigation(&app, &event));
     }
@@ -843,11 +844,11 @@ mod tests {
     fn mouse_wheel_scrolls_transcript_without_recalling_prompt_history() {
         let cli = Cli { model: "fake-agent".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.first_run_recovery = None;
-        app.input_history.push("previous prompt".to_string());
-        app.input.insert_str("current draft");
-        app.transcript = (0..20)
+        app.session.writer = None;
+        app.overlay.close();
+        app.composer.input_history.push("previous prompt".to_string());
+        app.composer.input.insert_str("current draft");
+        app.transcript.entries = (0..20)
             .map(|index| Entry::Status { text: format!("entry {index}") })
             .collect();
 
@@ -862,15 +863,15 @@ mod tests {
 
         assert!(viewport.handle_navigation(&app, &event));
         assert!(matches!(viewport.state(), ViewportState::Anchored(_)));
-        assert_eq!(app.input.as_str(), "current draft");
-        assert_eq!(app.history_cursor, None);
+        assert_eq!(app.composer.input.as_str(), "current draft");
+        assert_eq!(app.composer.history_cursor, None);
     }
 
     #[test]
     fn submitted_entry_does_not_move_an_anchored_reader() {
         let mut app = App::from_cli(&Cli::default());
-        app.session_writer = None;
-        app.transcript = (0..10)
+        app.session.writer = None;
+        app.transcript.entries = (0..10)
             .map(|index| Entry::Status { text: format!("entry {index}") })
             .collect();
         let mut viewport = AlternateViewport::default();
@@ -878,7 +879,9 @@ mod tests {
         viewport.page_up();
         let anchor = viewport.state();
 
-        app.transcript.push(Entry::User { text: "new submission".to_string() });
+        app.transcript
+            .entries
+            .push(Entry::User { text: "new submission".to_string() });
         viewport.build_frame(&app, 40, 10);
 
         assert_eq!(viewport.state(), anchor);

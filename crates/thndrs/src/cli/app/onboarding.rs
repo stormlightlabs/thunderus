@@ -352,27 +352,27 @@ pub fn chatgpt_codex_auth_available_locally() -> bool {
 }
 
 pub fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
-    if app.model.trim().is_empty() {
+    if app.runtime.model.trim().is_empty() {
         return Some(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
     }
 
-    if app.model.starts_with("fake-agent") {
+    if app.runtime.model.starts_with("fake-agent") {
         return None;
     }
 
-    if let Some(acp_name) = crate::acp::config::parse_model_id(&app.model) {
-        if app.cli.acp_agents.contains_key(acp_name) {
+    if let Some(acp_name) = crate::acp::config::parse_model_id(&app.runtime.model) {
+        if app.runtime.cli.acp_agents.contains_key(acp_name) {
             return None;
         }
         return Some(FirstRunRecovery::acp_missing(true));
     }
 
-    if crate::cli::commands::setup::model_uses_unsupported_route(&app.model) {
+    if crate::cli::commands::setup::model_uses_unsupported_route(&app.runtime.model) {
         return Some(FirstRunRecovery::unsupported_route(true));
     }
 
-    let provider = provider_for_model(&app.model);
-    if !provider_authenticated(provider, &app.cwd) {
+    let provider = provider_for_model(&app.runtime.model);
+    if !provider_authenticated(provider, &app.runtime.cwd) {
         Some(FirstRunRecovery::missing_provider(provider, true))
     } else {
         None
@@ -380,7 +380,7 @@ pub fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
 }
 
 pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
-    let recovery = app.first_run_recovery.as_mut()?;
+    let recovery = app.overlay.setup_mut()?;
 
     if recovery.stage == RecoveryStage::EnterKey || recovery.stage == RecoveryStage::ChatGptOAuthPasteRedirect {
         match key.code {
@@ -398,7 +398,7 @@ pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             }
             KeyCode::Enter => {
                 if recovery.secret_input.trim().is_empty() {
-                    app.transcript.push(Entry::Error {
+                    app.transcript.entries.push(Entry::Error {
                         text: if recovery.stage == RecoveryStage::ChatGptOAuthPasteRedirect {
                             String::from("paste the full ChatGPT redirect URL or press Esc to cancel")
                         } else {
@@ -428,13 +428,13 @@ pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         recovery.stage = RecoveryStage::MissingCredential;
         recovery.selected = 0;
         recovery.chatgpt_oauth = None;
-        app.chatgpt_browser_login = None;
+        app.overlay.set_browser_login(None);
         return None;
     }
 
     match key.code {
         KeyCode::Esc => {
-            app.first_run_recovery = None;
+            app.overlay.close();
             None
         }
         KeyCode::Up => {
@@ -452,12 +452,12 @@ pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 }
 
 pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
-    let recovery = app.first_run_recovery.clone()?;
+    let recovery = app.overlay.setup().cloned()?;
 
     match recovery.stage {
         RecoveryStage::ChooseProvider => {
             let Some(provider) = first_run_provider(recovery.selected) else {
-                app.first_run_recovery = Some(FirstRunRecovery {
+                app.overlay.show_setup(FirstRunRecovery {
                     provider: None,
                     stage: RecoveryStage::Instructions,
                     pending_provider_prompt: recovery.pending_provider_prompt,
@@ -467,12 +467,12 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 });
                 return None;
             };
-            let stage = if provider_authenticated(provider, &app.cwd) {
+            let stage = if provider_authenticated(provider, &app.runtime.cwd) {
                 RecoveryStage::ModelSelection
             } else {
                 RecoveryStage::MissingCredential
             };
-            app.first_run_recovery = Some(FirstRunRecovery {
+            app.overlay.show_setup(FirstRunRecovery {
                 provider: Some(provider),
                 stage,
                 pending_provider_prompt: recovery.pending_provider_prompt,
@@ -484,9 +484,11 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
         RecoveryStage::ModelSelection => select_setup_model(app, &recovery),
         RecoveryStage::ModelConfigScope => configure_setup_model_scope(app, &recovery),
         RecoveryStage::UnsupportedRoute => match recovery.selected {
-            0 => app.first_run_recovery = Some(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex)),
+            0 => app
+                .overlay
+                .show_setup(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex)),
             1 => {
-                app.quit = true;
+                app.runtime.quit = true;
                 return Some(Msg::Quit);
             }
             _ => {}
@@ -496,11 +498,11 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 0 => start_chatgpt_browser_oauth_recovery(app),
                 1 => start_chatgpt_device_oauth_recovery(app),
                 2 => {
-                    app.first_run_recovery = None;
+                    app.overlay.close();
                     open_model_picker(app);
                 }
                 3 => {
-                    if let Some(active) = app.first_run_recovery.as_mut() {
+                    if let Some(active) = app.overlay.setup_mut() {
                         active.stage = RecoveryStage::Instructions;
                         active.selected = 0;
                         active.chatgpt_oauth = None;
@@ -508,19 +510,20 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 }
                 4 => {
                     if recovery.pending_provider_prompt {
-                        app.transcript.push(Entry::Status {
+                        app.transcript.entries.push(Entry::Status {
                             text: String::from(
                                 "setup required before submitting this ChatGPT Codex prompt; start OAuth login or switch model",
                             ),
                         });
                     } else {
-                        app.first_run_recovery = None;
+                        app.overlay.close();
                         app.transcript
+                            .entries
                             .push(Entry::Status { text: String::from("setup skipped") });
                     }
                 }
                 5 => {
-                    app.quit = true;
+                    app.runtime.quit = true;
                     return Some(Msg::Quit);
                 }
                 _ => {}
@@ -528,7 +531,7 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
         }
         RecoveryStage::MissingCredential => match recovery.selected {
             0 => {
-                if let Some(active) = app.first_run_recovery.as_mut() {
+                if let Some(active) = app.overlay.setup_mut() {
                     active.stage = RecoveryStage::EnterKey;
                     active.selected = 0;
                     active.secret_input.clear();
@@ -536,54 +539,56 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
             }
             1 => {
                 if recovery.provider == Some(SetupProviderArg::ChatgptCodex) {
-                    if let Some(active) = app.first_run_recovery.as_mut() {
+                    if let Some(active) = app.overlay.setup_mut() {
                         active.stage = RecoveryStage::Instructions;
                         active.selected = 0;
                     }
                     return None;
                 }
-                app.first_run_recovery = None;
+                app.overlay.close();
                 open_model_picker(app);
             }
             2 => {
                 if recovery.provider == Some(SetupProviderArg::ChatgptCodex) {
                     if recovery.pending_provider_prompt {
-                        app.transcript.push(Entry::Status {
+                        app.transcript.entries.push(Entry::Status {
                             text: String::from(
                                 "setup required before submitting this ChatGPT Codex prompt; start ChatGPT OAuth login or switch model",
                             ),
                         });
                     } else {
-                        app.first_run_recovery = None;
+                        app.overlay.close();
                         app.transcript
+                            .entries
                             .push(Entry::Status { text: String::from("setup skipped") });
                     }
                     return None;
                 }
-                if let Some(active) = app.first_run_recovery.as_mut() {
+                if let Some(active) = app.overlay.setup_mut() {
                     active.stage = RecoveryStage::Instructions;
                     active.selected = 0;
                 }
             }
             3 => {
                 if recovery.provider == Some(SetupProviderArg::ChatgptCodex) {
-                    app.quit = true;
+                    app.runtime.quit = true;
                     return Some(Msg::Quit);
                 }
                 if recovery.pending_provider_prompt {
-                    app.transcript.push(Entry::Status {
+                    app.transcript.entries.push(Entry::Status {
                         text: String::from(
                             "setup required before submitting this provider-backed prompt; enter a key or switch model",
                         ),
                     });
                 } else {
-                    app.first_run_recovery = None;
+                    app.overlay.close();
                     app.transcript
+                        .entries
                         .push(Entry::Status { text: String::from("setup skipped") });
                 }
             }
             4 => {
-                app.quit = true;
+                app.runtime.quit = true;
                 return Some(Msg::Quit);
             }
             _ => {}
@@ -591,7 +596,7 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
         RecoveryStage::ConfirmStore => store_recovery_credential(app, &recovery),
         RecoveryStage::Instructions => match recovery.selected {
             0 => {
-                if let Some(active) = app.first_run_recovery.as_mut() {
+                if let Some(active) = app.overlay.setup_mut() {
                     active.stage = if active.provider.is_none() {
                         RecoveryStage::ChooseProvider
                     } else {
@@ -600,7 +605,7 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                     active.selected = 0;
                 }
             }
-            1 => app.first_run_recovery = None,
+            1 => app.overlay.close(),
             _ => {}
         },
         RecoveryStage::ChatGptOAuthRequesting => {}
@@ -610,16 +615,16 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 .as_ref()
                 .is_some_and(|oauth| oauth.method == ChatGptOAuthMethod::Browser && recovery.selected == 1)
             {
-                if let Some(active) = app.first_run_recovery.as_mut() {
+                if let Some(active) = app.overlay.setup_mut() {
                     active.stage = RecoveryStage::ChatGptOAuthPasteRedirect;
                     active.selected = 0;
                     active.secret_input.clear();
                 }
-            } else if let Some(active) = app.first_run_recovery.as_mut() {
+            } else if let Some(active) = app.overlay.setup_mut() {
                 active.stage = RecoveryStage::MissingCredential;
                 active.selected = 0;
                 active.chatgpt_oauth = None;
-                app.chatgpt_browser_login = None;
+                app.overlay.set_browser_login(None);
             }
         }
         RecoveryStage::ChatGptOAuthPasteRedirect => {}
@@ -632,39 +637,39 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 start_chatgpt_device_oauth_recovery(app);
             }
             2 => {
-                if let Some(active) = app.first_run_recovery.as_mut() {
+                if let Some(active) = app.overlay.setup_mut() {
                     active.stage = RecoveryStage::MissingCredential;
                     active.selected = 0;
                     active.chatgpt_oauth = None;
                 }
-                app.chatgpt_browser_login = None;
+                app.overlay.set_browser_login(None);
             }
             _ => {}
         },
         RecoveryStage::LogoutConfirm => remove_recovery_credential(app, &recovery),
         RecoveryStage::AcpMissing => match recovery.selected {
             0 => {
-                app.first_run_recovery = None;
+                app.overlay.close();
                 open_model_picker(app);
             }
             1 => {
-                app.transcript.push(Entry::Status {
+                app.transcript.entries.push(Entry::Status {
                     text: String::from("ACP setup: run `thndrs acp list` or `thndrs acp registry` outside the TUI"),
                 });
             }
             2 => {
                 if recovery.pending_provider_prompt {
-                    app.transcript.push(Entry::Status {
+                    app.transcript.entries.push(Entry::Status {
                         text: String::from(
                             "ACP agent config is required before submitting this prompt; switch model or configure ACP",
                         ),
                     });
                 } else {
-                    app.first_run_recovery = None;
+                    app.overlay.close();
                 }
             }
             3 => {
-                app.quit = true;
+                app.runtime.quit = true;
                 return Some(Msg::Quit);
             }
             _ => {}
@@ -677,7 +682,7 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
 
 pub fn configure_setup_model_scope(app: &mut App, recovery: &FirstRunRecovery) {
     let Some(provider) = recovery.provider else {
-        app.first_run_recovery = None;
+        app.overlay.close();
         return;
     };
 
@@ -694,21 +699,23 @@ pub fn configure_setup_model_scope(app: &mut App, recovery: &FirstRunRecovery) {
         }
         2 => {
             app.transcript
+                .entries
                 .push(Entry::Status { text: String::from("model config skipped") });
             advance_after_setup_model_config(app, provider);
         }
         _ => {
-            app.first_run_recovery = None;
+            app.overlay.close();
             app.transcript
+                .entries
                 .push(Entry::Status { text: String::from("setup skipped") });
         }
     }
 }
 
 pub fn after_setup_model_config(app: &mut App, provider: SetupProviderArg, scope: CredentialScope) {
-    if codex::supports_reasoning_effort(&app.model) {
-        app.first_run_recovery = None;
-        app.pending_setup_reasoning_effort = Some(PendingSetupReasoningEffort { provider, scope });
+    if codex::supports_reasoning_effort(&app.runtime.model) {
+        app.overlay
+            .set_pending_setup_reasoning_effort(PendingSetupReasoningEffort { provider, scope });
         open_reasoning_effort_picker(app);
     } else {
         advance_after_setup_model_config(app, provider);
@@ -716,10 +723,11 @@ pub fn after_setup_model_config(app: &mut App, provider: SetupProviderArg, scope
 }
 
 pub fn write_setup_model_config(app: &mut App, _provider: SetupProviderArg, scope: CredentialScope) -> io::Result<()> {
-    let model = app.model.trim();
+    let model = app.runtime.model.trim();
     if model.is_empty() {
         let err = io::Error::new(io::ErrorKind::InvalidInput, "choose a model before saving setup");
         app.transcript
+            .entries
             .push(Entry::Error { text: format!("failed to save selected model to config: {err}") });
         return Err(err);
     }
@@ -729,25 +737,27 @@ pub fn write_setup_model_config(app: &mut App, _provider: SetupProviderArg, scop
             None => {
                 let err = io::Error::new(io::ErrorKind::NotFound, "HOME is not available");
                 app.transcript
+                    .entries
                     .push(Entry::Error { text: format!("failed to save selected model to global config: {err}") });
                 return Err(err);
             }
         },
-        CredentialScope::Project => config::project_config_path(&app.cwd),
+        CredentialScope::Project => config::project_config_path(&app.runtime.cwd),
     };
 
     match config::write_model_config(&path, model) {
         Ok(()) => {
             let display = match scope {
                 CredentialScope::Global => config::global_config_path_display(&path),
-                CredentialScope::Project => config::project_config_path_display(&path, &app.cwd),
+                CredentialScope::Project => config::project_config_path_display(&path, &app.runtime.cwd),
             };
             app.transcript
+                .entries
                 .push(Entry::Status { text: format!("model: {model} (saved to {display})") });
             Ok(())
         }
         Err(err) => {
-            app.transcript.push(Entry::Error {
+            app.transcript.entries.push(Entry::Error {
                 text: format!("failed to save selected model to {} config: {err}", scope.label()),
             });
             Err(err)
@@ -756,18 +766,19 @@ pub fn write_setup_model_config(app: &mut App, _provider: SetupProviderArg, scop
 }
 
 pub fn advance_after_setup_model_config(app: &mut App, provider: SetupProviderArg) {
-    if provider_authenticated(provider, &app.cwd) {
-        app.first_run_recovery = None;
-        app.transcript.push(Entry::Status {
+    if provider_authenticated(provider, &app.runtime.cwd) {
+        app.overlay.close();
+        app.transcript.entries.push(Entry::Status {
             text: format!(
                 "setup saved for {}; thndrs will verify the credential on the first provider request",
                 provider.label()
             ),
         });
     } else if provider == SetupProviderArg::ChatgptCodex {
-        app.first_run_recovery = Some(FirstRunRecovery::missing_provider(provider, false));
+        app.overlay
+            .show_setup(FirstRunRecovery::missing_provider(provider, false));
     } else {
-        app.first_run_recovery = Some(FirstRunRecovery::login(provider));
+        app.overlay.show_setup(FirstRunRecovery::login(provider));
     }
 }
 
@@ -788,26 +799,27 @@ pub fn setup_model_options(provider: SetupProviderArg) -> Vec<PickerItem> {
 /// Start the browser-first ChatGPT Codex OAuth recovery.
 pub fn start_chatgpt_browser_oauth_recovery(app: &mut App) {
     let pending_provider_prompt = app
-        .first_run_recovery
+        .overlay
+        .setup()
         .as_ref()
         .is_some_and(|recovery| recovery.pending_provider_prompt);
-    if let Some(active) = app.first_run_recovery.as_mut() {
+    if let Some(active) = app.overlay.setup_mut() {
         active.stage = RecoveryStage::ChatGptOAuthRequesting;
         active.selected = 0;
         active.chatgpt_oauth = None;
     }
-    app.chatgpt_browser_login = None;
+    app.overlay.set_browser_login(None);
 
-    match (app.chatgpt_oauth_driver.start_browser_login)() {
+    match (app.overlay.oauth_driver().start_browser_login)() {
         Ok(login) => {
             let authorization_url = login.authorization_url().to_string();
-            let status = match (app.chatgpt_oauth_driver.open_browser)(&authorization_url) {
+            let status = match (app.overlay.oauth_driver().open_browser)(&authorization_url) {
                 Ok(()) => String::from("Browser opened. Waiting for the ChatGPT callback."),
                 Err(_) => String::from("Browser did not open; copy the authorization URL below."),
             };
-            let expires_at_tick = app.ui_tick.wrapping_add(seconds_to_ticks(app, 5 * 60));
-            app.chatgpt_browser_login = Some(login);
-            app.first_run_recovery = Some(FirstRunRecovery {
+            let expires_at_tick = app.runtime.ui_tick.wrapping_add(seconds_to_ticks(app, 5 * 60));
+            app.overlay.set_browser_login(Some(login));
+            app.overlay.show_setup(FirstRunRecovery {
                 provider: Some(SetupProviderArg::ChatgptCodex),
                 stage: RecoveryStage::ChatGptOAuthPolling,
                 pending_provider_prompt,
@@ -817,7 +829,7 @@ pub fn start_chatgpt_browser_oauth_recovery(app: &mut App) {
                     method: ChatGptOAuthMethod::Browser,
                     authorization_url: Some(authorization_url),
                     code: None,
-                    next_poll_tick: app.ui_tick,
+                    next_poll_tick: app.runtime.ui_tick,
                     expires_at_tick,
                     status,
                 }),
@@ -838,25 +850,28 @@ pub fn start_chatgpt_browser_oauth_recovery(app: &mut App) {
 /// Start the explicitly selected headless ChatGPT Codex device-code recovery.
 pub fn start_chatgpt_device_oauth_recovery(app: &mut App) {
     let pending_provider_prompt = app
-        .first_run_recovery
+        .overlay
+        .setup()
         .as_ref()
         .is_some_and(|recovery| recovery.pending_provider_prompt);
-    if let Some(active) = app.first_run_recovery.as_mut() {
+    if let Some(active) = app.overlay.setup_mut() {
         active.stage = RecoveryStage::ChatGptOAuthRequesting;
         active.selected = 0;
         active.chatgpt_oauth = None;
     }
-    app.chatgpt_browser_login = None;
+    app.overlay.set_browser_login(None);
 
-    match (app.chatgpt_oauth_driver.request_device_code)() {
+    match (app.overlay.oauth_driver().request_device_code)() {
         Ok(code) => {
             let next_poll_tick = app
+                .runtime
                 .ui_tick
                 .wrapping_add(seconds_to_ticks(app, code.interval.unwrap_or(5).max(1)));
             let expires_at_tick = app
+                .runtime
                 .ui_tick
                 .wrapping_add(seconds_to_ticks(app, code.expires_in.unwrap_or(900).max(1)));
-            app.first_run_recovery = Some(FirstRunRecovery {
+            app.overlay.show_setup(FirstRunRecovery {
                 provider: Some(SetupProviderArg::ChatgptCodex),
                 stage: RecoveryStage::ChatGptOAuthPolling,
                 pending_provider_prompt,
@@ -887,8 +902,8 @@ pub fn start_chatgpt_device_oauth_recovery(app: &mut App) {
 }
 
 fn set_chatgpt_oauth_failure(app: &mut App, method: ChatGptOAuthMethod, pending_provider_prompt: bool, status: String) {
-    app.chatgpt_browser_login = None;
-    app.first_run_recovery = Some(FirstRunRecovery {
+    app.overlay.set_browser_login(None);
+    app.overlay.show_setup(FirstRunRecovery {
         provider: Some(SetupProviderArg::ChatgptCodex),
         stage: RecoveryStage::ChatGptOAuthFailed,
         pending_provider_prompt,
@@ -898,27 +913,27 @@ fn set_chatgpt_oauth_failure(app: &mut App, method: ChatGptOAuthMethod, pending_
             method,
             authorization_url: None,
             code: None,
-            next_poll_tick: app.ui_tick,
-            expires_at_tick: app.ui_tick,
+            next_poll_tick: app.runtime.ui_tick,
+            expires_at_tick: app.runtime.ui_tick,
             status: status.clone(),
         }),
     });
-    app.transcript.push(Entry::Error { text: status });
+    app.transcript.entries.push(Entry::Error { text: status });
 }
 
 fn finish_chatgpt_oauth(
     app: &mut App, credentials: &auth::ChatGptCodexCredentials, pending_provider_prompt: bool,
     method: ChatGptOAuthMethod,
 ) {
-    match (app.chatgpt_oauth_driver.write_credentials)(credentials) {
+    match (app.overlay.oauth_driver().write_credentials)(credentials) {
         Ok(()) => {
-            app.chatgpt_browser_login = None;
-            let needs_model = app.model.trim().is_empty();
-            app.transcript.push(Entry::Status {
+            app.overlay.set_browser_login(None);
+            let needs_model = app.runtime.model.trim().is_empty();
+            app.transcript.entries.push(Entry::Status {
                 text: String::from("chatgpt-codex OAuth credential stored in global auth store"),
             });
             if needs_model {
-                app.first_run_recovery = Some(FirstRunRecovery {
+                app.overlay.show_setup(FirstRunRecovery {
                     provider: Some(SetupProviderArg::ChatgptCodex),
                     stage: RecoveryStage::ModelSelection,
                     pending_provider_prompt,
@@ -927,7 +942,7 @@ fn finish_chatgpt_oauth(
                     chatgpt_oauth: None,
                 });
             } else {
-                app.first_run_recovery = None;
+                app.overlay.close();
             }
         }
         Err(err) => set_chatgpt_oauth_failure(
@@ -944,35 +959,37 @@ fn finish_chatgpt_oauth(
 
 fn complete_chatgpt_oauth_redirect(app: &mut App, redirect: &str) {
     let pending_provider_prompt = app
-        .first_run_recovery
+        .overlay
+        .setup()
         .as_ref()
         .is_some_and(|recovery| recovery.pending_provider_prompt);
     let result = app
-        .chatgpt_browser_login
+        .overlay
+        .browser_login()
         .as_ref()
         .ok_or_else(|| auth::AuthError::ChatGptCodex("browser OAuth session is no longer active".to_string()))
-        .and_then(|login| (app.chatgpt_oauth_driver.complete_browser_redirect)(login, redirect));
+        .and_then(|login| (app.overlay.oauth_driver().complete_browser_redirect)(login, redirect));
     match result {
         Ok(credentials) => {
             finish_chatgpt_oauth(app, &credentials, pending_provider_prompt, ChatGptOAuthMethod::Browser)
         }
         Err(err) => {
             let status = format!("ChatGPT redirect was rejected: {}", redact_auth_error(&err.to_string()));
-            if let Some(recovery) = app.first_run_recovery.as_mut() {
+            if let Some(recovery) = app.overlay.setup_mut() {
                 recovery.stage = RecoveryStage::ChatGptOAuthPolling;
                 recovery.selected = 0;
                 if let Some(oauth) = recovery.chatgpt_oauth.as_mut() {
                     oauth.status = status.clone();
                 }
             }
-            app.transcript.push(Entry::Error { text: status });
+            app.transcript.entries.push(Entry::Error { text: status });
         }
     }
 }
 
 pub fn poll_chatgpt_oauth_on_tick(app: &mut App) {
-    let tick_ms = app.cli.tick_rate_ms.max(1);
-    let Some(recovery) = app.first_run_recovery.as_ref() else {
+    let tick_ms = app.runtime.cli.tick_rate_ms.max(1);
+    let Some(recovery) = app.overlay.setup() else {
         return;
     };
     if recovery.stage != RecoveryStage::ChatGptOAuthPolling {
@@ -985,7 +1002,7 @@ pub fn poll_chatgpt_oauth_on_tick(app: &mut App) {
     let pending_provider_prompt = recovery.pending_provider_prompt;
     let expires_at_tick = oauth.expires_at_tick;
     let next_poll_tick = oauth.next_poll_tick;
-    if super::agent_lifecycle::now_or_after_deadline(app.ui_tick, expires_at_tick) {
+    if super::agent_lifecycle::now_or_after_deadline(app.runtime.ui_tick, expires_at_tick) {
         set_chatgpt_oauth_failure(
             app,
             method,
@@ -998,18 +1015,19 @@ pub fn poll_chatgpt_oauth_on_tick(app: &mut App) {
         return;
     }
     if method == ChatGptOAuthMethod::DeviceCode
-        && !super::agent_lifecycle::now_or_after_deadline(app.ui_tick, next_poll_tick)
+        && !super::agent_lifecycle::now_or_after_deadline(app.runtime.ui_tick, next_poll_tick)
     {
         return;
     }
 
     match method {
         ChatGptOAuthMethod::Browser => {
+            let poll_browser_login = app.overlay.oauth_driver().poll_browser_login;
             let result = app
-                .chatgpt_browser_login
-                .as_mut()
+                .overlay
+                .browser_login_mut()
                 .ok_or_else(|| auth::AuthError::ChatGptCodex("browser OAuth session is no longer active".to_string()))
-                .and_then(|login| (app.chatgpt_oauth_driver.poll_browser_login)(login));
+                .and_then(poll_browser_login);
             match result {
                 Ok(auth::ChatGptCodexBrowserPoll::Pending) => {}
                 Ok(auth::ChatGptCodexBrowserPoll::Authorized(credentials)) => {
@@ -1025,8 +1043,8 @@ pub fn poll_chatgpt_oauth_on_tick(app: &mut App) {
         }
         ChatGptOAuthMethod::DeviceCode => {
             let Some(code) = app
-                .first_run_recovery
-                .as_ref()
+                .overlay
+                .setup()
                 .and_then(|recovery| recovery.chatgpt_oauth.as_ref())
                 .and_then(|oauth| oauth.code.as_ref())
                 .cloned()
@@ -1039,27 +1057,28 @@ pub fn poll_chatgpt_oauth_on_tick(app: &mut App) {
                 );
                 return;
             };
-            match (app.chatgpt_oauth_driver.poll_device_code_once)(&code) {
+            match (app.overlay.oauth_driver().poll_device_code_once)(&code) {
                 Ok(auth::ChatGptCodexDevicePoll::Pending) => {
                     if let Some(oauth) = app
-                        .first_run_recovery
-                        .as_mut()
+                        .overlay
+                        .setup_mut()
                         .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
                     {
                         oauth.status = String::from("Waiting for ChatGPT authorization.");
                         oauth.next_poll_tick = app
+                            .runtime
                             .ui_tick
                             .wrapping_add(seconds_to_ticks_for_ms(tick_ms, code.interval.unwrap_or(5).max(1)));
                     }
                 }
                 Ok(auth::ChatGptCodexDevicePoll::SlowDown) => {
                     if let Some(oauth) = app
-                        .first_run_recovery
-                        .as_mut()
+                        .overlay
+                        .setup_mut()
                         .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
                     {
                         oauth.status = String::from("ChatGPT asked the client to slow down; waiting.");
-                        oauth.next_poll_tick = app.ui_tick.wrapping_add(seconds_to_ticks_for_ms(
+                        oauth.next_poll_tick = app.runtime.ui_tick.wrapping_add(seconds_to_ticks_for_ms(
                             tick_ms,
                             code.interval.unwrap_or(5).max(1).saturating_add(5),
                         ));
@@ -1083,7 +1102,7 @@ pub fn poll_chatgpt_oauth_on_tick(app: &mut App) {
 }
 
 pub fn seconds_to_ticks(app: &App, seconds: u64) -> u64 {
-    seconds_to_ticks_for_ms(app.cli.tick_rate_ms.max(1), seconds)
+    seconds_to_ticks_for_ms(app.runtime.cli.tick_rate_ms.max(1), seconds)
 }
 
 pub fn seconds_to_ticks_for_ms(tick_ms: u64, seconds: u64) -> u64 {
@@ -1117,11 +1136,11 @@ pub fn selected_scope(selected: usize) -> Option<CredentialScope> {
 
 pub fn store_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
     let Some(provider) = recovery.provider else {
-        app.first_run_recovery = None;
+        app.overlay.close();
         return;
     };
     let Some(scope) = selected_scope(recovery.selected) else {
-        app.first_run_recovery = Some(FirstRunRecovery::missing_provider(
+        app.overlay.show_setup(FirstRunRecovery::missing_provider(
             provider,
             recovery.pending_provider_prompt,
         ));
@@ -1129,36 +1148,40 @@ pub fn store_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
     };
 
     let key = recovery.secret_input.trim();
-    let path = match crate::cli::commands::auth::credential_path(scope, &app.cwd) {
+    let path = match crate::cli::commands::auth::credential_path(scope, &app.runtime.cwd) {
         Ok(path) => path,
         Err(err) => {
             app.transcript
+                .entries
                 .push(Entry::Error { text: format!("credential store unavailable: {err}") });
             return;
         }
     };
 
     let Some(env_var) = provider.api_key_env_var() else {
-        app.first_run_recovery = Some(FirstRunRecovery::missing_provider(
+        app.overlay.show_setup(FirstRunRecovery::missing_provider(
             provider,
             recovery.pending_provider_prompt,
         ));
         app.transcript
+            .entries
             .push(Entry::Error { text: String::from("ChatGPT Codex uses OAuth login, not API-key storage") });
         return;
     };
     match auth::set_credential(&path, env_var, key) {
         Ok(()) => {
             if scope == CredentialScope::Project
-                && let Err(err) = auth::ensure_git_exclude(&app.cwd)
+                && let Err(err) = auth::ensure_git_exclude(&app.runtime.cwd)
             {
                 app.transcript
+                    .entries
                     .push(Entry::Error { text: format!("git exclude update failed: {err}") });
             }
             app.transcript
+                .entries
                 .push(Entry::Status { text: format!("{} credential stored in {}", provider.label(), scope.label()) });
-            if app.model.trim().is_empty() {
-                app.first_run_recovery = Some(FirstRunRecovery {
+            if app.runtime.model.trim().is_empty() {
+                app.overlay.show_setup(FirstRunRecovery {
                     provider: Some(provider),
                     stage: RecoveryStage::ModelSelection,
                     pending_provider_prompt: recovery.pending_provider_prompt,
@@ -1167,67 +1190,74 @@ pub fn store_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
                     chatgpt_oauth: None,
                 });
             } else {
-                app.first_run_recovery = None;
+                app.overlay.close();
             }
         }
         Err(err) => app
             .transcript
+            .entries
             .push(Entry::Error { text: format!("credential write failed: {err}") }),
     }
 }
 
 pub fn remove_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
     let Some(provider) = recovery.provider else {
-        app.first_run_recovery = None;
+        app.overlay.close();
         return;
     };
     let Some(scope) = selected_scope(recovery.selected) else {
-        app.first_run_recovery = None;
+        app.overlay.close();
         app.transcript
+            .entries
             .push(Entry::Status { text: String::from("logout cancelled") });
         return;
     };
-    let path = match crate::cli::commands::auth::credential_path(scope, &app.cwd) {
+    let path = match crate::cli::commands::auth::credential_path(scope, &app.runtime.cwd) {
         Ok(path) => path,
         Err(err) => {
             app.transcript
+                .entries
                 .push(Entry::Error { text: format!("credential store unavailable: {err}") });
             return;
         }
     };
     let Some(env_var) = provider.api_key_env_var() else {
-        app.first_run_recovery = None;
+        app.overlay.close();
         app.transcript
+            .entries
             .push(Entry::Error { text: String::from("ChatGPT Codex credentials are stored in ~/.thndrs/auth.json") });
         return;
     };
     match auth::remove_credential(&path, env_var) {
         Ok(()) => {
-            app.first_run_recovery = None;
-            app.transcript.push(Entry::Status {
+            app.overlay.close();
+            app.transcript.entries.push(Entry::Status {
                 text: format!("{} credential removed from {}", provider.label(), scope.label()),
             });
         }
         Err(err) => app
             .transcript
+            .entries
             .push(Entry::Error { text: format!("credential remove failed: {err}") }),
     }
 }
 
 fn select_setup_model(app: &mut App, recovery: &FirstRunRecovery) {
     let Some(provider) = recovery.provider else {
-        app.first_run_recovery = Some(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
+        app.overlay
+            .show_setup(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
         return;
     };
     let options = setup_model_options(provider);
     let Some(model) = options.get(recovery.selected).map(|item| item.label.clone()) else {
         return;
     };
-    app.model = model.clone();
-    app.cli.model = model.clone();
+    app.runtime.model = model.clone();
+    app.runtime.cli.model = model.clone();
     app.transcript
+        .entries
         .push(Entry::Status { text: format!("model selected: {model}") });
-    app.first_run_recovery = Some(FirstRunRecovery {
+    app.overlay.show_setup(FirstRunRecovery {
         provider: Some(provider),
         stage: RecoveryStage::ModelConfigScope,
         pending_provider_prompt: recovery.pending_provider_prompt,

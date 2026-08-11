@@ -112,7 +112,7 @@ pub enum FocusedSurfaceView {
 
 impl From<&App> for FocusedSurfaceView {
     fn from(app: &App) -> Self {
-        if let Some(permission) = app.pending_permission.as_ref() {
+        if let Some(permission) = app.overlay.permission() {
             return FocusedSurfaceView::Permission(PermissionView {
                 title: permission.title.clone(),
                 scope: "local user · active tool only · no TUI sandbox".to_string(),
@@ -130,21 +130,21 @@ impl From<&App> for FocusedSurfaceView {
         if let Some(form) = app.render_setup_form_view() {
             return FocusedSurfaceView::SetupForm(form);
         }
-        if app.detail_pane.open
-            && let Some(Entry::Tool { name, status, output, .. }) = app.transcript.get(app.detail_pane.entry_index)
+        if let Some(detail) = app.overlay.detail()
+            && let Some(Entry::Tool { name, status, output, .. }) = app.transcript.entries.get(detail.entry_index)
         {
             return FocusedSurfaceView::ToolDetail(ToolDetailView {
-                entry_index: app.detail_pane.entry_index,
+                entry_index: detail.entry_index,
                 title: name.clone(),
                 status: *status,
-                scroll: app.detail_pane.scroll,
+                scroll: detail.scroll,
                 output: output.clone(),
             });
         }
-        match app.prompt_accessory {
-            PromptAccessory::Help => {
-                FocusedSurfaceView::Help(HelpView { queue_target_toggle: matches!(app.run_state, RunState::Working) })
-            }
+        match app.overlay.accessory() {
+            PromptAccessory::Help => FocusedSurfaceView::Help(HelpView {
+                queue_target_toggle: matches!(app.runtime.run_state, RunState::Working),
+            }),
             PromptAccessory::Commands { selected } => {
                 let items = crate::app::command_suggestions_for_app(app)
                     .into_iter()
@@ -152,7 +152,7 @@ impl From<&App> for FocusedSurfaceView {
                     .collect();
                 FocusedSurfaceView::CommandPicker(PickerView {
                     title: "commands".to_string(),
-                    query: app.input.text(),
+                    query: app.composer.input.text(),
                     selected,
                     items,
                 })
@@ -262,16 +262,16 @@ pub struct TranscriptView {
 /// Alternate-screen caching uses this boundary to invalidate a changing entry
 /// without rebuilding settled entries above it.
 pub fn project_transcript_entry(app: &App, entry_index: usize, width: usize) -> (Vec<Row>, Vec<Row>) {
-    let Some(entry) = app.transcript.get(entry_index) else {
+    let Some(entry) = app.transcript.entries.get(entry_index) else {
         return (Vec::new(), Vec::new());
     };
     let previous_was_tool = entry_index
         .checked_sub(1)
-        .and_then(|index| app.transcript.get(index))
+        .and_then(|index| app.transcript.entries.get(index))
         .is_some_and(|entry| matches!(entry, Entry::Tool { .. }));
     TranscriptRowContext {
-        user_label: &app.user_label,
-        cwd: &app.cwd,
+        user_label: &app.runtime.user_label,
+        cwd: &app.runtime.cwd,
         width,
         entry_index: Some(entry_index),
         tool_group_start: !previous_was_tool,
@@ -283,7 +283,7 @@ impl TranscriptView {
     fn build(app: &App, width: usize) -> Self {
         let banner_rows = app.render_banner_rows(width);
 
-        if app.transcript.is_empty() {
+        if app.transcript.entries.is_empty() {
             return Self { rows: banner_rows.clone(), banner_rows, stable_rows: Vec::new(), live_rows: Vec::new() };
         }
 
@@ -293,15 +293,15 @@ impl TranscriptView {
         stable_rows.extend(banner_rows);
 
         let ctx = TranscriptRowContext {
-            user_label: &app.user_label,
-            cwd: &app.cwd,
+            user_label: &app.runtime.user_label,
+            cwd: &app.runtime.cwd,
             width,
             entry_index: None,
             tool_group_start: true,
         };
 
         let mut previous_was_tool = false;
-        for (index, entry) in app.transcript.iter().enumerate() {
+        for (index, entry) in app.transcript.entries.iter().enumerate() {
             let mut entry_ctx = ctx.clone();
             entry_ctx.entry_index = Some(index);
             entry_ctx.tool_group_start = !previous_was_tool;
@@ -333,7 +333,9 @@ pub struct SemanticUiView {
 impl From<&App> for SemanticUiView {
     fn from(app: &App) -> Self {
         Self {
-            transcript: SemanticTranscriptView { rows: app.transcript.iter().map(TranscriptRowView::from).collect() },
+            transcript: SemanticTranscriptView {
+                rows: app.transcript.entries.iter().map(TranscriptRowView::from).collect(),
+            },
             prompt: PromptSurfaceView::from(app),
             orientation: OrientationBandView::from(app),
             focused_surface: FocusedSurfaceView::from(app),
@@ -489,22 +491,27 @@ impl From<&App> for PromptSurfaceView {
     fn from(app: &App) -> Self {
         let queued = app.render_queued_summary_view();
         let suggestions = app.render_prompt_suggestions();
-        let has_draft = !app.input.is_empty();
-        let status = match (&app.run_state, queued.is_some(), suggestions.is_empty(), has_draft) {
+        let has_draft = !app.composer.input.is_empty();
+        let status = match (
+            &app.runtime.run_state,
+            queued.is_some(),
+            suggestions.is_empty(),
+            has_draft,
+        ) {
             (RunState::Error(_), _, _, true) => PromptStatusView::Retryable,
             (RunState::Error(_), _, _, false) => PromptStatusView::Failed,
             (RunState::Working, true, _, _) => PromptStatusView::Queued,
             (RunState::Working, false, _, _) | (RunState::Stopping, _, _, _) => PromptStatusView::Running,
             (_, _, false, _) => PromptStatusView::Suggesting,
             (_, _, _, true) => PromptStatusView::Drafting,
-            _ => match app.transcript.last() {
+            _ => match app.transcript.entries.last() {
                 Some(Entry::Status { text }) if text == "cancelled" => PromptStatusView::Cancelled,
                 _ => PromptStatusView::Idle,
             },
         };
         PromptSurfaceView {
-            draft: app.input.text(),
-            mode: match app.mode {
+            draft: app.composer.input.text(),
+            mode: match app.composer.mode {
                 Mode::Command => PromptModeView::Command,
                 _ => PromptModeView::Prompt,
             },
@@ -543,13 +550,13 @@ impl From<&App> for OrientationBandView {
         let mut fields = vec![
             OrientationFieldView {
                 label: "workspace".to_string(),
-                value: app.cwd.display().to_string(),
+                value: app.runtime.cwd.display().to_string(),
                 priority: 20,
                 truncate: TruncationPolicy::EllipsizeMiddle,
             },
             OrientationFieldView {
                 label: "model".to_string(),
-                value: app.model.clone(),
+                value: app.runtime.model.clone(),
                 priority: 10,
                 truncate: TruncationPolicy::EllipsizeEnd,
             },
@@ -572,7 +579,7 @@ impl From<&App> for OrientationBandView {
                 truncate: TruncationPolicy::Hide,
             },
         ];
-        if app.ttft.is_pending() {
+        if app.runtime.ttft.is_pending() {
             fields.push(OrientationFieldView {
                 label: "ttft".to_string(),
                 value: "pending".to_string(),
@@ -778,17 +785,21 @@ impl LiveView {
 
 impl App {
     fn render_queued_summary_view(&self) -> Option<QueuedSummaryView> {
-        let steering_count = self.queued_steering.len();
-        let followup_count = self.queued_followups.len();
+        let steering_count = self.composer.queued_steering.len();
+        let followup_count = self.composer.queued_followups.len();
         if steering_count == 0 && followup_count == 0 {
             None
         } else {
-            Some(QueuedSummaryView { steering_count, followup_count, target: self.queue_target.label().to_string() })
+            Some(QueuedSummaryView {
+                steering_count,
+                followup_count,
+                target: self.composer.queue_target.label().to_string(),
+            })
         }
     }
 
     fn render_prompt_suggestions(&self) -> Vec<PromptSuggestionView> {
-        match self.prompt_accessory {
+        match self.overlay.accessory() {
             PromptAccessory::Commands { selected } => crate::app::command_suggestions_for_app(self)
                 .into_iter()
                 .enumerate()
@@ -807,8 +818,8 @@ impl App {
     }
 
     fn render_picker_suggestions(&self, kind: PromptSuggestionKind) -> Vec<PromptSuggestionView> {
-        self.picker
-            .as_ref()
+        self.overlay
+            .picker()
             .map(|picker| {
                 picker
                     .matches
@@ -826,7 +837,7 @@ impl App {
     }
 
     fn render_picker_surface(&self, title: &str) -> Option<PickerView> {
-        let picker = self.picker.as_ref()?;
+        let picker = self.overlay.picker()?;
         Some(PickerView {
             title: title.to_string(),
             query: picker.query.clone(),
@@ -840,7 +851,7 @@ impl App {
     }
 
     fn render_setup_form_view(&self) -> Option<SetupFormView> {
-        let recovery = self.first_run_recovery.as_ref()?;
+        let recovery = self.overlay.setup()?;
         let (label, value, secret) = setup_field(recovery);
         let provider = recovery
             .provider
@@ -871,7 +882,7 @@ impl App {
 
     /// Project the context ledger into bounded table data owned by the renderer.
     pub fn render_context_table(&self) -> TableView {
-        let Some(ledger) = &self.context_ledger else {
+        let Some(ledger) = &self.transcript.context_ledger else {
             return TableView {
                 header: vec![TableCellView {
                     text: "context".to_string(),
@@ -888,7 +899,11 @@ impl App {
             };
         };
 
-        let review = self.last_compaction_review.map(|a| a.label()).unwrap_or("none");
+        let review = self
+            .transcript
+            .last_compaction_review
+            .map(|a| a.label())
+            .unwrap_or("none");
         let counts = ledger.counts();
         let mut rows = vec![
             context_table_row(

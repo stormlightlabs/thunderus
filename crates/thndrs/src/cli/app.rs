@@ -232,12 +232,10 @@ impl QueueTarget {
 /// scroll offset within that entry's rendered output rows.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DetailPane {
-    /// Index into `app.transcript` for the expanded tool entry.
+    /// Index into `app.transcript.entries` for the expanded tool entry.
     pub entry_index: usize,
     /// Scroll offset: number of rendered output rows skipped from the top.
     pub scroll: usize,
-    /// Whether the detail pane is currently open.
-    pub open: bool,
 }
 
 impl DetailPane {
@@ -353,144 +351,412 @@ pub enum Msg {
     GitStatusChanged(Option<GitStatusSummary>),
 }
 
-/// The full application state used to draw the screen.
+/// Durable identity and append-only audit state for one application session.
 #[derive(Debug)]
-pub struct App {
-    /// Snapshot of the effective CLI config used by command-like TUI flows.
-    pub cli: Cli,
-    /// Persistence policy selected for the current interactive or headless run.
+pub struct SessionState {
+    /// Persistence policy selected for the current run.
     pub run_persistence: RunPersistence,
-    pub session_id: String,
-    pub mode: Mode,
-    pub run_state: RunState,
-    pub input: PromptInput,
-    /// Submitted prompt history for Up/Down recall.
-    pub input_history: Vec<String>,
+    /// Stable session identity used by records and prompt history.
+    pub id: String,
+    /// Append-only session writer, when durable persistence is available.
+    pub writer: Option<session::SessionWriter>,
     /// Dedicated workspace-local persistence for submitted prompt recall.
-    input_history_store: InputHistoryStore,
-    /// Current index into `input_history` while navigating history.
-    pub history_cursor: Option<usize>,
-    /// Draft input captured before history navigation starts.
-    pub history_draft: String,
-    pub transcript: Vec<Entry>,
-    pub cwd: PathBuf,
-    /// Current git working tree summary for the status line.
-    pub git_status: Option<GitStatusSummary>,
-    pub model: String,
-    pub model_picker_items: Vec<PickerItem>,
-    pub user_label: String,
-    pub websearch: WebSearchMode,
-    /// UI color theme.
-    pub theme: Theme,
-    /// Whether diagnostic provider/log status rows should be shown in transcript.
-    pub verbose: bool,
-    /// Provider token usage accumulated for this session.
-    pub session_tokens_in: u64,
-    pub session_tokens_out: u64,
-    /// Latest application-owned ChatGPT Codex usage quota reported by a response.
-    pub codex_usage: Option<codex::CodexUsageStatus>,
-    /// In-memory client-observed TTFT for the active and last completed turn.
-    pub ttft: TurnTtftState,
-    /// Loaded context sources (e.g. AGENTS.md).
+    pub(crate) input_history_store: InputHistoryStore,
+    /// Monotonic turn counter for session record correlation.
+    pub turn_count: u64,
+    /// Most recent completed provider request accounting.
+    pub last_request_accounting: Option<ProviderRequestAccounting>,
+    /// Non-fatal config diagnostics captured for this session.
+    pub config_diagnostics: Vec<String>,
+    /// MCP config files captured by the session audit.
+    pub mcp_config_files: Vec<session::SessionConfigFile>,
+    /// Non-fatal MCP config audit diagnostics.
+    pub mcp_config_diagnostics: Vec<String>,
+}
+
+/// Transcript, context selection, and compaction state.
+#[derive(Debug)]
+pub struct TranscriptState {
+    /// Chronological user, provider, tool, and status entries.
+    pub entries: Vec<Entry>,
+    /// Loaded context sources (for example, AGENTS.md).
     pub context_sources: Vec<crate::context::ContextSource>,
     /// Filesystem discovery diagnostics for project instructions.
     pub context_diagnostics: Vec<crate::context::InstructionDiagnostic>,
-    /// Latest provider-neutral context ledger used for inspection and prompt
-    /// assembly. It is replaced at each turn boundary.
+    /// Latest provider-neutral context ledger.
     pub context_ledger: Option<agent_context::ContextLedger>,
-    /// Most recent completed provider request accounting for `/tokens` and
-    /// context export. The request projection is in-memory only.
-    pub last_request_accounting: Option<ProviderRequestAccounting>,
     /// Discovered Agent Skills metadata.
     pub skills: Vec<skills::SkillMetadata>,
-    /// Skill discovery diagnostics for ignored malformed skills.
+    /// Skill discovery diagnostics.
     pub skill_diagnostics: Vec<skills::SkillDiagnostic>,
     /// Reusable prompt templates exposed through slash-command completion.
     pub prompt_templates: Vec<prompt::templates::PromptTemplate>,
-    /// Non-fatal diagnostics for malformed or unreadable prompt templates.
+    /// Prompt-template discovery diagnostics.
     pub prompt_template_diagnostics: Vec<prompt::templates::PromptTemplateDiagnostic>,
-    /// Monotonic UI tick used for lightweight animated affordances.
-    pub ui_tick: u64,
-    /// When `Some`, the user pressed Ctrl+D once and we are waiting for a
-    /// second press within roughly three seconds to actually quit. The value
-    /// is the tick deadline at which the pending confirmation expires.
-    pub ctrl_d_pending: Option<u64>,
-    /// Tick deadline that bounds how long a cancelled run may remain in the
-    /// `Stopping` state while its worker unwinds.
-    pub stopping_deadline: Option<u64>,
-    /// Whether the cancellation grace period expired before the worker settled.
-    ///
-    /// The direct loop uses this to detach the worker instead of joining it on
-    /// the UI thread after the app has already entered its terminal state.
-    pub(crate) stopping_timed_out: bool,
-    /// Append-only session writer. `None` when persistence is disabled
-    /// (e.g. the sessions directory is not writable).
-    pub session_writer: Option<session::SessionWriter>,
-    /// Tool-call ids mapped to their bounded redacted recovery handles.
+    /// Tool-call ids mapped to bounded redacted recovery handles.
     pub tool_artifacts: HashMap<String, String>,
     /// State-aware model-projection decisions indexed by tool-call id.
     pub(crate) tool_projection_decisions: HashMap<String, agent_context::StateProjectionDecision>,
-    /// Durable lifecycle/protection state reconstructed from append-only
-    /// context records and applied to each new ledger snapshot.
+    /// Durable context lifecycle/protection state.
     pub(crate) context_lifecycles: BTreeMap<String, agent_context::ContextLifecycle>,
-    /// Monotonic turn counter for session record correlation.
-    pub turn_count: u64,
-    /// Registry of background processes started via `run_shell`.
-    pub process_registry: ProcessRegistry,
-    /// The active provider prompt, retained so user input can be restored on
-    /// provider failure. This can be an internal compaction request that is
-    /// intentionally absent from the visible transcript. Cleared on successful
-    /// completion.
-    pub last_input: Option<String>,
-    /// In-flight compaction (manual or automatic). The original active
-    /// context is retained until the configured provider summary and audit
-    /// record both succeed.
-    pending_manual_compaction: Option<context::PendingManualCompaction>,
-    /// A generated summary awaiting explicit review before it changes the
-    /// active working set.
-    pending_compaction_review: Option<context::PendingCompactionReview>,
-    /// Last compaction review state for the context health surface.
+    /// In-flight compaction request.
+    pub(crate) pending_manual_compaction: Option<context::PendingManualCompaction>,
+    /// Summary awaiting explicit review.
+    pub(crate) pending_compaction_review: Option<context::PendingCompactionReview>,
+    /// Last compaction review state.
     pub last_compaction_review: Option<session::CompactionReviewResult>,
-    /// Task-local pins retained across turn-boundary ledger rebuilds.
-    context_pins: Vec<PinnedCandidate>,
-    /// Explicitly dropped context ids retained until the user recovers or
-    /// resets them.
-    context_dropped_ids: Vec<String>,
-    /// Summaries that can stand in for older transcript entries.
-    compaction_summaries: Vec<CompactionSummaryCandidate>,
-    /// Current target for input submitted while the agent is running.
+    /// Task-local context pins.
+    pub(crate) context_pins: Vec<PinnedCandidate>,
+    /// Explicitly dropped context ids.
+    pub(crate) context_dropped_ids: Vec<String>,
+    /// Summaries retained across context rebuilds.
+    pub(crate) compaction_summaries: Vec<CompactionSummaryCandidate>,
+}
+
+/// Prompt editing, history, queue, and recovery-draft state.
+#[derive(Debug)]
+pub struct ComposerState {
+    pub mode: Mode,
+    pub input: PromptInput,
+    /// Submitted prompt history for Up/Down recall.
+    pub input_history: Vec<String>,
+    /// Current history navigation index.
+    pub history_cursor: Option<usize>,
+    /// Draft captured before history navigation starts.
+    pub history_draft: String,
+    /// Current target for input submitted during an active run.
     pub queue_target: QueueTarget,
-    /// Setup state to resume after choosing a GPT-5.6 reasoning effort.
-    pending_setup_reasoning_effort: Option<PendingSetupReasoningEffort>,
-    /// Active fuzzy picker state, used by file and model pickers.
-    pub picker: Option<PickerState>,
-    /// Inline prompt accessory rendered above the input.
-    pub prompt_accessory: PromptAccessory,
-    /// Focused first-run or credential recovery surface.
-    pub first_run_recovery: Option<FirstRunRecovery>,
-    /// ChatGPT OAuth functions used by focused recovery.
-    pub chatgpt_oauth_driver: ChatGptOAuthDriver,
-    /// Short-lived browser PKCE callback owned by the application adapter.
-    pub chatgpt_browser_login: Option<auth::ChatGptCodexBrowserLogin>,
-    /// Steering messages waiting to be sent to the active agent thread.
+    /// Steering messages waiting for the active agent thread.
     pub queued_steering: Vec<String>,
-    /// Follow-up prompts to submit as new turns after the active run completes.
+    /// Follow-up prompts waiting for later turns.
     pub queued_followups: Vec<String>,
-    /// Kill-ring for readline-style yank (Ctrl+Y).
+    /// Prompt restored after provider failure or retained for an internal turn.
+    pub last_input: Option<String>,
+    /// Kill-ring for readline-style yank.
     pub kill_ring: Vec<String>,
-    /// Scrollable detail pane for inspecting full tool output.
-    pub detail_pane: DetailPane,
-    /// One pending ACP permission request, if an external agent is blocked on a user decision.
-    pub pending_permission: Option<PendingPermission>,
-    /// Non-fatal config diagnostics from effective config loading. Surfaced in
-    /// verbose startup rows and prompt inspection.
-    pub config_diagnostics: Vec<String>,
-    /// MCP config files captured when the session audit metadata was written.
-    pub mcp_config_files: Vec<session::SessionConfigFile>,
-    /// Non-fatal MCP config diagnostics from the latest MCP config audit load.
-    pub mcp_config_diagnostics: Vec<String>,
-    /// When true the loop should stop and the app exit.
+}
+
+/// Setup/recovery state carried by the focused setup overlay.
+#[derive(Debug)]
+pub struct SetupState {
+    pub recovery: FirstRunRecovery,
+    pub pending_setup_reasoning_effort: Option<PendingSetupReasoningEffort>,
+}
+
+impl SetupState {
+    fn new(recovery: FirstRunRecovery) -> Self {
+        Self { recovery, pending_setup_reasoning_effort: None }
+    }
+}
+
+/// Focused overlay variants. The enum makes picker, detail, setup, help, and
+/// permission surfaces mutually exclusive by construction.
+#[derive(Debug)]
+enum OverlaySurface {
+    None,
+    Help,
+    Commands {
+        selected: usize,
+    },
+    Files {
+        source: FilePickerSource,
+        picker: PickerState,
+    },
+    Models {
+        picker: PickerState,
+    },
+    ReasoningEffort {
+        picker: PickerState,
+        pending_setup: Option<PendingSetupReasoningEffort>,
+    },
+    Skills {
+        picker: PickerState,
+    },
+    Sessions {
+        picker: PickerState,
+    },
+    Context,
+    Detail(DetailPane),
+    Setup(SetupState),
+    Permission(PendingPermission),
+}
+
+/// Focus, auth recovery, and all other mutually-exclusive transient surfaces.
+#[derive(Debug)]
+pub struct OverlayState {
+    surface: OverlaySurface,
+    /// OAuth effect drivers belong to the auth/recovery domain even while no
+    /// setup form is focused (tests and adapters can configure them first).
+    oauth_driver: ChatGptOAuthDriver,
+    browser_login: Option<auth::ChatGptCodexBrowserLogin>,
+}
+
+impl Default for OverlayState {
+    fn default() -> Self {
+        Self { surface: OverlaySurface::None, oauth_driver: ChatGptOAuthDriver::default(), browser_login: None }
+    }
+}
+
+impl OverlayState {
+    /// Project the focused surface into the legacy accessory vocabulary.
+    pub fn accessory(&self) -> PromptAccessory {
+        match &self.surface {
+            OverlaySurface::None
+            | OverlaySurface::Detail(_)
+            | OverlaySurface::Setup(_)
+            | OverlaySurface::Permission(_) => PromptAccessory::None,
+            OverlaySurface::Help => PromptAccessory::Help,
+            OverlaySurface::Commands { selected } => PromptAccessory::Commands { selected: *selected },
+            OverlaySurface::Files { source, .. } => PromptAccessory::Files(*source),
+            OverlaySurface::Models { .. } => PromptAccessory::Models,
+            OverlaySurface::ReasoningEffort { .. } => PromptAccessory::ReasoningEffort,
+            OverlaySurface::Skills { .. } => PromptAccessory::Skills,
+            OverlaySurface::Sessions { .. } => PromptAccessory::Sessions,
+            OverlaySurface::Context => PromptAccessory::Context,
+        }
+    }
+
+    /// Return the active picker, if the focused surface owns one.
+    pub fn picker(&self) -> Option<&PickerState> {
+        match &self.surface {
+            OverlaySurface::Files { picker, .. }
+            | OverlaySurface::Models { picker }
+            | OverlaySurface::ReasoningEffort { picker, .. }
+            | OverlaySurface::Skills { picker }
+            | OverlaySurface::Sessions { picker } => Some(picker),
+            _ => None,
+        }
+    }
+
+    /// Mutably access the active picker.
+    pub fn picker_mut(&mut self) -> Option<&mut PickerState> {
+        match &mut self.surface {
+            OverlaySurface::Files { picker, .. }
+            | OverlaySurface::Models { picker }
+            | OverlaySurface::ReasoningEffort { picker, .. }
+            | OverlaySurface::Skills { picker }
+            | OverlaySurface::Sessions { picker } => Some(picker),
+            _ => None,
+        }
+    }
+
+    /// Return the setup recovery state when setup owns focus.
+    pub fn setup(&self) -> Option<&FirstRunRecovery> {
+        match &self.surface {
+            OverlaySurface::Setup(setup) => Some(&setup.recovery),
+            _ => None,
+        }
+    }
+
+    /// Mutably access setup recovery state.
+    pub fn setup_mut(&mut self) -> Option<&mut FirstRunRecovery> {
+        match &mut self.surface {
+            OverlaySurface::Setup(setup) => Some(&mut setup.recovery),
+            _ => None,
+        }
+    }
+
+    /// Return the pending permission when permission owns focus.
+    pub fn permission(&self) -> Option<&PendingPermission> {
+        match &self.surface {
+            OverlaySurface::Permission(permission) => Some(permission),
+            _ => None,
+        }
+    }
+
+    /// Mutably access the pending permission.
+    pub fn permission_mut(&mut self) -> Option<&mut PendingPermission> {
+        match &mut self.surface {
+            OverlaySurface::Permission(permission) => Some(permission),
+            _ => None,
+        }
+    }
+
+    /// Take the pending permission and return focus to the prompt.
+    pub fn take_permission(&mut self) -> Option<PendingPermission> {
+        match std::mem::replace(&mut self.surface, OverlaySurface::None) {
+            OverlaySurface::Permission(permission) => Some(permission),
+            other => {
+                self.surface = other;
+                None
+            }
+        }
+    }
+
+    /// Return the active detail pane.
+    pub fn detail(&self) -> Option<&DetailPane> {
+        match &self.surface {
+            OverlaySurface::Detail(detail) => Some(detail),
+            _ => None,
+        }
+    }
+
+    /// Mutably access the active detail pane.
+    pub fn detail_mut(&mut self) -> Option<&mut DetailPane> {
+        match &mut self.surface {
+            OverlaySurface::Detail(detail) => Some(detail),
+            _ => None,
+        }
+    }
+
+    /// Whether the detail surface owns focus.
+    pub fn is_detail(&self) -> bool {
+        matches!(self.surface, OverlaySurface::Detail(_))
+    }
+
+    /// Close details without disturbing another focused surface.
+    pub fn close_detail(&mut self) {
+        if self.is_detail() {
+            self.close();
+        }
+    }
+
+    /// Access the auth driver owned by this overlay domain.
+    pub fn oauth_driver(&self) -> &ChatGptOAuthDriver {
+        &self.oauth_driver
+    }
+
+    /// Mutably configure the auth driver without changing focus.
+    pub fn oauth_driver_mut(&mut self) -> &mut ChatGptOAuthDriver {
+        &mut self.oauth_driver
+    }
+
+    /// Access the short-lived browser callback owned by auth recovery.
+    pub fn browser_login(&self) -> Option<&auth::ChatGptCodexBrowserLogin> {
+        self.browser_login.as_ref()
+    }
+
+    /// Mutably access the short-lived browser callback.
+    pub fn browser_login_mut(&mut self) -> Option<&mut auth::ChatGptCodexBrowserLogin> {
+        self.browser_login.as_mut()
+    }
+
+    /// Replace the short-lived browser callback.
+    pub fn set_browser_login(&mut self, login: Option<auth::ChatGptCodexBrowserLogin>) {
+        self.browser_login = login;
+    }
+
+    /// Replace focus with a setup/recovery surface.
+    pub fn show_setup(&mut self, recovery: FirstRunRecovery) {
+        self.surface = OverlaySurface::Setup(SetupState::new(recovery));
+    }
+
+    /// Replace focus with a command suggestion surface.
+    pub fn show_commands(&mut self) {
+        self.surface = OverlaySurface::Commands { selected: 0 };
+    }
+
+    /// Mutably access the selected command suggestion.
+    pub fn command_selected_mut(&mut self) -> Option<&mut usize> {
+        match &mut self.surface {
+            OverlaySurface::Commands { selected } => Some(selected),
+            _ => None,
+        }
+    }
+
+    /// Replace focus with help.
+    pub fn show_help(&mut self) {
+        self.surface = OverlaySurface::Help;
+    }
+
+    /// Replace focus with context inspection.
+    pub fn show_context(&mut self) {
+        self.surface = OverlaySurface::Context;
+    }
+
+    /// Replace focus with a picker. Non-picker accessories are rejected.
+    pub fn show_picker(&mut self, accessory: PromptAccessory, picker: PickerState) -> Result<(), &'static str> {
+        let pending_setup = match accessory {
+            PromptAccessory::ReasoningEffort => self.take_pending_setup_reasoning_effort(),
+            _ => None,
+        };
+        self.surface = match accessory {
+            PromptAccessory::Files(source) => OverlaySurface::Files { source, picker },
+            PromptAccessory::Models => OverlaySurface::Models { picker },
+            PromptAccessory::ReasoningEffort => OverlaySurface::ReasoningEffort { picker, pending_setup },
+            PromptAccessory::Skills => OverlaySurface::Skills { picker },
+            PromptAccessory::Sessions => OverlaySurface::Sessions { picker },
+            _ => return Err("overlay accessory does not own a picker"),
+        };
+        Ok(())
+    }
+
+    /// Open tool details when no other modal surface owns focus.
+    pub fn show_detail(&mut self, entry_index: usize) {
+        if matches!(self.surface, OverlaySurface::None | OverlaySurface::Detail(_)) {
+            self.surface = OverlaySurface::Detail(DetailPane { entry_index, scroll: 0 });
+        }
+    }
+
+    /// Show one ACP permission request with exclusive focus.
+    pub fn show_permission(&mut self, permission: PendingPermission) {
+        self.surface = OverlaySurface::Permission(permission);
+    }
+
+    /// Set setup's deferred reasoning transition.
+    pub fn set_pending_setup_reasoning_effort(&mut self, pending: PendingSetupReasoningEffort) {
+        if let OverlaySurface::Setup(setup) = &mut self.surface {
+            setup.pending_setup_reasoning_effort = Some(pending);
+        }
+    }
+
+    /// Inspect setup's deferred reasoning transition while its picker is open.
+    pub fn pending_setup_reasoning_effort(&self) -> Option<PendingSetupReasoningEffort> {
+        match &self.surface {
+            OverlaySurface::Setup(setup) => setup.pending_setup_reasoning_effort,
+            OverlaySurface::ReasoningEffort { pending_setup, .. } => *pending_setup,
+            _ => None,
+        }
+    }
+
+    /// Take setup's deferred reasoning transition before closing its picker.
+    pub fn take_pending_setup_reasoning_effort(&mut self) -> Option<PendingSetupReasoningEffort> {
+        match &mut self.surface {
+            OverlaySurface::Setup(setup) => setup.pending_setup_reasoning_effort.take(),
+            OverlaySurface::ReasoningEffort { pending_setup, .. } => pending_setup.take(),
+            _ => None,
+        }
+    }
+
+    /// Complete the current overlay transition.
+    pub fn close(&mut self) {
+        self.surface = OverlaySurface::None;
+    }
+}
+
+/// Runtime configuration, provider status, and owned background processes.
+#[derive(Debug)]
+pub struct RuntimeState {
+    pub cli: Cli,
+    pub cwd: PathBuf,
+    pub model: String,
+    pub websearch: WebSearchMode,
+    pub theme: Theme,
+    pub verbose: bool,
+    pub user_label: String,
+    pub model_picker_items: Vec<PickerItem>,
+    pub run_state: RunState,
+    pub git_status: Option<GitStatusSummary>,
+    pub session_tokens_in: u64,
+    pub session_tokens_out: u64,
+    pub codex_usage: Option<codex::CodexUsageStatus>,
+    pub ttft: TurnTtftState,
+    pub ui_tick: u64,
+    pub ctrl_d_pending: Option<u64>,
+    pub stopping_deadline: Option<u64>,
+    pub(crate) stopping_timed_out: bool,
+    pub process_registry: ProcessRegistry,
     pub quit: bool,
+}
+
+/// The full application state used to draw the screen.
+#[derive(Debug)]
+pub struct App {
+    pub session: SessionState,
+    pub transcript: TranscriptState,
+    pub composer: ComposerState,
+    pub overlay: OverlayState,
+    pub runtime: RuntimeState,
 }
 
 impl App {
@@ -569,73 +835,76 @@ impl App {
         }
 
         let mut app = App {
-            cli: cli_snapshot,
-            run_persistence,
-            session_id,
-            mode: Mode::default(),
-            run_state: RunState::default(),
-            input: PromptInput::new(),
-            input_history,
-            input_history_store,
-            history_cursor: None,
-            history_draft: String::new(),
-            transcript,
-            git_status: git::collect(&workspace_root),
-            cwd: workspace_root,
-            model: value.model.clone(),
-            model_picker_items: offline_model_picker_items(),
-            user_label: default_user_label(),
-            websearch: value.websearch,
-            theme: value.theme,
-            verbose: value.verbose,
-            session_tokens_in: 0,
-            session_tokens_out: 0,
-            codex_usage: None,
-            ttft: TurnTtftState::default(),
-            context_sources,
-            context_diagnostics,
-            context_ledger: None,
-            last_request_accounting: None,
-            skills: skill_inventory.skills,
-            skill_diagnostics: skill_inventory.diagnostics,
-            prompt_templates: prompt_template_inventory.templates,
-            prompt_template_diagnostics: prompt_template_inventory.diagnostics,
-            ui_tick: 0,
-            ctrl_d_pending: None,
-            stopping_deadline: None,
-            stopping_timed_out: false,
-            session_writer,
-            tool_artifacts: HashMap::new(),
-            tool_projection_decisions: HashMap::new(),
-            context_lifecycles: BTreeMap::new(),
-            turn_count: 0,
-            process_registry: ProcessRegistry::new(),
-            last_input: None,
-            pending_manual_compaction: None,
-            pending_compaction_review: None,
-            last_compaction_review: None,
-            context_pins: Vec::new(),
-            context_dropped_ids: Vec::new(),
-            compaction_summaries: Vec::new(),
-            queue_target: QueueTarget::default(),
-            pending_setup_reasoning_effort: None,
-            picker: None,
-            prompt_accessory: PromptAccessory::None,
-            first_run_recovery: None,
-            chatgpt_oauth_driver: ChatGptOAuthDriver::default(),
-            chatgpt_browser_login: None,
-            queued_steering: Vec::new(),
-            queued_followups: Vec::new(),
-            kill_ring: Vec::new(),
-            detail_pane: DetailPane::default(),
-            pending_permission: None,
-            config_diagnostics: value.config_diagnostics.clone(),
-            mcp_config_files,
-            mcp_config_diagnostics,
-            quit: false,
+            session: SessionState {
+                run_persistence,
+                id: session_id,
+                writer: session_writer,
+                input_history_store,
+                turn_count: 0,
+                last_request_accounting: None,
+                config_diagnostics: value.config_diagnostics.clone(),
+                mcp_config_files,
+                mcp_config_diagnostics,
+            },
+            transcript: TranscriptState {
+                entries: transcript,
+                context_sources,
+                context_diagnostics,
+                context_ledger: None,
+                skills: skill_inventory.skills,
+                skill_diagnostics: skill_inventory.diagnostics,
+                prompt_templates: prompt_template_inventory.templates,
+                prompt_template_diagnostics: prompt_template_inventory.diagnostics,
+                tool_artifacts: HashMap::new(),
+                tool_projection_decisions: HashMap::new(),
+                context_lifecycles: BTreeMap::new(),
+                pending_manual_compaction: None,
+                pending_compaction_review: None,
+                last_compaction_review: None,
+                context_pins: Vec::new(),
+                context_dropped_ids: Vec::new(),
+                compaction_summaries: Vec::new(),
+            },
+            composer: ComposerState {
+                mode: Mode::default(),
+                input: PromptInput::new(),
+                input_history,
+                history_cursor: None,
+                history_draft: String::new(),
+                queue_target: QueueTarget::default(),
+                queued_steering: Vec::new(),
+                queued_followups: Vec::new(),
+                last_input: None,
+                kill_ring: Vec::new(),
+            },
+            overlay: OverlayState::default(),
+            runtime: RuntimeState {
+                cli: cli_snapshot,
+                cwd: workspace_root.clone(),
+                model: value.model.clone(),
+                websearch: value.websearch,
+                theme: value.theme,
+                verbose: value.verbose,
+                user_label: default_user_label(),
+                model_picker_items: offline_model_picker_items(),
+                run_state: RunState::default(),
+                git_status: git::collect(&workspace_root),
+                session_tokens_in: 0,
+                session_tokens_out: 0,
+                codex_usage: None,
+                ttft: TurnTtftState::default(),
+                ui_tick: 0,
+                ctrl_d_pending: None,
+                stopping_deadline: None,
+                stopping_timed_out: false,
+                process_registry: ProcessRegistry::new(),
+                quit: false,
+            },
         };
 
-        app.first_run_recovery = selected_provider_missing(&app);
+        if let Some(recovery) = selected_provider_missing(&app) {
+            app.overlay.show_setup(recovery);
+        }
         app
     }
 }
@@ -680,7 +949,7 @@ impl App {
             .and_then(|stem| stem.to_str())
             .unwrap_or(session_id)
             .to_string();
-        if id == self.session_id {
+        if id == self.session.id {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "the current session is already active",
@@ -696,40 +965,42 @@ impl App {
             .filter(|record| matches!(record, session::SessionRecord::User { .. }))
             .count() as u64;
 
-        self.session_writer = Some(writer);
-        self.session_id = id.clone();
-        self.transcript = transcript;
+        self.session.writer = Some(writer);
+        self.session.id = id.clone();
+        self.transcript.entries = transcript;
         self.restore_context_state(&records);
-        self.last_request_accounting = records.iter().rev().find_map(|record| match record {
+        self.session.last_request_accounting = records.iter().rev().find_map(|record| match record {
             session::SessionRecord::RequestAccounting { accounting, .. } => Some(accounting.as_ref().clone()),
             _ => None,
         });
-        self.session_tokens_in = summary.input_tokens;
-        self.session_tokens_out = summary.output_tokens;
-        self.turn_count = turn_count;
-        self.last_input = None;
-        self.pending_manual_compaction = None;
-        self.queued_steering.clear();
-        self.queued_followups.clear();
-        self.pending_permission = None;
-        self.run_state = RunState::Idle;
-        self.input.clear();
-        self.history_cursor = None;
-        self.history_draft.clear();
+        self.runtime.session_tokens_in = summary.input_tokens;
+        self.runtime.session_tokens_out = summary.output_tokens;
+        self.session.turn_count = turn_count;
+        self.composer.last_input = None;
+        self.transcript.pending_manual_compaction = None;
+        self.composer.queued_steering.clear();
+        self.composer.queued_followups.clear();
+        self.overlay.close();
+        self.runtime.run_state = RunState::Idle;
+        self.composer.input.clear();
+        self.composer.history_cursor = None;
+        self.composer.history_draft.clear();
         self.transcript
+            .entries
             .push(Entry::Status { text: format!("resumed session: {id}") });
         Ok(())
     }
 
     /// Append a display-name change without changing the active session identity.
     pub(crate) fn rename_session(&mut self, name: &str) -> io::Result<()> {
-        let writer = self
-            .session_writer
-            .as_mut()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "cannot name a session in ephemeral mode"))?;
+        let writer =
+            self.session.writer.as_mut().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "cannot name a session in ephemeral mode")
+            })?;
         writer.append_rename(name)?;
         let title = session::SessionReader::read_title(writer.path());
         self.transcript
+            .entries
             .push(Entry::Status { text: format!("session named: {title}") });
         Ok(())
     }
@@ -739,7 +1010,7 @@ impl App {
     /// Used by the preflight gate to avoid re-triggering auto-compaction while
     /// the configured-model summary request is the active turn.
     pub fn compaction_in_flight(&self) -> bool {
-        self.pending_manual_compaction.is_some()
+        self.transcript.pending_manual_compaction.is_some()
     }
 
     /// Return the local bounded artifact store when this run persists a session.
@@ -747,32 +1018,32 @@ impl App {
     /// The store is deliberately separate from JSONL so session records carry
     /// metadata and handles without making artifact bodies part of replay truth.
     pub fn artifact_store(&self) -> Option<crate::artifacts::ArtifactStore> {
-        (!self.run_persistence.is_ephemeral())
+        (!self.session.run_persistence.is_ephemeral())
             .then(|| crate::artifacts::ArtifactStore::new(self.session_directory().join("artifacts")))
     }
 
     /// Whether this run avoids creating a local session and per-session files.
     pub const fn is_ephemeral(&self) -> bool {
-        self.run_persistence.is_ephemeral()
+        self.session.run_persistence.is_ephemeral()
     }
 
     /// Return the label shown by interactive surfaces for the current run.
     pub fn run_label(&self) -> &str {
         if self.is_ephemeral() {
             "ephemeral"
-        } else if self.session_id.is_empty() {
+        } else if self.session.id.is_empty() {
             "thndrs"
         } else {
-            &self.session_id
+            &self.session.id
         }
     }
 
     /// Render the bounded `/tokens` inspection projection.
     pub fn token_accounting_status(&self) -> String {
-        let Some(accounting) = &self.last_request_accounting else {
+        let Some(accounting) = &self.session.last_request_accounting else {
             return format!(
                 "tokens\nsession totals: in {} out {}\nrequest accounting: unavailable",
-                self.session_tokens_in, self.session_tokens_out
+                self.runtime.session_tokens_in, self.runtime.session_tokens_out
             );
         };
         let estimate = accounting
@@ -831,34 +1102,40 @@ impl App {
     /// Build the compact self-knowledge snapshot used by the startup display.
     pub fn self_knowledge_snapshot(&self) -> internals::SelfKnowledgeSnapshot {
         let tools = tools::tool_definitions();
-        let provider = internals::ProviderSnapshot::new(provider_label(&self.model), &self.model, self.websearch);
+        let provider = internals::ProviderSnapshot::new(
+            provider_label(&self.runtime.model),
+            &self.runtime.model,
+            self.runtime.websearch,
+        );
         let runtime = internals::RuntimeSnapshot::new(
             provider,
-            self.cwd.display().to_string(),
+            self.runtime.cwd.display().to_string(),
             internals::RENDERER_MODE,
             tools.iter().map(|tool| tool.name.to_string()).collect(),
         );
-        let references = internals::ReferenceSnapshot::from_skills(&self.skills);
+        let references = internals::ReferenceSnapshot::from_skills(&self.transcript.skills);
         let prompt_context = internals::PromptContextSnapshot::new(
             prompt::default_fragments()
                 .into_iter()
                 .map(|fragment| fragment.name.to_string())
                 .collect(),
-            &self.context_sources,
+            &self.transcript.context_sources,
         );
         let inventory = internals::KnowledgeInventorySnapshot::new(references, prompt_context);
         let mut diagnostics: Vec<String> = self
+            .transcript
             .skill_diagnostics
             .iter()
             .map(skills::SkillDiagnostic::summary)
             .collect();
         diagnostics.extend(
-            self.prompt_template_diagnostics
+            self.transcript
+                .prompt_template_diagnostics
                 .iter()
                 .map(prompt::templates::PromptTemplateDiagnostic::summary),
         );
-        diagnostics.extend(self.config_diagnostics.iter().cloned());
-        diagnostics.extend(self.mcp_config_diagnostics.iter().cloned());
+        diagnostics.extend(self.session.config_diagnostics.iter().cloned());
+        diagnostics.extend(self.session.mcp_config_diagnostics.iter().cloned());
         internals::SelfKnowledgeSnapshot::new(
             internals::AppIdentitySnapshot::default(),
             runtime,
@@ -869,8 +1146,8 @@ impl App {
 
     /// Derive the precise, user-facing state shown by interactive surfaces.
     pub fn status_label(&self) -> String {
-        match self.run_state {
-            RunState::Working => match self.transcript.last() {
+        match self.runtime.run_state {
+            RunState::Working => match self.transcript.entries.last() {
                 Some(Entry::Reasoning { streaming: true, .. }) => "Thinking".to_string(),
                 Some(Entry::Agent { streaming: true, .. }) => "Responding".to_string(),
                 Some(Entry::Tool { name, arguments, status: ToolStatus::Running, .. }) => {
@@ -882,7 +1159,7 @@ impl App {
             },
             RunState::Stopping => "Stopping".to_string(),
             RunState::Error(_) => "Failed".to_string(),
-            RunState::Idle => match self.transcript.last() {
+            RunState::Idle => match self.transcript.entries.last() {
                 Some(Entry::Status { text }) if text == "cancelled" => "Stopped".to_string(),
                 _ => match self.last_non_status_entry() {
                     Some(Entry::Error { .. }) => "Failed".to_string(),
@@ -900,32 +1177,34 @@ impl App {
     /// Render secondary runtime telemetry for the `/status` inspection command.
     pub fn runtime_status(&self) -> String {
         let quota = self
+            .runtime
             .codex_usage
             .as_ref()
             .and_then(codex::CodexUsageStatus::compact_status)
             .unwrap_or_else(|| "unavailable".to_string());
         let git = self
+            .runtime
             .git_status
             .as_ref()
             .map_or_else(|| "unavailable".to_string(), GitStatusSummary::display);
         format!(
             "state: {}\nmodel: {}\nreasoning: {}\nsearch: {}\nsession tokens: {} in / {} out\nquota: {}\ngit: {}\nworkspace: {}",
             self.status_label(),
-            codex::display_model_id(&self.model),
-            self.cli.reasoning_effort.label(),
-            self.websearch.label(),
-            self.session_tokens_in,
-            self.session_tokens_out,
+            codex::display_model_id(&self.runtime.model),
+            self.runtime.cli.reasoning_effort.label(),
+            self.runtime.websearch.label(),
+            self.runtime.session_tokens_in,
+            self.runtime.session_tokens_out,
             quota,
             git,
-            self.cwd.display()
+            self.runtime.cwd.display()
         )
     }
 
     /// Derive the prompt UI state from `run_state` and the transcript.
     pub fn prompt_state(&self) -> PromptState {
-        match self.run_state {
-            RunState::Working => match self.transcript.last() {
+        match self.runtime.run_state {
+            RunState::Working => match self.transcript.entries.last() {
                 Some(Entry::Reasoning { streaming: true, .. }) => PromptState::Streaming,
                 Some(Entry::Agent { streaming: true, .. }) => PromptState::Streaming,
                 Some(Entry::Tool { status: ToolStatus::Running, .. }) => PromptState::RunningTool,
@@ -933,7 +1212,7 @@ impl App {
             },
             RunState::Stopping => PromptState::Stopped,
             RunState::Error(_) => PromptState::Errored,
-            RunState::Idle => match self.transcript.last() {
+            RunState::Idle => match self.transcript.entries.last() {
                 Some(Entry::Status { text }) if text == "cancelled" => PromptState::Stopped,
                 _ => match self.last_non_status_entry() {
                     Some(Entry::Error { .. }) => PromptState::Errored,
@@ -945,26 +1224,29 @@ impl App {
 
     fn last_non_status_entry(&self) -> Option<&Entry> {
         self.transcript
+            .entries
             .iter()
             .rev()
             .find(|entry| !matches!(entry, Entry::Status { .. }))
-            .or_else(|| self.transcript.last())
+            .or_else(|| self.transcript.entries.last())
     }
 
     fn refresh_git_status(&mut self) {
-        self.git_status = git::collect(&self.cwd);
+        self.runtime.git_status = git::collect(&self.runtime.cwd);
     }
 
     fn session_directory(&self) -> PathBuf {
-        self.cli
+        self.runtime
+            .cli
             .session_dir
             .clone()
-            .unwrap_or_else(|| session::sessions_dir(&self.cwd))
+            .unwrap_or_else(|| session::sessions_dir(&self.runtime.cwd))
     }
 
     /// Resolve the configured compaction policy from loaded config layers.
     pub fn effective_compaction_policy(&self) -> CompactionPolicy {
         let config = self
+            .runtime
             .cli
             .config_layers
             .iter()
@@ -979,14 +1261,15 @@ impl App {
     /// Resolve the independent model-projection reducers from loaded config
     /// layers, preserving the parsed CLI snapshot when no layer overrides it.
     pub fn effective_model_reduction(&self) -> ReductionConfig {
-        self.cli
+        self.runtime
+            .cli
             .config_layers
             .iter()
             .map(|layer| &layer.config.context.reduction)
             .rev()
             .find(|config| **config != ReductionConfig::default())
             .cloned()
-            .unwrap_or_else(|| self.cli.context.reduction.clone())
+            .unwrap_or_else(|| self.runtime.cli.context.reduction.clone())
     }
 }
 
@@ -1035,17 +1318,17 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
         Msg::Key(key) => handle_key(app, *key),
         Msg::Mouse(mouse) => handle_mouse(app, *mouse),
         Msg::Quit => {
-            let results = app.process_registry.shutdown();
+            let results = app.runtime.process_registry.shutdown();
             agent_lifecycle::record_background_results(app, results);
-            app.quit = true;
+            app.runtime.quit = true;
             None
         }
         Msg::Tick => {
-            app.ui_tick = app.ui_tick.wrapping_add(1);
-            if let Some(deadline) = app.ctrl_d_pending
-                && agent_lifecycle::now_or_after_deadline(app.ui_tick, deadline)
+            app.runtime.ui_tick = app.runtime.ui_tick.wrapping_add(1);
+            if let Some(deadline) = app.runtime.ctrl_d_pending
+                && agent_lifecycle::now_or_after_deadline(app.runtime.ui_tick, deadline)
             {
-                app.ctrl_d_pending = None;
+                app.runtime.ctrl_d_pending = None;
             }
             agent_lifecycle::drain_background_processes(app);
             agent_lifecycle::finish_stopping_if_due(app);
@@ -1053,13 +1336,13 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
             None
         }
         Msg::Clear => {
-            app.transcript.clear();
-            app.detail_pane = DetailPane::default();
+            app.transcript.entries.clear();
+            app.overlay.close_detail();
             None
         }
         Msg::Agent(event) => agent_lifecycle::handle_agent_event(app, event.clone()),
         Msg::GitStatusChanged(status) => {
-            app.git_status = status.clone();
+            app.runtime.git_status = status.clone();
             None
         }
     }
@@ -1081,6 +1364,63 @@ fn is_verbose_status(text: &str) -> bool {
 /// This keeps the user-visible timeout stable when a faster render cadence is
 /// selected for smoother streaming output.
 fn quit_confirm_timeout_ticks(app: &App) -> u64 {
-    let tick_ms = app.cli.tick_rate_ms.max(1);
+    let tick_ms = app.runtime.cli.tick_rate_ms.max(1);
     QUIT_CONFIRM_TIMEOUT_MS / tick_ms + u64::from(!QUIT_CONFIRM_TIMEOUT_MS.is_multiple_of(tick_ms))
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+
+    #[test]
+    fn overlay_transitions_keep_one_focused_surface() {
+        let mut overlay = OverlayState::default();
+        assert_eq!(overlay.accessory(), PromptAccessory::None);
+        assert!(overlay.picker().is_none());
+        assert!(overlay.setup().is_none());
+        assert!(!overlay.is_detail());
+
+        overlay.show_help();
+        assert_eq!(overlay.accessory(), PromptAccessory::Help);
+        assert!(
+            overlay
+                .show_picker(PromptAccessory::Help, PickerState::new(Vec::new(), 8))
+                .is_err()
+        );
+        assert_eq!(overlay.accessory(), PromptAccessory::Help);
+
+        let _ = overlay.show_picker(
+            PromptAccessory::Files(FilePickerSource::Forced),
+            PickerState::new(vec![PickerItem::new("README.md", "")], 8),
+        );
+        assert_eq!(overlay.accessory(), PromptAccessory::Files(FilePickerSource::Forced));
+        assert!(overlay.picker().is_some());
+        assert!(overlay.setup().is_none());
+        assert!(!overlay.is_detail());
+
+        overlay.show_setup(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
+        assert_eq!(overlay.accessory(), PromptAccessory::None);
+        assert!(overlay.setup().is_some());
+        assert!(overlay.picker().is_none());
+        assert!(!overlay.is_detail());
+
+        overlay.show_detail(3);
+        assert!(!overlay.is_detail());
+        assert!(overlay.setup().is_some());
+        assert!(overlay.picker().is_none());
+
+        overlay.close();
+        overlay.show_detail(3);
+        assert!(overlay.is_detail());
+        overlay.close_detail();
+        assert!(!overlay.is_detail());
+    }
+
+    #[test]
+    fn command_selection_is_mutated_on_the_focused_overlay() {
+        let mut overlay = OverlayState::default();
+        overlay.show_commands();
+        *overlay.command_selected_mut().expect("command overlay") = 2;
+        assert_eq!(overlay.accessory(), PromptAccessory::Commands { selected: 2 });
+    }
 }

@@ -10,89 +10,93 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::Started => {
             // A `Started` event can still be queued when the user stops the
             // run. Do not let it revive a run that is already winding down.
-            if app.run_state != RunState::Stopping {
-                app.stopping_deadline = None;
-                app.run_state = RunState::Working;
+            if app.runtime.run_state != RunState::Stopping {
+                app.runtime.stopping_deadline = None;
+                app.runtime.run_state = RunState::Working;
             }
             None
         }
         AgentEvent::Status(text) => {
-            if app.verbose || !is_verbose_status(&text) {
-                app.transcript.push(Entry::Status { text });
+            if app.runtime.verbose || !is_verbose_status(&text) {
+                app.transcript.entries.push(Entry::Status { text });
             }
             None
         }
         AgentEvent::Usage { input_tokens, output_tokens } => {
-            app.session_tokens_in = app.session_tokens_in.saturating_add(input_tokens);
-            app.session_tokens_out = app.session_tokens_out.saturating_add(output_tokens);
-            if let Some(ref mut writer) = app.session_writer {
+            app.runtime.session_tokens_in = app.runtime.session_tokens_in.saturating_add(input_tokens);
+            app.runtime.session_tokens_out = app.runtime.session_tokens_out.saturating_add(output_tokens);
+            if let Some(ref mut writer) = app.session.writer {
                 let _ = writer.append_usage(input_tokens, output_tokens);
             }
             None
         }
         AgentEvent::CodexUsage(usage) => {
-            app.codex_usage = Some(usage);
+            app.runtime.codex_usage = Some(usage);
             None
         }
         AgentEvent::RequestAccounting(accounting) => {
-            app.last_request_accounting = Some(accounting.as_ref().clone());
+            app.session.last_request_accounting = Some(accounting.as_ref().clone());
             if let Some(usage) = &accounting.provider_usage {
                 if let Some(input_tokens) = usage.components.input_tokens {
-                    app.session_tokens_in = app.session_tokens_in.saturating_add(input_tokens);
+                    app.runtime.session_tokens_in = app.runtime.session_tokens_in.saturating_add(input_tokens);
                 }
                 if let Some(output_tokens) = usage.components.output_tokens {
-                    app.session_tokens_out = app.session_tokens_out.saturating_add(output_tokens);
+                    app.runtime.session_tokens_out = app.runtime.session_tokens_out.saturating_add(output_tokens);
                 }
             }
-            if let Some(writer) = app.session_writer.as_mut() {
+            if let Some(writer) = app.session.writer.as_mut() {
                 let _ = writer.append_request_accounting(&accounting.turn_id, &accounting);
             }
             None
         }
         AgentEvent::AssistantDelta(delta) => {
-            app.ttft.stop_on_semantic_output();
+            app.runtime.ttft.stop_on_semantic_output();
             finalize_reasoning(app);
-            if let Some(Entry::Agent { text, streaming: true }) = app.transcript.last_mut() {
+            if let Some(Entry::Agent { text, streaming: true }) = app.transcript.entries.last_mut() {
                 text.push_str(&delta);
             } else {
-                app.transcript.push(Entry::Agent { text: delta, streaming: true });
+                app.transcript
+                    .entries
+                    .push(Entry::Agent { text: delta, streaming: true });
             }
             None
         }
         AgentEvent::ReasoningDelta(delta) => {
-            app.ttft.stop_on_semantic_output();
-            if let Some(Entry::Reasoning { text, streaming: true }) = app.transcript.last_mut() {
+            app.runtime.ttft.stop_on_semantic_output();
+            if let Some(Entry::Reasoning { text, streaming: true }) = app.transcript.entries.last_mut() {
                 text.push_str(&delta);
             } else {
-                app.transcript.push(Entry::Reasoning { text: delta, streaming: true });
+                app.transcript
+                    .entries
+                    .push(Entry::Reasoning { text: delta, streaming: true });
             }
             None
         }
         AgentEvent::ToolStarted { id, name, arguments } => {
-            app.ttft.stop_on_semantic_output();
+            app.runtime.ttft.stop_on_semantic_output();
             finalize_streaming(app);
-            app.transcript.push(Entry::Tool {
+            app.transcript.entries.push(Entry::Tool {
                 name: format!("{name}#{id}"),
                 arguments: arguments.clone(),
                 status: ToolStatus::Running,
                 output: Vec::new(),
             });
-            if let Some(ref mut writer) = app.session_writer {
-                let turn_id = format!("turn_{}", app.turn_count);
+            if let Some(ref mut writer) = app.session.writer {
+                let turn_id = format!("turn_{}", app.session.turn_count);
                 let _ = writer.append_tool_started(&turn_id, &id, &name, &arguments);
             }
             None
         }
         AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
-            app.ttft.stop_on_semantic_output();
+            app.runtime.ttft.stop_on_semantic_output();
             finalize_streaming(app);
             let artifact = finish_tool_output(app, &id, status, &output);
             persist_last_entry_with_artifact(app, artifact);
 
             if let Some(result) = write_result
-                && let Some(ref mut writer) = app.session_writer
+                && let Some(ref mut writer) = app.session.writer
             {
-                let turn_id = format!("turn_{}", app.turn_count);
+                let turn_id = format!("turn_{}", app.session.turn_count);
                 let _ = writer.append_file_write(&turn_id, &result, status);
             }
 
@@ -102,15 +106,15 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                         // Keep synthetic adapter/test events visible while the
                         // live shell path uses the id assigned before spawn
                         // returns.
-                        app.process_registry.register(
+                        app.runtime.process_registry.register(
                             result.command.clone(),
                             result.cwd.clone(),
                             result.kind,
                             CancelToken::new(),
                         )
                     });
-                    app.process_registry.announce(process_id);
-                    app.transcript.push(Entry::Status {
+                    app.runtime.process_registry.announce(process_id);
+                    app.transcript.entries.push(Entry::Status {
                         text: format!(
                             "background process [{process_id}] started: {}",
                             result.command.join(" ")
@@ -118,8 +122,8 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                     });
                 }
 
-                if let Some(ref mut writer) = app.session_writer {
-                    let turn_id = format!("turn_{}", app.turn_count);
+                if let Some(ref mut writer) = app.session.writer {
+                    let turn_id = format!("turn_{}", app.session.turn_count);
                     let _ = writer.append_shell_exec(&turn_id, &result);
                 }
             }
@@ -127,11 +131,11 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::StateProjectionDecision { id, decision } => {
-            app.tool_projection_decisions.insert(id, decision);
+            app.transcript.tool_projection_decisions.insert(id, decision);
             None
         }
         AgentEvent::ModelMetadataLoaded(items) => {
-            app.model_picker_items = items
+            app.runtime.model_picker_items = items
                 .into_iter()
                 .map(|(label, detail)| PickerItem::new(label, detail))
                 .collect();
@@ -139,8 +143,8 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::Retrying { attempt, max_attempts, delay_ms, error } => {
             discard_retry_output(app);
-            app.run_state = RunState::Working;
-            app.transcript.push(Entry::Status {
+            app.runtime.run_state = RunState::Working;
+            app.transcript.entries.push(Entry::Status {
                 text: format!(
                     "retrying provider request ({attempt}/{max_attempts}) in {:.1}s after: {error}",
                     delay_ms as f64 / 1000.0
@@ -150,69 +154,69 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::PermissionRequest(permission) => {
             finalize_streaming(app);
-            if app.pending_permission.is_some() {
+            if app.overlay.permission().is_some() {
                 let _ = permission.cancel();
-                app.transcript.push(Entry::Error {
+                app.transcript.entries.push(Entry::Error {
                     text: "acp: received a second permission request while one is pending; cancelled it".to_string(),
                 });
                 return None;
             }
-            let turn_id = format!("turn_{}", app.turn_count);
-            if let Some(ref mut writer) = app.session_writer {
+            let turn_id = format!("turn_{}", app.session.turn_count);
+            if let Some(ref mut writer) = app.session.writer {
                 let _ = writer.append_acp_permission_request(&turn_id, &permission);
             }
-            app.pending_permission = Some(permission);
-            app.context_ledger = None;
+            app.overlay.show_permission(permission);
+            app.transcript.context_ledger = None;
             None
         }
         AgentEvent::PermissionResolved { tool_call_id, outcome } => {
-            let turn_id = format!("turn_{}", app.turn_count);
-            if let Some(ref mut writer) = app.session_writer {
+            let turn_id = format!("turn_{}", app.session.turn_count);
+            if let Some(ref mut writer) = app.session.writer {
                 let _ = writer.append_acp_permission_outcome(&turn_id, &tool_call_id, &outcome);
             }
-            app.context_ledger = None;
+            app.transcript.context_ledger = None;
             None
         }
         AgentEvent::AcpSession(metadata) => {
-            if let Some(ref mut writer) = app.session_writer {
+            if let Some(ref mut writer) = app.session.writer {
                 let _ = writer.append_acp_session(&metadata);
             }
             None
         }
         AgentEvent::Finished => {
-            app.stopping_deadline = None;
-            app.ttft.clear_pending();
+            app.runtime.stopping_deadline = None;
+            app.runtime.ttft.clear_pending();
             finalize_streaming(app);
             cancel_pending_permission(app);
-            app.run_state = RunState::Idle;
-            app.last_input = None;
+            app.runtime.run_state = RunState::Idle;
+            app.composer.last_input = None;
             app.refresh_git_status();
             match context::finish_manual_compaction(app) {
                 None => persist_final_response(app),
                 Some(None) => {}
                 Some(Some(restart)) => return Some(restart),
             }
-            if app.queued_followups.is_empty() {
+            if app.composer.queued_followups.is_empty() {
                 None
             } else {
-                let next = app.queued_followups.remove(0);
+                let next = app.composer.queued_followups.remove(0);
                 submit_user_turn(app, next)
             }
         }
         AgentEvent::Failed(msg) => {
-            app.stopping_deadline = None;
+            app.runtime.stopping_deadline = None;
             let manual_compaction = context::restore_failed_manual_compaction(app);
-            app.ttft.clear_pending();
+            app.runtime.ttft.clear_pending();
             finalize_streaming(app);
             cancel_pending_permission(app);
-            app.transcript.push(Entry::Error { text: msg.clone() });
-            app.run_state = RunState::Error(msg);
+            app.transcript.entries.push(Entry::Error { text: msg.clone() });
+            app.runtime.run_state = RunState::Error(msg);
             if !manual_compaction {
-                let submitted_input = app.last_input.take();
-                if app.input.is_empty()
+                let submitted_input = app.composer.last_input.take();
+                if app.composer.input.is_empty()
                     && let Some(input) = submitted_input
                 {
-                    app.input.set_text(&input);
+                    app.composer.input.set_text(&input);
                 }
             }
             persist_last_entry(app);
@@ -222,18 +226,20 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Cancelled => {
-            app.stopping_deadline = None;
+            app.runtime.stopping_deadline = None;
             context::restore_failed_manual_compaction(app);
-            app.ttft.clear_pending();
+            app.runtime.ttft.clear_pending();
             finalize_streaming(app);
             cancel_pending_permission(app);
             cancel_running_tools(app);
-            if app.run_state == RunState::Working {
-                app.transcript.push(Entry::Status { text: String::from("cancelled") });
+            if app.runtime.run_state == RunState::Working {
+                app.transcript
+                    .entries
+                    .push(Entry::Status { text: String::from("cancelled") });
             }
-            app.run_state = RunState::Idle;
-            app.last_input = None;
-            app.queued_steering.clear();
+            app.runtime.run_state = RunState::Idle;
+            app.composer.last_input = None;
+            app.composer.queued_steering.clear();
             persist_last_entry(app);
             app.refresh_git_status();
             None
@@ -244,7 +250,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
 /// Drain completed application-owned background processes into the transcript
 /// and append their terminal shell lifecycle records.
 pub fn drain_background_processes(app: &mut App) {
-    let results = app.process_registry.drain_completed();
+    let results = app.runtime.process_registry.drain_completed();
     record_background_results(app, results);
 }
 
@@ -257,9 +263,9 @@ pub fn record_background_results(app: &mut App, results: Vec<tools::shell::Proce
         if let Some(first) = lines.first_mut() {
             *first = format!("background process [{process_id}] {first}");
         }
-        app.transcript.push(Entry::Status { text: lines.join("\n") });
-        if let Some(writer) = app.session_writer.as_mut() {
-            let turn_id = format!("turn_{}", app.turn_count);
+        app.transcript.entries.push(Entry::Status { text: lines.join("\n") });
+        if let Some(writer) = app.session.writer.as_mut() {
+            let turn_id = format!("turn_{}", app.session.turn_count);
             let _ = writer.append_shell_exec(&turn_id, &result);
         }
     }
@@ -268,35 +274,36 @@ pub fn record_background_results(app: &mut App, results: Vec<tools::shell::Proce
 pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     match key.code {
         KeyCode::Up => {
-            if let Some(permission) = app.pending_permission.as_mut() {
+            if let Some(permission) = app.overlay.permission_mut() {
                 permission.move_up();
             }
             None
         }
         KeyCode::Down => {
-            if let Some(permission) = app.pending_permission.as_mut() {
+            if let Some(permission) = app.overlay.permission_mut() {
                 permission.move_down();
             }
             None
         }
         KeyCode::Enter => {
-            if let Some(permission) = app.pending_permission.take()
+            if let Some(permission) = app.overlay.take_permission()
                 && let Some(PermissionDecision::Selected(option_id)) = permission.select()
             {
-                app.transcript.push(Entry::Status {
+                app.transcript.entries.push(Entry::Status {
                     text: format!("acp permission {}: selected {option_id}", permission.tool_call_id),
                 });
             }
-            app.context_ledger = None;
+            app.transcript.context_ledger = None;
             None
         }
         KeyCode::Esc => {
-            if let Some(permission) = app.pending_permission.take() {
+            if let Some(permission) = app.overlay.take_permission() {
                 let _ = permission.cancel();
                 app.transcript
+                    .entries
                     .push(Entry::Status { text: format!("acp permission {}: cancelled", permission.tool_call_id) });
             }
-            app.context_ledger = None;
+            app.transcript.context_ledger = None;
             None
         }
         _ => None,
@@ -314,9 +321,11 @@ pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 pub fn cancel_stream(app: &mut App) {
     cancel_pending_permission(app);
     finalize_streaming(app);
-    app.transcript.push(Entry::Status { text: String::from("cancelled") });
-    app.run_state = RunState::Stopping;
-    app.stopping_deadline = Some(app.ui_tick.wrapping_add(stopping_grace_ticks(app)));
+    app.transcript
+        .entries
+        .push(Entry::Status { text: String::from("cancelled") });
+    app.runtime.run_state = RunState::Stopping;
+    app.runtime.stopping_deadline = Some(app.runtime.ui_tick.wrapping_add(stopping_grace_ticks(app)));
     persist_last_entry(app);
 }
 
@@ -326,106 +335,107 @@ pub fn cancel_stream(app: &mut App) {
 /// The direct loop drops the receiver after this transitions the app to idle,
 /// so a worker that remains blocked cannot later mutate a subsequent run.
 pub fn finish_stopping_if_due(app: &mut App) {
-    let Some(deadline) = app.stopping_deadline else {
+    let Some(deadline) = app.runtime.stopping_deadline else {
         return;
     };
 
-    if app.run_state != RunState::Stopping {
-        app.stopping_deadline = None;
+    if app.runtime.run_state != RunState::Stopping {
+        app.runtime.stopping_deadline = None;
         return;
     }
 
-    if now_or_after_deadline(app.ui_tick, deadline) {
+    if now_or_after_deadline(app.runtime.ui_tick, deadline) {
         handle_agent_event(app, AgentEvent::Cancelled);
-        app.stopping_timed_out = true;
+        app.runtime.stopping_timed_out = true;
     }
 }
 
 /// Translate the fixed stop grace period to the configured tick cadence.
 pub fn stopping_grace_ticks(app: &App) -> u64 {
-    let tick_ms = app.cli.tick_rate_ms.max(1);
+    let tick_ms = app.runtime.cli.tick_rate_ms.max(1);
     STOPPING_GRACE_MS / tick_ms + u64::from(!STOPPING_GRACE_MS.is_multiple_of(tick_ms))
 }
 
 pub fn cancel_pending_permission(app: &mut App) {
-    if let Some(permission) = app.pending_permission.take() {
+    if let Some(permission) = app.overlay.take_permission() {
         let _ = permission.cancel();
-        app.context_ledger = None;
+        app.transcript.context_ledger = None;
     }
 }
 
 pub fn remember_input(app: &mut App, text: &str) {
-    if text.is_empty() || app.input_history.last().is_some_and(|last| last == text) {
+    if text.is_empty() || app.composer.input_history.last().is_some_and(|last| last == text) {
         return;
     }
     let overflow = app
+        .composer
         .input_history
         .len()
         .saturating_add(1)
         .saturating_sub(INPUT_HISTORY_LIMIT);
     if overflow > 0 {
-        app.input_history.drain(..overflow);
+        app.composer.input_history.drain(..overflow);
     }
-    app.input_history.push(text.to_string());
-    let _ = app.input_history_store.append(&app.session_id, text);
+    app.composer.input_history.push(text.to_string());
+    let _ = app.session.input_history_store.append(&app.session.id, text);
 }
 
 pub fn recall_older_input(app: &mut App) {
-    if app.input_history.is_empty() {
+    if app.composer.input_history.is_empty() {
         return;
     }
 
-    let next = match app.history_cursor {
+    let next = match app.composer.history_cursor {
         Some(0) => 0,
         Some(index) => index.saturating_sub(1),
         None => {
-            app.history_draft = app.input.text();
-            app.input_history.len() - 1
+            app.composer.history_draft = app.composer.input.text();
+            app.composer.input_history.len() - 1
         }
     };
-    app.history_cursor = Some(next);
-    app.input.set_text(&app.input_history[next]);
+    app.composer.history_cursor = Some(next);
+    app.composer.input.set_text(&app.composer.input_history[next]);
 }
 
 pub fn recall_newer_input(app: &mut App) {
-    let Some(index) = app.history_cursor else {
+    let Some(index) = app.composer.history_cursor else {
         return;
     };
 
-    if index + 1 < app.input_history.len() {
+    if index + 1 < app.composer.input_history.len() {
         let next = index + 1;
-        app.history_cursor = Some(next);
-        app.input.set_text(&app.input_history[next]);
+        app.composer.history_cursor = Some(next);
+        app.composer.input.set_text(&app.composer.input_history[next]);
     } else {
-        app.history_cursor = None;
-        app.input.set_text(&app.history_draft);
-        app.history_draft.clear();
+        app.composer.history_cursor = None;
+        app.composer.input.set_text(&app.composer.history_draft);
+        app.composer.history_draft.clear();
     }
 }
 
 pub fn exit_history_navigation(app: &mut App) {
-    if app.history_cursor.is_some() {
-        app.history_cursor = None;
-        app.history_draft.clear();
+    if app.composer.history_cursor.is_some() {
+        app.composer.history_cursor = None;
+        app.composer.history_draft.clear();
     }
 }
 
 /// Persist the last, finalized transcript entry to the session file, if a writer exists.
 pub fn persist_last_entry(app: &mut App) {
-    if let Some(ref mut writer) = app.session_writer
-        && let Some(entry) = app.transcript.last()
+    if let Some(ref mut writer) = app.session.writer
+        && let Some(entry) = app.transcript.entries.last()
     {
-        let turn_id = format!("turn_{}", app.turn_count);
+        let turn_id = format!("turn_{}", app.session.turn_count);
         let _ = writer.append_entry(entry, &turn_id);
     }
 }
 
 /// Persist the last tool entry with its bounded artifact metadata.
 fn persist_last_entry_with_artifact(app: &mut App, artifact: Option<artifacts::ArtifactMetadata>) {
-    if let Some(ref mut writer) = app.session_writer
-        && let Some(entry) = app.transcript.last()
+    if let Some(ref mut writer) = app.session.writer
+        && let Some(entry) = app.transcript.entries.last()
     {
-        let turn_id = format!("turn_{}", app.turn_count);
+        let turn_id = format!("turn_{}", app.session.turn_count);
         let _ = writer.append_entry_with_artifact(entry, &turn_id, artifact);
     }
 }
@@ -433,15 +443,15 @@ fn persist_last_entry_with_artifact(app: &mut App, artifact: Option<artifacts::A
 /// Persist the final model response even if provider status rows were appended
 /// after the last assistant/reasoning delta.
 pub fn persist_final_response(app: &mut App) {
-    if let Some(ref mut writer) = app.session_writer
-        && let Some(entry) = app.transcript.iter().rev().find(|entry| {
+    if let Some(ref mut writer) = app.session.writer
+        && let Some(entry) = app.transcript.entries.iter().rev().find(|entry| {
             matches!(
                 entry,
                 Entry::Agent { streaming: false, .. } | Entry::Reasoning { streaming: false, .. }
             )
         })
     {
-        let turn_id = format!("turn_{}", app.turn_count);
+        let turn_id = format!("turn_{}", app.session.turn_count);
         let _ = writer.append_entry(entry, &turn_id);
     }
 }
@@ -458,7 +468,7 @@ pub fn now_or_after_deadline(ui_tick: u64, deadline: u64) -> bool {
 
 /// Mark all streaming `Assistant` and `Reasoning` entries as complete.
 pub fn finalize_streaming(app: &mut App) {
-    for entry in &mut app.transcript {
+    for entry in &mut app.transcript.entries {
         match entry {
             Entry::Agent { streaming, .. } => *streaming = false,
             Entry::Reasoning { streaming, .. } => *streaming = false,
@@ -472,7 +482,7 @@ pub fn finalize_streaming(app: &mut App) {
 /// Called when the active run is interrupted so that the renderer can show a
 /// distinct cancelled-tool row instead of leaving the tool in a running state.
 pub fn cancel_running_tools(app: &mut App) {
-    for entry in &mut app.transcript {
+    for entry in &mut app.transcript.entries {
         if let Entry::Tool { status, .. } = entry
             && *status == ToolStatus::Running
         {
@@ -484,7 +494,7 @@ pub fn cancel_running_tools(app: &mut App) {
 /// Mark active reasoning entries complete when the model moves on to visible
 /// assistant text or a tool call.
 pub fn finalize_reasoning(app: &mut App) {
-    for entry in &mut app.transcript {
+    for entry in &mut app.transcript.entries {
         if let Entry::Reasoning { streaming, .. } = entry {
             *streaming = false;
         }
@@ -496,10 +506,10 @@ pub fn finalize_reasoning(app: &mut App) {
 /// left intact.
 pub fn discard_retry_output(app: &mut App) {
     while matches!(
-        app.transcript.last(),
+        app.transcript.entries.last(),
         Some(Entry::Agent { .. } | Entry::Reasoning { .. })
     ) {
-        app.transcript.pop();
+        app.transcript.entries.pop();
     }
 }
 
@@ -526,16 +536,17 @@ pub fn load_mcp_config_audit(workspace: &Path) -> (Vec<session::SessionConfigFil
 }
 
 pub fn refresh_mcp_config_audit(app: &mut App, turn_id: &str) {
-    let (current_files, current_diagnostics) = load_mcp_config_audit(&app.cwd);
-    if app.mcp_config_files == current_files && app.mcp_config_diagnostics == current_diagnostics {
+    let (current_files, current_diagnostics) = load_mcp_config_audit(&app.runtime.cwd);
+    if app.session.mcp_config_files == current_files && app.session.mcp_config_diagnostics == current_diagnostics {
         return;
     }
 
-    let previous_files = std::mem::replace(&mut app.mcp_config_files, current_files.clone());
-    app.mcp_config_diagnostics = current_diagnostics.clone();
+    let previous_files = std::mem::replace(&mut app.session.mcp_config_files, current_files.clone());
+    app.session.mcp_config_diagnostics = current_diagnostics.clone();
     app.transcript
+        .entries
         .push(Entry::Status { text: mcp_config_changed_status(&previous_files, &current_files) });
-    if let Some(ref mut writer) = app.session_writer {
+    if let Some(ref mut writer) = app.session.writer {
         let _ = writer.append_mcp_config_changed(turn_id, previous_files, current_files, current_diagnostics);
     }
 }
@@ -551,9 +562,11 @@ fn finish_tool_output(
         |write| write.bounded_lines.clone(),
     );
     if let Some(write) = &artifact {
-        app.tool_artifacts.insert(id.to_string(), write.metadata.handle.clone());
+        app.transcript
+            .tool_artifacts
+            .insert(id.to_string(), write.metadata.handle.clone());
     }
-    for entry in app.transcript.iter_mut().rev() {
+    for entry in app.transcript.entries.iter_mut().rev() {
         if let Entry::Tool { name, output: out, status: entry_status, .. } = entry
             && name.ends_with(&format!("#{id}"))
         {
@@ -586,16 +599,16 @@ fn config_file_hash_summary(files: &[session::SessionConfigFile]) -> String {
 }
 
 fn open_credential_recovery_after_rejection(app: &mut App) {
-    let RunState::Error(message) = &app.run_state else {
+    let RunState::Error(message) = &app.runtime.run_state else {
         return;
     };
-    if !is_credential_rejection(message) || crate::acp::config::parse_model_id(&app.model).is_some() {
+    if !is_credential_rejection(message) || crate::acp::config::parse_model_id(&app.runtime.model).is_some() {
         return;
     }
 
-    let provider = super::onboarding::provider_for_model(&app.model);
-    if let Some(env_var) = active_environment_credential(provider, &app.cwd) {
-        app.transcript.push(Entry::Status {
+    let provider = super::onboarding::provider_for_model(&app.runtime.model);
+    if let Some(env_var) = active_environment_credential(provider, &app.runtime.cwd) {
+        app.transcript.entries.push(Entry::Status {
             text: format!(
                 "{env_var} takes precedence over stored credentials; replace or unset it, then use `/login {}` if needed",
                 provider.label()
@@ -604,8 +617,8 @@ fn open_credential_recovery_after_rejection(app: &mut App) {
         return;
     }
 
-    app.first_run_recovery = Some(FirstRunRecovery::login(provider));
-    app.transcript.push(Entry::Status {
+    app.overlay.show_setup(FirstRunRecovery::login(provider));
+    app.transcript.entries.push(Entry::Status {
         text: format!(
             "credential rejected; opened `/login {}` recovery while keeping the prompt draft",
             provider.label()

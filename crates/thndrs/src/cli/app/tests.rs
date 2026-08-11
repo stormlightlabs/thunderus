@@ -49,6 +49,7 @@ fn from_cli_starts_with_fresh_transcript_not_latest_session() {
 
     assert!(
         !app.transcript
+            .entries
             .iter()
             .any(|e| matches!(e, Entry::User { text } if text.contains("old message")))
     );
@@ -80,14 +81,15 @@ fn resumed_startup_restores_the_session_without_creating_a_scratch_file() {
     let cli = Cli { cwd: dir.path().to_path_buf(), session_dir: Some(sessions_dir.clone()), ..Cli::default() };
     let app = App::from_cli_resuming(&cli, "session-resume").expect("resume saved session");
 
-    assert_eq!(app.session_id, "session-resume");
-    assert_eq!(app.session_tokens_in, 7);
-    assert_eq!(app.session_tokens_out, 11);
-    assert_eq!(app.turn_count, 1);
-    assert_eq!(app.session_writer.as_ref().expect("session writer").path(), saved_path);
+    assert_eq!(app.session.id, "session-resume");
+    assert_eq!(app.runtime.session_tokens_in, 7);
+    assert_eq!(app.runtime.session_tokens_out, 11);
+    assert_eq!(app.session.turn_count, 1);
+    assert_eq!(app.session.writer.as_ref().expect("session writer").path(), saved_path);
     assert_eq!(session::list_session_files(&sessions_dir), vec![saved_path]);
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::User { text } if text == "earlier prompt"))
     );
@@ -110,11 +112,11 @@ fn ephemeral_startup_keeps_the_session_directory_empty_and_records_prompt_histor
     };
 
     let mut app = App::from_cli(&cli);
-    app.first_run_recovery = None;
+    app.overlay.close();
 
     assert!(app.is_ephemeral());
     assert_eq!(app.run_label(), "ephemeral");
-    assert!(app.session_writer.is_none());
+    assert!(app.session.writer.is_none());
     assert!(
         std::fs::read_dir(&sessions_dir)
             .expect("read session directory")
@@ -143,9 +145,9 @@ fn fresh_startup_records_context_without_memory_state() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
     let app = App::from_cli(&cli);
-    let _: &[ContextSource] = &app.context_sources;
+    let _: &[ContextSource] = &app.transcript.context_sources;
 
-    let writer = app.session_writer.as_ref().expect("session writer");
+    let writer = app.session.writer.as_ref().expect("session writer");
     let records = session::SessionReader::read_records(writer.path());
     let Some(session::SessionRecord::SessionMeta { config: Some(config), .. }) = records.first() else {
         panic!("fresh session metadata record");
@@ -176,7 +178,7 @@ fn from_cli_does_not_scan_session_history() {
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let app = App::from_cli(&cli);
 
-    assert!(app.input_history.is_empty());
+    assert!(app.composer.input_history.is_empty());
     assert!(
         InputHistoryStore::for_workspace(dir.path())
             .load_recent()
@@ -195,7 +197,7 @@ fn from_cli_uses_dedicated_input_history() {
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let app = App::from_cli(&cli);
 
-    assert_eq!(app.input_history, vec!["dedicated prompt".to_string()]);
+    assert_eq!(app.composer.input_history, vec!["dedicated prompt".to_string()]);
 }
 
 #[test]
@@ -231,7 +233,8 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
 
     let app = App::from_cli(&cli);
     let path = app
-        .session_writer
+        .session
+        .writer
         .as_ref()
         .expect("session writer")
         .path()
@@ -276,7 +279,8 @@ fn from_cli_writes_mcp_config_metadata_to_session_meta() {
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let app = helpers::with_home(&home, || App::from_cli(&cli));
     let path = app
-        .session_writer
+        .session
+        .writer
         .as_ref()
         .expect("session writer")
         .path()
@@ -323,8 +327,8 @@ fn submit_user_turn_records_mcp_config_change_before_user() {
 
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = with_home(&home, || App::from_cli(&cli));
-    app.first_run_recovery = None;
-    let previous_hash = app.mcp_config_files[0].sha256.clone();
+    app.overlay.close();
+    let previous_hash = app.session.mcp_config_files[0].sha256.clone();
     std::fs::write(
         &mcp_path,
         r#"
@@ -340,12 +344,14 @@ fn submit_user_turn_records_mcp_config_change_before_user() {
 
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::Status { text } if text.starts_with("MCP config changed:")))
     );
 
     let path = app
-        .session_writer
+        .session
+        .writer
         .as_ref()
         .expect("session writer")
         .path()
@@ -381,8 +387,8 @@ fn usage_event_accumulates_session_tokens() {
         &mut app,
         &Msg::Agent(AgentEvent::Usage { input_tokens: 5, output_tokens: 7 }),
     );
-    assert_eq!(app.session_tokens_in, 17);
-    assert_eq!(app.session_tokens_out, 10);
+    assert_eq!(app.runtime.session_tokens_in, 17);
+    assert_eq!(app.runtime.session_tokens_out, 10);
 }
 
 #[test]
@@ -391,13 +397,14 @@ fn finished_persists_final_assistant_even_after_status_row() {
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
     let path = app
-        .session_writer
+        .session
+        .writer
         .as_ref()
         .expect("session writer")
         .path()
         .to_path_buf();
 
-    app.input = PromptInput::from("update TODO.md");
+    app.composer.input = PromptInput::from("update TODO.md");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("Done."))));
     update(
@@ -416,7 +423,7 @@ fn finished_persists_final_assistant_even_after_status_row() {
 #[test]
 fn compact_uses_provider_summary_and_replaces_active_context_only_after_success() {
     let mut app = fresh_app();
-    app.transcript = vec![
+    app.transcript.entries = vec![
         Entry::User { text: "inspect the parser".to_string() },
         Entry::Agent { text: "the parser rejects empty input".to_string(), streaming: false },
     ];
@@ -425,9 +432,10 @@ fn compact_uses_provider_summary_and_replaces_active_context_only_after_success(
         handle_command(&mut app, "compact"),
         Some(Msg::Agent(AgentEvent::Started))
     );
-    assert!(app.pending_manual_compaction.is_some());
+    assert!(app.transcript.pending_manual_compaction.is_some());
     assert!(
         app.transcript
+            .entries
             .iter()
             .all(|entry| !matches!(entry, Entry::User { text } if text.contains("Summarize"))),
         "internal compaction requests must stay out of the user transcript"
@@ -438,15 +446,16 @@ fn compact_uses_provider_summary_and_replaces_active_context_only_after_success(
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
-    assert!(app.pending_manual_compaction.is_none());
-    assert!(matches!(app.transcript.first(), Some(Entry::User { text }) if text == "inspect the parser"));
+    assert!(app.transcript.pending_manual_compaction.is_none());
+    assert!(matches!(app.transcript.entries.first(), Some(Entry::User { text }) if text == "inspect the parser"));
     assert!(
         app.transcript
+            .entries
             .iter()
             .all(|entry| !matches!(entry, Entry::User { text } if text.contains("Summarize")))
     );
     assert!(
-        matches!(app.transcript.last(), Some(Entry::Agent { text, .. }) if text.contains("parser: empty input is rejected"))
+        matches!(app.transcript.entries.last(), Some(Entry::Agent { text, .. }) if text.contains("parser: empty input is rejected"))
     );
 }
 
@@ -454,14 +463,17 @@ fn compact_uses_provider_summary_and_replaces_active_context_only_after_success(
 fn failed_compaction_restores_active_context_without_restoring_internal_prompt() {
     let mut app = fresh_app();
     let original = vec![Entry::User { text: "inspect the parser".to_string() }];
-    app.transcript = original;
+    app.transcript.entries = original;
 
     assert_eq!(
         handle_command(&mut app, "compact"),
         Some(Msg::Agent(AgentEvent::Started))
     );
     assert!(
-        app.input_history.iter().all(|prompt| !prompt.contains("Summarize")),
+        app.composer
+            .input_history
+            .iter()
+            .all(|prompt| !prompt.contains("Summarize")),
         "internal compaction requests must not enter prompt history"
     );
     update(&mut app, &Msg::Agent(AgentEvent::Started));
@@ -470,13 +482,14 @@ fn failed_compaction_restores_active_context_without_restoring_internal_prompt()
         &Msg::Agent(AgentEvent::Failed("provider unavailable".to_string())),
     );
 
-    assert!(matches!(app.transcript.first(), Some(Entry::User { text }) if text == "inspect the parser"));
+    assert!(matches!(app.transcript.entries.first(), Some(Entry::User { text }) if text == "inspect the parser"));
     assert!(
         app.transcript
+            .entries
             .iter()
             .all(|entry| !matches!(entry, Entry::User { text } if text.contains("Summarize")))
     );
-    assert!(app.input.is_empty());
+    assert!(app.composer.input.is_empty());
 }
 
 #[test]
@@ -491,12 +504,13 @@ fn compact_writes_a_recoverable_manual_audit_record() {
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
     let path = app
-        .session_writer
+        .session
+        .writer
         .as_ref()
         .expect("session writer")
         .path()
         .to_path_buf();
-    app.transcript = vec![Entry::User { text: "inspect the parser".to_string() }];
+    app.transcript.entries = vec![Entry::User { text: "inspect the parser".to_string() }];
 
     assert_eq!(
         handle_command(&mut app, "compact"),
@@ -537,7 +551,7 @@ fn risky_compaction_waits_for_review_and_preserves_context_until_approval() {
             output: vec!["error details".to_string()],
         },
     ];
-    app.transcript = original;
+    app.transcript.entries = original;
 
     assert_eq!(
         handle_command(&mut app, "compact"),
@@ -548,24 +562,24 @@ fn risky_compaction_waits_for_review_and_preserves_context_until_approval() {
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(summary)));
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
-    assert!(app.pending_compaction_review.is_some());
+    assert!(app.transcript.pending_compaction_review.is_some());
     assert_eq!(
-        app.last_compaction_review,
+        app.transcript.last_compaction_review,
         Some(session::CompactionReviewResult::Pending)
     );
-    assert!(app.transcript.iter().any(|entry| matches!(
+    assert!(app.transcript.entries.iter().any(|entry| matches!(
         entry,
         Entry::Status { text } if text.contains("review pending")
     )));
 
-    app.input = PromptInput::from("/context review approve");
+    app.composer.input = PromptInput::from("/context review approve");
     handle_command(&mut app, "context review approve");
-    assert!(app.pending_compaction_review.is_none());
+    assert!(app.transcript.pending_compaction_review.is_none());
     assert_eq!(
-        app.last_compaction_review,
+        app.transcript.last_compaction_review,
         Some(session::CompactionReviewResult::Approved)
     );
-    assert!(app.transcript.iter().any(|entry| matches!(
+    assert!(app.transcript.entries.iter().any(|entry| matches!(
         entry,
         Entry::Agent { text, streaming: false } if text.contains("reviewable summary")
     )));
@@ -583,7 +597,8 @@ fn rejected_compaction_keeps_the_projection_and_does_not_append_a_summary_record
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
     let path = app
-        .session_writer
+        .session
+        .writer
         .as_ref()
         .expect("session writer")
         .path()
@@ -597,7 +612,7 @@ fn rejected_compaction_keeps_the_projection_and_does_not_append_a_summary_record
             output: vec!["details".to_string()],
         },
     ];
-    app.transcript = original.clone();
+    app.transcript.entries = original.clone();
 
     assert_eq!(
         handle_command(&mut app, "compact"),
@@ -609,7 +624,7 @@ fn rejected_compaction_keeps_the_projection_and_does_not_append_a_summary_record
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
     handle_command(&mut app, "context review reject");
 
-    assert_eq!(app.transcript[..original.len()], original);
+    assert_eq!(app.transcript.entries[..original.len()], original);
     assert!(
         session::SessionReader::read_records(&path)
             .iter()
@@ -620,7 +635,7 @@ fn rejected_compaction_keeps_the_projection_and_does_not_append_a_summary_record
 #[test]
 fn auto_compaction_restarts_the_user_turn_after_success() {
     let mut app = fresh_app();
-    app.transcript = vec![
+    app.transcript.entries = vec![
         Entry::User { text: "long conversation".to_string() },
         Entry::Agent { text: "lots of detail".to_string(), streaming: false },
     ];
@@ -633,6 +648,7 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
     assert!(app.compaction_in_flight());
     assert!(
         app.transcript
+            .entries
             .iter()
             .all(|entry| !matches!(entry, Entry::User { text } if text.contains("Summarize"))),
         "internal compaction requests must stay out of the user transcript"
@@ -644,15 +660,17 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
     let restart = update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
     assert!(!app.compaction_in_flight());
-    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if *text == original_turn));
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::User { text }) if *text == original_turn));
     assert_eq!(restart, Some(Msg::Agent(AgentEvent::Started)));
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::Agent { text, .. } if text.contains("compacted summary")))
     );
     assert!(
         !app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::User { text } if text == "long conversation"))
     );
@@ -661,8 +679,10 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
 #[test]
 fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
     let mut app = fresh_app();
-    app.transcript = vec![Entry::User { text: "long conversation".to_string() }];
-    app.queued_followups.push("follow-up after restart".to_string());
+    app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }];
+    app.composer
+        .queued_followups
+        .push("follow-up after restart".to_string());
     let original_turn = "continue the work".to_string();
 
     assert_eq!(
@@ -675,9 +695,9 @@ fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
 
     let restart = update(&mut app, &Msg::Agent(AgentEvent::Finished));
     assert_eq!(restart, Some(Msg::Agent(AgentEvent::Started)));
-    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if *text == original_turn));
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::User { text }) if *text == original_turn));
     assert_eq!(
-        app.queued_followups.len(),
+        app.composer.queued_followups.len(),
         1,
         "follow-up must wait until the restarted turn completes"
     );
@@ -686,7 +706,7 @@ fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
 #[test]
 fn auto_compaction_failure_preserves_the_submitted_turn() {
     let mut app = fresh_app();
-    app.transcript = vec![Entry::User { text: "long conversation".to_string() }];
+    app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }];
     let original_turn = "continue the work".to_string();
 
     assert_eq!(
@@ -703,10 +723,11 @@ fn auto_compaction_failure_preserves_the_submitted_turn() {
 
     assert!(!app.compaction_in_flight());
     assert_eq!(result, None);
-    assert_eq!(app.last_input, Some(original_turn));
-    assert!(matches!(app.transcript.first(), Some(Entry::User { text }) if text == "long conversation"));
+    assert_eq!(app.composer.last_input, Some(original_turn));
+    assert!(matches!(app.transcript.entries.first(), Some(Entry::User { text }) if text == "long conversation"));
     assert!(
         !app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::User { text } if text.contains("Summarize")))
     );
@@ -724,12 +745,13 @@ fn auto_compaction_writes_an_automatic_trigger_audit_record() {
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
     let path = app
-        .session_writer
+        .session
+        .writer
         .as_ref()
         .expect("session writer")
         .path()
         .to_path_buf();
-    app.transcript = vec![Entry::User { text: "long conversation".to_string() }];
+    app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }];
 
     assert_eq!(
         start_auto_compaction(&mut app, "continue".to_string()),
@@ -756,23 +778,24 @@ fn ctrl_c_sets_quit_flag() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
     );
-    assert!(app.quit);
+    assert!(app.runtime.quit);
 }
 
 #[test]
 fn ctrl_c_cancels_running_stream() {
     let mut app = fresh_app();
-    app.run_state = RunState::Working;
+    app.runtime.run_state = RunState::Working;
 
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
     );
 
-    assert!(!app.quit, "Ctrl+C while running should not quit immediately");
-    assert_eq!(app.run_state, RunState::Stopping);
+    assert!(!app.runtime.quit, "Ctrl+C while running should not quit immediately");
+    assert_eq!(app.runtime.run_state, RunState::Stopping);
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::Status { text } if text == "cancelled"))
     );
@@ -784,19 +807,19 @@ fn stopping_timeout_returns_to_idle_when_agent_never_acknowledges_cancel() {
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
 
-    assert_eq!(app.run_state, RunState::Stopping);
-    let deadline = app.stopping_deadline.expect("stopping deadline");
+    assert_eq!(app.runtime.run_state, RunState::Stopping);
+    let deadline = app.runtime.stopping_deadline.expect("stopping deadline");
 
     for _ in 0..=deadline {
         update(&mut app, &Msg::Tick);
-        if app.ui_tick > deadline || app.run_state == RunState::Idle {
+        if app.runtime.ui_tick > deadline || app.runtime.run_state == RunState::Idle {
             break;
         }
     }
 
-    assert_eq!(app.run_state, RunState::Idle);
-    assert!(app.stopping_deadline.is_none());
-    assert!(matches!(app.transcript.last(), Some(Entry::Status { text }) if text == "cancelled"));
+    assert_eq!(app.runtime.run_state, RunState::Idle);
+    assert!(app.runtime.stopping_deadline.is_none());
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::Status { text }) if text == "cancelled"));
 }
 
 #[test]
@@ -804,12 +827,12 @@ fn late_started_event_does_not_revive_stopping_run() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-    let deadline = app.stopping_deadline;
+    let deadline = app.runtime.stopping_deadline;
 
     update(&mut app, &Msg::Agent(AgentEvent::Started));
 
-    assert_eq!(app.run_state, RunState::Stopping);
-    assert_eq!(app.stopping_deadline, deadline);
+    assert_eq!(app.runtime.run_state, RunState::Stopping);
+    assert_eq!(app.runtime.stopping_deadline, deadline);
 }
 
 #[test]
@@ -822,12 +845,12 @@ fn terminal_agent_events_clear_stopping_deadline() {
         let mut app = fresh_app();
         update(&mut app, &Msg::Agent(AgentEvent::Started));
         update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-        assert!(app.stopping_deadline.is_some());
+        assert!(app.runtime.stopping_deadline.is_some());
 
         update(&mut app, &Msg::Agent(event));
 
-        assert_ne!(app.run_state, RunState::Stopping);
-        assert!(app.stopping_deadline.is_none());
+        assert_ne!(app.runtime.run_state, RunState::Stopping);
+        assert!(app.runtime.stopping_deadline.is_none());
     }
 }
 
@@ -838,10 +861,10 @@ fn ctrl_d_first_press_shows_confirmation() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
     );
-    assert!(!app.quit, "first Ctrl+D should not quit");
-    assert!(app.ctrl_d_pending.is_some(), "should arm pending confirmation");
+    assert!(!app.runtime.quit, "first Ctrl+D should not quit");
+    assert!(app.runtime.ctrl_d_pending.is_some(), "should arm pending confirmation");
     assert!(
-        app.transcript.iter().any(|e| matches!(
+        app.transcript.entries.iter().any(|e| matches!(
             e,
             Entry::Status { text } if text.contains("Press CTRL+D again to quit")
         )),
@@ -856,15 +879,18 @@ fn ctrl_d_second_press_quits() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
     );
-    assert!(!app.quit);
-    assert!(app.ctrl_d_pending.is_some());
+    assert!(!app.runtime.quit);
+    assert!(app.runtime.ctrl_d_pending.is_some());
 
     let follow = update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
     );
-    assert!(app.quit, "second Ctrl+D should quit");
-    assert!(app.ctrl_d_pending.is_none(), "pending should be cleared on quit");
+    assert!(app.runtime.quit, "second Ctrl+D should quit");
+    assert!(
+        app.runtime.ctrl_d_pending.is_none(),
+        "pending should be cleared on quit"
+    );
     assert_eq!(follow, Some(Msg::Quit));
 }
 
@@ -875,32 +901,35 @@ fn ctrl_d_timeout_expires_and_requires_double_press_again() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
     );
-    assert!(app.ctrl_d_pending.is_some());
+    assert!(app.runtime.ctrl_d_pending.is_some());
 
     for _ in 0..quit_confirm_timeout_ticks(&app) + 1 {
         update(&mut app, &Msg::Tick);
     }
-    assert!(app.ctrl_d_pending.is_none(), "pending should expire after timeout");
+    assert!(
+        app.runtime.ctrl_d_pending.is_none(),
+        "pending should expire after timeout"
+    );
 
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
     );
-    assert!(!app.quit, "expired second press should not quit");
-    assert!(app.ctrl_d_pending.is_some(), "should arm a fresh confirmation");
+    assert!(!app.runtime.quit, "expired second press should not quit");
+    assert!(app.runtime.ctrl_d_pending.is_some(), "should arm a fresh confirmation");
 }
 
 #[test]
 fn ctrl_d_timeout_is_stable_at_the_faster_render_cadence() {
     let mut app = fresh_app();
-    app.cli.tick_rate_ms = 33;
+    app.runtime.cli.tick_rate_ms = 33;
 
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
     );
 
-    assert_eq!(app.ctrl_d_pending, Some(91));
+    assert_eq!(app.runtime.ctrl_d_pending, Some(91));
 }
 
 #[test]
@@ -910,7 +939,7 @@ fn app_clamps_tick_rate_to_the_direct_renderer_minimum() {
 
     let app = App::from_cli(&cli);
 
-    assert_eq!(app.cli.tick_rate_ms, crate::cli::MIN_TICK_RATE_MS);
+    assert_eq!(app.runtime.cli.tick_rate_ms, crate::cli::MIN_TICK_RATE_MS);
 }
 
 #[test]
@@ -920,20 +949,23 @@ fn ctrl_d_cancelled_by_other_key() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
     );
-    assert!(app.ctrl_d_pending.is_some());
+    assert!(app.runtime.ctrl_d_pending.is_some());
 
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
     );
-    assert!(app.ctrl_d_pending.is_none(), "other key should cancel pending Ctrl+D");
+    assert!(
+        app.runtime.ctrl_d_pending.is_none(),
+        "other key should cancel pending Ctrl+D"
+    );
 
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
     );
-    assert!(!app.quit, "should not quit after cancellation");
-    assert!(app.ctrl_d_pending.is_some());
+    assert!(!app.runtime.quit, "should not quit after cancellation");
+    assert!(app.runtime.ctrl_d_pending.is_some());
 }
 
 #[test]
@@ -943,19 +975,18 @@ fn other_keys_do_not_quit() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
     );
-    assert!(!app.quit);
+    assert!(!app.runtime.quit);
     update(&mut app, &Msg::Tick);
-    assert!(!app.quit);
+    assert!(!app.runtime.quit);
 }
 
 #[test]
 fn file_picker_selection_inserts_selected_path() {
     let mut app = fresh_app();
-    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
-    app.picker = Some(picker_from_paths(vec![
-        "src/main.rs".to_string(),
-        "src/app.rs".to_string(),
-    ]));
+    let _ = app.overlay.show_picker(
+        PromptAccessory::Files(FilePickerSource::Forced),
+        picker_from_paths(vec!["src/main.rs".to_string(), "src/app.rs".to_string()]),
+    );
 
     update(
         &mut app,
@@ -963,30 +994,30 @@ fn file_picker_selection_inserts_selected_path() {
     );
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
-    assert_eq!(app.mode, Mode::Prompt);
-    assert_eq!(app.prompt_accessory, PromptAccessory::None);
-    assert_eq!(app.input.as_str(), "src/app.rs");
-    assert!(app.picker.is_none());
+    assert_eq!(app.composer.mode, Mode::Prompt);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::None);
+    assert_eq!(app.composer.input.as_str(), "src/app.rs");
+    assert!(app.overlay.picker().is_none());
 }
 
 #[test]
 fn file_picker_arrows_and_pages_are_scrollable() {
     let mut app = fresh_app();
-    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
-    app.picker = Some(picker_from_paths(
-        (0..20).map(|i| format!("src/file_{i:02}.rs")).collect(),
-    ));
+    let _ = app.overlay.show_picker(
+        PromptAccessory::Files(FilePickerSource::Forced),
+        picker_from_paths((0..20).map(|i| format!("src/file_{i:02}.rs")).collect()),
+    );
 
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)),
     );
-    let picker = app.picker.as_ref().expect("picker");
+    let picker = app.overlay.picker().expect("picker");
     assert_eq!(picker.selected, VISIBLE_ROWS);
     assert!(picker.scroll > 0);
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)));
-    let picker = app.picker.as_ref().expect("picker");
+    let picker = app.overlay.picker().expect("picker");
     assert_eq!(picker.selected, 0);
     assert_eq!(picker.scroll, 0);
 }
@@ -994,37 +1025,37 @@ fn file_picker_arrows_and_pages_are_scrollable() {
 #[test]
 fn tick_increments_ui_tick() {
     let mut app = fresh_app();
-    assert_eq!(app.ui_tick, 0);
+    assert_eq!(app.runtime.ui_tick, 0);
     update(&mut app, &Msg::Tick);
-    assert_eq!(app.ui_tick, 1);
+    assert_eq!(app.runtime.ui_tick, 1);
 }
 
 #[test]
 fn quit_message_sets_quit_flag() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Quit);
-    assert!(app.quit);
+    assert!(app.runtime.quit);
 }
 
 #[test]
 fn backspace_removes_last_char() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("abc");
+    app.composer.input = PromptInput::from("abc");
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
     );
-    assert_eq!(app.input.as_str(), "ab");
+    assert_eq!(app.composer.input.as_str(), "ab");
 }
 
 #[test]
 fn enter_trims_whitespace_before_submit() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("  hello  ");
+    app.composer.input = PromptInput::from("  hello  ");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.input.as_str(), "");
-    assert_eq!(app.transcript.len(), 1);
-    assert_eq!(app.transcript[0], Entry::User { text: String::from("hello") });
+    assert_eq!(app.composer.input.as_str(), "");
+    assert_eq!(app.transcript.entries.len(), 1);
+    assert_eq!(app.transcript.entries[0], Entry::User { text: String::from("hello") });
 }
 
 #[test]
@@ -1033,15 +1064,15 @@ fn missing_provider_credential_opens_recovery_and_preserves_prompt() {
         let dir = tempfile::tempdir().expect("create temp dir");
         let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.input = PromptInput::from("hello");
+        app.session.writer = None;
+        app.composer.input = PromptInput::from("hello");
 
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-        assert_eq!(app.input.as_str(), "hello");
-        assert!(app.transcript.is_empty());
-        let recovery = app.first_run_recovery.as_ref().expect("recovery");
+        assert_eq!(app.composer.input.as_str(), "hello");
+        assert!(app.transcript.entries.is_empty());
+        let recovery = app.overlay.setup().expect("recovery");
         assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
         assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
     });
@@ -1050,8 +1081,9 @@ fn missing_provider_credential_opens_recovery_and_preserves_prompt() {
 #[test]
 fn opencode_setup_cancellation_keeps_prompt_draft_and_discards_secret_buffer() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("draft while setting up OpenCode Go");
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
+    app.composer.input = PromptInput::from("draft while setting up OpenCode Go");
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     for ch in "sk-cancelled-key".chars() {
@@ -1059,13 +1091,10 @@ fn opencode_setup_cancellation_keeps_prompt_draft_and_discards_secret_buffer() {
     }
     update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
 
-    let recovery = app
-        .first_run_recovery
-        .as_ref()
-        .expect("OpenCode recovery remains available");
+    let recovery = app.overlay.setup().expect("OpenCode recovery remains available");
     assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
     assert!(recovery.secret_input.is_empty());
-    assert_eq!(app.input.as_str(), "draft while setting up OpenCode Go");
+    assert_eq!(app.composer.input.as_str(), "draft while setting up OpenCode Go");
     assert!(!format!("{app:?}").contains("sk-cancelled-key"));
 }
 
@@ -1073,9 +1102,9 @@ fn opencode_setup_cancellation_keeps_prompt_draft_and_discards_secret_buffer() {
 fn opencode_provider_failure_is_actionable_and_restores_prompt_draft() {
     with_provider_env_removed(|| {
         let mut app = fresh_app();
-        app.model = "opencode/big-pickle".to_string();
-        app.cli.model = app.model.clone();
-        app.first_run_recovery = None;
+        app.runtime.model = "opencode/big-pickle".to_string();
+        app.runtime.cli.model = app.runtime.model.clone();
+        app.overlay.close();
         let prompt = "make the bounded OpenCode change";
 
         assert_eq!(
@@ -1092,21 +1121,23 @@ fn opencode_provider_failure_is_actionable_and_restores_prompt_draft() {
         );
 
         assert_eq!(
-            app.run_state,
+            app.runtime.run_state,
             RunState::Error(
                 "OpenCode Zen authentication failed (HTTP 401); check OPENCODE_ZEN_KEY or run `thndrs login opencode-go`"
                     .to_string()
             )
         );
-        assert_eq!(app.input.as_str(), prompt);
+        assert_eq!(app.composer.input.as_str(), prompt);
         assert_eq!(
-            app.first_run_recovery
+            app.overlay
+                .setup()
                 .as_ref()
                 .map(|recovery| (recovery.provider, recovery.stage)),
             Some((Some(SetupProviderArg::OpencodeZen), RecoveryStage::EnterKey))
         );
         assert!(
             app.transcript
+                .entries
                 .iter()
                 .any(|entry| matches!(entry, Entry::Status { text } if text.contains("/login opencode-zen")))
         );
@@ -1120,9 +1151,9 @@ fn rejected_environment_credential_names_the_override_without_opening_login() {
             std::env::set_var(auth::OPENCODE_ZEN_KEY_ENV, "rejected-environment-key");
         }
         let mut app = fresh_app();
-        app.model = "opencode/big-pickle".to_string();
-        app.cli.model = app.model.clone();
-        app.first_run_recovery = None;
+        app.runtime.model = "opencode/big-pickle".to_string();
+        app.runtime.cli.model = app.runtime.model.clone();
+        app.overlay.close();
 
         assert_eq!(
             submit_user_turn(&mut app, "make the bounded OpenCode change".to_string()),
@@ -1137,12 +1168,13 @@ fn rejected_environment_credential_names_the_override_without_opening_login() {
             )),
         );
 
-        assert!(app.first_run_recovery.is_none());
-        assert!(app.transcript.iter().any(|entry| {
+        assert!(app.overlay.setup().is_none());
+        assert!(app.transcript.entries.iter().any(|entry| {
             matches!(entry, Entry::Status { text } if text.contains("OPENCODE_ZEN_KEY takes precedence"))
         }));
         assert!(
             !app.transcript
+                .entries
                 .iter()
                 .any(|entry| { matches!(entry, Entry::Status { text } if text.contains("opened `/login")) })
         );
@@ -1155,9 +1187,10 @@ fn rejected_credential_failure_is_persisted_before_opening_login_recovery() {
         let dir = tempfile::tempdir().expect("tempdir");
         let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
-        app.first_run_recovery = None;
+        app.overlay.close();
         let session_path = app
-            .session_writer
+            .session
+            .writer
             .as_ref()
             .expect("session writer")
             .path()
@@ -1176,7 +1209,8 @@ fn rejected_credential_failure_is_persisted_before_opening_login_recovery() {
             matches!(record, session::SessionRecord::Failed { error, .. } if error.contains("authentication failed"))
         }));
         assert_eq!(
-            app.first_run_recovery
+            app.overlay
+                .setup()
                 .as_ref()
                 .map(|recovery| (recovery.provider, recovery.stage)),
             Some((Some(SetupProviderArg::OpencodeZen), RecoveryStage::EnterKey))
@@ -1195,16 +1229,16 @@ fn fresh_setup_authenticates_before_model_selection_and_retains_draft() {
         std::fs::create_dir_all(&workspace).expect("create workspace");
         let cli = Cli { cwd: workspace, ..Cli::default() };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.first_run_recovery = None;
-        app.input = PromptInput::from("draft before setup");
+        app.session.writer = None;
+        app.overlay.close();
+        app.composer.input = PromptInput::from("draft before setup");
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(app.model, "");
+        assert_eq!(app.runtime.model, "");
         assert_eq!(
-            app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+            app.overlay.setup().map(|recovery| recovery.stage),
             Some(RecoveryStage::MissingCredential)
         );
 
@@ -1216,14 +1250,14 @@ fn fresh_setup_authenticates_before_model_selection_and_retains_draft() {
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-        assert_eq!(app.model, "");
+        assert_eq!(app.runtime.model, "");
         assert_eq!(
-            app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+            app.overlay.setup().map(|recovery| recovery.stage),
             Some(RecoveryStage::ModelSelection)
         );
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(app.model, "opencode/big-pickle");
-        assert_eq!(app.input.as_str(), "draft before setup");
+        assert_eq!(app.runtime.model, "opencode/big-pickle");
+        assert_eq!(app.composer.input.as_str(), "draft before setup");
     });
 }
 
@@ -1250,17 +1284,17 @@ fn chatgpt_submit_uses_stored_auth_without_recovery_refresh() {
 
         let cli = Cli { cwd: workspace, model: "chatgpt-codex/gpt-5.5".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.first_run_recovery = None;
-        app.input = PromptInput::from("hello");
+        app.session.writer = None;
+        app.overlay.close();
+        app.composer.input = PromptInput::from("hello");
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
         assert!(
-            app.first_run_recovery.is_none(),
+            app.overlay.setup().is_none(),
             "stored ChatGPT credentials should pass the local setup gate"
         );
-        assert_eq!(app.transcript, vec![Entry::User { text: "hello".to_string() }]);
+        assert_eq!(app.transcript.entries, vec![Entry::User { text: "hello".to_string() }]);
 
         unsafe {
             if let Some(old_home) = old_home {
@@ -1278,13 +1312,13 @@ fn acp_missing_config_uses_acp_recovery_not_provider_key_setup() {
         let dir = tempfile::tempdir().expect("create temp dir");
         let cli = Cli { cwd: dir.path().to_path_buf(), model: "acp:missing".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.first_run_recovery = None;
-        app.input = PromptInput::from("hello");
+        app.session.writer = None;
+        app.overlay.close();
+        app.composer.input = PromptInput::from("hello");
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-        let recovery = app.first_run_recovery.as_ref().expect("recovery");
+        let recovery = app.overlay.setup().expect("recovery");
         assert_eq!(recovery.stage, RecoveryStage::AcpMissing);
         assert_eq!(recovery.provider, None);
     });
@@ -1296,8 +1330,9 @@ fn recovery_enter_key_stores_project_credential_without_transcript_secret() {
         let dir = tempfile::tempdir().expect("create temp dir");
         let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.first_run_recovery = Some(FirstRunRecovery::login(SetupProviderArg::OpencodeGo));
+        app.session.writer = None;
+        app.overlay
+            .show_setup(FirstRunRecovery::login(SetupProviderArg::OpencodeGo));
 
         for ch in "sk-secret-from-test".chars() {
             update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
@@ -1312,7 +1347,7 @@ fn recovery_enter_key_stores_project_credential_without_transcript_secret() {
             stored.get(auth::OPENCODE_GO_KEY_ENV).map(String::as_str),
             Some("sk-secret-from-test")
         );
-        let transcript = format!("{:?}", app.transcript);
+        let transcript = format!("{:?}", app.transcript.entries);
         assert!(!transcript.contains("sk-secret-from-test"));
     });
 }
@@ -1320,86 +1355,93 @@ fn recovery_enter_key_stores_project_credential_without_transcript_secret() {
 #[test]
 fn recovery_actions_handle_switch_instructions_continue_and_quit() {
     let mut app = fresh_app();
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(app.first_run_recovery.is_none());
-    assert_eq!(app.prompt_accessory, PromptAccessory::Models);
+    assert!(app.overlay.setup().is_none());
+    assert_eq!(app.overlay.accessory(), PromptAccessory::Models);
 
-    app.prompt_accessory = PromptAccessory::None;
-    app.picker = None;
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
+    app.overlay.close();
+    app.overlay.close();
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(
-        app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+        app.overlay.setup().map(|recovery| recovery.stage),
         Some(RecoveryStage::Instructions)
     );
 
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, true));
     for _ in 0..3 {
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     }
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
-        app.first_run_recovery.is_some(),
+        app.overlay.setup().is_some(),
         "pending provider prompts cannot continue without setup"
     );
-    assert!(app.transcript.iter().any(|entry| matches!(
+    assert!(app.transcript.entries.iter().any(|entry| matches!(
         entry,
         Entry::Status { text } if text.contains("setup required before submitting")
     )));
 
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, false));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, false));
     for _ in 0..3 {
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     }
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
-        app.first_run_recovery.is_none(),
+        app.overlay.setup().is_none(),
         "manual setup can be skipped without submitting a prompt"
     );
 
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, false));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::OpencodeGo, false));
     for _ in 0..4 {
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     }
     let follow = update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(app.quit);
+    assert!(app.runtime.quit);
     assert_eq!(follow, Some(Msg::Quit));
 }
 
 #[test]
 fn chatgpt_recovery_action_order_starts_oauth_before_switching_model() {
     let mut app = fresh_app();
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         request_device_code: oauth_request_ok,
         poll_device_code_once: oauth_poll_pending,
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    let recovery = app.first_run_recovery.as_ref().expect("oauth recovery");
+    let recovery = app.overlay.setup().expect("oauth recovery");
     assert_eq!(recovery.stage, RecoveryStage::ChatGptOAuthPolling);
     assert!(recovery.chatgpt_oauth.is_some());
 
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(app.first_run_recovery.is_none());
-    assert_eq!(app.prompt_accessory, PromptAccessory::Models);
+    assert!(app.overlay.setup().is_none());
+    assert_eq!(app.overlay.accessory(), PromptAccessory::Models);
 }
 
 #[test]
 fn chatgpt_browser_login_is_default_and_supports_pasted_redirect_recovery() {
     let mut app = fresh_app();
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         start_browser_login: oauth_browser_start,
         open_browser: oauth_browser_open,
         poll_browser_login: oauth_browser_pending,
@@ -1407,10 +1449,11 @@ fn chatgpt_browser_login_is_default_and_supports_pasted_redirect_recovery() {
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    let recovery = app.first_run_recovery.as_ref().expect("browser recovery");
+    let recovery = app.overlay.setup().expect("browser recovery");
     assert_eq!(recovery.stage, RecoveryStage::ChatGptOAuthPolling);
     assert_eq!(
         recovery.chatgpt_oauth.as_ref().map(|oauth| oauth.method),
@@ -1427,7 +1470,7 @@ fn chatgpt_browser_login_is_default_and_supports_pasted_redirect_recovery() {
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(
-        app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+        app.overlay.setup().map(|recovery| recovery.stage),
         Some(RecoveryStage::ChatGptOAuthPasteRedirect)
     );
 
@@ -1436,32 +1479,34 @@ fn chatgpt_browser_login_is_default_and_supports_pasted_redirect_recovery() {
     }
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert!(app.first_run_recovery.is_none());
-    assert!(format!("{:?}", app.transcript).contains("credential stored"));
-    assert!(!format!("{:?}", app.transcript).contains("auth-code"));
+    assert!(app.overlay.setup().is_none());
+    assert!(format!("{:?}", app.transcript.entries).contains("credential stored"));
+    assert!(!format!("{:?}", app.transcript.entries).contains("auth-code"));
 }
 
 #[test]
 fn chatgpt_recovery_cannot_enter_api_key_input() {
     let mut app = fresh_app();
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         request_device_code: oauth_request_ok,
         poll_device_code_once: oauth_poll_pending,
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     for _ in 0..5 {
         update(&mut app, &key(KeyCode::Char('s'), KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
         assert_ne!(
-            app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+            app.overlay.setup().map(|recovery| recovery.stage),
             Some(RecoveryStage::EnterKey)
         );
-        if app.first_run_recovery.is_none() {
-            app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+        if app.overlay.setup().is_none() {
+            app.overlay
+                .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
         }
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     }
@@ -1470,30 +1515,31 @@ fn chatgpt_recovery_cannot_enter_api_key_input() {
 #[test]
 fn chatgpt_oauth_poll_pending_preserves_prompt_without_transcript_tokens() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("draft prompt");
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    app.composer.input = PromptInput::from("draft prompt");
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         request_device_code: oauth_request_ok,
         poll_device_code_once: oauth_poll_pending,
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    app.first_run_recovery
-        .as_mut()
+    app.overlay
+        .setup_mut()
         .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
         .expect("oauth state")
-        .next_poll_tick = app.ui_tick;
+        .next_poll_tick = app.runtime.ui_tick;
     update(&mut app, &Msg::Tick);
 
-    assert_eq!(app.input.as_str(), "draft prompt");
+    assert_eq!(app.composer.input.as_str(), "draft prompt");
     assert_eq!(
-        app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+        app.overlay.setup().map(|recovery| recovery.stage),
         Some(RecoveryStage::ChatGptOAuthPolling)
     );
-    let transcript = format!("{:?}", app.transcript);
+    let transcript = format!("{:?}", app.transcript.entries);
     assert!(!transcript.contains("device-token-secret-from-test"));
     assert!(!transcript.contains("access-token-secret-from-test"));
     assert!(!transcript.contains("refresh-token-secret-from-test"));
@@ -1502,31 +1548,34 @@ fn chatgpt_oauth_poll_pending_preserves_prompt_without_transcript_tokens() {
 #[test]
 fn chatgpt_oauth_slowdown_updates_status_and_backoff() {
     let mut app = fresh_app();
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         request_device_code: oauth_request_ok,
         poll_device_code_once: oauth_poll_slow_down,
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let next_poll_before = app
-        .first_run_recovery
+        .overlay
+        .setup()
         .as_ref()
         .and_then(|recovery| recovery.chatgpt_oauth.as_ref())
         .expect("oauth state")
         .next_poll_tick;
-    app.first_run_recovery
-        .as_mut()
+    app.overlay
+        .setup_mut()
         .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
         .expect("oauth state")
-        .next_poll_tick = app.ui_tick;
+        .next_poll_tick = app.runtime.ui_tick;
     update(&mut app, &Msg::Tick);
 
     let oauth = app
-        .first_run_recovery
+        .overlay
+        .setup()
         .as_ref()
         .and_then(|recovery| recovery.chatgpt_oauth.as_ref())
         .expect("oauth state");
@@ -1537,27 +1586,28 @@ fn chatgpt_oauth_slowdown_updates_status_and_backoff() {
 #[test]
 fn chatgpt_oauth_poll_success_stores_credentials_and_preserves_prompt() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("draft prompt");
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    app.composer.input = PromptInput::from("draft prompt");
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         request_device_code: oauth_request_ok,
         poll_device_code_once: oauth_poll_authorized,
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    app.first_run_recovery
-        .as_mut()
+    app.overlay
+        .setup_mut()
         .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
         .expect("oauth state")
-        .next_poll_tick = app.ui_tick;
+        .next_poll_tick = app.runtime.ui_tick;
     update(&mut app, &Msg::Tick);
 
-    assert!(app.first_run_recovery.is_none());
-    assert_eq!(app.input.as_str(), "draft prompt");
-    let transcript = format!("{:?}", app.transcript);
+    assert!(app.overlay.setup().is_none());
+    assert_eq!(app.composer.input.as_str(), "draft prompt");
+    let transcript = format!("{:?}", app.transcript.entries);
     assert!(transcript.contains("credential stored"));
     assert!(!transcript.contains("access-token-secret-from-test"));
     assert!(!transcript.contains("refresh-token-secret-from-test"));
@@ -1566,36 +1616,37 @@ fn chatgpt_oauth_poll_success_stores_credentials_and_preserves_prompt() {
 #[test]
 fn chatgpt_oauth_expiry_and_write_failure_keep_recovery_available() {
     let mut app = fresh_app();
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         request_device_code: oauth_request_ok,
         poll_device_code_once: oauth_poll_authorized,
         write_credentials: oauth_write_fail,
         ..Default::default()
     };
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    app.first_run_recovery
-        .as_mut()
+    app.overlay
+        .setup_mut()
         .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
         .expect("oauth state")
-        .expires_at_tick = app.ui_tick;
+        .expires_at_tick = app.runtime.ui_tick;
     update(&mut app, &Msg::Tick);
     assert_eq!(
-        app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+        app.overlay.setup().map(|recovery| recovery.stage),
         Some(RecoveryStage::ChatGptOAuthFailed)
     );
-    assert!(format!("{:?}", app.transcript).contains("expired"));
+    assert!(format!("{:?}", app.transcript.entries).contains("expired"));
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    app.first_run_recovery
-        .as_mut()
+    app.overlay
+        .setup_mut()
         .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
         .expect("oauth state")
-        .next_poll_tick = app.ui_tick;
+        .next_poll_tick = app.runtime.ui_tick;
     update(&mut app, &Msg::Tick);
-    let recovery = app.first_run_recovery.as_ref().expect("failed recovery");
+    let recovery = app.overlay.setup().expect("failed recovery");
     assert_eq!(recovery.stage, RecoveryStage::ChatGptOAuthFailed);
     assert!(
         recovery
@@ -1608,39 +1659,40 @@ fn chatgpt_oauth_expiry_and_write_failure_keep_recovery_available() {
 #[test]
 fn chatgpt_oauth_failures_are_redacted_and_keep_recovery_path() {
     let mut app = fresh_app();
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         request_device_code: oauth_request_fail,
         poll_device_code_once: oauth_poll_pending,
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(
-        app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+        app.overlay.setup().map(|recovery| recovery.stage),
         Some(RecoveryStage::ChatGptOAuthFailed)
     );
-    let transcript = format!("{:?}", app.transcript);
+    let transcript = format!("{:?}", app.transcript.entries);
     assert!(transcript.contains("[redacted]"));
     assert!(!transcript.contains("device-token-secret-from-test"));
 
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         request_device_code: oauth_request_ok,
         poll_device_code_once: oauth_poll_fail,
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-    app.first_run_recovery
-        .as_mut()
+    app.overlay
+        .setup_mut()
         .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
         .expect("oauth state")
-        .next_poll_tick = app.ui_tick;
+        .next_poll_tick = app.runtime.ui_tick;
     update(&mut app, &Msg::Tick);
-    let recovery = app.first_run_recovery.as_ref().expect("failed recovery");
+    let recovery = app.overlay.setup().expect("failed recovery");
     assert_eq!(recovery.stage, RecoveryStage::ChatGptOAuthFailed);
     let recovery_debug = format!("{recovery:?}");
     assert!(!recovery_debug.contains("access-token-secret-from-test"));
@@ -1649,31 +1701,32 @@ fn chatgpt_oauth_failures_are_redacted_and_keep_recovery_path() {
 #[test]
 fn chatgpt_oauth_escape_cancels_without_writing_credentials() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("draft prompt");
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    app.composer.input = PromptInput::from("draft prompt");
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         request_device_code: oauth_request_ok,
         poll_device_code_once: oauth_poll_authorized,
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
     update(&mut app, &Msg::Tick);
 
-    let recovery = app.first_run_recovery.as_ref().expect("recovery remains");
+    let recovery = app.overlay.setup().expect("recovery remains");
     assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
     assert!(recovery.chatgpt_oauth.is_none());
-    assert_eq!(app.input.as_str(), "draft prompt");
-    assert!(app.transcript.is_empty());
+    assert_eq!(app.composer.input.as_str(), "draft prompt");
+    assert!(app.transcript.entries.is_empty());
 }
 
 #[test]
 fn chatgpt_browser_oauth_escape_cancels_without_writing_credentials() {
     let mut app = fresh_app();
-    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+    *app.overlay.oauth_driver_mut() = ChatGptOAuthDriver {
         start_browser_login: oauth_browser_start,
         open_browser: oauth_browser_open,
         poll_browser_login: oauth_browser_pending,
@@ -1681,16 +1734,17 @@ fn chatgpt_browser_oauth_escape_cancels_without_writing_credentials() {
         write_credentials: oauth_write_ok,
         ..Default::default()
     };
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    app.overlay
+        .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
 
-    let recovery = app.first_run_recovery.as_ref().expect("recovery remains");
+    let recovery = app.overlay.setup().expect("recovery remains");
     assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
     assert!(recovery.chatgpt_oauth.is_none());
-    assert!(app.chatgpt_browser_login.is_none());
-    assert!(app.transcript.is_empty());
+    assert!(app.overlay.browser_login().is_none());
+    assert!(app.transcript.entries.is_empty());
 }
 
 #[test]
@@ -1718,24 +1772,26 @@ fn accepting_model_picker_selection_saves_project_config() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
-    app.session_writer = None;
-    app.picker = Some(PickerState::new(
-        vec![PickerItem::new("chatgpt-codex/gpt-5.5", "ChatGPT-backed Codex")],
-        MODEL_PICKER_LIMIT,
-    ));
-    app.prompt_accessory = PromptAccessory::Models;
+    app.session.writer = None;
+    let _ = app.overlay.show_picker(
+        PromptAccessory::Models,
+        PickerState::new(
+            vec![PickerItem::new("chatgpt-codex/gpt-5.5", "ChatGPT-backed Codex")],
+            MODEL_PICKER_LIMIT,
+        ),
+    );
 
     accept_model_suggestion(&mut app);
 
-    assert_eq!(app.model, "chatgpt-codex/gpt-5.5");
-    assert_eq!(app.cli.model, "chatgpt-codex/gpt-5.5");
-    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert_eq!(app.runtime.model, "chatgpt-codex/gpt-5.5");
+    assert_eq!(app.runtime.cli.model, "chatgpt-codex/gpt-5.5");
+    assert_eq!(app.overlay.accessory(), PromptAccessory::None);
     assert_eq!(
         std::fs::read_to_string(dir.path().join(".thndrs").join("config.toml")).expect("read project config"),
         "model = \"chatgpt-codex/gpt-5.5\"\n"
     );
     assert_eq!(
-        app.transcript.last(),
+        app.transcript.entries.last(),
         Some(&Entry::Status { text: "model: chatgpt-codex/gpt-5.5 (saved to .thndrs/config.toml)".to_string() })
     );
 }
@@ -1743,26 +1799,26 @@ fn accepting_model_picker_selection_saves_project_config() {
 #[test]
 fn msg_clear_clears_transcript() {
     let mut app = fresh_app();
-    app.transcript.push(Entry::User { text: String::from("a") });
-    app.transcript.push(Entry::User { text: String::from("b") });
+    app.transcript.entries.push(Entry::User { text: String::from("a") });
+    app.transcript.entries.push(Entry::User { text: String::from("b") });
     update(&mut app, &Msg::Clear);
-    assert!(app.transcript.is_empty());
+    assert!(app.transcript.entries.is_empty());
 }
 
 #[test]
 fn agent_started_sets_working() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
-    assert_eq!(app.run_state, RunState::Working);
+    assert_eq!(app.runtime.run_state, RunState::Working);
 }
 
 #[test]
 fn assistant_delta_creates_streaming_entry() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("Hello"))));
-    assert_eq!(app.transcript.len(), 1);
+    assert_eq!(app.transcript.entries.len(), 1);
     assert_eq!(
-        app.transcript[0],
+        app.transcript.entries[0],
         Entry::Agent { text: String::from("Hello"), streaming: true }
     );
 }
@@ -1775,9 +1831,9 @@ fn assistant_delta_appends_to_existing_streaming_entry() {
         &Msg::Agent(AgentEvent::AssistantDelta(String::from("Hello "))),
     );
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("world"))));
-    assert_eq!(app.transcript.len(), 1);
+    assert_eq!(app.transcript.entries.len(), 1);
     assert_eq!(
-        app.transcript[0],
+        app.transcript.entries[0],
         Entry::Agent { text: String::from("Hello world"), streaming: true }
     );
 }
@@ -1791,13 +1847,13 @@ fn assistant_delta_creates_new_entry_after_finished() {
         &mut app,
         &Msg::Agent(AgentEvent::AssistantDelta(String::from("second"))),
     );
-    assert_eq!(app.transcript.len(), 2);
+    assert_eq!(app.transcript.entries.len(), 2);
     assert_eq!(
-        app.transcript[0],
+        app.transcript.entries[0],
         Entry::Agent { text: String::from("first"), streaming: false }
     );
     assert_eq!(
-        app.transcript[1],
+        app.transcript.entries[1],
         Entry::Agent { text: String::from("second"), streaming: true }
     );
 }
@@ -1809,9 +1865,9 @@ fn reasoning_delta_creates_streaming_entry() {
         &mut app,
         &Msg::Agent(AgentEvent::ReasoningDelta(String::from("Thinking..."))),
     );
-    assert_eq!(app.transcript.len(), 1);
+    assert_eq!(app.transcript.entries.len(), 1);
     assert_eq!(
-        app.transcript[0],
+        app.transcript.entries[0],
         Entry::Reasoning { text: String::from("Thinking..."), streaming: true }
     );
 }
@@ -1827,9 +1883,9 @@ fn reasoning_delta_appends_to_existing_streaming_entry() {
         &mut app,
         &Msg::Agent(AgentEvent::ReasoningDelta(String::from("Step 2."))),
     );
-    assert_eq!(app.transcript.len(), 1);
+    assert_eq!(app.transcript.entries.len(), 1);
     assert_eq!(
-        app.transcript[0],
+        app.transcript.entries[0],
         Entry::Reasoning { text: String::from("Step 1. Step 2."), streaming: true }
     );
 }
@@ -1844,7 +1900,7 @@ fn assistant_delta_finishes_prior_reasoning_spinner() {
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("Done."))));
 
     assert_eq!(
-        app.transcript,
+        app.transcript.entries,
         vec![
             Entry::Reasoning { text: String::from("Thinking..."), streaming: false },
             Entry::Agent { text: String::from("Done."), streaming: true },
@@ -1869,11 +1925,11 @@ fn tool_started_finishes_prior_reasoning_spinner() {
     );
 
     assert!(matches!(
-        app.transcript.first(),
+        app.transcript.entries.first(),
         Some(Entry::Reasoning { streaming: false, .. })
     ));
     assert!(matches!(
-        app.transcript.last(),
+        app.transcript.entries.last(),
         Some(Entry::Tool { status: ToolStatus::Running, .. })
     ));
 }
@@ -1889,8 +1945,8 @@ fn tool_started_creates_running_tool_entry() {
             arguments: String::from("{}"),
         }),
     );
-    assert_eq!(app.transcript.len(), 1);
-    match &app.transcript[0] {
+    assert_eq!(app.transcript.entries.len(), 1);
+    match &app.transcript.entries[0] {
         Entry::Tool { name, arguments, status, output } => {
             assert_eq!(name, "read_file#0");
             assert_eq!(arguments, "{}");
@@ -1923,11 +1979,11 @@ fn tool_finished_sets_output_and_status() {
         }),
     );
     assert_eq!(
-        app.transcript.len(),
+        app.transcript.entries.len(),
         1,
         "tool completion should update its existing entry"
     );
-    match &app.transcript[0] {
+    match &app.transcript.entries[0] {
         Entry::Tool { status, output, .. } => {
             assert_eq!(*status, ToolStatus::Ok);
             assert_eq!(*output, vec!["line 1", "line 2"]);
@@ -1957,7 +2013,7 @@ fn tool_finished_marks_failed_status() {
             shell_result: None,
         }),
     );
-    match &app.transcript[0] {
+    match &app.transcript.entries[0] {
         Entry::Tool { status, .. } => assert_eq!(*status, ToolStatus::Failed),
         _ => panic!("expected Tool entry"),
     }
@@ -1966,7 +2022,7 @@ fn tool_finished_marks_failed_status() {
 #[test]
 fn state_identical_tool_decisions_appear_as_recoverable_context_relations() {
     let mut app = fresh_app();
-    app.transcript = vec![
+    app.transcript.entries = vec![
         Entry::Tool {
             name: "read_file_range#call_1".to_string(),
             arguments: r#"{"path":"src/lib.rs","start_line":1,"end_line":2}"#.to_string(),
@@ -1986,17 +2042,20 @@ fn state_identical_tool_decisions_appear_as_recoverable_context_relations() {
             output: vec!["1: changed".to_string(), "2: second".to_string()],
         },
     ];
-    app.tool_artifacts
+    app.transcript
+        .tool_artifacts
         .insert("call_1".to_string(), "artifact:call_1".to_string());
-    app.tool_artifacts
+    app.transcript
+        .tool_artifacts
         .insert("call_2".to_string(), "artifact:call_2".to_string());
-    app.tool_artifacts
+    app.transcript
+        .tool_artifacts
         .insert("call_3".to_string(), "artifact:call_3".to_string());
-    app.tool_projection_decisions.insert(
+    app.transcript.tool_projection_decisions.insert(
         "call_2".to_string(),
         thndrs_agent::context::StateProjectionDecision::DuplicateOf { canonical_id: "tool:call_1".to_string() },
     );
-    app.tool_projection_decisions.insert(
+    app.transcript.tool_projection_decisions.insert(
         "call_3".to_string(),
         thndrs_agent::context::StateProjectionDecision::Supersedes { previous_id: "tool:call_1".to_string() },
     );
@@ -2052,7 +2111,8 @@ fn failed_tool_error_line_is_visible_and_persisted() {
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "fake-agent".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
     let session_path = app
-        .session_writer
+        .session
+        .writer
         .as_ref()
         .expect("session writer")
         .path()
@@ -2078,7 +2138,7 @@ fn failed_tool_error_line_is_visible_and_persisted() {
         }),
     );
 
-    let Some(Entry::Tool { output, .. }) = app.transcript.last() else {
+    let Some(Entry::Tool { output, .. }) = app.transcript.entries.last() else {
         panic!("expected failed tool entry");
     };
     assert_eq!(output, &vec![error.to_string()]);
@@ -2102,13 +2162,13 @@ fn cancelled_event_adds_status_and_returns_to_idle() {
         &mut app,
         &Msg::Agent(AgentEvent::AssistantDelta(String::from("partial"))),
     );
-    assert_eq!(app.run_state, RunState::Working);
+    assert_eq!(app.runtime.run_state, RunState::Working);
 
     update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
-    assert_eq!(app.run_state, RunState::Idle);
-    assert!(matches!(app.transcript.last(), Some(Entry::Status { text }) if text == "cancelled"));
+    assert_eq!(app.runtime.run_state, RunState::Idle);
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::Status { text }) if text == "cancelled"));
 
-    match &app.transcript[0] {
+    match &app.transcript.entries[0] {
         Entry::Agent { streaming, .. } => assert!(!*streaming),
         _ => panic!("expected Assistant entry"),
     }
@@ -2124,17 +2184,17 @@ fn finished_marks_streaming_false_and_returns_to_idle() {
         &Msg::Agent(AgentEvent::ReasoningDelta(String::from("thoughts"))),
     );
 
-    assert_eq!(app.run_state, RunState::Working);
+    assert_eq!(app.runtime.run_state, RunState::Working);
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
-    assert_eq!(app.run_state, RunState::Idle);
+    assert_eq!(app.runtime.run_state, RunState::Idle);
 
-    if let Entry::Agent { streaming, .. } = &app.transcript[0] {
+    if let Entry::Agent { streaming, .. } = &app.transcript.entries[0] {
         assert!(!*streaming);
     } else {
         panic!("expected Assistant entry");
     }
 
-    match &app.transcript[1] {
+    match &app.transcript.entries[1] {
         Entry::Reasoning { streaming, .. } => assert!(!*streaming),
         _ => panic!("expected Reasoning entry"),
     }
@@ -2148,16 +2208,16 @@ fn failed_adds_error_entry_and_sets_error_state() {
         &mut app,
         &Msg::Agent(AgentEvent::AssistantDelta(String::from("partial"))),
     );
-    assert_eq!(app.run_state, RunState::Working);
+    assert_eq!(app.runtime.run_state, RunState::Working);
 
     update(
         &mut app,
         &Msg::Agent(AgentEvent::Failed(String::from("connection lost"))),
     );
-    assert_eq!(app.run_state, RunState::Error("connection lost".to_string()));
-    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text == "connection lost"));
+    assert_eq!(app.runtime.run_state, RunState::Error("connection lost".to_string()));
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::Error { text }) if text == "connection lost"));
 
-    match &app.transcript[0] {
+    match &app.transcript.entries[0] {
         Entry::Agent { streaming, .. } => assert!(!*streaming),
         _ => panic!("expected Assistant entry"),
     }
@@ -2171,15 +2231,15 @@ fn escape_cancels_working_stream() {
         &mut app,
         &Msg::Agent(AgentEvent::AssistantDelta(String::from("partial"))),
     );
-    assert_eq!(app.run_state, RunState::Working);
+    assert_eq!(app.runtime.run_state, RunState::Working);
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-    assert_eq!(app.run_state, RunState::Stopping);
+    assert_eq!(app.runtime.run_state, RunState::Stopping);
 
     update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
-    assert_eq!(app.run_state, RunState::Idle);
+    assert_eq!(app.runtime.run_state, RunState::Idle);
 
-    match &app.transcript[0] {
+    match &app.transcript.entries[0] {
         Entry::Agent { streaming, .. } => assert!(!*streaming),
         _ => panic!("expected Assistant entry"),
     }
@@ -2189,20 +2249,21 @@ fn escape_cancels_working_stream() {
 fn escape_does_nothing_when_idle() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-    assert_eq!(app.run_state, RunState::Idle);
-    assert!(app.transcript.is_empty());
+    assert_eq!(app.runtime.run_state, RunState::Idle);
+    assert!(app.transcript.entries.is_empty());
 }
 
 #[test]
 fn submit_while_working_queues_followup_by_default() {
     let mut app = fresh_app();
-    app.run_state = RunState::Working;
-    app.input = PromptInput::from("queued message");
+    app.runtime.run_state = RunState::Working;
+    app.composer.input = PromptInput::from("queued message");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert!(app.input.is_empty());
-    assert_eq!(app.queued_followups, vec!["queued message".to_string()]);
+    assert!(app.composer.input.is_empty());
+    assert_eq!(app.composer.queued_followups, vec!["queued message".to_string()]);
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|e| matches!(e, Entry::Status { text } if text.contains("queued follow-up")))
     );
@@ -2211,35 +2272,36 @@ fn submit_while_working_queues_followup_by_default() {
 #[test]
 fn ctrl_t_toggles_running_queue_target() {
     let mut app = fresh_app();
-    app.run_state = RunState::Working;
-    assert_eq!(app.queue_target, QueueTarget::FollowUp);
+    app.runtime.run_state = RunState::Working;
+    assert_eq!(app.composer.queue_target, QueueTarget::FollowUp);
 
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)),
     );
-    assert_eq!(app.queue_target, QueueTarget::Steering);
+    assert_eq!(app.composer.queue_target, QueueTarget::Steering);
 
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)),
     );
-    assert_eq!(app.queue_target, QueueTarget::FollowUp);
+    assert_eq!(app.composer.queue_target, QueueTarget::FollowUp);
 }
 
 #[test]
 fn submit_while_working_queues_steering_when_selected() {
     let mut app = fresh_app();
-    app.run_state = RunState::Working;
-    app.queue_target = QueueTarget::Steering;
-    app.input = PromptInput::from("look at tests first");
+    app.runtime.run_state = RunState::Working;
+    app.composer.queue_target = QueueTarget::Steering;
+    app.composer.input = PromptInput::from("look at tests first");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
-    assert!(app.input.is_empty());
-    assert_eq!(app.queued_steering, vec!["look at tests first".to_string()]);
+    assert!(app.composer.input.is_empty());
+    assert_eq!(app.composer.queued_steering, vec!["look at tests first".to_string()]);
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|e| matches!(e, Entry::Status { text } if text.contains("queued steering")))
     );
@@ -2248,45 +2310,45 @@ fn submit_while_working_queues_steering_when_selected() {
 #[test]
 fn finished_starts_next_followup_turn() {
     let mut app = fresh_app();
-    app.run_state = RunState::Working;
-    app.queued_followups.push("next task".to_string());
+    app.runtime.run_state = RunState::Working;
+    app.composer.queued_followups.push("next task".to_string());
 
     let next = update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
     assert_eq!(next, Some(Msg::Agent(AgentEvent::Started)));
-    assert!(app.queued_followups.is_empty());
-    assert_eq!(app.turn_count, 1);
-    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if text == "next task"));
+    assert!(app.composer.queued_followups.is_empty());
+    assert_eq!(app.session.turn_count, 1);
+    assert!(matches!(app.transcript.entries.last(), Some(Entry::User { text }) if text == "next task"));
 }
 
 #[test]
 fn cancelled_clears_queued_steering_but_keeps_followups() {
     let mut app = fresh_app();
-    app.run_state = RunState::Working;
-    app.queued_steering.push("steer".to_string());
-    app.queued_followups.push("after".to_string());
+    app.runtime.run_state = RunState::Working;
+    app.composer.queued_steering.push("steer".to_string());
+    app.composer.queued_followups.push("after".to_string());
 
     update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
 
-    assert!(app.queued_steering.is_empty());
-    assert_eq!(app.queued_followups, vec!["after".to_string()]);
+    assert!(app.composer.queued_steering.is_empty());
+    assert_eq!(app.composer.queued_followups, vec!["after".to_string()]);
 }
 
 #[test]
 fn submit_kicks_off_agent_via_followup() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("explain this repo");
+    app.composer.input = PromptInput::from("explain this repo");
     let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.input.as_str(), "");
-    assert_eq!(app.transcript.len(), 1);
+    assert_eq!(app.composer.input.as_str(), "");
+    assert_eq!(app.transcript.entries.len(), 1);
     assert_eq!(follow, Some(Msg::Agent(AgentEvent::Started)));
 }
 
 #[test]
 fn app_without_agents_md_has_no_context_sources() {
     let app = fresh_app();
-    assert!(app.context_sources.is_empty());
-    assert!(app.transcript.is_empty());
+    assert!(app.transcript.context_sources.is_empty());
+    assert!(app.transcript.entries.is_empty());
 }
 
 #[test]
@@ -2300,8 +2362,8 @@ fn app_with_agents_md_loads_context_and_adds_status() {
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
     let app = App::from_cli(&cli);
 
-    assert_eq!(app.context_sources.len(), 1);
-    let source = &app.context_sources[0];
+    assert_eq!(app.transcript.context_sources.len(), 1);
+    let source = &app.transcript.context_sources[0];
     assert_eq!(
         source.path,
         agents_path.canonicalize().unwrap_or_else(|_| agents_path.to_path_buf())
@@ -2310,7 +2372,7 @@ fn app_with_agents_md_loads_context_and_adds_status() {
     assert!(!source.truncated);
     assert!(source.content.contains("# Project"));
     assert!(
-        app.transcript.is_empty(),
+        app.transcript.entries.is_empty(),
         "transcript should be empty at startup; context is shown in the banner"
     );
 }
@@ -2326,13 +2388,13 @@ fn app_with_oversized_agents_md_marks_truncation() {
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
     let app = App::from_cli(&cli);
 
-    assert_eq!(app.context_sources.len(), 1);
-    let source = &app.context_sources[0];
+    assert_eq!(app.transcript.context_sources.len(), 1);
+    let source = &app.transcript.context_sources[0];
     assert!(source.truncated);
     assert!(source.content.len() <= AGENTS_MD_SIZE_CAP);
 
     assert!(
-        app.transcript.is_empty(),
+        app.transcript.entries.is_empty(),
         "transcript should be empty at startup; context is shown in the banner"
     );
 }
@@ -2347,8 +2409,8 @@ fn context_sources_are_guidance_not_permission() {
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
     let app = App::from_cli(&cli);
 
-    assert!(app.model.is_empty());
-    assert!(app.context_sources[0].content.contains("Model: gpt-4"));
+    assert!(app.runtime.model.is_empty());
+    assert!(app.transcript.context_sources[0].content.contains("Model: gpt-4"));
 }
 
 #[test]
@@ -2357,7 +2419,7 @@ fn stopping_state_after_escape() {
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-    assert_eq!(app.run_state, RunState::Stopping);
+    assert_eq!(app.runtime.run_state, RunState::Stopping);
     assert_eq!(app.status_label(), "Stopping");
     assert_eq!(app.prompt_state(), PromptState::Stopped);
 }
@@ -2367,9 +2429,9 @@ fn stopping_transitions_to_idle_on_cancelled_event() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-    assert_eq!(app.run_state, RunState::Stopping);
+    assert_eq!(app.runtime.run_state, RunState::Stopping);
     update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
-    assert_eq!(app.run_state, RunState::Idle);
+    assert_eq!(app.runtime.run_state, RunState::Idle);
 }
 
 #[test]
@@ -2377,14 +2439,14 @@ fn error_state_all_resubmission() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
-    assert_eq!(app.run_state, RunState::Error("boom".to_string()));
-    app.input = PromptInput::from("retry");
+    assert_eq!(app.runtime.run_state, RunState::Error("boom".to_string()));
+    app.composer.input = PromptInput::from("retry");
     let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(follow.is_some());
     if let Some(msg) = follow {
         update(&mut app, &msg);
     }
-    assert_eq!(app.run_state, RunState::Working);
+    assert_eq!(app.runtime.run_state, RunState::Working);
 }
 
 #[test]
@@ -2397,23 +2459,26 @@ fn typing_after_recalled_history_edits_copy() {
         &Msg::Key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE)),
     );
 
-    assert_eq!(app.input.as_str(), "previous!");
-    assert_eq!(app.input_history, vec![String::from("previous")]);
-    assert_eq!(app.history_cursor, None);
+    assert_eq!(app.composer.input.as_str(), "previous!");
+    assert_eq!(app.composer.input_history, vec![String::from("previous")]);
+    assert_eq!(app.composer.history_cursor, None);
 }
 
 #[test]
 fn remembering_input_keeps_bounded_in_memory_history() {
     let mut app = fresh_app();
-    app.input_history = (0..INPUT_HISTORY_LIMIT)
+    app.composer.input_history = (0..INPUT_HISTORY_LIMIT)
         .map(|index| format!("prompt {index}"))
         .collect();
 
     remember_input(&mut app, "newest prompt");
 
-    assert_eq!(app.input_history.len(), INPUT_HISTORY_LIMIT);
-    assert_eq!(app.input_history.first().map(String::as_str), Some("prompt 1"));
-    assert_eq!(app.input_history.last().map(String::as_str), Some("newest prompt"));
+    assert_eq!(app.composer.input_history.len(), INPUT_HISTORY_LIMIT);
+    assert_eq!(app.composer.input_history.first().map(String::as_str), Some("prompt 1"));
+    assert_eq!(
+        app.composer.input_history.last().map(String::as_str),
+        Some("newest prompt")
+    );
 }
 
 #[test]
@@ -2423,41 +2488,41 @@ fn question_key_enters_help_mode() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
     );
-    assert_eq!(app.mode, Mode::Prompt);
-    assert_eq!(app.prompt_accessory, PromptAccessory::Help);
+    assert_eq!(app.composer.mode, Mode::Prompt);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::Help);
 }
 
 #[test]
 fn esc_exits_help_mode() {
     let mut app = fresh_app();
-    app.prompt_accessory = PromptAccessory::Help;
+    app.overlay.show_help();
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-    assert_eq!(app.mode, Mode::Prompt);
-    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert_eq!(app.composer.mode, Mode::Prompt);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::None);
 }
 
 #[test]
 fn question_key_keeps_inline_help_open() {
     let mut app = fresh_app();
-    app.prompt_accessory = PromptAccessory::Help;
+    app.overlay.show_help();
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
     );
-    assert_eq!(app.mode, Mode::Prompt);
-    assert_eq!(app.prompt_accessory, PromptAccessory::Help);
+    assert_eq!(app.composer.mode, Mode::Prompt);
+    assert_eq!(app.overlay.accessory(), PromptAccessory::Help);
 }
 
 #[test]
 fn question_key_does_not_enter_help_when_input_nonempty() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("hello");
+    app.composer.input = PromptInput::from("hello");
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
     );
-    assert_eq!(app.mode, Mode::Prompt);
-    assert_eq!(app.input.as_str(), "hello?");
+    assert_eq!(app.composer.mode, Mode::Prompt);
+    assert_eq!(app.composer.input.as_str(), "hello?");
 }
 
 #[test]
@@ -2490,12 +2555,13 @@ fn background_shell_result_registers_in_process_registry() {
     );
 
     assert_eq!(
-        app.process_registry.background_count(),
+        app.runtime.process_registry.background_count(),
         1,
         "background process should be registered"
     );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|e| matches!(e, Entry::Status { text } if text.contains("background process"))),
         "should add a background process status entry"
@@ -2506,113 +2572,113 @@ fn background_shell_result_registers_in_process_registry() {
 fn quit_cancels_all_background_processes() {
     let mut app = fresh_app();
     let cancel = CancelToken::new();
-    app.process_registry.register(
+    app.runtime.process_registry.register(
         vec!["sleep".to_string(), "30".to_string()],
         std::path::PathBuf::from("."),
         tools::shell::ProcessKind::Background,
         cancel.clone(),
     );
-    assert_eq!(app.process_registry.background_count(), 1);
+    assert_eq!(app.runtime.process_registry.background_count(), 1);
 
     update(&mut app, &Msg::Quit);
-    assert!(app.quit);
+    assert!(app.runtime.quit);
     assert!(cancel.is_cancelled(), "cancel_all should signal cancellation");
 }
 
 #[test]
 fn ctrl_k_kills_to_end_of_line() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("hello world");
-    app.input.cursor_to_start();
-    app.input.cursor_word_right();
+    app.composer.input = PromptInput::from("hello world");
+    app.composer.input.cursor_to_start();
+    app.composer.input.cursor_word_right();
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL)),
     );
-    assert_eq!(app.input.as_str(), "hello ");
-    assert_eq!(app.kill_ring, vec!["world"]);
+    assert_eq!(app.composer.input.as_str(), "hello ");
+    assert_eq!(app.composer.kill_ring, vec!["world"]);
 }
 
 #[test]
 fn ctrl_u_kills_to_start_of_line() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("hello world");
-    app.input.cursor_to_start();
-    app.input.cursor_word_right();
+    app.composer.input = PromptInput::from("hello world");
+    app.composer.input.cursor_to_start();
+    app.composer.input.cursor_word_right();
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)),
     );
-    assert_eq!(app.input.as_str(), "world");
-    assert_eq!(app.kill_ring, vec!["hello "]);
+    assert_eq!(app.composer.input.as_str(), "world");
+    assert_eq!(app.composer.kill_ring, vec!["hello "]);
 }
 
 #[test]
 fn ctrl_w_kills_previous_word() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("foo bar baz");
+    app.composer.input = PromptInput::from("foo bar baz");
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL)),
     );
-    assert_eq!(app.input.as_str(), "foo bar ");
-    assert_eq!(app.kill_ring, vec!["baz"]);
+    assert_eq!(app.composer.input.as_str(), "foo bar ");
+    assert_eq!(app.composer.kill_ring, vec!["baz"]);
 }
 
 #[test]
 fn ctrl_y_yanks_last_kill() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("hello ");
-    app.kill_ring.push("world".to_string());
+    app.composer.input = PromptInput::from("hello ");
+    app.composer.kill_ring.push("world".to_string());
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)),
     );
-    assert_eq!(app.input.as_str(), "hello world");
+    assert_eq!(app.composer.input.as_str(), "hello world");
 }
 
 #[test]
 fn ctrl_t_transposes_chars() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("ab");
-    app.input.cursor_to_start();
+    app.composer.input = PromptInput::from("ab");
+    app.composer.input.cursor_to_start();
 
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)),
     );
-    assert_eq!(app.input.as_str(), "ba");
+    assert_eq!(app.composer.input.as_str(), "ba");
 }
 
 #[test]
 fn alt_d_kills_next_word() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("foo bar baz");
-    app.input.cursor_to_start();
+    app.composer.input = PromptInput::from("foo bar baz");
+    app.composer.input.cursor_to_start();
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT)),
     );
-    assert_eq!(app.input.as_str(), "bar baz");
-    assert_eq!(app.kill_ring, vec!["foo "]);
+    assert_eq!(app.composer.input.as_str(), "bar baz");
+    assert_eq!(app.composer.kill_ring, vec!["foo "]);
 }
 
 #[test]
 fn alt_backspace_kills_previous_word() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("foo bar baz");
+    app.composer.input = PromptInput::from("foo bar baz");
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT)),
     );
-    assert_eq!(app.input.as_str(), "foo bar ");
-    assert_eq!(app.kill_ring, vec!["baz"]);
+    assert_eq!(app.composer.input.as_str(), "foo bar ");
+    assert_eq!(app.composer.kill_ring, vec!["baz"]);
 }
 
 #[test]
 fn retrying_provider_discards_partial_output_without_restoring_input() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("hello world");
+    app.composer.input = PromptInput::from("hello world");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
     update(&mut app, &Msg::Agent(AgentEvent::Started));
@@ -2635,19 +2701,20 @@ fn retrying_provider_discards_partial_output_without_restoring_input() {
     );
 
     assert!(
-        app.input.is_empty(),
+        app.composer.input.is_empty(),
         "retry should keep the submitted input out of the editor"
     );
-    assert_eq!(app.last_input, Some("hello world".to_string()));
-    assert_eq!(app.run_state, RunState::Working);
+    assert_eq!(app.composer.last_input, Some("hello world".to_string()));
+    assert_eq!(app.runtime.run_state, RunState::Working);
     assert!(
         !app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::Agent { .. } | Entry::Reasoning { .. })),
         "partial output from the failed attempt should be removed before retrying"
     );
     assert!(matches!(
-        app.transcript.last(),
+        app.transcript.entries.last(),
         Some(Entry::Status { text }) if text.contains("retrying provider request (1/4)")
     ));
 }
@@ -2655,38 +2722,42 @@ fn retrying_provider_discards_partial_output_without_restoring_input() {
 #[test]
 fn tui_update_path_handles_fake_provider_turn() {
     let mut app = fresh_app();
-    std::fs::write(app.cwd.join("Cargo.toml"), "[package]\nname = \"fake\"\n").expect("write fake Cargo.toml");
-    app.websearch = WebSearchMode::None;
-    app.input = PromptInput::from("inspect project");
+    std::fs::write(app.runtime.cwd.join("Cargo.toml"), "[package]\nname = \"fake\"\n").expect("write fake Cargo.toml");
+    app.runtime.websearch = WebSearchMode::None;
+    app.composer.input = PromptInput::from("inspect project");
     let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     if let Some(message) = follow {
         update(&mut app, &message);
     }
 
-    let config = AgentRunConfig::new(app.cwd.clone(), String::from("fake-agent"), WebSearchMode::None);
+    let config = AgentRunConfig::new(app.runtime.cwd.clone(), String::from("fake-agent"), WebSearchMode::None);
     let handle = HarnessTurn::fake(config, String::from("inspect project")).start();
     while let Ok(event) = handle.events.recv() {
         update(&mut app, &Msg::Agent(event));
     }
 
-    assert_eq!(app.run_state, RunState::Idle);
+    assert_eq!(app.runtime.run_state, RunState::Idle);
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::User { text } if text == "inspect project"))
     );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::Reasoning { text, streaming: false } if !text.is_empty()))
     );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::Agent { text, streaming: false } if !text.is_empty()))
     );
     assert!(
         app.transcript
+            .entries
             .iter()
             .any(|entry| matches!(entry, Entry::Tool { status: ToolStatus::Ok, .. }))
     );
@@ -2695,71 +2766,71 @@ fn tui_update_path_handles_fake_provider_turn() {
 #[test]
 fn shift_enter_inserts_newline() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("line1");
+    app.composer.input = PromptInput::from("line1");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::SHIFT));
-    assert_eq!(app.input.as_str(), "line1\n");
-    assert_eq!(app.input.cursor(), 6);
+    assert_eq!(app.composer.input.as_str(), "line1\n");
+    assert_eq!(app.composer.input.cursor(), 6);
 }
 
 #[test]
 fn ctrl_j_inserts_newline() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("line1");
+    app.composer.input = PromptInput::from("line1");
     update(&mut app, &key(KeyCode::Char('j'), KeyModifiers::CONTROL));
-    assert_eq!(app.input.as_str(), "line1\n");
+    assert_eq!(app.composer.input.as_str(), "line1\n");
 }
 
 #[test]
 fn delete_key_deletes_forward() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("hello");
-    app.input.cursor_to_start();
+    app.composer.input = PromptInput::from("hello");
+    app.composer.input.cursor_to_start();
     update(&mut app, &key(KeyCode::Delete, KeyModifiers::NONE));
-    assert_eq!(app.input.as_str(), "ello");
-    assert_eq!(app.input.cursor(), 0);
+    assert_eq!(app.composer.input.as_str(), "ello");
+    assert_eq!(app.composer.input.cursor(), 0);
 }
 
 #[test]
 fn backspace_deletes_before_cursor() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("hello");
+    app.composer.input = PromptInput::from("hello");
     update(&mut app, &key(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(app.input.as_str(), "hell");
-    assert_eq!(app.input.cursor(), 4);
+    assert_eq!(app.composer.input.as_str(), "hell");
+    assert_eq!(app.composer.input.cursor(), 4);
 }
 
 #[test]
 fn typing_inserts_at_cursor_not_at_end() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("helo");
-    app.input.cursor_left();
+    app.composer.input = PromptInput::from("helo");
+    app.composer.input.cursor_left();
     update(&mut app, &key(KeyCode::Char('l'), KeyModifiers::NONE));
-    assert_eq!(app.input.as_str(), "hello");
-    assert_eq!(app.input.cursor(), 4);
+    assert_eq!(app.composer.input.as_str(), "hello");
+    assert_eq!(app.composer.input.cursor(), 4);
 }
 
 #[test]
 fn at_token_opens_file_picker_and_accepts_mention() {
     let mut app = fresh_app();
     let dir = tempfile::tempdir().expect("create temp dir");
-    app.cwd = dir.path().to_path_buf();
-    let _ = std::fs::write(app.cwd.join("readme.md"), "readme");
+    app.runtime.cwd = dir.path().to_path_buf();
+    let _ = std::fs::write(app.runtime.cwd.join("readme.md"), "readme");
 
     for ch in "inspect @read".chars() {
         update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
     }
 
     assert_eq!(
-        app.prompt_accessory,
+        app.overlay.accessory(),
         PromptAccessory::Files(FilePickerSource::Mention { token_start: 8 })
     );
-    let picker = app.picker.as_ref().expect("file picker");
+    let picker = app.overlay.picker().expect("file picker");
     assert!(picker.matches.iter().any(|item| item.label == "readme.md"));
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.prompt_accessory, PromptAccessory::None);
-    assert_eq!(app.input.as_str(), "inspect @readme.md ");
+    assert_eq!(app.overlay.accessory(), PromptAccessory::None);
+    assert_eq!(app.composer.input.as_str(), "inspect @readme.md ");
 }
 
 #[test]
@@ -2775,7 +2846,7 @@ fn model_metadata_event_updates_model_picker_items() {
 
     open_model_picker(&mut app);
 
-    let picker = app.picker.as_ref().expect("model picker");
+    let picker = app.overlay.picker().expect("model picker");
     assert_eq!(picker.matches[0].label, "opencode/test");
     assert_eq!(
         picker.matches[0].detail,
@@ -2786,21 +2857,25 @@ fn model_metadata_event_updates_model_picker_items() {
 #[test]
 fn backspace_while_streaming_deletes_char() {
     let mut app = working_app_with_streaming();
-    app.input = PromptInput::from("hello");
+    app.composer.input = PromptInput::from("hello");
     update(&mut app, &key(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(app.input.as_str(), "hell", "backspace should work while streaming");
+    assert_eq!(
+        app.composer.input.as_str(),
+        "hell",
+        "backspace should work while streaming"
+    );
 }
 
 #[test]
 fn history_recall_while_streaming_works() {
     let mut app = working_app_with_streaming();
-    app.input_history.push("previous prompt".to_string());
-    app.input = PromptInput::from("current draft");
+    app.composer.input_history.push("previous prompt".to_string());
+    app.composer.input = PromptInput::from("current draft");
 
     update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
 
     assert_eq!(
-        app.input.as_str(),
+        app.composer.input.as_str(),
         "previous prompt",
         "Up should recall history while streaming"
     );
@@ -2809,16 +2884,16 @@ fn history_recall_while_streaming_works() {
 #[test]
 fn file_mention_activation_while_working() {
     let mut app = working_app_with_streaming();
-    app.input = PromptInput::from("check @src");
+    app.composer.input = PromptInput::from("check @src");
 
     update(&mut app, &key(KeyCode::Char('r'), KeyModifiers::NONE));
 
     assert!(
-        app.input.as_str().contains("@srcr"),
+        app.composer.input.as_str().contains("@srcr"),
         "typing should append after @mention"
     );
     assert!(
-        matches!(app.prompt_accessory, PromptAccessory::Files(_)),
+        matches!(app.overlay.accessory(), PromptAccessory::Files(_)),
         "@mention should activate file picker while working"
     );
 }
@@ -2840,8 +2915,8 @@ fn acp_permission_select_sends_selected_option() {
         rx.try_recv().expect("permission decision"),
         PermissionDecision::Selected("allow".to_string())
     );
-    assert!(app.pending_permission.is_none());
-    assert!(app.context_ledger.is_none());
+    assert!(app.overlay.permission().is_none());
+    assert!(app.transcript.context_ledger.is_none());
 }
 
 #[test]
@@ -2860,14 +2935,14 @@ fn acp_permission_escape_cancels_request() {
         rx.try_recv().expect("permission decision"),
         PermissionDecision::Cancelled
     );
-    assert!(app.pending_permission.is_none());
-    assert!(app.context_ledger.is_none());
+    assert!(app.overlay.permission().is_none());
+    assert!(app.transcript.context_ledger.is_none());
 }
 
 #[test]
 fn acp_permission_run_cancel_responds_cancelled() {
     let mut app = fresh_app();
-    app.run_state = RunState::Working;
+    app.runtime.run_state = RunState::Working;
     let (tx, rx) = mpsc::channel();
     update(
         &mut app,
@@ -2880,6 +2955,6 @@ fn acp_permission_run_cancel_responds_cancelled() {
         rx.try_recv().expect("permission decision"),
         PermissionDecision::Cancelled
     );
-    assert!(app.pending_permission.is_none());
-    assert_eq!(app.run_state, RunState::Idle);
+    assert!(app.overlay.permission().is_none());
+    assert_eq!(app.runtime.run_state, RunState::Idle);
 }

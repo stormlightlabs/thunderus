@@ -74,14 +74,14 @@ fn test_app() -> App {
         context: thndrs_agent::context::ContextConfig::default(),
         command: None,
     });
-    app.first_run_recovery = None;
-    app.session_id = "test-session".to_string();
-    app.git_status =
+    app.overlay.close();
+    app.session.id = "test-session".to_string();
+    app.runtime.git_status =
         Some(renderer::git::GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
-    app.transcript.clear();
-    app.context_sources.clear();
-    app.skills.clear();
-    app.skill_diagnostics.clear();
+    app.transcript.entries.clear();
+    app.transcript.context_sources.clear();
+    app.transcript.skills.clear();
+    app.transcript.skill_diagnostics.clear();
     app
 }
 
@@ -528,15 +528,15 @@ fn snapshot_startup_banner_narrow() {
 fn snapshot_startup_banner_with_context_and_diagnostics() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
-    app.context_sources = vec![ContextSource {
-        path: app.cwd.join("AGENTS.md"),
+    app.transcript.context_sources = vec![ContextSource {
+        path: app.runtime.cwd.join("AGENTS.md"),
         scope: ".".to_string(),
         content: "# Project".to_string(),
         content_hash: 42,
         truncated: false,
         byte_count: 9,
     }];
-    app.skill_diagnostics = vec![SkillDiagnostic {
+    app.transcript.skill_diagnostics = vec![SkillDiagnostic {
         path: std::path::PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
         message: "invalid YAML frontmatter".to_string(),
     }];
@@ -550,7 +550,7 @@ fn snapshot_startup_banner_with_context_and_diagnostics() {
 fn banner_keeps_skill_diagnostics_out_of_the_attention_block() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
-    app.skill_diagnostics = vec![SkillDiagnostic {
+    app.transcript.skill_diagnostics = vec![SkillDiagnostic {
         path: std::path::PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
         message: "invalid YAML frontmatter".to_string(),
     }];
@@ -566,8 +566,8 @@ fn banner_keeps_skill_diagnostics_out_of_the_attention_block() {
 fn banner_context_section_shows_agents_md_not_full_path() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
-    app.context_sources = vec![ContextSource {
-        path: app.cwd.join("AGENTS.md"),
+    app.transcript.context_sources = vec![ContextSource {
+        path: app.runtime.cwd.join("AGENTS.md"),
         scope: ".".to_string(),
         content: "# Project".to_string(),
         content_hash: 42,
@@ -587,8 +587,8 @@ fn banner_context_section_shows_agents_md_not_full_path() {
 fn banner_context_section_keeps_truncated_source_compact() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
-    app.context_sources = vec![ContextSource {
-        path: app.cwd.join("AGENTS.md"),
+    app.transcript.context_sources = vec![ContextSource {
+        path: app.runtime.cwd.join("AGENTS.md"),
         scope: ".".to_string(),
         content: "# Project".to_string(),
         content_hash: 42,
@@ -620,7 +620,7 @@ fn banner_keeps_skipped_skill_diagnostics_compact() {
         .map(std::path::PathBuf::from)
         .expect("HOME should be set for startup banner path shortening test");
     let home_path = home.join(".thndrs/skills/bad/SKILL.md");
-    app.skill_diagnostics = vec![skills::SkillDiagnostic {
+    app.transcript.skill_diagnostics = vec![skills::SkillDiagnostic {
         path: home_path.clone(),
         message: "invalid YAML frontmatter: unknown field".to_string(),
     }];
@@ -640,8 +640,8 @@ fn banner_keeps_skipped_skill_diagnostics_compact() {
 #[test]
 fn banner_no_duplicate_context_loaded_status_entry() {
     let mut app = test_app();
-    app.context_sources = vec![ContextSource {
-        path: app.cwd.join("AGENTS.md"),
+    app.transcript.context_sources = vec![ContextSource {
+        path: app.runtime.cwd.join("AGENTS.md"),
         scope: ".".to_string(),
         content: "# Project".to_string(),
         content_hash: 42,
@@ -650,7 +650,7 @@ fn banner_no_duplicate_context_loaded_status_entry() {
     }];
 
     assert!(
-        app.transcript.is_empty(),
+        app.transcript.entries.is_empty(),
         "transcript should not contain a context-loaded status entry"
     );
 
@@ -672,7 +672,7 @@ fn banner_no_duplicate_context_loaded_status_entry() {
 #[test]
 fn banner_summarizes_loaded_skills_as_readiness() {
     let mut app = test_app();
-    app.skills = [
+    app.transcript.skills = [
         "make-interfaces-feel-better",
         "code-change-status",
         "copywriting",

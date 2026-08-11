@@ -7,10 +7,10 @@ use helpers::*;
 #[test]
 fn ttft_starts_on_submit_and_ignores_status_and_usage() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("hello world");
+    app.composer.input = PromptInput::from("hello world");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert!(app.ttft.is_pending(), "submit should start pending TTFT");
+    assert!(app.runtime.ttft.is_pending(), "submit should start pending TTFT");
 
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(
@@ -22,14 +22,17 @@ fn ttft_starts_on_submit_and_ignores_status_and_usage() {
         &Msg::Agent(AgentEvent::Usage { input_tokens: 1, output_tokens: 0 }),
     );
 
-    assert!(app.ttft.is_pending(), "status and usage events should not stop TTFT");
-    assert!(app.ttft.last_completed().is_none());
+    assert!(
+        app.runtime.ttft.is_pending(),
+        "status and usage events should not stop TTFT"
+    );
+    assert!(app.runtime.ttft.last_completed().is_none());
 }
 
 #[test]
 fn ttft_stops_on_first_semantic_output_and_is_retained_after_finish() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("hello world");
+    app.composer.input = PromptInput::from("hello world");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     update(&mut app, &Msg::Agent(AgentEvent::Started));
@@ -38,8 +41,8 @@ fn ttft_stops_on_first_semantic_output_and_is_retained_after_finish() {
         &Msg::Agent(AgentEvent::ReasoningDelta(String::from("thinking"))),
     );
 
-    assert!(!app.ttft.is_pending(), "semantic output should stop TTFT");
-    let measured = app.ttft.last_completed().expect("measured TTFT");
+    assert!(!app.runtime.ttft.is_pending(), "semantic output should stop TTFT");
+    let measured = app.runtime.ttft.last_completed().expect("measured TTFT");
 
     update(
         &mut app,
@@ -47,13 +50,13 @@ fn ttft_stops_on_first_semantic_output_and_is_retained_after_finish() {
     );
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
-    assert_eq!(app.ttft.last_completed(), Some(measured));
+    assert_eq!(app.runtime.ttft.last_completed(), Some(measured));
 }
 
 #[test]
 fn ttft_is_preserved_across_retries_and_reset_on_next_turn() {
     let mut app = fresh_app();
-    app.input = PromptInput::from("first turn");
+    app.composer.input = PromptInput::from("first turn");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     update(&mut app, &Msg::Agent(AgentEvent::Started));
@@ -66,7 +69,10 @@ fn ttft_is_preserved_across_retries_and_reset_on_next_turn() {
             error: String::from("server error"),
         }),
     );
-    assert!(app.ttft.is_pending(), "retry should keep the original TTFT pending");
+    assert!(
+        app.runtime.ttft.is_pending(),
+        "retry should keep the original TTFT pending"
+    );
 
     update(
         &mut app,
@@ -76,14 +82,17 @@ fn ttft_is_preserved_across_retries_and_reset_on_next_turn() {
             arguments: String::from("{}"),
         }),
     );
-    assert!(!app.ttft.is_pending());
-    assert!(app.ttft.last_completed().is_some());
+    assert!(!app.runtime.ttft.is_pending());
+    assert!(app.runtime.ttft.last_completed().is_some());
 
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
-    app.input = PromptInput::from("second turn");
+    app.composer.input = PromptInput::from("second turn");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
-    assert!(app.ttft.is_pending(), "next turn should start a fresh pending TTFT");
+    assert!(
+        app.runtime.ttft.is_pending(),
+        "next turn should start a fresh pending TTFT"
+    );
 }
 
 #[test]
@@ -96,7 +105,7 @@ fn status_label_idle_when_no_transcript() {
 fn status_label_sending_after_user_submit() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
-    app.transcript.push(Entry::User { text: String::from("hi") });
+    app.transcript.entries.push(Entry::User { text: String::from("hi") });
     assert_eq!(app.status_label(), "Sending");
 }
 
@@ -181,7 +190,7 @@ fn status_label_failed_after_error() {
 #[test]
 fn status_label_failed_after_failed_tool() {
     let mut app = fresh_app();
-    app.transcript.push(Entry::Tool {
+    app.transcript.entries.push(Entry::Tool {
         name: String::from("run_shell#0"),
         arguments: String::from("{}"),
         status: ToolStatus::Failed,
@@ -201,7 +210,7 @@ fn status_label_cancelled_after_cancel() {
 #[test]
 fn git_status_changed_message_updates_app_summary() {
     let mut app = fresh_app();
-    assert!(app.git_status.is_none());
+    assert!(app.runtime.git_status.is_none());
 
     update(
         &mut app,
@@ -214,7 +223,7 @@ fn git_status_changed_message_updates_app_summary() {
     );
 
     assert_eq!(
-        app.git_status.as_ref().map(|status| status.display()),
+        app.runtime.git_status.as_ref().map(|status| status.display()),
         Some("git: main +1 ~2 -3".to_string())
     );
 }

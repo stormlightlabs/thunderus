@@ -1173,7 +1173,7 @@ impl<W: io::Write> RatatuiSurface<W> {
 impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
     fn draw(&mut self, app: &mut App) -> io::Result<()> {
         let projection_started = Instant::now();
-        renderer::style::set_theme(app.theme);
+        renderer::style::set_theme(app.runtime.theme);
         let area = self.terminal.size()?;
         let logical = self
             .viewport
@@ -1211,15 +1211,16 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
 fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli: &Cli, mut app: App) -> io::Result<()> {
     let tick = tick.max(MIN_RENDER_INTERVAL);
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
-    let observability = init_tracing(&workspace_root, &app.session_id, app.run_persistence);
+    let observability = init_tracing(&workspace_root, &app.session.id, app.session.run_persistence);
     if cli.verbose
         && let Some(obs) = &observability
     {
         app.transcript
+            .entries
             .push(app::Entry::Status { text: format!("logs  {}", obs.session_log_path.display()) });
     }
     tracing::info!(
-        session = %app.session_id,
+        session = %app.session.id,
         cwd = %workspace_root.display(),
         model = %cli.model,
         websearch = %cli.websearch.label(),
@@ -1227,7 +1228,7 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
     );
     append_daily_log(
         &observability,
-        &app.session_id,
+        &app.session.id,
         "session_start",
         &format!(
             "cwd={} model={} websearch={}",
@@ -1255,9 +1256,9 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
                 render_dirty = false;
             }
 
-            if app.quit {
+            if app.runtime.quit {
                 tracing::info!("quitting thndrs");
-                append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
+                append_daily_log(&observability, &app.session.id, "session_end", "reason=quit");
                 return Ok(());
             }
 
@@ -1300,13 +1301,13 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
             maybe_spawn_agent(&mut app, &mut agent);
             flush_steering(&mut app, &agent);
 
-            if app.quit {
+            if app.runtime.quit {
                 tracing::info!("quitting thndrs");
-                append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
+                append_daily_log(&observability, &app.session.id, "session_end", "reason=quit");
                 return Ok(());
             }
         }
-        let run_state_before_tick = app.run_state.clone();
+        let run_state_before_tick = app.runtime.run_state.clone();
         handle_msg(&mut app, Msg::Tick, surface)?;
         render_dirty |= tick_requires_render(&run_state_before_tick, &app);
         render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, surface)?;
@@ -1314,19 +1315,19 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
             surface.draw(&mut app)?;
             render_dirty = false;
         }
-        if app.quit {
+        if app.runtime.quit {
             tracing::info!("quitting thndrs");
-            append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
+            append_daily_log(&observability, &app.session.id, "session_end", "reason=quit");
             return Ok(());
         }
     }
 }
 
 fn tick_requires_render(previous_state: &RunState, app: &App) -> bool {
-    previous_state != &app.run_state
-        || app.run_state != RunState::Idle
-        || app.first_run_recovery.is_some()
-        || app.ctrl_d_pending.is_some()
+    previous_state != &app.runtime.run_state
+        || app.runtime.run_state != RunState::Idle
+        || app.overlay.setup().is_some()
+        || app.runtime.ctrl_d_pending.is_some()
 }
 
 /// Process a key through the shared application update path.
@@ -1334,7 +1335,7 @@ fn handle_key<S: InteractiveSurface>(
     app: &mut App, key: KeyEvent, agent: &mut Option<AgentSlot>, surface: &mut S,
 ) -> io::Result<()> {
     if key.code == crossterm::event::KeyCode::Esc
-        && app.run_state == RunState::Working
+        && app.runtime.run_state == RunState::Working
         && let Some(slot) = agent
     {
         slot.cancel.cancel();
@@ -1351,7 +1352,7 @@ fn handle_msg<S: InteractiveSurface>(app: &mut App, msg: Msg, surface: &mut S) -
         if is_clear {
             surface.clear()?;
         }
-        if app.quit {
+        if app.runtime.quit {
             return Ok(());
         }
     }
@@ -1375,18 +1376,18 @@ fn drain_agent_events<S: InteractiveSurface>(
                         tracing::error!(error = %msg, "agent failed");
                         append_daily_log(
                             observability,
-                            &app.session_id,
+                            &app.session.id,
                             "agent_failed",
                             &format!("error={}", daily_detail_value(msg)),
                         );
                     }
                     app::AgentEvent::Cancelled => {
                         tracing::warn!("agent cancelled");
-                        append_daily_log(observability, &app.session_id, "agent_cancelled", "");
+                        append_daily_log(observability, &app.session.id, "agent_cancelled", "");
                     }
                     app::AgentEvent::Finished => {
                         tracing::info!("agent finished");
-                        append_daily_log(observability, &app.session_id, "agent_finished", "");
+                        append_daily_log(observability, &app.session.id, "agent_finished", "");
                     }
                     _ => {}
                 }
@@ -1404,7 +1405,7 @@ fn drain_agent_events<S: InteractiveSurface>(
                         surface,
                     )?;
                     changed = true;
-                } else if app.run_state == RunState::Stopping {
+                } else if app.runtime.run_state == RunState::Stopping {
                     handle_msg(app, Msg::Agent(app::AgentEvent::Cancelled), surface)?;
                     changed = true;
                 }
@@ -1433,23 +1434,23 @@ fn drain_git_status_watcher<S: InteractiveSurface>(
 /// [`agent::CancelToken`] is retained so `Escape` can signal cooperative
 /// cancellation.
 fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
-    if app.run_state != RunState::Working {
+    if app.runtime.run_state != RunState::Working {
         return;
     }
     if agent.is_some() {
         return;
     }
 
-    app.stopping_timed_out = false;
+    app.runtime.stopping_timed_out = false;
     let prompt = active_provider_prompt(app);
-    let cli = app.cli.clone();
+    let cli = app.runtime.cli.clone();
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch)
         .with_search_url(cli.websearch_url.clone())
         .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
-        .with_extra_read_roots(app.skills.iter().map(|skill| skill.root.clone()).collect())
+        .with_extra_read_roots(app.transcript.skills.iter().map(|skill| skill.root.clone()).collect())
         .with_model_reduction(app.effective_model_reduction())
-        .with_process_registry(app.process_registry.clone());
+        .with_process_registry(app.runtime.process_registry.clone());
     if let Some(store) = app.artifact_store() {
         config = config.with_artifact_store(store);
     }
@@ -1491,15 +1492,15 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
 
     let tool_catalog = tools::runtime_tool_definitions(mcp_manager.as_deref());
     let ledger = app.refresh_context_ledger(Some(&prompt));
-    let turn_id = format!("turn_{}", app.turn_count);
+    let turn_id = format!("turn_{}", app.session.turn_count);
     config = config.with_request_context(turn_id, &ledger);
     let bundle = PromptBundle::new_with_skills(
         &config.root,
         &config.model,
         config.search_mode,
-        &app.context_sources,
-        &app.skills,
-        &app.transcript,
+        &app.transcript.context_sources,
+        &app.transcript.skills,
+        &app.transcript.entries,
         &prompt,
     )
     .with_tool_catalog(tool_catalog)
@@ -1510,8 +1511,8 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
         return;
     }
 
-    if let Some(ref mut writer) = app.session_writer {
-        let turn_id = format!("turn_{}", app.turn_count);
+    if let Some(ref mut writer) = app.session.writer {
+        let turn_id = format!("turn_{}", app.session.turn_count);
         if let Some(ledger) = &bundle.context_ledger {
             let _ = writer.append_context_ledger(&turn_id, ledger);
         }
@@ -1532,8 +1533,9 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
 /// exact active provider prompt for both paths; the transcript fallback keeps
 /// manually assembled application state usable in tests and adapters.
 fn active_provider_prompt(app: &App) -> String {
-    app.last_input.clone().unwrap_or_else(|| {
+    app.composer.last_input.clone().unwrap_or_else(|| {
         app.transcript
+            .entries
             .iter()
             .rev()
             .find_map(|entry| match entry {
@@ -1558,8 +1560,8 @@ fn preflight_requires_auto_compaction(app: &App, bundle: &PromptBundle) -> bool 
     if !matches!(policy.mode, agent_context::CompactionMode::Auto) {
         return false;
     }
-    let provider = acp::config::provider_label(&app.model);
-    let (limits, _) = agent_context::ModelContextLimits::resolve(provider, &app.model, None, None);
+    let provider = acp::config::provider_label(&app.runtime.model);
+    let (limits, _) = agent_context::ModelContextLimits::resolve(provider, &app.runtime.model, None, None);
     let messages = prompt::lower_to_provider_messages(bundle);
     let bytes = messages.iter().map(|message| message.as_text().len()).sum::<usize>();
     let estimate = agent_context::estimate_tokens(bytes) as u64;
@@ -1574,12 +1576,12 @@ fn flush_steering(app: &mut App, agent: &Option<AgentSlot>) {
         return;
     };
     let mut unsent = Vec::new();
-    for message in app.queued_steering.drain(..) {
+    for message in app.composer.queued_steering.drain(..) {
         if slot.steering.send(message.clone()).is_err() {
             unsent.push(message);
         }
     }
-    app.queued_steering = unsent;
+    app.composer.queued_steering = unsent;
 }
 
 /// Keep the active agent slot aligned with the app lifecycle.
@@ -1587,7 +1589,7 @@ fn flush_steering(app: &mut App, agent: &Option<AgentSlot>) {
 /// `Stopping` is a pending terminal state: keep the receiver alive so the app
 /// can observe `Cancelled`/`Finished`/`Failed` and transition back to idle.
 fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
-    match app.run_state {
+    match app.runtime.run_state {
         RunState::Working => {}
         RunState::Stopping => {
             if let Some(slot) = agent {
@@ -1597,7 +1599,7 @@ fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
         RunState::Idle | RunState::Error(_) => {
             if let Some(mut slot) = agent.take() {
                 tracing::info!("cancelling dropped agent slot");
-                if app.stopping_timed_out {
+                if app.runtime.stopping_timed_out {
                     slot.receiver.detach();
                 } else {
                     slot.cancel.cancel();
@@ -2398,12 +2400,14 @@ for line in sys.stdin:
     fn clear_resets_application_and_render_surface() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.transcript.push(app::Entry::User { text: "hello".to_string() });
+        app.session.writer = None;
+        app.transcript
+            .entries
+            .push(app::Entry::User { text: "hello".to_string() });
 
         let mut surface = TestSurface::default();
         handle_msg(&mut app, Msg::Clear, &mut surface).expect("clear");
-        assert!(app.transcript.is_empty());
+        assert!(app.transcript.entries.is_empty());
         assert_eq!(surface.clears, 1);
     }
 
@@ -2411,9 +2415,11 @@ for line in sys.stdin:
     fn flush_steering_sends_queued_messages_to_active_agent() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.run_state = RunState::Working;
-        app.queued_steering.push("use the failing test first".to_string());
+        app.session.writer = None;
+        app.runtime.run_state = RunState::Working;
+        app.composer
+            .queued_steering
+            .push("use the failing test first".to_string());
         let (event_tx, event_rx) = mpsc::channel();
         drop(event_tx);
         let (steering_tx, steering_rx) = mpsc::channel();
@@ -2422,7 +2428,7 @@ for line in sys.stdin:
         flush_steering(&mut app, &Some(slot));
 
         assert!(
-            app.queued_steering.is_empty(),
+            app.composer.queued_steering.is_empty(),
             "sent steering should leave the app queue"
         );
         assert_eq!(
@@ -2435,8 +2441,8 @@ for line in sys.stdin:
     fn manage_agent_lifecycle_keeps_stopping_slot_until_terminal_event() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.run_state = RunState::Stopping;
+        app.session.writer = None;
+        app.runtime.run_state = RunState::Stopping;
         let (_event_tx, event_rx) = mpsc::channel();
         let (steering_tx, _steering_rx) = mpsc::channel();
         let cancel = CancelToken::new();
@@ -2455,19 +2461,20 @@ for line in sys.stdin:
     fn stopping_timeout_marks_terminal_state_for_repaint() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.run_state = RunState::Stopping;
+        app.session.writer = None;
+        app.runtime.run_state = RunState::Stopping;
         app.transcript
+            .entries
             .push(app::Entry::Status { text: "cancelled".to_string() });
-        app.stopping_deadline = Some(0);
+        app.runtime.stopping_deadline = Some(0);
         let mut surface = TestSurface::default();
-        let before = app.run_state.clone();
+        let before = app.runtime.run_state.clone();
 
         handle_msg(&mut app, Msg::Tick, &mut surface).expect("tick");
 
-        assert_eq!(app.run_state, RunState::Idle);
+        assert_eq!(app.runtime.run_state, RunState::Idle);
         assert_eq!(app.status_label(), "Stopped");
-        assert!(app.stopping_timed_out, "the UI must detach an unsettled worker");
+        assert!(app.runtime.stopping_timed_out, "the UI must detach an unsettled worker");
         assert!(
             tick_requires_render(&before, &app),
             "the terminal state must replace the last stopping frame"
@@ -2478,9 +2485,9 @@ for line in sys.stdin:
     fn timed_out_stopping_agent_is_detached_without_blocking_the_ui() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.run_state = RunState::Idle;
-        app.stopping_timed_out = true;
+        app.session.writer = None;
+        app.runtime.run_state = RunState::Idle;
+        app.runtime.stopping_timed_out = true;
 
         let run = thndrs_agent::AgentRun::<app::AgentEvent>::spawn(CancelToken::new(), |_sender, _cancel| {
             std::thread::sleep(std::time::Duration::from_millis(250));
@@ -2503,8 +2510,8 @@ for line in sys.stdin:
     fn disconnected_stopping_agent_returns_app_to_idle() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.run_state = RunState::Stopping;
+        app.session.writer = None;
+        app.runtime.run_state = RunState::Stopping;
         let (event_tx, event_rx) = mpsc::channel();
         drop(event_tx);
         let (steering_tx, _steering_rx) = mpsc::channel();
@@ -2513,15 +2520,15 @@ for line in sys.stdin:
         drain_agent_events(&mut app, &mut agent, &mut surface, &None).expect("drain events");
 
         assert!(agent.is_none(), "disconnected slot should be cleared");
-        assert_eq!(app.run_state, RunState::Idle);
+        assert_eq!(app.runtime.run_state, RunState::Idle);
     }
 
     #[test]
     fn panicked_agent_worker_becomes_a_visible_failure() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.run_state = RunState::Working;
+        app.session.writer = None;
+        app.runtime.run_state = RunState::Working;
         let receiver = thndrs_agent::AgentRun::spawn(CancelToken::new(), |_sender, _cancel| {
             panic!("test worker panic");
         });
@@ -2535,7 +2542,7 @@ for line in sys.stdin:
 
         assert!(agent.is_none());
         assert!(matches!(
-            app.transcript.last(),
+            app.transcript.entries.last(),
             Some(app::Entry::Error { text }) if text.contains("agent worker failed")
         ));
     }
@@ -2544,7 +2551,7 @@ for line in sys.stdin:
     fn drain_agent_events_limits_each_render_batch() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
+        app.session.writer = None;
         let (event_tx, event_rx) = mpsc::channel();
         for index in 0..=MAX_AGENT_EVENTS_PER_RENDER {
             event_tx
@@ -2567,11 +2574,12 @@ for line in sys.stdin:
     fn maybe_spawn_agent_uses_current_app_model_after_picker_switch() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.model = "fake-agent".to_string();
-        app.cli.model = app.model.clone();
-        app.run_state = RunState::Working;
+        app.session.writer = None;
+        app.runtime.model = "fake-agent".to_string();
+        app.runtime.cli.model = app.runtime.model.clone();
+        app.runtime.run_state = RunState::Working;
         app.transcript
+            .entries
             .push(app::Entry::User { text: "hello with switched model".to_string() });
 
         let mut agent = None;
@@ -2599,10 +2607,11 @@ for line in sys.stdin:
     fn active_provider_prompt_prefers_an_internal_turn_over_visible_history() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
+        app.session.writer = None;
         app.transcript
+            .entries
             .push(app::Entry::User { text: "visible user turn".to_string() });
-        app.last_input = Some("Summarize the active context.".to_string());
+        app.composer.last_input = Some("Summarize the active context.".to_string());
 
         assert_eq!(active_provider_prompt(&app), "Summarize the active context.");
     }
@@ -2623,15 +2632,17 @@ for line in sys.stdin:
             ..Cli::default()
         };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.run_state = RunState::Working;
+        app.session.writer = None;
+        app.runtime.run_state = RunState::Working;
         let big = "x".repeat(5_000);
         for _ in 0..20 {
-            app.transcript.push(app::Entry::User { text: big.clone() });
+            app.transcript.entries.push(app::Entry::User { text: big.clone() });
             app.transcript
+                .entries
                 .push(app::Entry::Agent { text: big.clone(), streaming: false });
         }
         app.transcript
+            .entries
             .push(app::Entry::User { text: "final oversized turn".to_string() });
 
         let mut agent = None;
@@ -2647,12 +2658,14 @@ for line in sys.stdin:
         );
         assert!(
             app.transcript
+                .entries
                 .iter()
                 .all(|entry| !matches!(entry, app::Entry::User { text } if text.contains("Summarize"))),
             "the internal compaction prompt must stay out of the visible transcript"
         );
         assert!(
-            app.last_input
+            app.composer
+                .last_input
                 .as_deref()
                 .is_some_and(|prompt| prompt.contains("Summarize")),
             "the internal compaction prompt should remain active for the provider"
@@ -2675,15 +2688,17 @@ for line in sys.stdin:
             ..Cli::default()
         };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.run_state = RunState::Working;
+        app.session.writer = None;
+        app.runtime.run_state = RunState::Working;
         let big = "x".repeat(5_000);
         for _ in 0..20 {
-            app.transcript.push(app::Entry::User { text: big.clone() });
+            app.transcript.entries.push(app::Entry::User { text: big.clone() });
             app.transcript
+                .entries
                 .push(app::Entry::Agent { text: big.clone(), streaming: false });
         }
         app.transcript
+            .entries
             .push(app::Entry::User { text: "final oversized turn".to_string() });
 
         let mut agent = None;
@@ -2712,15 +2727,17 @@ for line in sys.stdin:
             ..Cli::default()
         };
         let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        app.run_state = RunState::Working;
+        app.session.writer = None;
+        app.runtime.run_state = RunState::Working;
         let big = "x".repeat(5_000);
         for _ in 0..20 {
-            app.transcript.push(app::Entry::User { text: big.clone() });
+            app.transcript.entries.push(app::Entry::User { text: big.clone() });
             app.transcript
+                .entries
                 .push(app::Entry::Agent { text: big.clone(), streaming: false });
         }
         app.transcript
+            .entries
             .push(app::Entry::User { text: "in-flight turn".to_string() });
 
         let (steering_tx, _steering_rx) = mpsc::channel();
