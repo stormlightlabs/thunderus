@@ -1,0 +1,4 @@
+interface:
+  display_name: "TUI Design"
+  short_description: "Design and polish the thndrs terminal UI"
+  default_prompt: "Use $tui-design to redesign and verify this thndrs terminal UI flow."
