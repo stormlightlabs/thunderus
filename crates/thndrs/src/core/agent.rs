@@ -1078,7 +1078,7 @@ fn approve_tool_request(request: &ToolUseRequest, handle: &RunHandle, cancel: &C
 }
 
 fn requires_runtime_permission(tool_name: &str) -> bool {
-    matches!(tool_name, "create_file" | "replace_range" | "write_patch" | "run_shell")
+    tool_name.starts_with("mcp__") || matches!(tool_name, "create_file" | "replace_range" | "write_patch" | "run_shell")
 }
 
 fn load_provider_metadata<P>(
@@ -2862,6 +2862,14 @@ mod tests {
         assert_eq!(
             approve_request("read_file_range", ToolPermissionDecision::Reject),
             ToolPermissionDecision::Allow
+        );
+    }
+
+    #[test]
+    fn mcp_tool_uses_permission_hook() {
+        assert_eq!(
+            approve_request("mcp__docs__search", ToolPermissionDecision::Reject),
+            ToolPermissionDecision::Reject
         );
     }
 

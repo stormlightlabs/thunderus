@@ -1,6 +1,6 @@
 ---
 name: hybrid-orchestration
-description: Orchestrate bounded thndrs feature work from Codex or Pi with one or two Herdr-managed worker panes using GPT-5.6 Terra at high effort or Luna at xhigh effort, while capturing and fixing evidenced usability or efficiency problems in the thndrs agent harness. Use when the user asks for hybrid orchestration, asks Codex or Pi to delegate project work to thndrs instances, or explicitly wants feature development paired with agent-harness improvement.
+description: Orchestrate feature work from Codex or Pi with one or two Herdr-managed worker panes using GPT-5.6 Terra at high effort or Luna at xhigh effort in Thndrs, while capturing and fixing evidenced usability or efficiency problems in the thndrs agent harness. Use when the user asks for hybrid orchestration, or asks to delegate project work to thndrs instances, or explicitly wants feature development paired with agent-harness improvement.
 ---
 
 # Hybrid Orchestration
@@ -21,7 +21,7 @@ created by this workflow. Start new sessions to prevent context bloat and token 
 
 Define the feature deliverable before starting workers. Note that Thndrs & Pi follow the same
 AGENTS.md so no need to include that in prompts. Treat harness improvement as a bounded second
-responsibility for Pi or Codex only, not permission for unrelated cleanup.
+responsibility for the parent/orchestrator only.
 
 ## Select workers and models
 
@@ -35,8 +35,8 @@ Start with one worker. Add a second only for independent work that materially be
 Keep one writer in the shared checkout. A second worker must own non-overlapping files or remain read-only.
 Do not run duplicate broad checks in different panes.
 
-Resolve the Cargo-installed executable once. Do not use `cargo run` or a binary under this workspace's
-`target` directory. Worker sessions must survive `cargo clean`:
+Resolve the Cargo-installed executable once for delegated workers. Do not run those workers through
+`cargo run` or a binary under this workspace's `target` directory. Worker sessions must survive `cargo clean`:
 
 ```sh
 hybrid_thndrs_bin="$(command -v thndrs || true)"
@@ -56,7 +56,7 @@ If this check fails, stop and ask the user to install or update `thndrs`.
 
 ## Create worker panes
 
-Create or reuse a background tab in the current Herdr workspace and preserve the working directory:
+Create or reuse an existing background tab in the current Herdr workspace and preserve the working directory:
 
 ```sh
 herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label THNDRS --no-focus
@@ -100,10 +100,12 @@ herdr pane run <pane-id> env THNDRS_REASONING_EFFORT=high \
 
 For Luna, change the model to `chatgpt-codex/gpt-5.6-luna` and the environment value to `xhigh`.
 
-Wait until the editable prompt appears, then send the task text and `Enter` separately:
+Wait until the TUI reports that its composer is editable, then send the task text and `Enter`
+separately. Do not match the `❯` glyph because the shell prompt may still be present in the
+pane's history while `cargo` or thndrs starts:
 
 ```sh
-herdr pane wait-output <pane-id> --match '❯' --source visible --timeout 30000
+herdr pane wait-output <pane-id> --match 'Idle · Editable' --source visible --timeout 30000
 herdr pane send-text <pane-id> '<bounded task and reporting contract>'
 herdr pane send-keys <pane-id> enter
 ```
@@ -114,17 +116,24 @@ they are independent. Otherwise, finish and integrate the first worker before st
 
 ## Observe and integrate
 
-Wait for the TUI's terminal status in bounded intervals:
+Wait for the submitted turn to become active, then wait for its terminal status. `wait-output`
+searches the current snapshot before polling, so observing the active state prevents a stale
+`Complete` label from a previous turn from satisfying the second command:
 
 ```sh
 herdr pane wait-output <pane-id> \
-  --regex '(✓ done|✕ failed|○ cancelled)' \
+  --regex '(Thinking|Waiting for permission)' \
+  --source visible --timeout 5000
+herdr pane wait-output <pane-id> \
+  --regex '(Complete|Failed|cancelled)' \
   --source visible --timeout 60000
 ```
 
-If the wait times out, inspect progress once with `herdr pane process-info --pane <pane-id>` and a
-bounded `herdr pane read`; continue waiting only when the process is making progress. After completion,
-read the recent TUI transcript:
+Very short turns may finish before the first wait observes `Thinking`. In that case, inspect the visible
+pane and accept a terminal status only when the transcript contains the current task's response. If either
+wait times out, inspect progress once with `herdr pane process-info --pane <pane-id>` and a bounded
+`herdr pane read`; continue waiting only when the process is making progress. After completion, read the
+recent TUI transcript:
 
 ```sh
 herdr pane read <pane-id> --source recent-unwrapped --lines 160
@@ -143,32 +152,33 @@ Triage each reported harness observation against the transcript and code:
 
 1. Reproduce or otherwise confirm the friction.
 2. Identify the shared cause rather than patching the worker prompt around it.
-3. Fix it in this cycle only when it is concrete, repository-owned, bounded, and does not jeopardize the requested feature.
-4. Verify the harness fix with the narrowest relevant check. Do not launch a recursive orchestration cycle to test orchestration itself.
-5. Route a safe incidental fix to Pi as described below. Report issues that are too broad, risky, or unconfirmed.
+3. The parent orchestrator fixes it in this cycle only when it is concrete, repository-owned, bounded, and does not jeopardize the requested feature.
+4. Run the narrowest relevant automated check, then exercise the affected state in a fresh `cargo run` thndrs instance built from the modified checkout.
+5. Report issues that are too broad, risky, or unconfirmed.
 
-Good signals include lifecycle ambiguity, missing diagnostics, unnecessary context or token use, repeated tool work
-(aka death/infinite loops), permission dead ends, poor error recovery, and unclear worker output. Model disagreement,
-stylistic preference, or an unverified idea is not a harness defect.
+Good signals include lifecycle ambiguity, missing diagnostics, unnecessary context or token use, repeated tool work,
+permission dead ends, poor error recovery, and unclear worker output. Model disagreement, stylistic preference, or an
+unverified idea is not a harness defect.
 
-Keep thndrs workers on the assigned feature. When they uncover a confirmed, harness defect or efficiency improvement
-unrelated to that feature, route the incidental fix to one Pi worker instead of changing the thndrs assignment.
-Start Pi only after the active thndrs writer settles, unless both workers are read-only or own non-overlapping files.
+Keep thndrs workers on the assigned feature. The parent orchestrator owns confirmed harness fixes instead of
+changing the worker assignment or delegating the fix. Wait for the active feature writer to settle before editing
+shared files or building the workspace.
 
-Create a separate background tab, read its root pane ID, then start a Herdr-managed Pi agent with Luna at xhigh effort:
+Create a fresh background pane for live verification and run the modified checkout:
 
 ```sh
-herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label PI --no-focus
-herdr agent start <pi-agent-name> --kind pi --pane <pi-pane-id> -- \
-  --provider openai-codex --model gpt-5.6-luna --thinking xhigh
-herdr agent prompt <pi-agent-name> \
-  '<confirmed harness issue, evidence, file ownership, and focused check>' \
-  --wait --until idle --until done --until blocked --timeout 600000
+herdr pane split <root-pane-id> --direction down --cwd "$PWD" --no-focus
+herdr pane run <verification-pane-id> env THNDRS_REASONING_EFFORT=high \
+  cargo run -p thndrs -- --cwd "$PWD" \
+  --model chatgpt-codex/gpt-5.6-terra --websearch none
 ```
 
-Give Pi the evidence from the thndrs run and the same Git, ownership, and reporting constraints. Inspect Pi's result,
-verify its files independently, and close only the Pi tab created here. Do not delegate speculative polish or use Pi
-as a reason to widen an already risky change.
+Read `.result.pane.pane_id` from the split response and use it as `<verification-pane-id>`. Wait for
+`Idle · Editable`, reproduce the original flow, and inspect the affected state and its transition at a relevant
+terminal size. For rendering or interaction changes, include the failure, cancellation, narrow-terminal, or recovery
+state implicated by the evidence. A successful build does not verify the product experience. This live instance
+verifies the harness fix; do not give it another implementation task or start a recursive orchestration cycle. Close
+only the verification pane after capturing the result.
 
 When the delegated change warrants review, use the second worker as a fresh read-only Luna/xhigh reviewer.
 Ask it to check the feature and any harness fix together, prioritizing correctness and consequential usability
@@ -181,7 +191,6 @@ is needed. Summarize:
 
 - the feature outcome and verification;
 - the thndrs worker model(s) used;
-- any incidental Pi task and its result;
 - harness friction observed, including `none` when applicable;
-- harness fixes made and focused verification;
+- harness fixes made, focused checks, and the `cargo run` state exercised;
 - confirmed issues left for user direction.

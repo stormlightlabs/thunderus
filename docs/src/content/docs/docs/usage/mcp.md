@@ -2,34 +2,40 @@
 title: "MCP"
 ---
 
-`thndrs` can connect to configured Model Context Protocol servers and expose
-their tools to the model. MCP tools are discovered at startup, added to the
-same provider tool catalog as built-in tools, and recorded in the same session
-log path.
+`thndrs` connects to Model Context Protocol servers and exposes their tools to
+the model. It supports local stdio servers and remote Streamable HTTP servers.
 
-The protocol and transport layer uses the official Rust MCP SDK, `rmcp`.
-`thndrs` keeps local policy outside the SDK: config loading, tool namespacing,
-timeouts, output caps, redaction, and session audit records stay in the local
-tool manager.
+## Add a Server
 
-## Config Files
-
-MCP servers are configured separately from ordinary `thndrs` settings:
+`thndrs` does not provide an MCP package installer. Install a local server using
+the command supplied by its publisher, or get the URL and credentials for a
+hosted server. Then add the launch command or URL to an MCP config file. The
+configuration step does not launch the server; a package runner such as `npx`
+may download or cache it later when `thndrs` starts that command.
 
 - Global: `~/.thndrs/mcp.toml`
 - Project: `.thndrs/mcp.toml`
 
-Project server definitions override global server definitions with the same
-name. Server names may contain ASCII letters, digits, `_`, and `-`.
+Global servers are available in every workspace. Project servers apply only to
+that workspace and require a trust decision before `thndrs` starts them.
+
+For a local server, split the publisher's launch command into `command` and
+`args`. For example, a command written as `npx -y @vendor/server` becomes:
 
 ```toml
 [servers.docs]
 transport = "stdio"
-command = "docs-mcp"
-args = ["--workspace", "${THNDRS_WORKSPACE}"]
+command = "npx"
+args = ["-y", "@vendor/server"]
 enabled = true
 timeout_secs = 20
 ```
+
+`command` may also name an installed executable or a package runner such as
+`uvx` or `docker`. `thndrs` passes `args` directly and does not parse a shell
+command string.
+
+For a hosted server, configure its endpoint and any required headers:
 
 ```toml
 [servers.search]
@@ -38,6 +44,37 @@ url = "https://mcp.example.test/mcp"
 headers = { authorization = "Bearer ${THNDRS_MCP_TOKEN}" }
 timeout_secs = 20
 ```
+
+Server names may contain ASCII letters, digits, `_`, and `-`.
+
+## Trust Project Configuration
+
+A project `.thndrs/mcp.toml` file is inactive until you trust its current
+contents from that workspace:
+
+```sh
+thndrs mcp status
+thndrs mcp list
+thndrs mcp trust
+thndrs mcp test docs
+```
+
+`mcp list` shows blocked project servers, their configuration source, and
+whether a project definition would replace a global server with the same name.
+Review the project file before running `mcp trust`.
+
+Trust applies to the workspace and the file's exact SHA-256 hash. Editing the
+file blocks its servers until you review and trust the new version. Remove the
+decision with:
+
+```sh
+thndrs mcp revoke
+```
+
+Global MCP configuration does not use this project trust step because it is
+written directly to the user's `~/.thndrs` directory.
+
+## Configuration
 
 Supported keys:
 
@@ -65,14 +102,15 @@ itself a shell.
 ```toml
 [servers.files]
 command = "node"
-args = ["./tools/files-mcp-server.js", "${THNDRS_WORKSPACE}"]
+args = ["./tools/files-mcp-server.js", "${PROJECT_ROOT}"]
 env = { NODE_ENV = "production" }
 timeout_secs = 10
 ```
 
 Use absolute paths or commands available on the `PATH` used to launch
 `thndrs`. The child process inherits the current process environment plus the
-configured `env` values.
+configured `env` values. Values such as `${PROJECT_ROOT}` only work when that
+variable exists in the environment that launches `thndrs`.
 
 ## Tool Names
 
@@ -100,11 +138,14 @@ of hiding them in provider output.
 
 ```sh
 thndrs mcp list
+thndrs mcp status
 thndrs mcp test docs
 thndrs mcp tools docs
 ```
 
-`mcp list` prints each configured server, enabled status, and transport.
+`mcp list` prints each configured or trust-blocked server, its source, status,
+and transport. Active entries also state that no enforcing sandbox is present.
+`mcp status` prints the project trust state and current configuration hash.
 `mcp test` initializes one server and prints readiness plus the tool count.
 `mcp tools` prints provider-visible tool names and descriptions.
 
@@ -125,10 +166,11 @@ endpoint and headers.
 MCP configuration cannot rewrite built-in tool schemas, prompt identity, or
 local tool policy.
 
-MCP tools still use the shared execution path, so calls are timed out,
-output is capped, deterministic redaction is applied, failures are
-stable tool failures, and session JSONL gets normal `tool_started` and
-`tool_finished` records.
+Agent-initiated MCP calls use the shared tool permission and execution path.
+Calls are timed out, output is capped, deterministic redaction is applied, and
+session records identify the server, tool, requested authority, decision, and
+result. Running `thndrs mcp call` is a direct user action and calls the server
+without an additional prompt.
 
 Only configure MCP servers that you are willing to let the model call.
 

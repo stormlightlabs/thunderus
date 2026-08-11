@@ -202,6 +202,20 @@ pub struct McpToolSessionMeta {
     pub server_name: String,
     /// Original MCP tool name before provider-visible namespacing.
     pub original_tool_name: String,
+    /// MCP capability class used by the call.
+    #[serde(default = "default_mcp_tool_capability")]
+    pub capability: String,
+    /// Authority requested at the application boundary.
+    #[serde(default = "default_mcp_requested_authority")]
+    pub requested_authority: String,
+}
+
+fn default_mcp_tool_capability() -> String {
+    "tool".to_string()
+}
+
+fn default_mcp_requested_authority() -> String {
+    "external MCP server access with thndrs process permissions".to_string()
 }
 
 /// A permission option recorded without protocol payloads.

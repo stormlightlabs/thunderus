@@ -2032,16 +2032,32 @@ fn append_mcp_tool_records_include_metadata() {
     assert!(records.iter().any(|record| matches!(
         record,
         SessionRecord::ToolStarted {
-            mcp: Some(McpToolSessionMeta { server_name, original_tool_name }),
+            mcp: Some(McpToolSessionMeta {
+                server_name,
+                original_tool_name,
+                capability,
+                requested_authority,
+            }),
             ..
-        } if server_name == "docs" && original_tool_name == "search"
+        } if server_name == "docs"
+            && original_tool_name == "search"
+            && capability == "tool"
+            && requested_authority.contains("process permissions")
     )));
     assert!(records.iter().any(|record| matches!(
         record,
         SessionRecord::ToolFinished {
-            mcp: Some(McpToolSessionMeta { server_name, original_tool_name }),
+            mcp: Some(McpToolSessionMeta {
+                server_name,
+                original_tool_name,
+                capability,
+                requested_authority,
+            }),
             ..
-        } if server_name == "docs" && original_tool_name == "search"
+        } if server_name == "docs"
+            && original_tool_name == "search"
+            && capability == "tool"
+            && requested_authority.contains("process permissions")
     )));
 }
 

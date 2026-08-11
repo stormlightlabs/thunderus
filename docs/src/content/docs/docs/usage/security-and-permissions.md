@@ -28,13 +28,20 @@ OS-level sandbox with the filesystem and credentials you are willing to expose.
 
 ## MCP Servers
 
-[MCP](/docs/usage/mcp) servers are external tools configured by the user. Stdio servers
-run as local child processes with the same user permissions as `thndrs`.
+[MCP](/docs/usage/mcp) servers are external tools configured by the user. Stdio
+servers run as local child processes with the same user permissions as
+`thndrs`.
 
 Streamable HTTP servers receive requests at the configured URL with the configured
 headers.
 
-`thndrs` does not infer or enforce a server-specific permission model.
+Project MCP configuration is inactive until the user trusts the workspace and
+the file's exact hash. Editing the file invalidates that decision. Global MCP
+configuration is active without a project trust step.
+
+Agent-initiated MCP tool calls use the shared permission path. A trust decision
+controls whether project servers may start; it does not reduce the operating
+system permissions available to a server.
 
 MCP tools cannot replace built-in tool names or change prompt identity. They
 are namespaced as `mcp__{server}__{tool}` and use the shared timeout, output

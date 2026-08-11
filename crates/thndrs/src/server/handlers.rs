@@ -1325,6 +1325,11 @@ fn permission_response_decision(outcome: RequestPermissionOutcome) -> ToolPermis
 }
 
 fn permission_title(request: &ToolUseRequest) -> String {
+    if let Some(rest) = request.name.strip_prefix("mcp__")
+        && let Some((server, tool)) = rest.split_once("__")
+    {
+        return format!("Use MCP tool `{tool}` on server `{server}` with external server authority");
+    }
     match request.name.as_str() {
         "run_shell" => "Run shell command".to_string(),
         "create_file" => "Create file".to_string(),
@@ -1773,6 +1778,16 @@ mod tests {
             .expect_err("relative cwd rejected");
 
         assert!(err.contains("must be absolute"));
+    }
+
+    #[test]
+    fn mcp_permission_title_names_server_tool_and_authority() {
+        let request = ToolUseRequest::new("mcp__docs__search", "{}", "call-1");
+
+        assert_eq!(
+            permission_title(&request),
+            "Use MCP tool `search` on server `docs` with external server authority"
+        );
     }
 
     #[test]

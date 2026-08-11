@@ -274,6 +274,9 @@ fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()> {
     let mut lock = stdout.lock();
     match command {
         McpCommand::List => run_mcp_list(cli, &mut lock),
+        McpCommand::Status => run_mcp_status(cli, &mut lock),
+        McpCommand::Trust => run_mcp_trust(cli, &mut lock),
+        McpCommand::Revoke => run_mcp_revoke(cli, &mut lock),
         McpCommand::Test { name } => run_mcp_test(cli, name, &mut lock),
         McpCommand::Tools { name } => run_mcp_tools(cli, name, &mut lock),
         McpCommand::Call { server, tool, json } => run_mcp_call(cli, server, tool, json, &mut lock),
@@ -504,14 +507,30 @@ fn newest_log_file(dir: &Path) -> Option<PathBuf> {
 fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
     let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let effective = load_effective_mcp_for_workspace(&workspace)?;
-    if effective.config.servers.is_empty() {
+    if effective.config.servers.is_empty() && effective.blocked_project_servers.is_empty() {
         writeln!(writer, "no MCP servers configured")?;
         return Ok(());
     }
 
     for (name, server) in &effective.config.servers {
         let status = if server.enabled { "enabled" } else { "disabled" };
-        writeln!(writer, "{name}\t{status}\t{:?}", server.transport)?;
+        let source = effective
+            .server_sources
+            .get(name)
+            .map_or("unknown", |source| source.as_str());
+        writeln!(
+            writer,
+            "{name}\t{status}\t{:?}\tsource={source}\tcontainment=no-enforcing-sandbox",
+            server.transport
+        )?;
+    }
+    for (name, server) in &effective.blocked_project_servers {
+        let precedence = if server.overrides_global { "\twould-override=global" } else { "" };
+        writeln!(
+            writer,
+            "{name}\tblocked-by-trust\t{:?}\tsource=project{precedence}",
+            server.transport
+        )?;
     }
     for diagnostic in effective.diagnostics {
         writeln!(writer, "diagnostic: {diagnostic}")?;
@@ -519,10 +538,64 @@ fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
     Ok(())
 }
 
+fn run_mcp_status<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let Some(hash) = mcp::config::project_mcp_config_hash(&workspace).map_err(io::Error::other)? else {
+        writeln!(writer, "project MCP configuration: not found")?;
+        return Ok(());
+    };
+    let trust = mcp::trust::project_mcp_trust(&workspace, &hash)?;
+    match trust {
+        mcp::trust::ProjectMcpTrust::Trusted => {
+            writeln!(writer, "project MCP configuration: trusted")?;
+        }
+        mcp::trust::ProjectMcpTrust::Untrusted => {
+            writeln!(writer, "project MCP configuration: blocked by trust")?;
+        }
+        mcp::trust::ProjectMcpTrust::Stale { trusted_hash } => {
+            writeln!(writer, "project MCP configuration: blocked; configuration changed")?;
+            writeln!(writer, "trusted sha256: {trusted_hash}")?;
+        }
+    }
+    writeln!(writer, "current sha256: {hash}")?;
+    writeln!(writer, "scope: workspace={} capability=mcp", workspace.display())?;
+    Ok(())
+}
+
+fn run_mcp_trust<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let hash = mcp::config::project_mcp_config_hash(&workspace)
+        .map_err(io::Error::other)?
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "project MCP configuration `.thndrs/mcp.toml` not found",
+            )
+        })?;
+    mcp::trust::trust_project_mcp(&workspace, &hash)?;
+    writeln!(writer, "trusted project MCP configuration")?;
+    writeln!(writer, "sha256: {hash}")?;
+    writeln!(writer, "scope: workspace={} capability=mcp", workspace.display())?;
+    writeln!(
+        writer,
+        "containment: MCP servers run with thndrs process permissions; no enforcing sandbox"
+    )?;
+    Ok(())
+}
+
+fn run_mcp_revoke<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    if mcp::trust::revoke_project_mcp(&workspace)? {
+        writeln!(writer, "revoked project MCP trust for {}", workspace.display())
+    } else {
+        writeln!(writer, "project MCP trust was not set for {}", workspace.display())
+    }
+}
+
 fn run_mcp_test<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Result<()> {
     let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let effective = load_effective_mcp_for_workspace(&workspace)?;
-    let server = configured_mcp_server(&effective.config, name)?;
+    let server = configured_mcp_server(&effective, name)?;
     let client = mcp::manager::McpClient::connect(name.to_string(), &server).map_err(io::Error::other)?;
     writeln!(writer, "{name}\tready\t{} tools", client.tool_definitions().len())?;
     for diagnostic in client.diagnostics() {
@@ -534,7 +607,7 @@ fn run_mcp_test<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Resu
 fn run_mcp_tools<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Result<()> {
     let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let effective = load_effective_mcp_for_workspace(&workspace)?;
-    let server = configured_mcp_server(&effective.config, name)?;
+    let server = configured_mcp_server(&effective, name)?;
     let client = mcp::manager::McpClient::connect(name.to_string(), &server).map_err(io::Error::other)?;
     for tool in client.tool_definitions() {
         writeln!(writer, "{}\t{}", tool.name, tool.description)?;
@@ -547,7 +620,7 @@ fn run_mcp_call<W: io::Write>(
 ) -> io::Result<()> {
     let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let effective = load_effective_mcp_for_workspace(&workspace)?;
-    let server = configured_mcp_server(&effective.config, server_name)?;
+    let server = configured_mcp_server(&effective, server_name)?;
     let client = mcp::manager::McpClient::connect(server_name.to_string(), &server).map_err(io::Error::other)?;
     let namespaced = mcp::adapter::namespaced_tool_name(server_name, tool_name);
     let request = tools::ToolUseRequest::new(namespaced, json.to_string(), "cli".to_string());
@@ -567,8 +640,16 @@ fn run_mcp_call<W: io::Write>(
     }
 }
 
-fn configured_mcp_server(config: &mcp::config::McpConfig, name: &str) -> io::Result<mcp::config::McpServerConfig> {
-    let server = config.servers.get(name).cloned().ok_or_else(|| {
+fn configured_mcp_server(
+    effective: &mcp::config::EffectiveMcpConfig, name: &str,
+) -> io::Result<mcp::config::McpServerConfig> {
+    let server = effective.config.servers.get(name).cloned().ok_or_else(|| {
+        if effective.blocked_project_servers.contains_key(name) {
+            return io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("MCP server `{name}` is blocked by project trust; inspect with `thndrs mcp status`"),
+            );
+        }
         io::Error::new(
             io::ErrorKind::NotFound,
             format!("MCP server `{name}` is not configured"),
@@ -1782,6 +1863,21 @@ mod tests {
         );
     }
 
+    fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+        let _guard = crate::test_env::lock();
+        let old_home = std::env::var_os("HOME");
+        unsafe { std::env::set_var("HOME", home) };
+        let result = f();
+        unsafe {
+            if let Some(old_home) = old_home {
+                std::env::set_var("HOME", old_home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+        }
+        result
+    }
+
     // FIXME: should be a include_str!
     fn fake_agent_fixture() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -2481,6 +2577,8 @@ for line in sys.stdin:
     #[test]
     fn mcp_list_tools_and_call_use_fake_server() {
         let tmp = tempfile::tempdir().expect("tempdir");
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&home).expect("create home");
         let workspace = tmp.path().join("workspace");
         std::fs::create_dir_all(workspace.join(".thndrs")).expect("create config dir");
         let script = write_fake_mcp_server(tmp.path());
@@ -2499,21 +2597,37 @@ for line in sys.stdin:
         .expect("write mcp config");
         let cli = Cli { cwd: workspace, ..Cli::default() };
 
-        let mut list_output = Vec::new();
-        run_mcp_list(&cli, &mut list_output).expect("list mcp");
-        let list = String::from_utf8(list_output).expect("utf8");
-        assert!(list.contains("docs"));
-        assert!(list.contains("enabled"));
+        with_home(&home, || {
+            let mut blocked_output = Vec::new();
+            run_mcp_list(&cli, &mut blocked_output).expect("list blocked mcp");
+            let blocked = String::from_utf8(blocked_output).expect("utf8");
+            assert!(blocked.contains("blocked-by-trust"));
 
-        let mut tools_output = Vec::new();
-        run_mcp_tools(&cli, "docs", &mut tools_output).expect("tools mcp");
-        let tools = String::from_utf8(tools_output).expect("utf8");
-        assert!(tools.contains("mcp__docs__echo"));
+            let mut trust_output = Vec::new();
+            run_mcp_trust(&cli, &mut trust_output).expect("trust mcp");
 
-        let mut call_output = Vec::new();
-        run_mcp_call(&cli, "docs", "echo", r#"{"text":"hello"}"#, &mut call_output).expect("call mcp");
-        let call = String::from_utf8(call_output).expect("utf8");
-        assert!(call.contains("hello"));
+            let mut list_output = Vec::new();
+            run_mcp_list(&cli, &mut list_output).expect("list mcp");
+            let list = String::from_utf8(list_output).expect("utf8");
+            assert!(list.contains("docs"));
+            assert!(list.contains("source=project"));
+            assert!(list.contains("containment=no-enforcing-sandbox"));
+
+            let mut tools_output = Vec::new();
+            run_mcp_tools(&cli, "docs", &mut tools_output).expect("tools mcp");
+            let tools = String::from_utf8(tools_output).expect("utf8");
+            assert!(tools.contains("mcp__docs__echo"));
+
+            let mut call_output = Vec::new();
+            run_mcp_call(&cli, "docs", "echo", r#"{"text":"hello"}"#, &mut call_output).expect("call mcp");
+            let call = String::from_utf8(call_output).expect("utf8");
+            assert!(call.contains("hello"));
+
+            let mut revoke_output = Vec::new();
+            run_mcp_revoke(&cli, &mut revoke_output).expect("revoke mcp");
+            let error = run_mcp_tools(&cli, "docs", &mut Vec::new()).expect_err("revoked server blocked");
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        });
     }
 
     #[test]

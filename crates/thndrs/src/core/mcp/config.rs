@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use super::trust::{self, ProjectMcpTrust};
 use crate::config::{ConfigError, ConfigSource};
 use crate::utils;
 
@@ -92,8 +93,23 @@ pub struct EffectiveMcpConfig {
     pub config: McpConfig,
     /// Loaded MCP config file layers in precedence order.
     pub layers: Vec<LoadedMcpConfigLayer>,
+    /// Effective source for each active server definition.
+    pub server_sources: BTreeMap<String, ConfigSource>,
+    /// Project definitions discovered but not activated because trust is absent or stale.
+    pub blocked_project_servers: BTreeMap<String, BlockedMcpServer>,
+    /// Trust state for the discovered project MCP configuration, when present.
+    pub project_trust: Option<ProjectMcpTrust>,
     /// Non-fatal loading diagnostics.
     pub diagnostics: Vec<String>,
+}
+
+/// Safe metadata for one project MCP definition blocked by trust.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BlockedMcpServer {
+    pub transport: McpTransport,
+    pub enabled: bool,
+    /// Whether this inactive project definition would override a global one.
+    pub overrides_global: bool,
 }
 
 /// A single loaded MCP config file layer.
@@ -125,6 +141,10 @@ pub fn validate_mcp_server_name(name: &str) -> Result<(), ConfigError> {
 pub fn load_effective_mcp(workspace: &Path, env_vars: &[(String, String)]) -> Result<EffectiveMcpConfig, ConfigError> {
     let mut layers = Vec::new();
     let mut merged = McpConfig::default();
+    let mut server_sources = BTreeMap::new();
+    let mut blocked_project_servers = BTreeMap::new();
+    let mut project_trust = None;
+    let mut diagnostics = Vec::new();
 
     if let Some(global_path) = global_mcp_config_path()
         && global_path.is_file()
@@ -136,6 +156,13 @@ pub fn load_effective_mcp(workspace: &Path, env_vars: &[(String, String)]) -> Re
             display_path: Some(display_path),
             hash: Some(hash),
         });
+        server_sources.extend(
+            global_config
+                .servers
+                .keys()
+                .cloned()
+                .map(|name| (name, ConfigSource::GlobalFile)),
+        );
         merged = merged.merge(global_config);
     }
 
@@ -146,16 +173,72 @@ pub fn load_effective_mcp(workspace: &Path, env_vars: &[(String, String)]) -> Re
         layers.push(LoadedMcpConfigLayer {
             source: ConfigSource::ProjectFile,
             display_path: Some(display_path),
-            hash: Some(hash),
+            hash: Some(hash.clone()),
         });
-        merged = merged.merge(project_config);
+        let trust = match trust::project_mcp_trust(workspace, &hash) {
+            Ok(trust) => trust,
+            Err(error) => {
+                diagnostics.push(format!(
+                    "project MCP configuration blocked: could not inspect MCP trust: {error}"
+                ));
+                ProjectMcpTrust::Untrusted
+            }
+        };
+        match &trust {
+            ProjectMcpTrust::Trusted => {
+                server_sources.extend(
+                    project_config
+                        .servers
+                        .keys()
+                        .cloned()
+                        .map(|name| (name, ConfigSource::ProjectFile)),
+                );
+                merged = merged.merge(project_config);
+            }
+            ProjectMcpTrust::Untrusted | ProjectMcpTrust::Stale { .. } => {
+                for (name, server) in &project_config.servers {
+                    blocked_project_servers.insert(
+                        name.clone(),
+                        BlockedMcpServer {
+                            transport: server.transport,
+                            enabled: server.enabled,
+                            overrides_global: merged.servers.contains_key(name),
+                        },
+                    );
+                }
+                let reason = match trust {
+                    ProjectMcpTrust::Untrusted => "has not been trusted for MCP",
+                    ProjectMcpTrust::Stale { .. } => "changed since it was trusted for MCP",
+                    ProjectMcpTrust::Trusted => unreachable!(),
+                };
+                diagnostics.push(format!(
+                    "project MCP configuration is inactive because it {reason}; inspect with `thndrs mcp status` and approve with `thndrs mcp trust`"
+                ));
+            }
+        }
+        project_trust = Some(trust);
     }
 
-    let mut diagnostics = Vec::new();
     expand_mcp_env(&mut merged, env_vars, &mut diagnostics);
+    server_sources.retain(|name, _| merged.servers.contains_key(name));
     validate_mcp_config(&merged)?;
 
-    Ok(EffectiveMcpConfig { config: merged, layers, diagnostics })
+    Ok(EffectiveMcpConfig {
+        config: merged,
+        layers,
+        server_sources,
+        blocked_project_servers,
+        project_trust,
+        diagnostics,
+    })
+}
+
+/// Return the validated project MCP file hash, when a file is present.
+pub fn project_mcp_config_hash(workspace: &Path) -> Result<Option<String>, ConfigError> {
+    let path = project_mcp_config_path(workspace);
+    path.is_file()
+        .then(|| load_mcp_file(&path).map(|(_, hash)| hash))
+        .transpose()
 }
 
 fn global_mcp_config_path() -> Option<PathBuf> {
@@ -458,7 +541,11 @@ mod tests {
         )
         .unwrap();
 
-        let effective = with_home(&home, || load_effective_mcp(&workspace, &[]).unwrap());
+        let effective = with_home(&home, || {
+            let hash = project_mcp_config_hash(&workspace).unwrap().unwrap();
+            trust::trust_project_mcp(&workspace, &hash).unwrap();
+            load_effective_mcp(&workspace, &[]).unwrap()
+        });
 
         assert_eq!(effective.config.servers["shared"].command, "project");
         assert_eq!(effective.config.servers["global_only"].command, "global-only");
@@ -542,7 +629,11 @@ mod tests {
         )
         .unwrap();
 
-        let effective = with_home(&home, || load_effective_mcp(&workspace, &[]).unwrap());
+        let effective = with_home(&home, || {
+            let hash = project_mcp_config_hash(&workspace).unwrap().unwrap();
+            trust::trust_project_mcp(&workspace, &hash).unwrap();
+            load_effective_mcp(&workspace, &[]).unwrap()
+        });
 
         assert_eq!(effective.config.servers["web"].env["TOKEN"], "env-secret");
         assert_eq!(
@@ -573,5 +664,34 @@ mod tests {
             diagnostics,
             vec!["mcp server `web` skipped: unresolved environment variable MISSING_TOKEN"]
         );
+    }
+
+    #[test]
+    fn project_servers_are_inactive_until_the_exact_config_is_trusted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&home).unwrap();
+        let workspace = tmp.path().join("workspace");
+        fs::create_dir_all(workspace.join(".thndrs")).unwrap();
+        let path = workspace.join(".thndrs/mcp.toml");
+        fs::write(&path, "[servers.docs]\ncommand = \"docs-mcp\"\n").unwrap();
+
+        with_home(&home, || {
+            let blocked = load_effective_mcp(&workspace, &[]).unwrap();
+            assert!(blocked.config.servers.is_empty());
+            assert!(blocked.blocked_project_servers.contains_key("docs"));
+            assert_eq!(blocked.project_trust, Some(ProjectMcpTrust::Untrusted));
+
+            let hash = project_mcp_config_hash(&workspace).unwrap().unwrap();
+            trust::trust_project_mcp(&workspace, &hash).unwrap();
+            let active = load_effective_mcp(&workspace, &[]).unwrap();
+            assert!(active.config.servers.contains_key("docs"));
+            assert_eq!(active.server_sources["docs"], ConfigSource::ProjectFile);
+
+            fs::write(&path, "[servers.docs]\ncommand = \"changed-mcp\"\n").unwrap();
+            let changed = load_effective_mcp(&workspace, &[]).unwrap();
+            assert!(changed.config.servers.is_empty());
+            assert!(matches!(changed.project_trust, Some(ProjectMcpTrust::Stale { .. })));
+        });
     }
 }

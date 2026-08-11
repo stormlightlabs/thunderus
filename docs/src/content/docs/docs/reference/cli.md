@@ -95,8 +95,13 @@ stdout is protocol-only; diagnostics go to stderr.
 
 ### MCP (Model Context Protocol)
 
-- `thndrs mcp list`: list configured MCP servers as
-  `<server>\t<enabled|disabled>\t<transport>` and print config diagnostics.
+- `thndrs mcp list`: list configured and trust-blocked MCP servers with their
+  status, transport, configuration source, precedence, and containment.
+- `thndrs mcp status`: show whether the current project MCP file is trusted and
+  print its current hash and workspace scope.
+- `thndrs mcp trust`: trust the current workspace's `.thndrs/mcp.toml` at its
+  exact file hash.
+- `thndrs mcp revoke`: remove MCP trust for the current workspace.
 - `thndrs mcp test <name>`: initialize one server and print
   `<server>\tready\t<N> tools`, followed by startup diagnostics.
 - `thndrs mcp tools <name>`: list provider-visible namespaced tools from one

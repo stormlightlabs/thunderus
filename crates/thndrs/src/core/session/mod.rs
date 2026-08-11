@@ -1938,6 +1938,8 @@ fn mcp_tool_session_meta(name: &str) -> Option<McpToolSessionMeta> {
     Some(McpToolSessionMeta {
         server_name: server_name.to_string(),
         original_tool_name: original_tool_name.to_string(),
+        capability: "tool".to_string(),
+        requested_authority: "external MCP server access with thndrs process permissions".to_string(),
     })
 }
 

@@ -160,8 +160,17 @@ MCP servers use separate config files:
 - Global: `~/.thndrs/mcp.toml`
 - Project: `.thndrs/mcp.toml`
 
-Project MCP server definitions override global definitions with the same server
-name. Server names must match `[A-Za-z0-9_-]+`.
+Project MCP configuration is inactive until it is trusted with `thndrs mcp
+trust`. Once trusted, project server definitions override global definitions
+with the same server name. Trust is tied to the workspace and exact file hash,
+so editing `.thndrs/mcp.toml` blocks its servers until the new contents are
+trusted. Use `thndrs mcp status` to inspect the decision and `thndrs mcp revoke`
+to remove it.
+
+`thndrs` reads MCP configuration but does not install server packages. Install
+local server executables using their publisher's instructions, then set
+`command` and `args` to the resulting launch command. Server names must match
+`[A-Za-z0-9_-]+`.
 
 Example stdio server:
 
@@ -169,7 +178,7 @@ Example stdio server:
 [servers.docs]
 transport = "stdio"
 command = "docs-mcp"
-args = ["--workspace", "${THNDRS_WORKSPACE}"]
+args = ["--workspace", "${PROJECT_ROOT}"]
 enabled = true
 timeout_secs = 20
 ```

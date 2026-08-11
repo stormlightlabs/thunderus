@@ -7,6 +7,12 @@ use clap::Subcommand;
 pub enum McpCommand {
     /// List configured MCP servers.
     List,
+    /// Show project MCP trust state and the current configuration hash.
+    Status,
+    /// Trust this project's current MCP configuration.
+    Trust,
+    /// Revoke this project's MCP trust decision.
+    Revoke,
     /// Initialize one MCP server and report readiness.
     Test {
         /// Configured MCP server name.
