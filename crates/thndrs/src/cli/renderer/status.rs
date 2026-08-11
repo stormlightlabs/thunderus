@@ -26,6 +26,7 @@ struct Field {
     min_width: usize,
     truncation: Truncation,
     urgent: bool,
+    required: bool,
 }
 
 /// Render the configured operational status without wrapping.
@@ -33,7 +34,15 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
     let palette = super::style::palette();
     let background = CellStyle::new();
     if width < 8 {
-        return Row::blank(width, background);
+        let model = active_model(app);
+        return Row::padded(
+            vec![Span::styled(
+                utils::truncate_ellipsis_start(&model, width),
+                CellStyle::new().fg(palette.overlay1),
+            )],
+            width,
+            background,
+        );
     }
 
     let row_inset = width.min(2);
@@ -45,6 +54,9 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
     let config = &app.runtime.cli.status_line;
     let mut left = fields(app, &config.left, anchored);
     let mut right = fields(app, &config.right, anchored);
+    if !config.left.contains(&StatusSegment::Route) && !config.right.contains(&StatusSegment::Route) {
+        right.extend(project(app, StatusSegment::Route, anchored));
+    }
     fit(&mut left, &mut right, available);
 
     let left_text = join(&left);
@@ -119,14 +131,7 @@ fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
             Truncation::None,
             false,
         ),
-        StatusSegment::Route => {
-            let route = if app.runtime.model.trim().is_empty() {
-                "route unavailable".to_string()
-            } else {
-                app.runtime.model.clone()
-            };
-            (route, 3, 8, Truncation::Middle, false)
-        }
+        StatusSegment::Route => (active_model(app), 0, 1, Truncation::Middle, false),
         StatusSegment::Workspace => (
             display_name(&app.runtime.cwd).to_string(),
             4,
@@ -144,7 +149,15 @@ fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
         StatusSegment::AnchoredAway => return None,
         StatusSegment::ActiveChildren => ("children 0".to_string(), 5, 10, Truncation::None, false),
     };
-    Some(Field { text, priority, min_width, truncation, urgent })
+    Some(Field { text, priority, min_width, truncation, urgent, required: segment == StatusSegment::Route })
+}
+
+fn active_model(app: &App) -> String {
+    if app.runtime.model.trim().is_empty() {
+        "model unavailable".to_string()
+    } else {
+        app.runtime.model.clone()
+    }
 }
 
 fn fit(left: &mut Vec<Field>, right: &mut Vec<Field>, available: usize) {
@@ -159,7 +172,10 @@ fn fit(left: &mut Vec<Field>, right: &mut Vec<Field>, available: usize) {
                     .enumerate()
                     .map(|(index, field)| (field.priority, false, index)),
             )
-            .filter(|(priority, _, _)| *priority > 1)
+            .filter(|(_, is_left, index)| {
+                let field = if *is_left { &left[*index] } else { &right[*index] };
+                field.priority > 1 && !field.required
+            })
             .max();
         let Some((_, is_left, index)) = worst else { break };
         if is_left {
@@ -174,7 +190,7 @@ fn fit(left: &mut Vec<Field>, right: &mut Vec<Field>, available: usize) {
             break;
         }
         let field = &mut right[index];
-        if field.truncation == Truncation::None {
+        if field.required || field.truncation == Truncation::None {
             continue;
         }
         let current = UnicodeWidthStr::width(field.text.as_str());
@@ -191,7 +207,7 @@ fn fit(left: &mut Vec<Field>, right: &mut Vec<Field>, available: usize) {
             break;
         }
         let field = &mut left[index];
-        if field.truncation == Truncation::None {
+        if field.required || field.truncation == Truncation::None {
             continue;
         }
         let current = UnicodeWidthStr::width(field.text.as_str());
@@ -203,13 +219,58 @@ fn fit(left: &mut Vec<Field>, right: &mut Vec<Field>, available: usize) {
         };
     }
     while total_width(left, right) > available {
-        if !right.is_empty() {
-            right.pop();
-        } else if left.len() > 1 {
-            left.pop();
+        let optional = left
+            .iter()
+            .enumerate()
+            .map(|(index, field)| (field.priority, true, index, field.required))
+            .chain(
+                right
+                    .iter()
+                    .enumerate()
+                    .map(|(index, field)| (field.priority, false, index, field.required)),
+            )
+            .filter(|(_, _, _, required)| !required)
+            .max();
+        let Some((_, is_left, index, _)) = optional else { break };
+        if is_left {
+            left.remove(index);
         } else {
+            right.remove(index);
+        }
+    }
+    for index in (0..right.len()).rev() {
+        let excess = total_width(left, right).saturating_sub(available);
+        if excess == 0 {
             break;
         }
+        let field = &mut right[index];
+        if !field.required || field.truncation == Truncation::None {
+            continue;
+        }
+        let current = UnicodeWidthStr::width(field.text.as_str());
+        let target = current.saturating_sub(excess).max(field.min_width);
+        field.text = match field.truncation {
+            Truncation::End => utils::truncate_ellipsis(&field.text, target),
+            Truncation::Middle => utils::truncate_ellipsis_start(&field.text, target),
+            Truncation::None => field.text.clone(),
+        };
+    }
+    for index in (0..left.len()).rev() {
+        let excess = total_width(left, right).saturating_sub(available);
+        if excess == 0 {
+            break;
+        }
+        let field = &mut left[index];
+        if !field.required || field.truncation == Truncation::None {
+            continue;
+        }
+        let current = UnicodeWidthStr::width(field.text.as_str());
+        let target = current.saturating_sub(excess).max(field.min_width);
+        field.text = match field.truncation {
+            Truncation::End => utils::truncate_ellipsis(&field.text, target),
+            Truncation::Middle => utils::truncate_ellipsis_start(&field.text, target),
+            Truncation::None => field.text.clone(),
+        };
     }
 }
 
@@ -238,12 +299,47 @@ mod tests {
 
     #[test]
     fn status_is_one_row_at_normal_narrow_and_tiny_widths() {
-        let app = App::from_cli(&Cli::default());
-        for width in [80, 28, 8] {
+        let mut app = App::from_cli(&Cli::default());
+        app.runtime.model = "fake-agent".to_string();
+        for width in [80, 28, 8, 4] {
             let row = status_row(&app, width, true);
             assert_eq!(row.width, width);
             assert!(!row.text().contains('\n'));
+            assert!(!row.text().trim().is_empty());
+            if width == 28 {
+                assert!(row.text().contains("fake-agent"));
+            }
         }
+    }
+
+    #[test]
+    fn active_model_is_default_required_and_movable() {
+        let mut app = App::from_cli(&Cli::default());
+        app.runtime.model = "opencode-go/glm-5.2".to_string();
+
+        let default = status_row(&app, 80, false).text();
+        assert!(default.contains("opencode-go/glm-5.2"));
+        assert!(default.find("Editable").unwrap() < default.find("opencode-go/glm-5.2").unwrap());
+
+        app.runtime.cli.status_line.left =
+            vec![StatusSegment::RunState, StatusSegment::Authority, StatusSegment::Route];
+        app.runtime.cli.status_line.right = vec![StatusSegment::QueueCount];
+        let moved = status_row(&app, 80, false).text();
+        assert!(moved.find("opencode-go/glm-5.2").unwrap() < moved.find("queue 0").unwrap());
+    }
+
+    #[test]
+    fn active_model_survives_legacy_layouts_and_width_pressure() {
+        let mut app = App::from_cli(&Cli::default());
+        app.runtime.model = "opencode-go/glm-5.2".to_string();
+        app.runtime
+            .cli
+            .status_line
+            .right
+            .retain(|field| *field != StatusSegment::Route);
+
+        assert!(status_row(&app, 80, false).text().contains("opencode-go/glm-5.2"));
+        assert!(status_row(&app, 12, false).text().contains("5.2"));
     }
 
     #[test]

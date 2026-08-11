@@ -1145,6 +1145,38 @@ fn missing_provider_credential_opens_recovery_and_preserves_prompt() {
 }
 
 #[test]
+fn startup_setup_can_be_skipped_but_submitted_draft_returns_to_composer() {
+    let home = tempfile::tempdir().expect("create temp home");
+    with_setup_home(home.path(), || {
+        let cli = Cli { cwd: home.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session.writer = None;
+
+        assert!(!app.overlay.setup().expect("startup setup").pending_provider_prompt);
+        for _ in 0..3 {
+            update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+        }
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.overlay.setup().is_none(), "startup setup can be skipped");
+
+        app.composer.input = PromptInput::from("keep this draft");
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.overlay.setup().expect("submit recovery").pending_provider_prompt);
+
+        for _ in 0..3 {
+            update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+        }
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.overlay.setup().is_none(), "return to draft closes setup");
+        assert_eq!(app.composer.input.as_str(), "keep this draft");
+        assert!(app.transcript.entries.iter().any(|entry| matches!(
+            entry,
+            Entry::Status { text } if text.contains("draft is preserved")
+        )));
+    });
+}
+
+#[test]
 fn opencode_setup_cancellation_keeps_prompt_draft_and_discards_secret_buffer() {
     let mut app = fresh_app();
     app.composer.input = PromptInput::from("draft while setting up OpenCode Go");
@@ -1469,12 +1501,12 @@ fn recovery_actions_handle_switch_instructions_continue_and_quit() {
     }
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
-        app.overlay.setup().is_some(),
-        "pending provider prompts cannot continue without setup"
+        app.overlay.setup().is_none(),
+        "pending provider prompts can return to their preserved draft"
     );
     assert!(app.transcript.entries.iter().any(|entry| matches!(
         entry,
-        Entry::Status { text } if text.contains("setup required before submitting")
+        Entry::Status { text } if text.contains("draft is preserved")
     )));
 
     app.overlay

@@ -53,7 +53,7 @@ fn config_merge_preserves_an_omitted_status_line() {
             StatusSegment::Authority,
             StatusSegment::Workspace,
         ],
-        right: vec![StatusSegment::QueueCount],
+        right: vec![StatusSegment::Route, StatusSegment::QueueCount],
     };
     let base = Config { status_line: Some(status_line.clone()), ..Config::default() };
 
@@ -66,7 +66,7 @@ fn parses_and_validates_typed_status_line_fields() {
         r#"
         [status_line]
         left = ["run-state", "active-tool", "authority", "workspace"]
-        right = ["anchored-away", "queue-count"]
+        right = ["anchored-away", "route", "queue-count"]
         "#,
     )
     .expect("status line parses");
@@ -74,7 +74,30 @@ fn parses_and_validates_typed_status_line_fields() {
     validate_config(&config).expect("status line validates");
     let status = config.status_line.expect("status line exists");
     assert_eq!(status.left[0], StatusSegment::RunState);
-    assert_eq!(status.right, [StatusSegment::AnchoredAway, StatusSegment::QueueCount]);
+    assert_eq!(
+        status.right,
+        [
+            StatusSegment::AnchoredAway,
+            StatusSegment::Route,
+            StatusSegment::QueueCount
+        ]
+    );
+}
+
+#[test]
+fn rejects_status_lines_without_the_active_model() {
+    let config: Config = toml::from_str(
+        r#"
+        [status_line]
+        left = ["run-state", "authority"]
+        right = ["queue-count"]
+        "#,
+    )
+    .expect("status line parses");
+
+    let error = validate_config(&config).expect_err("active model must remain visible");
+    assert!(matches!(error, ConfigError::InvalidConfig { key, message }
+            if key == "status_line" && message.contains("`route` is required")));
 }
 
 #[test]
@@ -83,7 +106,7 @@ fn rejects_status_lines_that_hide_operational_precedence() {
         r#"
         [status_line]
         left = ["run-state", "workspace", "authority"]
-        right = []
+        right = ["route"]
         "#,
     )
     .expect("status line parses");

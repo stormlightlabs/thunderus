@@ -67,7 +67,11 @@ impl Default for StatusLineConfig {
                 StatusSegment::ActiveTool,
                 StatusSegment::Authority,
             ],
-            right: vec![StatusSegment::AnchoredAway, StatusSegment::QueueCount],
+            right: vec![
+                StatusSegment::AnchoredAway,
+                StatusSegment::Route,
+                StatusSegment::QueueCount,
+            ],
         }
     }
 }
@@ -498,6 +502,13 @@ fn validate_status_line(status: &StatusLineConfig) -> Result<(), ConfigError> {
                 message: format!("duplicate status field `{}`", status_segment_label(*field)),
             });
         }
+    }
+    if !fields.contains(&StatusSegment::Route) {
+        return Err(ConfigError::InvalidConfig {
+            key: "status_line".to_string(),
+            message: "`route` is required so the active model remains visible; it may be placed on either side"
+                .to_string(),
+        });
     }
     if status.left.first() != Some(&StatusSegment::RunState) {
         return Err(ConfigError::InvalidConfig {

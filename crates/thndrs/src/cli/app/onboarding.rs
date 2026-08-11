@@ -417,7 +417,7 @@ pub fn chatgpt_codex_auth_available_locally() -> bool {
     )
 }
 
-pub fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
+pub fn selected_provider_missing(app: &App, pending_provider_prompt: bool) -> Option<FirstRunRecovery> {
     if app.runtime.model.trim().is_empty() {
         return Some(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
     }
@@ -430,16 +430,16 @@ pub fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
         if app.runtime.cli.acp_agents.contains_key(acp_name) {
             return None;
         }
-        return Some(FirstRunRecovery::acp_missing(true));
+        return Some(FirstRunRecovery::acp_missing(pending_provider_prompt));
     }
 
     if crate::cli::commands::setup::model_uses_unsupported_route(&app.runtime.model) {
-        return Some(FirstRunRecovery::unsupported_route(true));
+        return Some(FirstRunRecovery::unsupported_route(pending_provider_prompt));
     }
 
     let provider = provider_for_model(&app.runtime.model);
     if !provider_authenticated(provider, &app.runtime.cwd) {
-        Some(FirstRunRecovery::missing_provider(provider, true))
+        Some(FirstRunRecovery::missing_provider(provider, pending_provider_prompt))
     } else {
         None
     }
@@ -572,11 +572,7 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 }
                 4 => {
                     if recovery.pending_provider_prompt {
-                        app.transcript.entries.push(Entry::Status {
-                            text: String::from(
-                                "setup required before submitting this ChatGPT Codex prompt; start OAuth login or switch model",
-                            ),
-                        });
+                        return_to_draft(app);
                     } else {
                         app.overlay.close();
                         app.transcript
@@ -637,11 +633,7 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                     return Some(Msg::Quit);
                 }
                 if recovery.pending_provider_prompt {
-                    app.transcript.entries.push(Entry::Status {
-                        text: String::from(
-                            "setup required before submitting this provider-backed prompt; enter a key or switch model",
-                        ),
-                    });
+                    return_to_draft(app);
                 } else {
                     app.overlay.close();
                     app.transcript
@@ -733,11 +725,7 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
             }
             2 => {
                 if recovery.pending_provider_prompt {
-                    app.transcript.entries.push(Entry::Status {
-                        text: String::from(
-                            "ACP agent config is required before submitting this prompt; switch model or configure ACP",
-                        ),
-                    });
+                    return_to_draft(app);
                 } else {
                     app.overlay.close();
                 }
@@ -752,6 +740,13 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
     }
 
     None
+}
+
+fn return_to_draft(app: &mut App) {
+    app.overlay.close();
+    app.transcript
+        .entries
+        .push(Entry::Status { text: String::from("setup is still required; your draft is preserved") });
 }
 
 pub fn configure_setup_model_scope(app: &mut App, recovery: &FirstRunRecovery) {

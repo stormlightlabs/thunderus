@@ -331,7 +331,10 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
     let control = modifiers.contains(KeyModifiers::CONTROL);
     let alt = modifiers.contains(KeyModifiers::ALT);
     let shift = modifiers.contains(KeyModifiers::SHIFT);
-    if matches!(focus, InputFocus::TranscriptSearch | InputFocus::Queue) {
+    if matches!(
+        focus,
+        InputFocus::TranscriptSearch | InputFocus::Queue | InputFocus::Help
+    ) {
         return focused_surface_key_action(focus, key);
     }
     if matches!(focus, InputFocus::Prompt) && matches!(app.overlay.accessory(), PromptAccessory::None) {
@@ -408,8 +411,9 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
             KeyCode::Down | KeyCode::PageDown => Some(Action::ScrollOverlayDown),
             _ => None,
         },
-        InputFocus::TranscriptSearch | InputFocus::Queue => unreachable!("focused surfaces return above"),
-        InputFocus::Help => (key.code == KeyCode::Esc).then_some(Action::CloseOverlay),
+        InputFocus::TranscriptSearch | InputFocus::Queue | InputFocus::Help => {
+            unreachable!("focused surfaces return above")
+        }
         InputFocus::Context => match app.composer.mode {
             Mode::Command => default_key_action(app, InputFocus::Command, key),
             Mode::Prompt => prompt_key_action(app, key),
@@ -465,6 +469,12 @@ fn focused_surface_key_action(focus: InputFocus, key: KeyEvent) -> Option<Action
             KeyCode::Char('s') if !control && !alt => Some(Action::QueueSendNow),
             KeyCode::Char('a') if !control && !alt => Some(Action::QueueSendAfterStep),
             KeyCode::Char(ch) if !control && !alt => Some(Action::InsertText(ch.to_string())),
+            _ => None,
+        },
+        InputFocus::Help => match key.code {
+            KeyCode::Esc => Some(Action::CloseOverlay),
+            KeyCode::Up | KeyCode::PageUp => Some(Action::ScrollOverlayUp),
+            KeyCode::Down | KeyCode::PageDown => Some(Action::ScrollOverlayDown),
             _ => None,
         },
         _ => unreachable!("only focused surfaces are routed here"),
@@ -753,6 +763,24 @@ fn handle_accessory_action(app: &mut App, action: Action) -> KeyOutcome {
         PromptAccessory::Help => match action {
             Action::CloseOverlay | Action::Cancel => {
                 close_prompt_accessory(app);
+                KeyOutcome::Handled
+            }
+            Action::ScrollOverlayUp => {
+                if let Some(scroll) = app.overlay.help_scroll_mut() {
+                    *scroll = scroll.saturating_sub(1);
+                }
+                KeyOutcome::Handled
+            }
+            Action::ScrollOverlayDown => {
+                let last = app
+                    .runtime
+                    .keymap
+                    .help_bindings(matches!(app.runtime.run_state, RunState::Working))
+                    .len()
+                    .saturating_sub(1);
+                if let Some(scroll) = app.overlay.help_scroll_mut() {
+                    *scroll = scroll.saturating_add(1).min(last);
+                }
                 KeyOutcome::Handled
             }
             _ => KeyOutcome::Unhandled,
@@ -1826,7 +1854,7 @@ fn start_turn(app: &mut App, text: String, record_user_entry: bool) -> Option<Ms
         app.composer.input.set_text(&text);
         return None;
     }
-    if let Some(recovery) = selected_provider_missing(app) {
+    if let Some(recovery) = selected_provider_missing(app, true) {
         app.overlay.show_setup(recovery);
         return None;
     }

@@ -215,11 +215,11 @@ fn prompt_rows_submitted_shows_queue_icon() {
 }
 
 #[test]
-fn static_status_row_keeps_run_state_at_tiny_width() {
+fn static_status_row_keeps_model_at_tiny_width() {
     let app = test_app();
     let row = static_status_row(&app, 10);
     let text = row.text();
-    assert_eq!(text.trim(), "Idle");
+    assert_eq!(text.trim(), "…del");
 }
 
 #[test]

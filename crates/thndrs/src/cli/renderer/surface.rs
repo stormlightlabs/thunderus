@@ -271,8 +271,8 @@ fn help_rows(help: &HelpView, width: usize, height: usize, theme: &SurfaceThemeV
             title: "help".to_string(),
             status: "focus: keyboard".to_string(),
             body,
-            focus: Some(0),
-            hints: "Esc close · keys remain active".to_string(),
+            focus: Some(help.scroll),
+            hints: "Up/Down scroll · Esc close".to_string(),
             border: ThemeRole::Selected,
         },
         width,
@@ -765,6 +765,26 @@ mod tests {
     }
 
     #[test]
+    fn help_scroll_reveals_clipped_shortcuts() {
+        let bindings = crate::app::Keymap::default().help_bindings(false);
+        let first_key = bindings[0].key.clone();
+        let last_key = bindings.last().unwrap().key.clone();
+        let surface = FocusedSurfaceView::Help(HelpView {
+            queue_target_toggle: false,
+            scroll: bindings.len().saturating_sub(1),
+            bindings,
+        });
+        let rows =
+            render_surface(&SurfaceRenderInput { surface: &surface, theme: &test_theme(), width: 48, height: 8 });
+        let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
+
+        assert!(text.contains(&last_key));
+        assert!(!text.contains(&first_key));
+        assert!(text.contains("rows above"));
+        assert!(text.contains("Up/Down scroll"));
+    }
+
+    #[test]
     fn table_surface_uses_width_policy_and_narrow_fallback() {
         let surface = FocusedSurfaceView::StructuredTable(TableView {
             header: vec![
@@ -869,6 +889,7 @@ mod tests {
                 "help",
                 FocusedSurfaceView::Help(HelpView {
                     queue_target_toggle: false,
+                    scroll: 0,
                     bindings: crate::app::Keymap::default().help_bindings(false),
                 }),
             ),

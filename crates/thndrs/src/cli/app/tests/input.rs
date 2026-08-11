@@ -43,6 +43,13 @@ fn semantic_translation_is_table_driven_by_focus_and_mode() {
         ),
         vec![Action::CloseOverlay]
     );
+    assert_eq!(
+        translate_input(
+            &app,
+            TerminalInput::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
+        ),
+        vec![Action::ScrollOverlayDown]
+    );
 
     app.overlay.close();
     app.overlay
@@ -58,6 +65,21 @@ fn semantic_translation_is_table_driven_by_focus_and_mode() {
         ),
         vec![Action::SelectNext]
     );
+}
+
+#[test]
+fn help_scrolls_without_editing_the_composer() {
+    let mut app = fresh_app();
+    app.composer.input = PromptInput::from("preserved draft");
+    app.overlay.show_help();
+
+    update(&mut app, &Msg::Action(Action::ScrollOverlayDown));
+    update(&mut app, &Msg::Action(Action::ScrollOverlayDown));
+    assert_eq!(app.overlay.help_scroll(), Some(2));
+    assert_eq!(app.composer.input.as_str(), "preserved draft");
+
+    update(&mut app, &Msg::Action(Action::ScrollOverlayUp));
+    assert_eq!(app.overlay.help_scroll(), Some(1));
 }
 
 #[test]

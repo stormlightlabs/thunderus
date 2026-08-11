@@ -715,7 +715,9 @@ impl SetupState {
 #[derive(Debug)]
 enum OverlaySurface {
     None,
-    Help,
+    Help {
+        scroll: usize,
+    },
     Commands {
         selected: usize,
     },
@@ -770,7 +772,7 @@ impl OverlayState {
             | OverlaySurface::Queue(_)
             | OverlaySurface::Setup(_)
             | OverlaySurface::Permission(_) => PromptAccessory::None,
-            OverlaySurface::Help => PromptAccessory::Help,
+            OverlaySurface::Help { .. } => PromptAccessory::Help,
             OverlaySurface::Commands { selected } => PromptAccessory::Commands { selected: *selected },
             OverlaySurface::Files { source, .. } => PromptAccessory::Files(*source),
             OverlaySurface::Models { .. } => PromptAccessory::Models,
@@ -957,7 +959,23 @@ impl OverlayState {
 
     /// Replace focus with help.
     pub fn show_help(&mut self) {
-        self.surface = OverlaySurface::Help;
+        self.surface = OverlaySurface::Help { scroll: 0 };
+    }
+
+    /// Return the help surface scroll anchor, when help owns focus.
+    pub fn help_scroll(&self) -> Option<usize> {
+        match &self.surface {
+            OverlaySurface::Help { scroll } => Some(*scroll),
+            _ => None,
+        }
+    }
+
+    /// Mutably access the help surface scroll anchor.
+    pub fn help_scroll_mut(&mut self) -> Option<&mut usize> {
+        match &mut self.surface {
+            OverlaySurface::Help { scroll } => Some(scroll),
+            _ => None,
+        }
     }
 
     /// Replace focus with context inspection.
@@ -1208,7 +1226,7 @@ impl App {
             },
         };
 
-        if let Some(recovery) = selected_provider_missing(&app) {
+        if let Some(recovery) = selected_provider_missing(&app, false) {
             app.overlay.show_setup(recovery);
         }
         app

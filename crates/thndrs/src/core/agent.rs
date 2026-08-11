@@ -640,12 +640,12 @@ impl RunHandle {
         }
 
         if self.config.search_mode != WebSearchMode::None {
+            let search_id = fake_tool_id(&self.config, "search-0");
             let search_req = ToolUseRequest::new(
                 String::from("web_search"),
                 serde_json::json!({ "query": "rust terminal coding harness" }).to_string(),
-                String::from("search-0"),
+                search_id.clone(),
             );
-            let search_id = String::from("search-0");
             match send(
                 tx,
                 ToolStarted {
@@ -682,13 +682,13 @@ impl RunHandle {
             }
         }
 
+        let tool_id = fake_tool_id(&self.config, "0");
         let tool_req = ToolUseRequest::new(
             String::from("read_file_range"),
             serde_json::json!({ "path": "Cargo.toml", "start_line": 1, "end_line": 5 }).to_string(),
-            String::from("0"),
+            tool_id.clone(),
         );
 
-        let tool_id = String::from("0");
         match send(
             tx,
             ToolStarted { id: tool_id.clone(), name: tool_req.name.clone(), arguments: tool_req.arguments.clone() },
@@ -711,12 +711,12 @@ impl RunHandle {
         }
 
         if self.config.model == "fake-agent-shell" {
+            let shell_id = fake_tool_id(&self.config, "shell-0");
             let shell_req = ToolUseRequest::new(
                 String::from("run_shell"),
                 serde_json::json!({ "program": "printf", "args": ["acp-permission-smoke\n"] }).to_string(),
-                String::from("shell-0"),
+                shell_id.clone(),
             );
-            let shell_id = String::from("shell-0");
             match send(
                 tx,
                 ToolStarted {
@@ -1992,6 +1992,13 @@ fn step() {
     thread::sleep(Duration::from_millis(40));
 }
 
+fn fake_tool_id(config: &AgentRunConfig, label: &str) -> String {
+    config
+        .accounting_turn_id
+        .as_ref()
+        .map_or_else(|| label.to_string(), |turn_id| format!("{turn_id}-{label}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2153,6 +2160,17 @@ mod tests {
         assert!(events.iter().any(|e| matches!(e, AgentEvent::AssistantDelta(_))));
         assert!(events.iter().any(|e| matches!(e, AgentEvent::ToolStarted { .. })));
         assert!(events.iter().any(|e| matches!(e, AgentEvent::ToolFinished { .. })));
+    }
+
+    #[test]
+    fn fake_stream_tool_ids_are_scoped_to_the_turn() {
+        let mut first = config();
+        first.accounting_turn_id = Some("turn-1".to_string());
+        let mut second = config();
+        second.accounting_turn_id = Some("turn-2".to_string());
+
+        assert_ne!(fake_tool_id(&first, "0"), fake_tool_id(&second, "0"));
+        assert_eq!(fake_tool_id(&first, "search-0"), "turn-1-search-0");
     }
 
     #[test]

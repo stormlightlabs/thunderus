@@ -1032,6 +1032,14 @@ fn setup_surface_keeps_all_authentication_actions_visible_at_normal_height() {
             text.contains("use headless device code"),
             "device login missing at width {width}:\n{text}"
         );
+        assert!(
+            text.contains("return to draft"),
+            "draft return missing at width {width}:\n{text}"
+        );
+        assert!(
+            !text.contains("continue without setup"),
+            "pending setup offers an unavailable continuation at width {width}:\n{text}"
+        );
         assert!(text.contains("quit"), "last action clipped at width {width}:\n{text}");
         assert!(
             !text.contains("rows below"),

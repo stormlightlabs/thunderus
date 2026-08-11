@@ -183,6 +183,7 @@ impl From<&App> for FocusedSurfaceView {
         match app.overlay.accessory() {
             PromptAccessory::Help => FocusedSurfaceView::Help(HelpView {
                 queue_target_toggle: matches!(app.runtime.run_state, RunState::Working),
+                scroll: app.overlay.help_scroll().unwrap_or_default(),
                 bindings: app
                     .runtime
                     .keymap
@@ -267,6 +268,7 @@ pub struct PermissionOptionView {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HelpView {
     pub queue_target_toggle: bool,
+    pub scroll: usize,
     pub bindings: Vec<crate::app::KeyHelp>,
 }
 
@@ -1281,6 +1283,8 @@ fn setup_details(recovery: &FirstRunRecovery) -> Vec<String> {
 }
 
 fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
+    let incomplete_setup_action =
+        if recovery.pending_provider_prompt { "return to draft" } else { "continue without setup" };
     let labels: Vec<String> = match recovery.stage {
         RecoveryStage::ChooseProvider => vec![
             "ChatGPT Codex".to_string(),
@@ -1309,7 +1313,7 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
                     "use headless device code".to_string(),
                     "switch model/provider".to_string(),
                     "show setup instructions".to_string(),
-                    "continue without setup".to_string(),
+                    incomplete_setup_action.to_string(),
                     "quit".to_string(),
                 ]
             } else {
@@ -1317,7 +1321,7 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
                     "enter API key".to_string(),
                     "switch model/provider".to_string(),
                     "show setup instructions".to_string(),
-                    "continue without setup".to_string(),
+                    incomplete_setup_action.to_string(),
                     "quit".to_string(),
                 ]
             }
@@ -1354,7 +1358,7 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
         RecoveryStage::AcpMissing => vec![
             "switch model/provider".to_string(),
             "show ACP setup".to_string(),
-            "continue without setup".to_string(),
+            incomplete_setup_action.to_string(),
             "quit".to_string(),
         ],
     };
