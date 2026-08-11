@@ -2,20 +2,20 @@
 
 ## SESSION-1: Fork a session from a settled turn
 
-- [ ] Accept only replayable settled turn boundaries.
-- [ ] Record a new ID, parent session and turn, fork time, and lineage.
-- [ ] Persist a self-contained semantic prefix. Exclude pending tools,
+- [x] Accept only replayable settled turn boundaries.
+- [x] Record a new ID, parent session and turn, fork time, and lineage.
+- [x] Persist a self-contained semantic prefix. Exclude pending tools,
       permissions, queues, processes, and other live runtime state.
-- [ ] Verify that the fork resumes independently and does not change its parent.
+- [x] Verify that the fork resumes independently and does not change its parent.
 
 ## SESSION-2: Export sessions for human review
 
-- [ ] Export deterministic Markdown and self-contained HTML.
-- [ ] Preserve semantic messages, reasoning summaries, tools, status, errors,
+- [x] Export deterministic Markdown and self-contained HTML.
+- [x] Preserve semantic messages, reasoning summaries, tools, status, errors,
       findings, session identity, and lineage within the redaction and item
       limits.
-- [ ] Include recorded context transformations and request references.
-- [ ] Require no external scripts or assets in HTML.
+- [x] Include recorded context transformations and request references.
+- [x] Require no external scripts or assets in HTML.
 
 ## SESSION-3: Browse session lineage
 
@@ -26,6 +26,96 @@
       workflows.
 - [ ] Report missing parents, malformed lineage, and cycles while leaving valid
       sessions accessible.
+
+## SESSION-4: Support ephemeral runs
+
+- [x] Accept `--ephemeral` for interactive and headless runs, with
+      `--no-session` as an alias.
+- [x] Keep the active run in memory without creating session JSONL, artifact
+      bodies, a per-session log, or a shared daily log.
+- [x] Reject resume and session naming in ephemeral mode while leaving shared
+      settings and prompt history under their existing policies.
+- [ ] Make test and automation helpers ephemeral by default unless the test
+      exercises persistence.
+
+## SESSION-5: Inventory the session storage graph
+
+- [ ] Build one application-owned inventory of session JSONL, locks,
+      per-session logs, artifact references and bodies, trash, and future
+      session-owned state.
+- [ ] Track references across forks and retain an artifact while any live or
+      archived session references it.
+- [ ] Report missing, malformed, multiply referenced, and unreferenced state
+      without making valid sessions inaccessible.
+- [ ] Calculate counts, bytes, age, archive and pin state, and reclaimable bytes
+      without loading artifact bodies.
+- [ ] Keep storage and retention policy out of `thndrs-agent` public APIs.
+
+## SESSION-6: Add manual lifecycle controls
+
+**Blocked by:** SESSION-5.
+
+- [ ] Add archive, unarchive, pin, and unpin without changing replayable session
+      history.
+- [ ] Make delete show the exact session-owned state and shared artifacts it
+      will preserve before confirmation.
+- [ ] Move deleted state to application trash and support restore during the
+      configured grace period. Require an explicit option for permanent
+      deletion.
+- [ ] Reject deletion of active or locked sessions. Allow explicit deletion of
+      pinned sessions only after confirmation.
+- [ ] Apply moves atomically where practical and leave recoverable diagnostics
+      after partial filesystem failures.
+
+## SESSION-7: Add retention policy and prune previews
+
+**Blocked by:** SESSION-5 and SESSION-6.
+
+- [ ] Configure enabled, maximum age, maximum live count, minimum age, and trash
+      retention with defaults of 30 days, 200 sessions, one day, and seven days.
+- [ ] Select the oldest unpinned, unlocked sessions when either the age or count
+      limit is exceeded. Derive age from recorded durable activity rather than
+      filesystem modification time, and do not treat a title as a pin.
+- [ ] Add `session prune` overrides for older-than and keep-count, plus a dry run
+      that reports IDs, titles, ages, sizes, and selection reasons.
+- [ ] Use one deterministic selector for previews, explicit pruning, automatic
+      collection, and tests.
+- [ ] Cover disabled retention, recent-session bursts, clock boundaries, locked
+      sessions, pins, archives, forks, and partial failures.
+
+## SESSION-8: Collect expired and orphaned state
+
+**Blocked by:** SESSION-7.
+
+- [ ] Run collection at startup or resume when the last successful pass is at
+      least 24 hours old, without delaying or failing the agent run.
+- [ ] Apply the retention preview, expire trash, remove unreferenced artifacts
+      and stale temporary state, and skip live locks. Preserve corrupt sessions
+      and artifacts whose reachability cannot be proven.
+- [ ] Give shared daily logs independent age and size caps. Move a per-session
+      log with its deleted session graph.
+- [ ] Record the policy version, last successful run, reclaimed bytes, skipped
+      state, and bounded failure diagnostics.
+- [ ] Prove repeated collection is idempotent and cannot remove state reachable
+      from a retained or restored session.
+
+## SESSION-9: Expose storage and lifecycle in CLI and TUI
+
+**Blocked by:** SESSION-6, SESSION-7, and SESSION-8.
+
+- [ ] Add `session storage` totals for live, archived, pinned, trash, artifact,
+      and log state, including bytes reclaimable under the current policy.
+- [ ] Provide deterministic JSON for storage reports, prune previews, and
+      lifecycle results used by non-interactive callers.
+- [ ] Add search, archive, pin, delete, restore, and storage details to the
+      session browser using the same inventory and lifecycle operations as the
+      CLI.
+- [ ] Keep the current session visible and protected, require confirmation for
+      destructive actions, and refresh the picker after each operation.
+- [ ] Add a workspace-scoped purge preview and confirmation that uses the same
+      ownership and shared-reference rules.
+- [ ] Test narrow layouts, large inventories, stale locks, corrupt sessions,
+      cancellation, and partial cleanup failures.
 
 ## CONTEXT-1: Expand the live context surface
 
@@ -148,7 +238,7 @@
 
 ## CONTEXT-9: Define opt-in retained request content
 
-**Blocked by:** CONTEXT-2 and an approved privacy and retention design.
+**Blocked by:** CONTEXT-2, SESSION-6, SESSION-7, and SESSION-8.
 
 - [ ] Retain metadata only by default. Add a per-run opt-in for normalized
       request content and artifact bodies.

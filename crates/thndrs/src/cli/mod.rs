@@ -1174,6 +1174,17 @@ mod tests {
             })
         );
 
+        let fork = Cli::try_parse_from(["thndrs", "session", "fork", "session-1", "turn_2"]).expect("parse");
+        assert_eq!(
+            fork.command,
+            Some(Command::Session {
+                command: commands::session::SessionCommand::Fork {
+                    session_id: "session-1".to_string(),
+                    turn_id: "turn_2".to_string(),
+                }
+            })
+        );
+
         let rename = Cli::try_parse_from(["thndrs", "session", "rename", "session-1", "Named work"]).expect("parse");
         assert_eq!(
             rename.command,
@@ -1205,6 +1216,18 @@ mod tests {
                 command: commands::session::SessionCommand::Export {
                     session_id: "session-1".to_string(),
                     format: commands::session::SessionDataFormat::Jsonl,
+                }
+            })
+        );
+
+        let html =
+            Cli::try_parse_from(["thndrs", "session", "export", "session-1", "--format", "html"]).expect("parse");
+        assert_eq!(
+            html.command,
+            Some(Command::Session {
+                command: commands::session::SessionCommand::Export {
+                    session_id: "session-1".to_string(),
+                    format: commands::session::SessionDataFormat::Html,
                 }
             })
         );

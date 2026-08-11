@@ -21,6 +21,13 @@ pub enum SessionCommand {
         /// Exact id or unique id prefix, without the `.jsonl` suffix.
         session_id: String,
     },
+    /// Create a new session from a settled turn boundary.
+    Fork {
+        /// Exact id or unique id prefix, without the `.jsonl` suffix.
+        session_id: String,
+        /// Replayable settled turn to use as the fork boundary.
+        turn_id: String,
+    },
     /// Assign or change the display name without changing session identity.
     Rename {
         /// Exact id or unique id prefix, without the `.jsonl` suffix.
@@ -46,11 +53,15 @@ pub enum SessionCommand {
     },
 }
 
-/// Machine-readable session command output format.
+/// Session command output format.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
 pub enum SessionDataFormat {
     /// A single JSON document.
     Json,
     /// One JSON value per line.
     Jsonl,
+    /// A human-readable Markdown review copy.
+    Markdown,
+    /// A self-contained HTML review copy.
+    Html,
 }

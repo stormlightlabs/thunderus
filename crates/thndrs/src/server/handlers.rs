@@ -1658,6 +1658,7 @@ fn session_cwd(records: &[SessionRecord]) -> Option<PathBuf> {
 fn record_time(record: &SessionRecord) -> Option<String> {
     match record {
         SessionRecord::SessionMeta { time, .. }
+        | SessionRecord::SessionFork { time, .. }
         | SessionRecord::Context { time, .. }
         | SessionRecord::ContextLedger { time, .. }
         | SessionRecord::ContextPin { time, .. }

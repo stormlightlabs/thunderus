@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="dark" />
+        <title>{{ session.title }} · thndrs session export</title>
+        <style>
+            :root {
+                --paper: #111;
+                --raised: #181818;
+                --ink: #e8e8e8;
+                --muted: #aaa;
+                --faint: #747474;
+                --line: #343434;
+                --mono: "SFMono-Regular", "Cascadia Mono", "Liberation Mono", Menlo, monospace;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            html {
+                background: var(--paper);
+            }
+            body {
+                min-width: 20rem;
+                margin: 0;
+                background: var(--paper);
+                color: var(--ink);
+                font: 400 0.875rem/1.65 var(--mono);
+            }
+            code {
+                font: inherit;
+                overflow-wrap: anywhere;
+            }
+            summary {
+                cursor: pointer;
+            }
+            summary:focus-visible {
+                outline: 2px solid var(--ink);
+                outline-offset: 0.3rem;
+            }
+            .report {
+                width: min(100% - 2rem, 62rem);
+                margin: 0 auto;
+            }
+            .masthead {
+                display: flex;
+                justify-content: space-between;
+                gap: 1rem;
+                padding: 1.1rem 0;
+                border-bottom: 1px solid var(--line);
+                color: var(--muted);
+                font-size: 0.75rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+            .masthead strong {
+                color: var(--ink);
+            }
+            .hero {
+                padding: clamp(3rem, 9vw, 6.5rem) 0 2.5rem;
+            }
+            .eyebrow,
+            .section-kicker,
+            dt,
+            .message-label,
+            .activity-kind {
+                color: var(--faint);
+                font-size: 0.6875rem;
+                font-weight: 700;
+                letter-spacing: 0.09em;
+                text-transform: uppercase;
+            }
+            h1 {
+                max-width: 21ch;
+                margin: 0.65rem 0 1.2rem;
+                font-size: clamp(1.8rem, 5vw, 3.25rem);
+                line-height: 1.08;
+                letter-spacing: -0.055em;
+            }
+            .lede {
+                max-width: 70ch;
+                margin: 0;
+                color: var(--muted);
+            }
+            .notice {
+                margin-top: 2rem;
+                padding: 0.9rem 1rem;
+                border-left: 2px solid var(--muted);
+                background: var(--raised);
+                color: var(--muted);
+            }
+            .identity {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                margin: 0;
+                padding: 1.4rem 0;
+                border-block: 1px solid var(--line);
+            }
+            .identity div {
+                min-width: 0;
+                padding-right: 1rem;
+            }
+            .identity div + div {
+                padding-left: 1rem;
+                border-left: 1px solid var(--line);
+            }
+            dt {
+                margin-bottom: 0.2rem;
+            }
+            dd {
+                margin: 0;
+                overflow-wrap: anywhere;
+            }
+            .muted {
+                color: var(--muted);
+            }
+            section {
+                padding: 3.5rem 0;
+                border-bottom: 1px solid var(--line);
+            }
+            .section-head {
+                margin-bottom: 2rem;
+            }
+            h2 {
+                margin: 0.35rem 0 0;
+                font-size: 1.2rem;
+                letter-spacing: -0.025em;
+            }
+            .message {
+                display: grid;
+                grid-template-columns: 7rem 1fr;
+                gap: 1.5rem;
+            }
+            .message + .message {
+                margin-top: 3rem;
+            }
+            .message-meta {
+                color: var(--faint);
+                font-size: 0.75rem;
+            }
+            .message-body {
+                min-width: 0;
+                white-space: pre-wrap;
+                overflow-wrap: anywhere;
+            }
+            .disclosure {
+                border-block: 1px solid var(--line);
+            }
+            .disclosure > summary {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 1rem;
+                padding: 1rem 0;
+                list-style: none;
+            }
+            .disclosure > summary::-webkit-details-marker {
+                display: none;
+            }
+            .disclosure > summary::before {
+                content: "+";
+                width: 1rem;
+                color: var(--faint);
+            }
+            .disclosure[open] > summary::before {
+                content: "−";
+            }
+            .summary-title {
+                flex: 1;
+            }
+            .summary-meta {
+                color: var(--muted);
+                font-size: 0.75rem;
+                text-align: right;
+            }
+            .activity-list,
+            .request-list,
+            .artifact-list {
+                margin: 0;
+                padding: 0;
+                list-style: none;
+            }
+            .activity-list,
+            .request-list {
+                border-top: 1px solid var(--line);
+            }
+            .activity-row,
+            .request-row {
+                display: grid;
+                grid-template-columns: 4rem minmax(8rem, 1fr) minmax(12rem, 2fr) auto;
+                gap: 1rem;
+                padding: 0.8rem 0;
+                border-bottom: 1px solid var(--line);
+                align-items: baseline;
+            }
+            .activity-detail,
+            .request-detail {
+                min-width: 0;
+                color: var(--muted);
+                overflow-wrap: anywhere;
+            }
+            .status {
+                color: var(--muted);
+                text-transform: lowercase;
+            }
+            .status-failed {
+                color: var(--ink);
+                text-decoration: underline double;
+            }
+            .artifact-list li {
+                padding: 0.7rem 0;
+                border-top: 1px solid var(--line);
+                overflow-wrap: anywhere;
+            }
+            .empty,
+            .context-note {
+                color: var(--muted);
+            }
+            .context-note {
+                margin: 1.5rem 0 0;
+            }
+            .footer {
+                display: flex;
+                justify-content: space-between;
+                gap: 2rem;
+                padding: 1.5rem 0 3rem;
+                color: var(--faint);
+                font-size: 0.75rem;
+            }
+            @media (max-width: 46rem) {
+                .identity {
+                    grid-template-columns: 1fr 1fr;
+                    gap: 1.25rem 0;
+                }
+                .identity div:nth-child(3) {
+                    padding-left: 0;
+                    border-left: 0;
+                }
+                .message {
+                    grid-template-columns: 1fr;
+                    gap: 0.5rem;
+                }
+                .activity-row,
+                .request-row {
+                    grid-template-columns: 3.5rem 1fr;
+                    gap: 0.25rem 1rem;
+                }
+                .activity-detail,
+                .request-detail,
+                .activity-row .status,
+                .request-row .status {
+                    grid-column: 2;
+                }
+                .footer {
+                    display: block;
+                }
+            }
+            @media print {
+                :root {
+                    --paper: #fff;
+                    --raised: #f4f4f4;
+                    --ink: #111;
+                    --muted: #444;
+                    --faint: #666;
+                    --line: #bbb;
+                }
+                body {
+                    font-size: 9pt;
+                }
+                .report {
+                    width: 100%;
+                }
+                .hero {
+                    padding-top: 2.5rem;
+                }
+                section {
+                    break-inside: avoid;
+                }
+                details:not([open]) > :not(summary) {
+                    display: block;
+                }
+                .disclosure > summary::before {
+                    content: none;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <!-- SESSION_EXPORT_START -->
+        <main class="report">
+            <header class="masthead">
+                <strong>thndrs / session export</strong><span>human review copy</span>
+            </header>
+            <div class="hero">
+                <div class="eyebrow">
+                    {{ session.status }} · {{ session.turn_count }} turn{% if session.turn_count !=
+                    1 %}s{% endif %}
+                </div>
+                <h1>{{ session.title }}</h1>
+                <p class="lede">
+                    A deterministic, provider-neutral record of the conversation and the actions
+                    taken during it.
+                </p>
+                <aside class="notice">
+                    <strong>Review scope.</strong> Secrets are redacted. Raw tool arguments,
+                    successful tool output, and provider payloads are omitted.
+                </aside>
+                {% if session.truncated %}
+                <aside class="notice">
+                    <strong>Item limit.</strong> Later session records were omitted from this
+                    export.
+                </aside>
+                {% endif %}
+            </div>
+            <dl class="identity">
+                <div>
+                    <dt>Session</dt>
+                    <dd>{{ session.id }}</dd>
+                </div>
+                <div>
+                    <dt>Started</dt>
+                    <dd>{{ session.started }}</dd>
+                </div>
+                <div>
+                    <dt>Runtime</dt>
+                    <dd>
+                        {{ session.provider }}<br /><span class="muted">{{ session.model }}</span>
+                    </dd>
+                </div>
+                <div>
+                    <dt>Lineage</dt>
+                    <dd>
+                        {% if session.lineage %}Forked session<br />
+                        <span class="muted">
+                            {{ session.lineage | length }} ancestor{% if session.lineage | length !=
+                            1 %}s{% endif %}
+                        </span>
+                        {% else %}Root session<br />
+                        <span class="muted">no parent recorded</span>{% endif %}
+                    </dd>
+                </div>
+            </dl>
+            {% if session.lineage %}
+            <section aria-labelledby="lineage-heading">
+                <header class="section-head">
+                    <div class="section-kicker">provenance</div>
+                    <h2 id="lineage-heading">Lineage</h2>
+                </header>
+                <ul class="artifact-list">
+                    {% for item in session.lineage %}
+                    <li><code>{{ item.session_id }}</code> at <code>{{ item.turn_id }}</code></li>
+                    {% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+            <section aria-labelledby="conversation-heading">
+                <header class="section-head">
+                    <div class="section-kicker">semantic transcript</div>
+                    <h2 id="conversation-heading">Conversation</h2>
+                </header>
+                {% for message in session.messages %}
+                <article class="message">
+                    <div>
+                        <div class="message-label">{{ message.role }}</div>
+                        <div class="message-meta">
+                            {{ message.turn_id }}<br />{{ message.time }}
+                        </div>
+                    </div>
+                    <div class="message-body">{{ message.text }}</div>
+                </article>
+                {% else %}
+                <p class="empty">No semantic messages recorded.</p>
+                {% endfor %}
+            </section>
+            <section aria-labelledby="activity-heading">
+                <header class="section-head">
+                    <div class="section-kicker">supporting record</div>
+                    <h2 id="activity-heading">Activity</h2>
+                </header>
+                <details class="disclosure">
+                    <summary>
+                        <span class="summary-title">Show tool and filesystem activity</span>
+                        <span class="summary-meta">{{ session.activities | length }} records</span>
+                    </summary>
+                    <ol class="activity-list">
+                        {% for item in session.activities %}
+                        <li class="activity-row">
+                            <time>{{ item.time }}</time>
+                            <span class="activity-kind">{{ item.kind }}</span>
+                            <span class="activity-detail">
+                                <strong>{{ item.name }}</strong> · {{ item.detail }}
+                            </span>
+                            <span
+                                class="status{% if item.status == 'failed' %} status-failed{% endif %}"
+                            >
+                                {{ item.status }}
+                            </span>
+                        </li>
+                        {% else %}
+                        <li class="activity-row empty">No activity recorded.</li>
+                        {% endfor %}
+                    </ol>
+                </details>
+            </section>
+            <section aria-labelledby="artifacts-heading">
+                <header class="section-head">
+                    <div class="section-kicker">review outcomes</div>
+                    <h2 id="artifacts-heading">Artifacts and findings</h2>
+                </header>
+                <ul class="artifact-list">
+                    {% for item in session.artifacts %}
+                    <li>
+                        <span class="activity-kind">{{ item.kind }}</span> &nbsp;
+                        <code>{{ item.label }}</code> <span class="muted">{{ item.detail }}</span>
+                    </li>
+                    {% endfor %}{% for finding in session.findings %}
+                    <li><span class="activity-kind">finding</span> &nbsp; {{ finding }}</li>
+                    {% endfor %}{% if not session.artifacts and not session.findings %}
+                    <li class="empty">None recorded.</li>
+                    {% endif %}
+                </ul>
+            </section>
+            <section aria-labelledby="requests-heading">
+                <header class="section-head">
+                    <div class="section-kicker">audit appendix</div>
+                    <h2 id="requests-heading">Requests and context</h2>
+                </header>
+                <details class="disclosure">
+                    <summary>
+                        <span class="summary-title">Show request references</span>
+                        <span class="summary-meta">
+                            {{ session.requests | length }} requests · {{ session.transformations |
+                            length }} context transformations
+                        </span>
+                    </summary>
+                    <ol class="request-list">
+                        {% for item in session.requests %}
+                        <li class="request-row">
+                            <time>{{ item.time }}</time><code>{{ item.request_id }}</code>
+                            <span class="request-detail">{{ item.detail }}</span>
+                            <span class="status">attempt {{ item.attempt }}</span>
+                        </li>
+                        {% else %}
+                        <li class="request-row empty">No request references recorded.</li>
+                        {% endfor %}
+                    </ol>
+                </details>
+                {% for item in session.transformations %}
+                <p class="context-note">
+                    <strong>{{ item.kind }}</strong> · {{ item.time }} · {{ item.detail }}
+                </p>
+                {% else %}
+                <p class="context-note">No context transformations were recorded.</p>
+                {% endfor %}
+            </section>
+            <footer class="footer">
+                <span>Source: .thndrs/sessions/{{ session.id }}.jsonl</span>
+                <span>schema {{ schema }} · self-contained HTML · no external assets</span>
+            </footer>
+        </main>
+        <!-- SESSION_EXPORT_END -->
+    </body>
+</html>

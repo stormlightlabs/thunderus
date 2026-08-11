@@ -2527,3 +2527,115 @@ fn read_records_from_tail_discards_partial_record_and_keeps_recent_records() {
         SessionRecord::User { text, .. } if text == "recent prompt"
     )));
 }
+
+#[test]
+fn fork_copies_only_settled_semantic_state_and_resumes_independently() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut parent = test_writer(dir.path(), "parent-session");
+    parent
+        .append_entry(&Entry::User { text: "fork here".to_string() }, "turn_1")
+        .expect("append user");
+    parent
+        .append_tool_started("turn_1", "pending-tool", "run_shell", "{}")
+        .expect("append pending tool");
+    parent
+        .append_queued(7, "follow-up", "add", "later")
+        .expect("append queue");
+    parent
+        .append_entry(
+            &Entry::Agent { text: "settled".to_string(), streaming: false },
+            "turn_1",
+        )
+        .expect("append assistant");
+    let parent_path = parent.path().to_path_buf();
+    drop(parent);
+    let before = std::fs::read(&parent_path).expect("read parent");
+
+    let fork_id = fork_session(dir.path(), &parent_path, "parent-session", "turn_1").expect("fork session");
+    let fork_path = dir.path().join(format!("{fork_id}.jsonl"));
+    let records = SessionReader::read_validated_records(&fork_path, &fork_id).expect("valid fork");
+
+    assert!(matches!(
+        &records[1],
+        SessionRecord::SessionFork { parent_session_id, parent_turn_id, lineage, .. }
+            if parent_session_id == "parent-session"
+                && parent_turn_id == "turn_1"
+                && lineage == &[SessionLineageEntry {
+                    session_id: "parent-session".to_string(),
+                    turn_id: "turn_1".to_string(),
+                }]
+    ));
+    assert!(
+        records
+            .iter()
+            .any(|record| matches!(record, SessionRecord::AssistantFinished { text, .. } if text == "settled"))
+    );
+    assert!(!records.iter().any(|record| matches!(
+        record,
+        SessionRecord::ToolStarted { .. } | SessionRecord::QueuedInput { .. }
+    )));
+
+    let mut resumed = SessionWriter::resume(&fork_path, &fork_id).expect("resume fork");
+    resumed
+        .append_entry(&Entry::User { text: "independent".to_string() }, "turn_2")
+        .expect("append to fork");
+    drop(resumed);
+    assert_eq!(std::fs::read(&parent_path).expect("reread parent"), before);
+}
+
+#[test]
+fn fork_rejects_an_unsettled_turn_without_creating_a_session() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut parent = test_writer(dir.path(), "unsettled-parent");
+    parent
+        .append_entry(&Entry::User { text: "still running".to_string() }, "turn_1")
+        .expect("append user");
+    let parent_path = parent.path().to_path_buf();
+    drop(parent);
+
+    let error = fork_session(dir.path(), &parent_path, "unsettled-parent", "turn_1").expect_err("reject fork");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    assert_eq!(list_session_files(dir.path()).len(), 1);
+}
+
+#[test]
+fn markdown_and_html_exports_are_deterministic_redacted_review_copies() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = SessionWriter::create(
+        dir.path(),
+        "export-session",
+        "/repo",
+        "<Review & verify>",
+        "opencode-zen",
+        "opencode/big-pickle",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create session");
+    writer
+        .append_entry(
+            &Entry::User { text: "api_key=sk-secretvalue123 <script>alert(1)</script>".to_string() },
+            "turn_1",
+        )
+        .expect("append user");
+    writer
+        .append_entry(&Entry::Agent { text: "done".to_string(), streaming: false }, "turn_1")
+        .expect("append assistant");
+    let path = writer.path().to_path_buf();
+    drop(writer);
+
+    let export = export_session(&path, "export-session").expect("project export");
+    let markdown = export.to_markdown();
+    let html = export.to_html().expect("render html");
+
+    assert_eq!(html, export.to_html().expect("render deterministic html"));
+    assert!(markdown.contains("api_key=[REDACTED]"));
+    assert!(!markdown.contains("sk-secretvalue123"));
+    assert!(html.contains("&lt;script&gt;alert(1)&lt;&#x2f;script&gt;"));
+    assert!(!html.contains("<script>alert(1)</script>"));
+    assert!(html.contains("SESSION_EXPORT_START"));
+    assert!(!html.contains("<script src="));
+    assert!(!html.contains("<link rel=\"stylesheet\""));
+}

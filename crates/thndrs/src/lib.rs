@@ -297,6 +297,7 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
         SessionCommand::Titles => run_session_titles(&dir, &mut lock),
         SessionCommand::Show { session_id } => run_session_show(&dir, session_id, &mut lock),
         SessionCommand::Resume { .. } => Err(io::Error::other("session resume must start an interactive session")),
+        SessionCommand::Fork { session_id, turn_id } => run_session_fork(&dir, session_id, turn_id, &mut lock),
         SessionCommand::Rename { session_id, name } => run_session_rename(&dir, session_id, name, &mut lock),
         SessionCommand::Inspect { session_id, format } => run_session_inspect(&dir, session_id, *format, &mut lock),
         SessionCommand::Export { session_id, format } => run_session_export(&dir, session_id, *format, &mut lock),
@@ -392,6 +393,13 @@ fn run_session_rename<W: io::Write>(dir: &Path, session_id: &str, name: &str, wr
     writeln!(writer, "renamed {id}: {title}")
 }
 
+fn run_session_fork<W: io::Write>(dir: &Path, session_id: &str, turn_id: &str, writer: &mut W) -> io::Result<()> {
+    let path = session::resolve_session_file(dir, session_id).map_err(io::Error::other)?;
+    let parent_id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or(session_id);
+    let fork_id = session::fork_session(dir, &path, parent_id, turn_id)?;
+    writeln!(writer, "forked {parent_id} at {turn_id}: {fork_id}")
+}
+
 fn run_session_inspect<W: io::Write>(
     dir: &Path, session_id: &str, format: SessionDataFormat, writer: &mut W,
 ) -> io::Result<()> {
@@ -424,16 +432,23 @@ fn run_session_inspect<W: io::Write>(
 fn run_session_export<W: io::Write>(
     dir: &Path, session_id: &str, format: SessionDataFormat, writer: &mut W,
 ) -> io::Result<()> {
-    if format != SessionDataFormat::Jsonl {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "export only supports --format jsonl",
-        ));
-    }
     let path = session::resolve_session_file(dir, session_id).map_err(io::Error::other)?;
-    for record in session::SessionReader::read_redacted_records(&path) {
-        serde_json::to_writer(&mut *writer, &record).map_err(io::Error::other)?;
-        writeln!(writer)?;
+    let id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or(session_id);
+    match format {
+        SessionDataFormat::Jsonl => {
+            for record in session::SessionReader::read_redacted_records(&path) {
+                serde_json::to_writer(&mut *writer, &record).map_err(io::Error::other)?;
+                writeln!(writer)?;
+            }
+        }
+        SessionDataFormat::Markdown => write!(writer, "{}", session::export_session(&path, id)?.to_markdown())?,
+        SessionDataFormat::Html => write!(writer, "{}", session::export_session(&path, id)?.to_html()?)?,
+        SessionDataFormat::Json => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "export supports --format jsonl, markdown, or html",
+            ));
+        }
     }
     Ok(())
 }

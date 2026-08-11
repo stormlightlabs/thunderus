@@ -8,6 +8,7 @@
 //! `schema_version`, a monotonic `seq`, `time`, and `type`.
 
 mod contracts;
+mod export;
 #[cfg(test)]
 mod tests;
 
@@ -33,6 +34,7 @@ pub use contracts::{
     AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,
     ContextLifecycleAudit, ContextSourceMeta, McpToolSessionMeta, SessionConfigFile, SessionConfigMeta,
 };
+pub use export::{SessionExport, export_session};
 
 /// Current JSONL schema version.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -46,6 +48,13 @@ pub const MAX_LOG_OUTPUT_BYTES: usize = 32 * 1024;
 
 /// Maximum length of a user-assigned session name.
 pub const MAX_SESSION_NAME_CHARS: usize = 80;
+
+/// One ancestor boundary in a forked session's root-to-parent lineage.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SessionLineageEntry {
+    pub session_id: String,
+    pub turn_id: String,
+}
 
 /// A single line in a session JSONL file.
 ///
@@ -72,6 +81,16 @@ pub enum SessionRecord {
         /// diagnostics. `None` when config metadata was not captured.
         #[serde(skip_serializing_if = "Option::is_none")]
         config: Option<SessionConfigMeta>,
+    },
+    /// Provenance for a session created from a settled turn boundary.
+    #[serde(rename = "session_fork")]
+    SessionFork {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        parent_session_id: String,
+        parent_turn_id: String,
+        lineage: Vec<SessionLineageEntry>,
     },
     /// Loaded context source metadata (AGENTS.md etc.).
     #[serde(rename = "context")]
@@ -408,6 +427,7 @@ impl SessionRecord {
     pub fn seq(&self) -> u64 {
         match self {
             SessionRecord::SessionMeta { seq, .. }
+            | SessionRecord::SessionFork { seq, .. }
             | SessionRecord::Context { seq, .. }
             | SessionRecord::ContextLedger { seq, .. }
             | SessionRecord::ContextPin { seq, .. }
@@ -1818,6 +1838,150 @@ pub fn generate_session_id() -> String {
     format!("session-{date_compact}-{hour:02}{minute:02}{second:02}")
 }
 
+/// Create an independently resumable session from a settled parent turn.
+///
+/// The fork copies only the replayable semantic prefix through the requested
+/// terminal turn record. Runtime-owned state and incomplete lifecycle pairs
+/// stay with the parent session.
+pub fn fork_session(dir: &Path, parent_path: &Path, parent_session_id: &str, turn_id: &str) -> std::io::Result<String> {
+    use std::collections::HashSet;
+
+    let records = SessionReader::read_validated_records(parent_path, parent_session_id)?;
+    let boundary = records
+        .iter()
+        .rposition(|record| {
+            matches!(
+                record,
+                SessionRecord::AssistantFinished { turn_id: record_turn, .. }
+                    | SessionRecord::Cancelled { turn_id: record_turn, .. }
+                    | SessionRecord::Failed { turn_id: record_turn, .. }
+                    if record_turn == turn_id
+            )
+        })
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("turn `{turn_id}` is not a settled replayable boundary"),
+            )
+        })?;
+    if !records[..=boundary]
+        .iter()
+        .any(|record| matches!(record, SessionRecord::User { turn_id: record_turn, .. } if record_turn == turn_id))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("turn `{turn_id}` has no replayable user message"),
+        ));
+    }
+
+    let (cwd, provider, model, websearch, app_version, config) = match &records[0] {
+        SessionRecord::SessionMeta { cwd, provider, model, websearch, app_version, config, .. } => (
+            cwd.clone(),
+            provider.clone(),
+            model.clone(),
+            websearch.clone(),
+            app_version.clone(),
+            config.clone(),
+        ),
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "validated session does not begin with metadata",
+            ));
+        }
+    };
+    let title = SessionReader::read_title(parent_path);
+    let completed_tools: HashSet<String> = records[..=boundary]
+        .iter()
+        .filter_map(|record| match record {
+            SessionRecord::ToolFinished { call_id, .. } => Some(call_id.clone()),
+            _ => None,
+        })
+        .collect();
+    let completed_permissions: HashSet<String> = records[..=boundary]
+        .iter()
+        .filter_map(|record| match record {
+            SessionRecord::AcpPermissionOutcome { tool_call_id, .. } => Some(tool_call_id.clone()),
+            _ => None,
+        })
+        .collect();
+    let started_tools: HashSet<String> = records[..=boundary]
+        .iter()
+        .filter_map(|record| match record {
+            SessionRecord::ToolStarted { call_id, .. } => Some(call_id.clone()),
+            _ => None,
+        })
+        .collect();
+    let requested_permissions: HashSet<String> = records[..=boundary]
+        .iter()
+        .filter_map(|record| match record {
+            SessionRecord::AcpPermissionRequest { tool_call_id, .. } => Some(tool_call_id.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let mut lineage = records[..=boundary]
+        .iter()
+        .find_map(|record| match record {
+            SessionRecord::SessionFork { lineage, .. } => Some(lineage.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    lineage.push(SessionLineageEntry { session_id: parent_session_id.to_string(), turn_id: turn_id.to_string() });
+
+    let base_id = generate_session_id();
+    let mut suffix = 1_u64;
+    let session_id = loop {
+        let candidate = if suffix == 1 { base_id.clone() } else { format!("{base_id}-{suffix}") };
+        if !dir.join(format!("{candidate}.jsonl")).exists() {
+            break candidate;
+        }
+        suffix = suffix.saturating_add(1);
+    };
+    let mut writer = SessionWriter::create(
+        dir,
+        &session_id,
+        &cwd,
+        &title,
+        &provider,
+        &model,
+        &websearch,
+        &app_version,
+        config,
+    )?;
+    writer.append(SessionRecord::SessionFork {
+        schema_version: SCHEMA_VERSION,
+        seq: 0,
+        time: datetime::now_iso8601(),
+        parent_session_id: parent_session_id.to_string(),
+        parent_turn_id: turn_id.to_string(),
+        lineage,
+    })?;
+    for record in records.into_iter().take(boundary + 1) {
+        let copy = match &record {
+            SessionRecord::SessionMeta { .. }
+            | SessionRecord::SessionFork { .. }
+            | SessionRecord::AcpSession { .. }
+            | SessionRecord::QueuedInput { .. } => false,
+            SessionRecord::ToolStarted { call_id, .. } => completed_tools.contains(call_id.as_str()),
+            SessionRecord::ToolFinished { call_id, .. } => started_tools.contains(call_id.as_str()),
+            SessionRecord::AcpPermissionRequest { tool_call_id, .. } => {
+                completed_permissions.contains(tool_call_id.as_str())
+            }
+            SessionRecord::AcpPermissionOutcome { tool_call_id, .. } => {
+                requested_permissions.contains(tool_call_id.as_str())
+            }
+            SessionRecord::CompactionReview { review: CompactionReviewResult::Pending, .. } => false,
+            SessionRecord::ShellExec { process_status, .. } => process_status != "running",
+            _ => true,
+        };
+        if copy {
+            writer.append(record)?;
+        }
+    }
+    Ok(session_id)
+}
+
 /// Convert a serde_json error into an io::Error.
 fn io_err(e: serde_json::Error) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, e)
@@ -1947,6 +2111,7 @@ fn mcp_tool_session_meta(name: &str) -> Option<McpToolSessionMeta> {
 fn set_seq(record: &mut SessionRecord, seq: u64) {
     match record {
         SessionRecord::SessionMeta { seq: s, .. }
+        | SessionRecord::SessionFork { seq: s, .. }
         | SessionRecord::Context { seq: s, .. }
         | SessionRecord::ContextLedger { seq: s, .. }
         | SessionRecord::ContextPin { seq: s, .. }

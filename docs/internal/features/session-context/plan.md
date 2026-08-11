@@ -65,6 +65,64 @@ Provider account capacity appears under a separate label. Every value retains
 its estimate or measurement provenance, and missing provider data displays as
 unknown rather than zero.
 
+## Session lifecycle
+
+Context compaction changes a provider request. Session retention changes durable
+local state. Keep the two policies separate and place session lifecycle in the
+`thndrs` application adapters, where workspace storage, logs, and terminal
+interaction already live.
+
+Durable runs write session JSONL, referenced artifact bodies, and a per-session
+log. `--ephemeral`, with `--no-session` as an alias, keeps the run in memory and
+does not create those files or write the shared daily log. Shared settings and
+prompt history keep their own storage policies. Tests and automation use
+ephemeral runs unless persistence is the behavior under test.
+
+Treat a session as a storage graph rather than one JSONL file. Its graph includes
+the session record, per-session log, artifact references, and future checkpoints,
+plans, task state, or temporary attachments. A fork may reference artifacts also
+used by its parent, so deletion removes an artifact body only when no retained
+session references it. Shared daily logs are not session-owned and follow an
+independent log policy.
+
+Lifecycle terms have distinct meanings:
+
+- Archive hides a session from the default browser without reclaiming storage.
+- Delete moves one session graph to application trash. It can be restored during
+  the grace period; permanent deletion is explicit.
+- Prune selects deletable sessions from a retention policy and supports a dry
+  run before applying it.
+- Purge deletes all eligible session state for one workspace after a scoped
+  preview and confirmation.
+- Garbage collection removes expired trash, unreferenced artifacts, stale
+  temporary files, and other state that cannot be reached from retained
+  sessions.
+
+The initial automatic retention policy is enabled, uses a 30-day maximum age and
+200-session cap for unprotected live sessions, never removes a session less than
+one day old, and retains trash for seven days. Age comes from the last durable
+session activity rather than filesystem modification time. A session is
+eligible when it exceeds either the age or count limit. The minimum age wins
+during bursts. Active or locked sessions and pinned sessions are protected from
+pruning; a title does not implicitly pin a session. An explicit delete can
+remove an archived or pinned session after confirmation, but cannot remove a
+session in use.
+
+Run automatic collection opportunistically at startup or resume when the last
+successful pass is at least 24 hours old. Use the same pure selection logic as
+the prune preview, skip live locks, apply changes atomically where practical,
+and record the policy, time, reclaimed bytes, and skipped failures. Cleanup is
+best effort and must not delay or fail an agent run. Corrupt sessions stay in
+place for inspection, and uncertain reachability prevents automatic artifact
+deletion.
+
+`thndrs session storage` reports live, archived, pinned, trash, artifact, and log
+counts and bytes, including how much the current policy could reclaim. The
+session browser exposes search, archive, pin, delete, and storage details using
+the same inventory. Per-session logs follow their session into trash. Shared
+daily logs use independent age and size caps so diagnostics cannot grow without
+bound.
+
 ## Sessions, exports, and privacy
 
 Fork a session only at a replayable settled turn. Record its lineage and copy a
@@ -79,8 +137,9 @@ limits.
 
 Persist metadata only by default. Retaining normalized request content or
 artifact bodies requires a per-run opt-in and approved retention, access,
-deletion, and size rules. Capture excludes credentials and raw provider wire
-payloads.
+deletion, and size rules. Session deletion, pruning, purge, and garbage
+collection apply those rules to captured content as part of the same storage
+graph. Capture excludes credentials and raw provider wire payloads.
 
 After local snapshots and exports ship, an optional OpenTelemetry exporter can
 read the persisted records. It emits low-cardinality counts, timings, token
