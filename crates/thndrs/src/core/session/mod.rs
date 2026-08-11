@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::acp::permissions::PendingPermission;
-use crate::app::{Entry, ToolStatus};
+use crate::app::{Entry, ToolStatus, TranscriptBlocks};
 use crate::artifacts::{self, ArtifactMetadata};
 use crate::context::ContextSource;
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
@@ -1528,6 +1528,63 @@ impl SessionReader {
             .into_iter()
             .filter_map(|r| r.to_entry())
             .collect()
+    }
+
+    /// Replay semantic session records into stable transcript blocks.
+    ///
+    /// Matching tool and permission lifecycle records update their original
+    /// block so resume restores the same action, target, and final state.
+    pub fn read_transcript_blocks(path: &Path) -> TranscriptBlocks {
+        let mut transcript = TranscriptBlocks::new();
+        for record in Self::read_records(path) {
+            match &record {
+                SessionRecord::ToolStarted { call_id, name, arguments, .. } => {
+                    if transcript.queue_tool(call_id, name, arguments).is_ok() {
+                        let _ = transcript.start_tool(call_id);
+                    }
+                }
+                SessionRecord::ToolFinished { call_id, status, output, artifact, .. } => {
+                    if transcript
+                        .finish_tool(
+                            call_id,
+                            *status,
+                            output.clone(),
+                            artifact.as_ref().is_some_and(|artifact| artifact.truncated),
+                        )
+                        .is_err()
+                        && let Some(entry) = record.to_entry()
+                    {
+                        transcript.push(entry);
+                    }
+                }
+                SessionRecord::AcpPermissionRequest { tool_call_id, title, .. } => {
+                    transcript.push_permission(
+                        tool_call_id,
+                        format!("acp permission requested: {title} ({tool_call_id})"),
+                    );
+                }
+                SessionRecord::AcpPermissionOutcome { tool_call_id, outcome, .. } => {
+                    let text = format!("acp permission {tool_call_id}: {outcome}");
+                    if !transcript.resolve_permission(tool_call_id, text.clone()) {
+                        transcript.push_permission(tool_call_id, text);
+                    }
+                }
+                SessionRecord::ShellExec {
+                    process_id: Some(process_id), command, process_status, elapsed_ms, ..
+                } => {
+                    transcript.push_child_activity(
+                        *process_id,
+                        format!("shell [{process_id}] {process_status}: {command} ({elapsed_ms}ms)"),
+                    );
+                }
+                _ => {
+                    if let Some(entry) = record.to_entry() {
+                        transcript.push(entry);
+                    }
+                }
+            }
+        }
+        transcript
     }
 
     /// Read the session title from a session file.

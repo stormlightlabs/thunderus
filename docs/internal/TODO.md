@@ -82,21 +82,21 @@ lifecycles update in place.
 
 **Acceptance:**
 
-- [ ] Every user prompt, assistant response, reasoning summary, tool call,
+- [x] Every user prompt, assistant response, reasoning summary, tool call,
       edit/diff, permission, status, error, and child activity has a stable block
       identifier and explicit kind.
-- [ ] Tool lifecycle is validated across queued, running, succeeded, failed,
+- [x] Tool lifecycle is validated across queued, running, succeeded, failed,
       and cancelled states; duplicate or invalid transitions are rejected.
-- [ ] A tool block shows action, target, current state, and concise result;
+- [x] A tool block shows action, target, current state, and concise result;
       lifecycle updates replace its live block instead of appending rows.
-- [ ] Routine successful reads/searches collapse after completion. Edits,
+- [x] Routine successful reads/searches collapse after completion. Edits,
       failures, permissions, verification, truncation, and unknown diffs remain
       prominent.
-- [ ] Compact and detailed projections are bounded, redacted, deterministic,
+- [x] Compact and detailed projections are bounded, redacted, deterministic,
       and distinguish unknown from empty or unchanged.
-- [ ] Sessions persist semantic events and state, never width-specific rows or
+- [x] Sessions persist semantic events and state, never width-specific rows or
       terminal cells.
-- [ ] Assistant prose remains visually dominant; reasoning and status remain
+- [x] Assistant prose remains visually dominant; reasoning and status remain
       readable; final-response boundaries are consistent and restrained.
 
 **Verify:** Transition tests, serialization round trips, compact/detail

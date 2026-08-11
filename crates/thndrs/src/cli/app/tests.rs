@@ -488,7 +488,8 @@ fn compact_uses_provider_summary_and_replaces_active_context_only_after_success(
     app.transcript.entries = vec![
         Entry::User { text: "inspect the parser".to_string() },
         Entry::Agent { text: "the parser rejects empty input".to_string(), streaming: false },
-    ];
+    ]
+    .into();
 
     assert_eq!(
         handle_command(&mut app, "compact"),
@@ -525,7 +526,7 @@ fn compact_uses_provider_summary_and_replaces_active_context_only_after_success(
 fn failed_compaction_restores_active_context_without_restoring_internal_prompt() {
     let mut app = fresh_app();
     let original = vec![Entry::User { text: "inspect the parser".to_string() }];
-    app.transcript.entries = original;
+    app.transcript.entries = original.into();
 
     assert_eq!(
         handle_command(&mut app, "compact"),
@@ -572,7 +573,7 @@ fn compact_writes_a_recoverable_manual_audit_record() {
         .expect("session writer")
         .path()
         .to_path_buf();
-    app.transcript.entries = vec![Entry::User { text: "inspect the parser".to_string() }];
+    app.transcript.entries = vec![Entry::User { text: "inspect the parser".to_string() }].into();
 
     assert_eq!(
         handle_command(&mut app, "compact"),
@@ -613,7 +614,7 @@ fn risky_compaction_waits_for_review_and_preserves_context_until_approval() {
             output: vec!["error details".to_string()],
         },
     ];
-    app.transcript.entries = original;
+    app.transcript.entries = original.into();
 
     assert_eq!(
         handle_command(&mut app, "compact"),
@@ -674,7 +675,7 @@ fn rejected_compaction_keeps_the_projection_and_does_not_append_a_summary_record
             output: vec!["details".to_string()],
         },
     ];
-    app.transcript.entries = original.clone();
+    app.transcript.entries = original.clone().into();
 
     assert_eq!(
         handle_command(&mut app, "compact"),
@@ -700,7 +701,8 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
     app.transcript.entries = vec![
         Entry::User { text: "long conversation".to_string() },
         Entry::Agent { text: "lots of detail".to_string(), streaming: false },
-    ];
+    ]
+    .into();
     let original_turn = "continue the work".to_string();
 
     assert_eq!(
@@ -741,7 +743,7 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
 #[test]
 fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
     let mut app = fresh_app();
-    app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }];
+    app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }].into();
     app.composer
         .queued_followups
         .push("follow-up after restart".to_string());
@@ -768,7 +770,7 @@ fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
 #[test]
 fn auto_compaction_failure_preserves_the_submitted_turn() {
     let mut app = fresh_app();
-    app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }];
+    app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }].into();
     let original_turn = "continue the work".to_string();
 
     assert_eq!(
@@ -813,7 +815,7 @@ fn auto_compaction_writes_an_automatic_trigger_audit_record() {
         .expect("session writer")
         .path()
         .to_path_buf();
-    app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }];
+    app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }].into();
 
     assert_eq!(
         start_auto_compaction(&mut app, "continue".to_string()),
@@ -2103,7 +2105,8 @@ fn state_identical_tool_decisions_appear_as_recoverable_context_relations() {
             status: ToolStatus::Ok,
             output: vec!["1: changed".to_string(), "2: second".to_string()],
         },
-    ];
+    ]
+    .into();
     app.transcript
         .tool_artifacts
         .insert("call_1".to_string(), "artifact:call_1".to_string());
@@ -2591,6 +2594,14 @@ fn question_key_does_not_enter_help_when_input_nonempty() {
 fn background_shell_result_registers_in_process_registry() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolStarted {
+            id: String::from("toolu_bg"),
+            name: String::from("run_shell"),
+            arguments: String::from(r#"{"command":["sleep","10"]}"#),
+        }),
+    );
 
     let shell_result = tools::shell::ProcessResult {
         process_id: None,

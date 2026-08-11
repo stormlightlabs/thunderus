@@ -678,7 +678,8 @@ mod tests {
         app.transcript.entries = vec![
             Entry::Agent { text: "first mutable".to_string(), streaming: true },
             Entry::Status { text: "second settled".to_string() },
-        ];
+        ]
+        .into();
 
         let view = RendererView::build(&app, 80, 24);
         let text = view

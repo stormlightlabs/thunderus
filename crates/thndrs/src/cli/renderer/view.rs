@@ -10,8 +10,9 @@
 mod tests;
 
 use crate::app::{
-    App, CONTEXT_INSPECTION_MAX_ITEMS, ChatGptOAuthMethod, Entry, FilePickerSource, FirstRunRecovery, Mode,
-    PromptAccessory, RecoveryStage, RunState, ToolStatus,
+    App, BlockContentState, CONTEXT_INSPECTION_MAX_ITEMS, ChatGptOAuthMethod, Entry, FilePickerSource,
+    FirstRunRecovery, Mode, PromptAccessory, RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlock,
+    TranscriptBlockId, TranscriptBlockKind,
 };
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::renderer::row::{CursorCoord, Row};
@@ -53,7 +54,16 @@ pub enum TranscriptRowKind {
 
 impl TranscriptRowKind {
     fn build_row(self, stable: bool, primary: String) -> TranscriptRowView {
-        TranscriptRowView { kind: self, stable, primary, tool: None, edit: None, diff: None }
+        TranscriptRowView {
+            block_id: None,
+            block_kind: None,
+            kind: self,
+            stable,
+            primary,
+            tool: None,
+            edit: None,
+            diff: None,
+        }
     }
 }
 
@@ -339,7 +349,7 @@ impl From<&App> for SemanticUiView {
     fn from(app: &App) -> Self {
         Self {
             transcript: SemanticTranscriptView {
-                rows: app.transcript.entries.iter().map(TranscriptRowView::from).collect(),
+                rows: app.transcript.entries.blocks().map(TranscriptRowView::from).collect(),
             },
             prompt: PromptSurfaceView::from(app),
             orientation: OrientationBandView::from(app),
@@ -357,6 +367,8 @@ pub struct SemanticTranscriptView {
 /// A semantic transcript row.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TranscriptRowView {
+    pub block_id: Option<TranscriptBlockId>,
+    pub block_kind: Option<TranscriptBlockKind>,
     pub kind: TranscriptRowKind,
     pub stable: bool,
     pub primary: String,
@@ -387,6 +399,8 @@ impl From<&Entry> for TranscriptRowView {
                     TranscriptRowKind::Tool
                 };
                 TranscriptRowView {
+                    block_id: None,
+                    block_kind: None,
                     kind,
                     stable: *status != ToolStatus::Running,
                     primary: name.clone(),
@@ -396,12 +410,33 @@ impl From<&Entry> for TranscriptRowView {
                         status: *status,
                         output_lines: output.len(),
                         truncated_preview: output.len() > 6,
+                        action: None,
+                        target: None,
+                        target_state: None,
+                        lifecycle: None,
+                        result_state: None,
                     }),
                     edit,
                     diff,
                 }
             }
         }
+    }
+}
+
+impl From<TranscriptBlock<'_>> for TranscriptRowView {
+    fn from(block: TranscriptBlock<'_>) -> Self {
+        let mut row = TranscriptRowView::from(block.entry);
+        row.block_id = Some(block.id.clone());
+        row.block_kind = Some(block.kind);
+        if let Some(tool) = row.tool.as_mut() {
+            tool.action = block.action().map(str::to_string);
+            tool.target = block.target().map(str::to_string);
+            tool.target_state = block.target_state();
+            tool.lifecycle = block.lifecycle();
+            tool.result_state = block.result_state();
+        }
+        row
     }
 }
 
@@ -413,6 +448,11 @@ pub struct ToolStateView {
     pub status: ToolStatus,
     pub output_lines: usize,
     pub truncated_preview: bool,
+    pub action: Option<String>,
+    pub target: Option<String>,
+    pub target_state: Option<BlockContentState>,
+    pub lifecycle: Option<ToolLifecycleState>,
+    pub result_state: Option<BlockContentState>,
 }
 
 /// File edit summary inferred from write-capable tool entries.

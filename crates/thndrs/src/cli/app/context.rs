@@ -24,7 +24,7 @@ const CONTEXT_DISPLAY_MAX_BYTES: usize = 160;
 /// `None` because `/compact` is a command, not a submitted turn.
 #[derive(Clone, Debug)]
 pub struct PendingManualCompaction {
-    original_transcript: Vec<Entry>,
+    original_transcript: TranscriptBlocks,
     covered_start_seq: u64,
     covered_end_seq: u64,
     recovery_handle: String,

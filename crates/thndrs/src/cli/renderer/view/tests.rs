@@ -1,7 +1,7 @@
 use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
 use crate::app::{
-    App, Entry, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, PromptAccessory, RecoveryStage,
-    RunState, ToolStatus, VISIBLE_ROWS,
+    App, BlockContentState, Entry, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, PromptAccessory,
+    RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlockKind, VISIBLE_ROWS,
 };
 use crate::cli::{Cli, Theme, WebSearchMode, commands::setup::SetupProviderArg};
 use crate::renderer;
@@ -118,6 +118,26 @@ fn build_view_submitted_user_is_rendered() {
             .any(|row| row.text().contains("do the thing")),
         "submitted input should be retained in the visible transcript"
     );
+}
+
+#[test]
+fn semantic_view_exposes_stable_block_identity_kind_and_tool_state() {
+    let mut app = test_app();
+    app.transcript
+        .entries
+        .queue_tool("call_1", "search_text", r#"{"pattern":"needle"}"#)
+        .expect("queue tool");
+    app.transcript.entries.start_tool("call_1").expect("start tool");
+
+    let view = RendererView::build(&app, 80, 24);
+    let row = view.semantic.transcript.rows.first().expect("semantic tool row");
+    let tool = row.tool.as_ref().expect("tool state");
+    assert_eq!(row.block_id.as_ref().map(|id| id.as_str()), Some("tool:call_1"));
+    assert_eq!(row.block_kind, Some(TranscriptBlockKind::ToolCall));
+    assert_eq!(tool.action.as_deref(), Some("search_text"));
+    assert_eq!(tool.target.as_deref(), Some("needle"));
+    assert_eq!(tool.lifecycle, Some(ToolLifecycleState::Running));
+    assert_eq!(tool.result_state, Some(BlockContentState::Unknown));
 }
 
 #[test]

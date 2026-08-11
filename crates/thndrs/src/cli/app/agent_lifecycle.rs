@@ -73,25 +73,19 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::ToolStarted { id, name, arguments } => {
-            app.runtime.ttft.stop_on_semantic_output();
-            finalize_streaming(app);
-            app.transcript.entries.push(Entry::Tool {
-                name: format!("{name}#{id}"),
-                arguments: arguments.clone(),
-                status: ToolStatus::Running,
-                output: Vec::new(),
-            });
-            if let Some(ref mut writer) = app.session.writer {
-                let turn_id = format!("turn_{}", app.session.turn_count);
-                let _ = writer.append_tool_started(&turn_id, &id, &name, &arguments);
-            }
+            record_tool_started(app, &id, &name, &arguments);
             None
         }
         AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
             app.runtime.ttft.stop_on_semantic_output();
             finalize_streaming(app);
-            let artifact = finish_tool_output(app, &id, status, &output);
-            persist_last_entry_with_artifact(app, artifact);
+            match finish_tool_output(app, &id, status, &output) {
+                Ok(artifact) => persist_tool_entry_with_artifact(app, &id, artifact),
+                Err(error) => {
+                    app.transcript.entries.push(Entry::Error { text: error.to_string() });
+                    return None;
+                }
+            }
 
             if let Some(result) = write_result
                 && let Some(ref mut writer) = app.session.writer
@@ -114,12 +108,13 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                         )
                     });
                     app.runtime.process_registry.announce(process_id);
-                    app.transcript.entries.push(Entry::Status {
-                        text: format!(
+                    app.transcript.entries.push_child_activity(
+                        process_id,
+                        format!(
                             "background process [{process_id}] started: {}",
                             result.command.join(" ")
                         ),
-                    });
+                    );
                 }
 
                 if let Some(ref mut writer) = app.session.writer {
@@ -165,6 +160,13 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             if let Some(ref mut writer) = app.session.writer {
                 let _ = writer.append_acp_permission_request(&turn_id, &permission);
             }
+            app.transcript.entries.push_permission(
+                &permission.tool_call_id,
+                format!(
+                    "acp permission requested: {} ({})",
+                    permission.title, permission.tool_call_id
+                ),
+            );
             app.overlay.show_permission(permission);
             app.transcript.context_ledger = None;
             None
@@ -173,6 +175,10 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             let turn_id = format!("turn_{}", app.session.turn_count);
             if let Some(ref mut writer) = app.session.writer {
                 let _ = writer.append_acp_permission_outcome(&turn_id, &tool_call_id, &outcome);
+            }
+            let text = format!("acp permission {tool_call_id}: {outcome}");
+            if !app.transcript.entries.resolve_permission(&tool_call_id, text.clone()) {
+                app.transcript.entries.push_permission(&tool_call_id, text);
             }
             app.transcript.context_ledger = None;
             None
@@ -263,7 +269,11 @@ pub fn record_background_results(app: &mut App, results: Vec<tools::shell::Proce
         if let Some(first) = lines.first_mut() {
             *first = format!("background process [{process_id}] {first}");
         }
-        app.transcript.entries.push(Entry::Status { text: lines.join("\n") });
+        if let Some(process_id) = result.process_id {
+            app.transcript.entries.push_child_activity(process_id, lines.join("\n"));
+        } else {
+            app.transcript.entries.push(Entry::Status { text: lines.join("\n") });
+        }
         if let Some(writer) = app.session.writer.as_mut() {
             let turn_id = format!("turn_{}", app.session.turn_count);
             let _ = writer.append_shell_exec(&turn_id, &result);
@@ -427,10 +437,28 @@ pub fn persist_last_entry(app: &mut App) {
     }
 }
 
-/// Persist the last tool entry with its bounded artifact metadata.
-fn persist_last_entry_with_artifact(app: &mut App, artifact: Option<artifacts::ArtifactMetadata>) {
+fn record_tool_started(app: &mut App, id: &str, name: &str, arguments: &str) {
+    app.runtime.ttft.stop_on_semantic_output();
+    finalize_streaming(app);
+    if let Err(error) = app
+        .transcript
+        .entries
+        .queue_tool(id, name, arguments)
+        .and_then(|()| app.transcript.entries.start_tool(id))
+    {
+        app.transcript.entries.push(Entry::Error { text: error.to_string() });
+        return;
+    }
+    if let Some(ref mut writer) = app.session.writer {
+        let turn_id = format!("turn_{}", app.session.turn_count);
+        let _ = writer.append_tool_started(&turn_id, id, name, arguments);
+    }
+}
+
+/// Persist the identified tool block with its bounded artifact metadata.
+fn persist_tool_entry_with_artifact(app: &mut App, call_id: &str, artifact: Option<artifacts::ArtifactMetadata>) {
     if let Some(ref mut writer) = app.session.writer
-        && let Some(entry) = app.transcript.entries.last()
+        && let Some(entry) = app.transcript.entries.tool_entry(call_id)
     {
         let turn_id = format!("turn_{}", app.session.turn_count);
         let _ = writer.append_entry_with_artifact(entry, &turn_id, artifact);
@@ -479,13 +507,7 @@ pub fn finalize_streaming(app: &mut App) {
 /// Called when the active run is interrupted so that the renderer can show a
 /// distinct cancelled-tool row instead of leaving the tool in a running state.
 pub fn cancel_running_tools(app: &mut App) {
-    for entry in &mut app.transcript.entries {
-        if let Entry::Tool { status, .. } = entry
-            && *status == ToolStatus::Running
-        {
-            *status = ToolStatus::Cancelled;
-        }
-    }
+    app.transcript.entries.cancel_running_tools();
 }
 
 /// Mark active reasoning entries complete when the model moves on to visible
@@ -550,7 +572,7 @@ pub fn refresh_mcp_config_audit(app: &mut App, turn_id: &str) {
 
 fn finish_tool_output(
     app: &mut App, id: &str, status: ToolStatus, output: &[String],
-) -> Option<artifacts::ArtifactMetadata> {
+) -> Result<Option<artifacts::ArtifactMetadata>, ToolLifecycleError> {
     let artifact = app
         .artifact_store()
         .and_then(|store| store.create_tool_evidence(&format!("tool:{id}"), output).ok());
@@ -563,16 +585,9 @@ fn finish_tool_output(
             .tool_artifacts
             .insert(id.to_string(), write.metadata.handle.clone());
     }
-    for entry in app.transcript.entries.iter_mut().rev() {
-        if let Entry::Tool { name, output: out, status: entry_status, .. } = entry
-            && name.ends_with(&format!("#{id}"))
-        {
-            *out = safe_output;
-            *entry_status = status;
-            break;
-        }
-    }
-    artifact.map(|write| write.metadata)
+    let truncated = safe_output != output;
+    app.transcript.entries.finish_tool(id, status, safe_output, truncated)?;
+    Ok(artifact.map(|write| write.metadata))
 }
 
 fn mcp_config_changed_status(

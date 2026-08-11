@@ -1,6 +1,8 @@
 //! Semantic transcript row construction for the terminal renderer.
 //!
-//! This module owns turning transcript [`Entry`] values into [`Row`] blocks.
+//! This renderer module owns the terminal presentation of transcript content:
+//! layout, styling, collapsing, and width-aware row construction. Semantic
+//! identity and lifecycle state belong to `app::transcript_blocks`.
 
 use std::path::Path;
 

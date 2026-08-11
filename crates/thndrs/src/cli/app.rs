@@ -19,6 +19,7 @@ mod commands;
 mod context;
 mod input;
 mod onboarding;
+mod transcript_blocks;
 #[cfg(test)]
 pub use agent_lifecycle::{handle_agent_event, remember_input};
 use commands::{handle_command, handle_running_command};
@@ -36,6 +37,10 @@ pub use input::{
 };
 pub use onboarding::setup_model_options;
 pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryStage};
+pub use transcript_blocks::{
+    BlockContentState, ToolLifecycleError, ToolLifecycleState, TranscriptBlock, TranscriptBlockId, TranscriptBlockKind,
+    TranscriptBlocks,
+};
 
 use input::{
     offline_model_picker_items, open_model_picker, open_reasoning_effort_picker, open_session_picker, open_skill_picker,
@@ -427,7 +432,7 @@ pub struct SessionState {
 #[derive(Debug)]
 pub struct TranscriptState {
     /// Chronological user, provider, tool, and status entries.
-    pub entries: Vec<Entry>,
+    pub entries: TranscriptBlocks,
     /// Loaded context sources (for example, AGENTS.md).
     pub context_sources: Vec<crate::context::ContextSource>,
     /// Filesystem discovery diagnostics for project instructions.
@@ -823,7 +828,7 @@ impl App {
         let context_diagnostics = context_inventory.diagnostics;
         let skill_inventory = skills::discover(&workspace_root, &value.skill_dirs);
         let prompt_template_inventory = prompt::templates::discover(&workspace_root);
-        let transcript = Vec::new();
+        let transcript = TranscriptBlocks::new();
         let sessions_dir = value
             .session_dir
             .clone()
@@ -1013,7 +1018,7 @@ impl App {
         let writer = session::SessionWriter::resume(&path, &id)
             .map_err(|error| io::Error::new(error.kind(), format!("cannot resume session `{id}`: {error}")))?;
         let summary = session::SessionReader::read_summary(&path);
-        let transcript = session::SessionReader::read_transcript(&path);
+        let transcript = session::SessionReader::read_transcript_blocks(&path);
         let records = session::SessionReader::read_records(&path);
         let turn_count = records
             .iter()

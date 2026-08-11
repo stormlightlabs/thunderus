@@ -2073,6 +2073,36 @@ fn append_tool_started_round_trip() {
 }
 
 #[test]
+fn semantic_transcript_replay_replaces_tool_lifecycle_records() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "semantic-tool-replay");
+    writer
+        .append_tool_started("turn_1", "call_1", "search_text", r#"{"pattern":"needle"}"#)
+        .expect("append tool start");
+    writer
+        .append_entry(
+            &Entry::Tool {
+                name: "search_text#call_1".to_string(),
+                arguments: r#"{"pattern":"needle"}"#.to_string(),
+                status: ToolStatus::Ok,
+                output: vec!["src/lib.rs:10:needle".to_string()],
+            },
+            "turn_1",
+        )
+        .expect("append tool finish");
+
+    let transcript = SessionReader::read_transcript_blocks(writer.path());
+    let block = transcript.block(0).expect("tool block");
+    assert_eq!(transcript.len(), 1);
+    assert_eq!(block.id.as_str(), "tool:call_1");
+    assert_eq!(block.kind, crate::app::TranscriptBlockKind::ToolCall);
+    assert_eq!(block.action(), Some("search_text"));
+    assert_eq!(block.target(), Some("needle"));
+    assert_eq!(block.lifecycle(), Some(crate::app::ToolLifecycleState::Succeeded));
+    assert_eq!(block.result_state(), Some(crate::app::BlockContentState::Present));
+}
+
+#[test]
 fn tool_started_record_json_round_trip() {
     let record = SessionRecord::ToolStarted {
         schema_version: 1,
