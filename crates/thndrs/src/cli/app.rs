@@ -1057,6 +1057,8 @@ pub struct RuntimeState {
     /// Configurable semantic bindings used by the input translation boundary.
     pub keymap: Keymap,
     pub run_state: RunState,
+    /// Transient provider backoff shown in the status line instead of the transcript.
+    pub provider_retry: Option<String>,
     /// Identity of the agent run whose effect results are currently accepted.
     pub active_effect_request: Option<EffectRequest>,
     pub git_status: Option<GitStatusSummary>,
@@ -1211,6 +1213,7 @@ impl App {
                 model_picker_items: offline_model_picker_items(),
                 keymap: Keymap::default(),
                 run_state: RunState::default(),
+                provider_retry: None,
                 active_effect_request: None,
                 git_status: git::collect(&workspace_root),
                 session_tokens_in: 0,
@@ -1470,6 +1473,9 @@ impl App {
     /// Derive the precise, user-facing state shown by interactive surfaces.
     pub fn status_label(&self) -> String {
         match self.runtime.run_state {
+            RunState::Working if self.runtime.provider_retry.is_some() => {
+                self.runtime.provider_retry.clone().unwrap_or_default()
+            }
             RunState::Working => match self.transcript.entries.last() {
                 Some(Entry::Reasoning { streaming: true, .. }) => "Thinking".to_string(),
                 Some(Entry::Agent { streaming: true, .. }) => "Responding".to_string(),

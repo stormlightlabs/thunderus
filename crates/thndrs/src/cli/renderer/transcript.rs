@@ -73,6 +73,9 @@ impl TranscriptRowContext<'_> {
     /// until they finish. All other entries are fully stable.
     pub fn rows_for_entry_stable_and_live_rows(&self, entry: &Entry) -> (Vec<Row>, Vec<Row>) {
         let rows = self.rows_for_entry(entry);
+        if self.detail_open {
+            return (Vec::new(), rows);
+        }
         match entry {
             Entry::Agent { streaming: true, .. }
             | Entry::Reasoning { streaming: true, .. }

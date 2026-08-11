@@ -1493,6 +1493,10 @@ pub fn close_prompt_accessory(app: &mut App) {
 
 /// Open details for the most recent tool entry.
 pub fn open_detail_surface(app: &mut App) {
+    if app.overlay.is_detail() {
+        app.overlay.close_detail();
+        return;
+    }
     let Some(index) = next_detail_target(app) else {
         return;
     };

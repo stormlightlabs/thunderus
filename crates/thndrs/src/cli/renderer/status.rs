@@ -341,7 +341,7 @@ mod tests {
 
         let default = status_row(&app, 80, false).text();
         assert!(default.contains("opencode-go/glm-5.2 · high"));
-        assert!(default.find("Editable").unwrap() < default.find("opencode-go/glm-5.2").unwrap());
+        assert!(!default.contains("Editable"));
 
         app.runtime.cli.status_line.left =
             vec![StatusSegment::RunState, StatusSegment::Authority, StatusSegment::Route];
@@ -365,13 +365,14 @@ mod tests {
     }
 
     #[test]
-    fn permission_and_anchor_are_projected_semantically() {
+    fn optional_authority_and_anchor_are_projected_semantically() {
         let mut app = App::from_cli(&Cli::default());
         let text = status_row(&app, 80, true).text();
         assert!(text.contains("Idle"));
         assert!(text.contains("↑ away"));
-        assert!(text.contains("Editable"));
+        assert!(!text.contains("Editable"));
 
+        app.runtime.cli.status_line.left.push(StatusSegment::Authority);
         app.runtime.cli.authority = crate::tools::ToolAuthority::ReadOnly;
         assert!(status_row(&app, 80, true).text().contains("Read-only"));
     }

@@ -50,6 +50,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::AssistantDelta(delta) => {
+            app.runtime.provider_retry = None;
             app.runtime.ttft.stop_on_semantic_output();
             finalize_reasoning(app);
             if let Some(Entry::Agent { text, streaming: true }) = app.transcript.entries.last_mut() {
@@ -62,6 +63,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::ReasoningDelta(delta) => {
+            app.runtime.provider_retry = None;
             app.runtime.ttft.stop_on_semantic_output();
             if let Some(Entry::Reasoning { text, streaming: true }) = app.transcript.entries.last_mut() {
                 text.push_str(&delta);
@@ -73,10 +75,12 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::ToolStarted { id, name, arguments } => {
+            app.runtime.provider_retry = None;
             record_tool_started(app, &id, &name, &arguments);
             None
         }
         AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
+            app.runtime.provider_retry = None;
             app.runtime.ttft.stop_on_semantic_output();
             finalize_streaming(app);
             match finish_tool_output(app, &id, status, &output) {
@@ -139,12 +143,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::Retrying { attempt, max_attempts, delay_ms, error } => {
             discard_retry_output(app);
             app.runtime.run_state = RunState::Working;
-            app.transcript.entries.push(Entry::Status {
-                text: format!(
-                    "retrying provider request ({attempt}/{max_attempts}) in {:.1}s after: {error}",
-                    delay_ms as f64 / 1000.0
-                ),
-            });
+            app.runtime.provider_retry = Some(provider_retry_status(attempt, max_attempts, delay_ms, &error));
             None
         }
         AgentEvent::PermissionRequest(permission) => {
@@ -190,6 +189,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Finished => {
+            app.runtime.provider_retry = None;
             app.runtime.stopping_deadline = None;
             app.runtime.ttft.clear_pending();
             finalize_streaming(app);
@@ -208,6 +208,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             next.and_then(|next| submit_user_turn(app, next))
         }
         AgentEvent::Failed(msg) => {
+            app.runtime.provider_retry = None;
             app.runtime.stopping_deadline = None;
             let manual_compaction = context::restore_failed_manual_compaction(app);
             app.runtime.ttft.clear_pending();
@@ -230,6 +231,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Cancelled => {
+            app.runtime.provider_retry = None;
             app.runtime.stopping_deadline = None;
             context::restore_failed_manual_compaction(app);
             app.runtime.ttft.clear_pending();
@@ -258,6 +260,18 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
     }
+}
+
+fn provider_retry_status(attempt: u32, max_attempts: u32, delay_ms: u64, error: &str) -> String {
+    let reason = if error.to_ascii_lowercase().contains("overload") {
+        "provider overloaded"
+    } else {
+        "provider unavailable"
+    };
+    format!(
+        "Waiting · {reason} · retry {attempt}/{max_attempts} in {:.1}s",
+        delay_ms as f64 / 1000.0
+    )
 }
 
 /// Drain completed application-owned background processes into the transcript

@@ -411,14 +411,14 @@ Build with cargo. Run tests with cargo test.
     "name": "search_text"
   },
   {
-    "description": "read_file_range\n\nRead a 1-indexed line range from a file under the workspace root.\n\nUse this to inspect file contents after finding a path with find_files or search_text.\nPrefer targeted ranges over reading entire large files. Paths are contained to the root;\nescapes are rejected. Output is capped at 65536 bytes; long lines truncate at 512 chars.",
+    "description": "read_file_range\n\nRead a 1-indexed line range from a file available to the current process.\n\nUse this to inspect file contents after finding a path with find_files or search_text.\nPrefer targeted ranges over reading entire large files. Relative paths resolve from the\nworkspace; absolute paths and paths outside it are allowed. Output is capped at 65536\nbytes; long lines truncate at 512 chars.",
     "input_schema": {
       "properties": {
         "end_line": {
           "type": "integer"
         },
         "path": {
-          "description": "Path relative to the workspace root.",
+          "description": "Absolute path or path relative to the workspace root.",
           "type": "string"
         },
         "start_line": {

@@ -71,7 +71,9 @@ pub enum SearchError {
     #[error("http {status}: {body}")]
     HttpStatus { status: u16, body: String },
     /// DuckDuckGo returned an anti-bot page instead of search results.
-    #[error("bot challenge: {0}")]
+    #[error(
+        "bot challenge: {0}; do not retry DuckDuckGo in this turn—configure SearXNG or another supported search API"
+    )]
     Blocked(String),
     /// A search backend returned malformed JSON.
     #[error("invalid search JSON: {0}")]

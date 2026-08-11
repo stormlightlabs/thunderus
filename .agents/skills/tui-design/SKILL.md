@@ -41,6 +41,7 @@ Read [references/harness-patterns.md](references/harness-patterns.md) for the vi
 - Keep keyboard operation complete. Treat mouse support as optional and preserve terminal text selection when capture is off.
 - Define Enter, Escape, Tab, arrows, page keys, cancellation, paste, resize, and focus restoration for every changed surface.
 - Keep the active choice visible while scrolling and resizing.
+- When a surface gains or loses focus, update its input routing, scrolling, and redraw ownership together.
 
 ## Preserve the rendering seams
 

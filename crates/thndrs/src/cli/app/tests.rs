@@ -2477,6 +2477,27 @@ fn ctrl_o_opens_the_latest_tool_with_output() {
     );
 
     assert_eq!(app.overlay.detail().map(|detail| detail.entry_index), Some(1));
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)),
+    );
+    assert!(!app.overlay.is_detail(), "Ctrl+O should close open details");
+}
+
+#[test]
+fn ctrl_o_without_tool_output_leaves_transcript_focus_unchanged() {
+    let mut app = fresh_app();
+    app.transcript
+        .entries
+        .push(Entry::Agent { text: "nothing expandable".to_string(), streaming: false });
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)),
+    );
+
+    assert!(!app.overlay.is_detail());
 }
 
 #[test]
@@ -2894,7 +2915,7 @@ fn retrying_provider_discards_partial_output_without_restoring_input() {
             attempt: 1,
             max_attempts: 4,
             delay_ms: 2500,
-            error: String::from("server error (HTTP 503): unavailable"),
+            error: String::from("Our servers are currently overloaded"),
         }),
     );
 
@@ -2911,10 +2932,14 @@ fn retrying_provider_discards_partial_output_without_restoring_input() {
             .any(|entry| matches!(entry, Entry::Agent { .. } | Entry::Reasoning { .. })),
         "partial output from the failed attempt should be removed before retrying"
     );
-    assert!(matches!(
-        app.transcript.entries.last(),
-        Some(Entry::Status { text }) if text.contains("retrying provider request (1/4)")
-    ));
+    assert_eq!(app.status_label(), "Waiting · provider overloaded · retry 1/4 in 2.5s");
+    assert!(
+        !app.transcript
+            .entries
+            .iter()
+            .any(|entry| matches!(entry, Entry::Status { text } if text.contains("retrying provider"))),
+        "provider retries should not accumulate transcript rows"
+    );
 }
 
 #[test]

@@ -3,6 +3,6 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 width=80:
-│     Idle · Editable                              test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle · Editable [-]=                               [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=  
+│     Idle                                         test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle [-]=                                          [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=  
 width=40:
-│     Idle           test-model · auto      # [-]=   [-]=   [fg=#04d1f9 b]=Idle [-]=            [fg=#6473b7]=test-model · auto [-]=   [-]=
+│     Idle test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle [-]=  [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=

@@ -101,22 +101,6 @@ fn rejects_status_lines_without_the_active_model() {
 }
 
 #[test]
-fn rejects_status_lines_that_hide_operational_precedence() {
-    let config: Config = toml::from_str(
-        r#"
-        [status_line]
-        left = ["run-state", "workspace", "authority"]
-        right = ["route"]
-        "#,
-    )
-    .expect("status line parses");
-
-    let error = validate_config(&config).expect_err("cosmetic field before authority must fail");
-    assert!(matches!(error, ConfigError::InvalidConfig { key, message }
-            if key == "status_line.left" && message.contains("must precede")));
-}
-
-#[test]
 fn rejects_unknown_status_line_fields() {
     let error = toml::from_str::<Config>(
         r#"

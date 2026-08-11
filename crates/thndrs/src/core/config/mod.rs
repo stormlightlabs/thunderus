@@ -62,11 +62,7 @@ pub struct StatusLineConfig {
 impl Default for StatusLineConfig {
     fn default() -> Self {
         Self {
-            left: vec![
-                StatusSegment::RunState,
-                StatusSegment::ActiveTool,
-                StatusSegment::Authority,
-            ],
+            left: vec![StatusSegment::RunState, StatusSegment::ActiveTool],
             right: vec![
                 StatusSegment::AnchoredAway,
                 StatusSegment::Route,
@@ -514,23 +510,6 @@ fn validate_status_line(status: &StatusLineConfig) -> Result<(), ConfigError> {
         return Err(ConfigError::InvalidConfig {
             key: "status_line.left".to_string(),
             message: "`run-state` must be the first field so operational state remains visible".to_string(),
-        });
-    }
-    let Some(authority_index) = status.left.iter().position(|field| *field == StatusSegment::Authority) else {
-        return Err(ConfigError::InvalidConfig {
-            key: "status_line.left".to_string(),
-            message: "`authority` is required on the left side".to_string(),
-        });
-    };
-    if status.left[..authority_index].iter().any(|field| {
-        matches!(
-            field,
-            StatusSegment::Route | StatusSegment::Workspace | StatusSegment::Session
-        )
-    }) {
-        return Err(ConfigError::InvalidConfig {
-            key: "status_line.left".to_string(),
-            message: "`authority` must precede route, workspace, and session fields".to_string(),
         });
     }
     Ok(())

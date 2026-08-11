@@ -228,7 +228,7 @@ fn static_status_row_prioritizes_immediate_state() {
     let app = test_app();
     let text = static_status_row(&app, 80).text();
     assert!(text.contains("Idle"));
-    assert!(text.contains("Editable"));
+    assert!(!text.contains("Editable"));
     assert!(text.contains("queue 0"));
     assert!(!text.contains("model:"));
     assert!(!text.contains("tok:"));

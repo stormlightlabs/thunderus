@@ -670,10 +670,10 @@ fn build_view_handles_large_transcript_with_running_tool_and_inline_detail() {
     );
     assert!(
         view.transcript
-            .stable_rows
+            .live_rows
             .iter()
             .any(|row| row.text().contains("finished output line")),
-        "expanded completed tool output should remain inline in the transcript"
+        "expanded completed output must be live so opening and scrolling redraw it"
     );
 }
 

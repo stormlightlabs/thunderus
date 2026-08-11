@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::path::PathBuf;
 
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::{tools::ToolDefinition, tools::ToolOutput, tools::ToolUseRequest, utils};
@@ -17,26 +16,9 @@ pub struct ReadFileRangeInput {
 /// Read a range of lines from a file, implemented in Rust.
 ///
 /// Lines are 1-indexed. `start_line` is inclusive, `end_line` is inclusive
-/// (defaults to `start_line + 20`). Enforces workspace-root containment and
-/// line-length caps.
-pub fn exec(path: &Path, root: &Path, start_line: u32, end_line: Option<u32>) -> ToolOutput {
-    exec_with_extra_read_roots(path, root, &[], start_line, end_line)
-}
-
-fn exec_with_extra_read_roots(
-    path: &Path, root: &Path, extra_read_roots: &[PathBuf], start_line: u32, end_line: Option<u32>,
-) -> ToolOutput {
-    if !super::path::is_within_root(path, root)
-        && !extra_read_roots
-            .iter()
-            .any(|extra_root| super::path::is_within_root(path, extra_root))
-    {
-        return ToolOutput::failed(
-            "read_file_range",
-            format!("path escapes workspace root: {}", path.display()),
-        );
-    }
-
+/// (defaults to `start_line + 20`). Reads any path available to the process and
+/// applies line-length caps.
+pub fn exec(path: &Path, _root: &Path, start_line: u32, end_line: Option<u32>) -> ToolOutput {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => {
@@ -80,15 +62,16 @@ pub fn definition() -> ToolDefinition {
         NAME,
         r#"read_file_range
 
-Read a 1-indexed line range from a file under the workspace root.
+Read a 1-indexed line range from a file available to the current process.
 
 Use this to inspect file contents after finding a path with find_files or search_text.
-Prefer targeted ranges over reading entire large files. Paths are contained to the root;
-escapes are rejected. Output is capped at 65536 bytes; long lines truncate at 512 chars."#,
+Prefer targeted ranges over reading entire large files. Relative paths resolve from the
+workspace; absolute paths and paths outside it are allowed. Output is capped at 65536
+bytes; long lines truncate at 512 chars."#,
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": { "type": "string", "description": "Path relative to the workspace root." },
+                "path": { "type": "string", "description": "Absolute path or path relative to the workspace root." },
                 "start_line": { "type": "integer" },
                 "end_line": { "type": "integer" }
             },
@@ -123,11 +106,9 @@ pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolE
 }
 
 fn exec_input(input: &ReadFileRangeInput, ctx: &ToolContext<'_>) -> ToolOutput {
-    let path = super::path::resolve_within_root(ctx.root, &input.path).unwrap_or_else(|_| PathBuf::from(&input.path));
-    if ctx.extra_read_roots.is_empty() {
-        return exec(&path, ctx.root, input.start_line, input.end_line);
-    }
-    exec_with_extra_read_roots(&path, ctx.root, &ctx.extra_read_roots, input.start_line, input.end_line)
+    let input_path = Path::new(&input.path);
+    let path = if input_path.is_absolute() { input_path.to_path_buf() } else { ctx.root.join(input_path) };
+    exec(&path, ctx.root, input.start_line, input.end_line)
 }
 
 #[cfg(test)]
@@ -146,17 +127,15 @@ mod tests {
     }
 
     #[test]
-    fn read_file_range_outside_root_fails() {
-        let root = std::env::current_dir().unwrap();
-        let outside = root.parent().unwrap().join("some_file.txt");
-        let output = exec(&outside, &root, 1, Some(10));
-        assert_eq!(output.status, ToolStatus::Failed);
-        assert!(
-            output
-                .error
-                .as_ref()
-                .is_some_and(|e| e.contains("escapes workspace root"))
-        );
+    fn read_file_range_reads_outside_root() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let outside = tempfile::NamedTempFile::new().expect("outside file");
+        std::fs::write(outside.path(), "outside workspace\n").expect("write outside file");
+
+        let output = exec(outside.path(), workspace.path(), 1, Some(1));
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert_eq!(output.display.lines, vec!["1: outside workspace"]);
     }
 
     #[test]
@@ -184,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_execute_reads_from_extra_root() {
+    fn registry_execute_reads_absolute_path_outside_workspace() {
         let workspace = tempfile::tempdir().expect("workspace");
         let skill = tempfile::tempdir().expect("skill root");
         let skill_path = skill.path().join("SKILL.md");
@@ -199,8 +178,7 @@ mod tests {
             .to_string(),
             "call_1".to_string(),
         );
-        let context =
-            tools::registry::ToolContext::new(workspace.path()).with_extra_read_roots(&[skill.path().to_path_buf()]);
+        let context = tools::registry::ToolContext::new(workspace.path());
 
         let output = tools::registry::execute(&request, &context).output;
 
@@ -222,6 +200,24 @@ mod tests {
 
         assert_eq!(output.status, ToolStatus::Ok);
         assert_eq!(output.display.lines, vec!["2: b", "3: c"]);
+    }
+
+    #[test]
+    fn registry_execute_allows_relative_parent_path() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir(&workspace).expect("create workspace");
+        std::fs::write(dir.path().join("outside.txt"), "outside\n").expect("write outside file");
+        let request = ToolUseRequest::new(
+            NAME.to_string(),
+            serde_json::json!({"path":"../outside.txt","start_line":1,"end_line":1}).to_string(),
+            "call_1".to_string(),
+        );
+
+        let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(&workspace)).output;
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert_eq!(output.display.lines, vec!["1: outside"]);
     }
 
     #[test]
