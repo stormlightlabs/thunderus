@@ -19,8 +19,8 @@ pub use cli::{app, input, renderer};
 
 pub use prelude::*;
 pub use thndrs_core::{
-    acp, artifacts, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, search, skills, tools,
-    utils,
+    acp, artifacts, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, review, search,
+    skills, tools, utils,
 };
 
 #[cfg(test)]
@@ -250,6 +250,7 @@ fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
         Command::Mcp { command } => run_mcp_command(cli, command),
         Command::Skills { command } => commands::skills::run(cli, command),
         Command::Run(command) => headless::run_command(cli, command),
+        Command::Review(command) => review::run_command(cli, command),
         Command::Session { command } => run_session_command(cli, command),
         Command::Debug { command } => run_debug_command(cli, command),
     }
@@ -1545,6 +1546,7 @@ fn spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>, request: EffectRequ
     let cli = app.runtime.cli.clone();
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch)
+        .with_authority(cli.authority)
         .with_search_url(cli.websearch_url.clone())
         .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
         .with_extra_read_roots(app.transcript.skills.iter().map(|skill| skill.root.clone()).collect())

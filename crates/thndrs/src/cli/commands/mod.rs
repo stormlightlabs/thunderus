@@ -6,6 +6,7 @@ pub mod config;
 pub mod debug;
 pub mod doctor;
 pub mod mcp;
+pub mod review;
 pub mod run;
 pub mod session;
 pub mod setup;

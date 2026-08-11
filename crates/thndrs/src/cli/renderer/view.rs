@@ -302,7 +302,7 @@ impl RendererView {
     pub fn build(app: &App, width: usize, height: usize) -> Self {
         let semantic = SemanticUiView::from(app);
         let transcript = TranscriptView::build(app, width);
-        let live = LiveView::build(app, width, height, &transcript, &semantic);
+        let live = LiveView::build(app, width, height, &transcript, &semantic, false);
         Self { semantic, transcript, live, width, height }
     }
 }
@@ -843,7 +843,7 @@ pub struct LiveView {
 
 impl LiveView {
     pub fn build(
-        app: &App, width: usize, _height: usize, transcript: &TranscriptView, semantic: &SemanticUiView,
+        app: &App, width: usize, _height: usize, transcript: &TranscriptView, semantic: &SemanticUiView, anchored: bool,
     ) -> LiveView {
         let live_tail = transcript.live_rows.clone();
         let (prompt_rows, prompt_cursor) = super::live::prompt_rows_for(app, width);
@@ -881,7 +881,7 @@ impl LiveView {
             accessory_rows,
             queued_summary: super::live::queued_summary_row(app, width),
             detail_pane,
-            static_status: super::live::static_status_row(app, width),
+            static_status: super::status::status_row(app, width, anchored),
         }
     }
 }

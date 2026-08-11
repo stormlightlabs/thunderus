@@ -3,8 +3,6 @@ source: crates/thndrs/src/cli/renderer/alternate.rs
 expression: rendered
 ---
 normal (80x12):
-
-    User (owais)
     Explain the renderer migration.
 
 
@@ -12,28 +10,30 @@ normal (80x12):
     Ratatui now owns the bounded terminal frame.
 
     test-session
+
     ❯  Keep the interface quiet
-    Ready   /status details
+
+    Complete · Editable                                              queue 0
 
 
 narrow (32x9):
-    Response
-    Ratatui now owns the
     bounded terminal frame.
 
     test-session
+
     ❯  Keep the interface quie
        t
-    Ready   /status details
+
+    Complete · Editable
 
 
 monochrome (48x10):
-
-
     Response
     Ratatui now owns the bounded terminal
     frame.
 
     test-session
+
     ❯  Keep the interface quiet
-    Ready   /status details
+
+    Complete · Editable              queue 0

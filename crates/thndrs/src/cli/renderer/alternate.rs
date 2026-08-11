@@ -13,7 +13,7 @@
 use std::io::{self, Write};
 use std::time::Duration;
 
-use crossterm::cursor::Show;
+use crossterm::cursor::{SetCursorStyle, Show};
 use crossterm::event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
@@ -26,7 +26,7 @@ use ratatui::widgets::{Clear, Paragraph};
 use crate::app::{Action, App, Entry, PromptAccessory, PromptState};
 
 use super::row::{Frame, Row};
-use super::style::{CellStyle, Color, Span};
+use super::style::{CellStyle, Color};
 use super::view::{LiveView, RendererView, SemanticUiView, TranscriptView, project_transcript_entry};
 
 /// Owns terminal modes for one alternate-screen application session.
@@ -48,10 +48,16 @@ impl AlternateScreenSession {
                 io::stdout(),
                 EnterAlternateScreen,
                 EnableBracketedPaste,
-                EnableMouseCapture
+                EnableMouseCapture,
+                SetCursorStyle::BlinkingBlock
             )
         } else {
-            execute!(io::stdout(), EnterAlternateScreen, EnableBracketedPaste)
+            execute!(
+                io::stdout(),
+                EnterAlternateScreen,
+                EnableBracketedPaste,
+                SetCursorStyle::BlinkingBlock
+            )
         };
         if let Err(error) = result {
             let _ = disable_raw_mode();
@@ -82,10 +88,16 @@ impl AlternateScreenSession {
                 io::stdout(),
                 EnterAlternateScreen,
                 EnableBracketedPaste,
-                EnableMouseCapture
+                EnableMouseCapture,
+                SetCursorStyle::BlinkingBlock
             )
         } else {
-            execute!(io::stdout(), EnterAlternateScreen, EnableBracketedPaste)
+            execute!(
+                io::stdout(),
+                EnterAlternateScreen,
+                EnableBracketedPaste,
+                SetCursorStyle::BlinkingBlock
+            )
         };
         if result.is_ok() {
             self.active = true;
@@ -120,12 +132,19 @@ fn restore_terminal(mouse_capture: bool) -> io::Result<()> {
         execute!(
             stdout,
             Show,
+            SetCursorStyle::DefaultUserShape,
             DisableMouseCapture,
             DisableBracketedPaste,
             LeaveAlternateScreen
         )?;
     } else {
-        execute!(stdout, Show, DisableBracketedPaste, LeaveAlternateScreen)?;
+        execute!(
+            stdout,
+            Show,
+            SetCursorStyle::DefaultUserShape,
+            DisableBracketedPaste,
+            LeaveAlternateScreen
+        )?;
     }
     stdout.flush()?;
     disable_raw_mode()
@@ -371,9 +390,9 @@ impl AlternateViewport {
         }
         let semantic = SemanticUiView::from(app);
         let transcript = self.transcript_cache.project(app, width);
-        let live = LiveView::build(app, width, height, &transcript, &semantic);
-        let view = RendererView { semantic, transcript, live, width, height };
         let anchored = matches!(self.state, ViewportState::Anchored(_));
+        let live = LiveView::build(app, width, height, &transcript, &semantic, anchored);
+        let view = RendererView { semantic, transcript, live, width, height };
         let chrome = build_chrome_frame(&view, anchored);
         let chrome_height = chrome.rows.len().min(height);
         let transcript_height = height.saturating_sub(chrome_height);
@@ -479,32 +498,19 @@ impl AlternateViewport {
 }
 
 /// Build the bottom-pinned prompt, focused surface, queue summary, and footer.
-fn build_chrome_frame(view: &RendererView, anchored: bool) -> Frame {
+fn build_chrome_frame(view: &RendererView, _anchored: bool) -> Frame {
     let width = view.width;
     let height = view.height;
     let live = &view.live;
-    let surface_bg = CellStyle::new().bg(super::style::palette().panel_bg);
     let min_prompt_chrome = live.prompt_rows.len() + 1;
     let keep_prompt_gutters = height >= min_prompt_chrome + 3;
 
     let mut footer = Vec::new();
-    if anchored {
-        let p = super::style::palette();
-        footer.push(Row::padded(
-            vec![Span::styled(
-                "  ↑ Viewing earlier output · Ctrl+End to follow",
-                CellStyle::new().fg(p.teal).bg(p.panel_bg),
-            )],
-            width,
-            CellStyle::new().bg(p.panel_bg),
-        ));
-    }
     footer.push(live.static_status.clone());
     if keep_prompt_gutters {
-        footer.push(Row::blank(width, surface_bg));
+        footer.push(Row::blank(width, CellStyle::new()));
     }
-    let prompt_gutter =
-        keep_prompt_gutters.then(|| Row::blank(width, CellStyle::new().bg(super::style::palette().panel_bg)));
+    let prompt_gutter = keep_prompt_gutters.then(|| Row::blank(width, CellStyle::new()));
     let accessory = if live.detail_pane.is_empty() { live.accessory_rows.clone() } else { live.detail_pane.clone() };
     let queued: Vec<Row> = live.queued_summary.clone().into_iter().collect();
     let reserved = footer.len() + live.prompt_rows.len() + usize::from(prompt_gutter.is_some());
@@ -842,6 +848,45 @@ mod tests {
         .into();
         app.composer.input.insert_str("Keep the interface quiet");
 
+        let logical = AlternateViewport::default().build_frame(&app, 80, 12);
+        let session_row = logical
+            .rows
+            .iter()
+            .position(|row| row.text().contains("test-session"))
+            .expect("session row");
+        assert!(
+            logical.rows[session_row - 1]
+                .spans
+                .iter()
+                .all(|span| span.style.bg == Color::Reset),
+            "space above the session label should use the terminal background"
+        );
+        assert!(
+            logical.rows[session_row]
+                .spans
+                .iter()
+                .all(|span| span.style.bg == Color::Reset),
+            "session label should use the terminal background"
+        );
+        assert!(
+            logical.rows[session_row + 1]
+                .spans
+                .first()
+                .is_some_and(|span| span.style.bg == Color::Reset)
+                && logical.rows[session_row + 1]
+                    .spans
+                    .last()
+                    .is_some_and(|span| span.style.bg == Color::Reset),
+            "input row should be inset from the terminal edges"
+        );
+        assert!(
+            logical.rows[session_row + 1]
+                .spans
+                .iter()
+                .any(|span| span.style.bg == super::super::style::palette().panel_bg),
+            "input row should retain the composer background"
+        );
+
         let mut rendered = String::new();
         for (label, width, height) in [("normal", 80, 12), ("narrow", 32, 9), ("monochrome", 48, 10)] {
             let logical = AlternateViewport::default().build_frame(&app, width, height);
@@ -931,16 +976,11 @@ mod tests {
         viewport.page_up();
 
         let anchored = viewport.build_frame(&app, 80, 12);
-        assert!(
-            anchored
-                .rows
-                .iter()
-                .any(|row| row.text().contains("Ctrl+End to follow"))
-        );
+        assert!(anchored.rows.iter().any(|row| row.text().contains("↑ away")));
 
         viewport.follow_tail();
         let following = viewport.build_frame(&app, 80, 12);
-        assert!(!following.rows.iter().any(|row| row.text().contains("End to follow")));
+        assert!(!following.rows.iter().any(|row| row.text().contains("↑ away")));
         assert_eq!(viewport.state(), ViewportState::FollowingTail);
     }
 

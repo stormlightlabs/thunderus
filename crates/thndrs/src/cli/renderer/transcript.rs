@@ -623,7 +623,7 @@ impl App {
         push_wrapped_banner_text(
             &mut rows,
             "Ask for change, run a command, or inspect the repo.",
-            BannerIndent(0, 0),
+            BannerIndent(2, 2),
             theme,
             theme.muted_style,
         );
@@ -781,6 +781,7 @@ fn readiness_context_path(line: &str) -> String {
 fn push_banner_brand_row(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
     rows.push(Row::padded(
         vec![
+            Span::styled("  ", theme.rail_style),
             Span::styled("thndrs", theme.brand_style),
             Span::styled(" / ready", theme.meta_style.bold()),
         ],
@@ -818,7 +819,10 @@ fn push_banner_readiness_row(rows: &mut Vec<Row>, text: &str, meta: &str, ready:
 
 fn push_banner_attention_heading(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
     rows.push(Row::padded(
-        vec![Span::styled("ATTENTION", theme.attention_style)],
+        vec![
+            Span::styled("  ", theme.rail_style),
+            Span::styled("ATTENTION", theme.attention_style),
+        ],
         theme.width,
         CellStyle::new(),
     ));
@@ -826,6 +830,7 @@ fn push_banner_attention_heading(rows: &mut Vec<Row>, theme: StartupBannerTheme)
 
 fn push_banner_help(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
     let spans = vec![
+        Span::styled("  ", theme.rail_style),
         Span::styled("?", theme.hint_style),
         Span::styled(" help   ", theme.muted_style),
         Span::styled("/model", theme.hint_style),

@@ -2,12 +2,12 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│   thndrs / ready                                                                  # [-]=   [fg=#37f499 b]=thndrs [fg=#6473b7 b]= / ready [-]=                                                               [-]=  
-│   Ask for change, run a command, or inspect the repo.                             # [-]=   [fg=#abb4da]=Ask for change, run a command, or inspect the repo. [-]=                          [-]=  
-│                                                                                   # [-]=                                                                                
-│       ✓ AGENTS.md loaded                                        ./AGENTS.md       # [-]=   [fg=#3b4261]=     [fg=#37f499]=✓  [fg=#abb4da]=AGENTS.md loaded [fg=#abb4da]=                                         [fg=#6473b7]=./AGENTS.md [-]=    [-]=  
-│       · No skills available · 1 skipped                              skills       # [-]=   [fg=#3b4261]=     [fg=#abb4da]=·  [fg=#abb4da]=No skills available · 1 skipped [fg=#abb4da]=                               [fg=#6473b7]=skills [-]=    [-]=  
-│       ✓ Web Search                                               duckduckgo       # [-]=   [fg=#3b4261]=     [fg=#37f499]=✓  [fg=#abb4da]=Web Search [fg=#abb4da]=                                                [fg=#6473b7]=duckduckgo [-]=    [-]=  
-│                                                                                   # [-]=                                                                                
-│   ? help   /model switch   /search configure                                      # [-]=   [fg=#f1fc79 b]=? [fg=#abb4da]= help    [fg=#f1fc79 b]=/model [fg=#abb4da]= switch    [fg=#f1fc79 b]=/search [fg=#abb4da]= configure [-]=                                   [-]=  
+│     thndrs / ready                                                                # [-]=   [fg=#3b4261]=   [fg=#37f499 b]=thndrs [fg=#6473b7 b]= / ready [-]=                                                             [-]=
+│     Ask for change, run a command, or inspect the repo.                           # [-]=   [fg=#abb4da]=  Ask for change, run a command, or inspect the repo. [-]=                        [-]=
+│                                                                                   # [-]=
+│       ✓ AGENTS.md loaded                                        ./AGENTS.md       # [-]=   [fg=#3b4261]=     [fg=#37f499]=✓  [fg=#abb4da]=AGENTS.md loaded [fg=#abb4da]=                                         [fg=#6473b7]=./AGENTS.md [-]=    [-]=
+│       · No skills available · 1 skipped                              skills       # [-]=   [fg=#3b4261]=     [fg=#abb4da]=·  [fg=#abb4da]=No skills available · 1 skipped [fg=#abb4da]=                               [fg=#6473b7]=skills [-]=    [-]=
+│       ✓ Web Search                                               duckduckgo       # [-]=   [fg=#3b4261]=     [fg=#37f499]=✓  [fg=#abb4da]=Web Search [fg=#abb4da]=                                                [fg=#6473b7]=duckduckgo [-]=    [-]=
+│                                                                                   # [-]=
+│     ? help   /model switch   /search configure                                    # [-]=   [fg=#3b4261]=   [fg=#f1fc79 b]=? [fg=#abb4da]= help    [fg=#f1fc79 b]=/model [fg=#abb4da]= switch    [fg=#f1fc79 b]=/search [fg=#abb4da]= configure [-]=                                 [-]=
 │                                                                                   # [-]=

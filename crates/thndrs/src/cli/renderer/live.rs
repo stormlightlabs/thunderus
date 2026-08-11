@@ -81,7 +81,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         if !line.is_empty() {
             spans.extend(mention_styled_spans(&line, text_style, mention_style, surface));
         }
-        rows.push(Row::padded(spans, width, CellStyle::new().bg(surface)));
+        rows.push(composer_input_row(spans, width, row_body_width, surface));
     }
 
     if rows.is_empty() {
@@ -93,7 +93,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         if app.composer.mode == Mode::Command {
             spans.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
         }
-        rows.push(Row::padded(spans, width, CellStyle::new().bg(surface)));
+        rows.push(composer_input_row(spans, width, row_body_width, surface));
     }
 
     (rows, if hidden_entry_active { None } else { Some(cursor) })
@@ -101,7 +101,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
 
 /// Number of metadata rows reserved by the composer at this width.
 pub fn composer_frame_height(width: usize) -> usize {
-    usize::from(super::layout::content_width(width) >= COMPOSER_MIN_CONTENT_WIDTH)
+    3 * usize::from(super::layout::content_width(width) >= COMPOSER_MIN_CONTENT_WIDTH)
 }
 
 /// Add a borderless session and status row above the prompt body.
@@ -113,13 +113,12 @@ pub fn frame_prompt_rows(
     }
 
     let p = super::style::palette();
-    let bg = p.panel_bg;
     let accent = match app.prompt_state() {
         PromptState::Editable => p.yellow,
         PromptState::Submitted | PromptState::Streaming | PromptState::RunningTool | PromptState::Stopped => p.teal,
         PromptState::Errored => p.red,
     };
-    let label_style = CellStyle::new().fg(accent).bg(bg).bold();
+    let label_style = CellStyle::new().fg(accent).bold();
     let content_width = super::layout::content_width(width);
 
     let session = app.run_label();
@@ -137,30 +136,33 @@ pub fn frame_prompt_rows(
     let fixed = LIVE_INSET + utils::text_width(&label) + status_width;
     let top_spans = if fixed < content_width {
         let mut spans = vec![
-            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new()),
             Span::styled(label, label_style),
-            Span::styled(" ".repeat(content_width - fixed), CellStyle::new().bg(bg)),
+            Span::styled(" ".repeat(content_width - fixed), CellStyle::new()),
         ];
         if let Some(status) = status {
             spans.push(Span::styled(
                 status,
-                CellStyle::new().fg(super::style::status_color(&status_label)).bg(bg),
+                CellStyle::new().fg(super::style::status_color(&status_label)),
             ));
         }
         spans
     } else {
         vec![
-            Span::styled(" ".repeat(LIVE_INSET.min(content_width)), CellStyle::new().bg(bg)),
+            Span::styled(" ".repeat(LIVE_INSET.min(content_width)), CellStyle::new()),
             Span::styled(label, label_style),
         ]
     };
 
-    let mut framed = Vec::with_capacity(rows.len() + 1);
-    framed.push(Row::padded(top_spans, width, CellStyle::new().bg(bg)));
+    let vertical_padding = || composer_input_row(Vec::new(), width, content_width, p.panel_bg);
+    let mut framed = Vec::with_capacity(rows.len() + 3);
+    framed.push(Row::padded(top_spans, width, CellStyle::new()));
+    framed.push(vertical_padding());
     framed.extend(rows);
+    framed.push(vertical_padding());
 
     let cursor = cursor.map(|mut cursor| {
-        cursor.row += 1;
+        cursor.row += 2;
         cursor
     });
     (framed, cursor)
@@ -299,22 +301,13 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
 
 /// Build the immediate operational state row below the prompt.
 pub fn static_status_row(app: &App, width: usize) -> Row {
-    let p = super::style::palette();
-    let bg = p.panel_bg;
-    let muted = CellStyle::new().fg(p.overlay0).bg(bg);
-    if width < 12 {
-        return Row::blank(width, CellStyle::new().bg(bg));
-    }
-    let state = app.status_label();
-    let state_style = CellStyle::new().fg(super::style::status_color(&state)).bg(bg).bold();
-    let mut spans = vec![
-        Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
-        Span::styled(state, state_style),
-    ];
-    if width >= 30 {
-        spans.push(Span::styled("   /status details", muted));
-    }
-    Row::padded(spans, width, CellStyle::new().bg(bg))
+    super::status::status_row(app, width, false)
+}
+
+fn composer_input_row(mut spans: Vec<Span>, width: usize, surface_width: usize, surface: Color) -> Row {
+    let used = super::layout::spans_width(&spans);
+    spans = super::layout::pad_right(spans, surface_width.saturating_sub(used), CellStyle::new().bg(surface));
+    Row::padded(spans, width, CellStyle::new())
 }
 
 fn clipped_detail_indicator_row(

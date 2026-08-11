@@ -327,6 +327,25 @@ pub fn run_command(cli: &Cli, command: &RunCommand) -> io::Result<()> {
     result.map_err(io::Error::other)
 }
 
+/// Run one prompt through the shared lifecycle and return only assistant text.
+pub(crate) fn run_prompt_capture(cli: &Cli, prompt: &str) -> io::Result<String> {
+    let cancellation = CancelToken::new();
+    install_cancellation_handler(cancellation.clone())?;
+    let mut stdout = Vec::new();
+    let mut stderr = io::sink();
+    let result = run_with_io(
+        cli,
+        prompt,
+        HeadlessOutput::text(),
+        &mut stdout,
+        &mut stderr,
+        &cancellation,
+    );
+    clear_cancellation_handler();
+    result.map_err(io::Error::other)?;
+    String::from_utf8(stdout).map_err(|_| io::Error::other("provider response was not valid UTF-8"))
+}
+
 /// Register Ctrl-C as cooperative cancellation for the active headless turn.
 fn install_cancellation_handler(cancellation: CancelToken) -> io::Result<()> {
     let slot = CANCELLATION.get_or_init(|| Mutex::new(None));

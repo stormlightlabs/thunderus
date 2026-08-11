@@ -3,10 +3,10 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 width=80:
-│     ❯  line one                                                                   # [bg=#171928]=   [bg=#171928]=   [fg=#f1fc79 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=line one [bg=#171928]=                                                                [bg=#171928]=  
-│        line two                                                                   # [bg=#171928]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line two [bg=#171928]=                                                                [bg=#171928]=  
-│        line three                                                                 # [bg=#171928]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line three [bg=#171928]=                                                              [bg=#171928]=  
+│     ❯  line one                                                                   # [-]=   [bg=#171928]=   [fg=#f1fc79 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=line one [bg=#171928]=                                                                [-]=
+│        line two                                                                   # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line two [bg=#171928]=                                                                [-]=
+│        line three                                                                 # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line three [bg=#171928]=                                                              [-]=
 width=40:
-│     ❯  line one                           # [bg=#171928]=   [bg=#171928]=   [fg=#f1fc79 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=line one [bg=#171928]=                        [bg=#171928]=  
-│        line two                           # [bg=#171928]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line two [bg=#171928]=                        [bg=#171928]=  
-│        line three                         # [bg=#171928]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line three [bg=#171928]=                      [bg=#171928]=
+│     ❯  line one                           # [-]=   [bg=#171928]=   [fg=#f1fc79 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=line one [bg=#171928]=                        [-]=
+│        line two                           # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line two [bg=#171928]=                        [-]=
+│        line three                         # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line three [bg=#171928]=                      [-]=

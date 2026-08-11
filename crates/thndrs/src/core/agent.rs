@@ -316,7 +316,7 @@ impl RunHandle {
             MetadataLoaded::Unavailable => None,
         };
 
-        let tool_defs = tools::runtime_tool_definitions(self.config.mcp_manager.as_deref());
+        let tool_defs = tools::runtime_tool_definitions_for(self.config.authority, self.config.mcp_manager.as_deref());
         let tool_schemas = tools::tool_catalog_schemas(&tool_defs);
         let mut messages = if self.messages.is_empty() {
             vec![ProviderMessage::user(&self.prompt)]
@@ -1064,18 +1064,7 @@ fn dispatch_tool_request(
     {
         return output;
     }
-    let search_config = handle.config.search_config();
-    tools::dispatch_runtime_full_with_cancel_and_search_and_registry(
-        // The application-owned registry keeps background children alive after
-        // this tool call returns and lets the TUI cancel/reap them later.
-        request,
-        &handle.config.root,
-        handle.config.mcp_manager.as_deref(),
-        cancel,
-        &search_config,
-        handle.config.process_registry.as_ref(),
-        &handle.config.extra_read_roots,
-    )
+    tools::dispatch_authorized_runtime_full_with_cancel_and_search_and_registry(request, &handle.config, cancel)
 }
 
 fn approve_tool_request(request: &ToolUseRequest, handle: &RunHandle, cancel: &CancelToken) -> ToolPermissionDecision {

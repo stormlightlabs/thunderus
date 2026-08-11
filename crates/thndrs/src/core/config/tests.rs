@@ -46,6 +46,68 @@ fn config_merge_overrides_only_present_values() {
 }
 
 #[test]
+fn config_merge_preserves_an_omitted_status_line() {
+    let status_line = StatusLineConfig {
+        left: vec![
+            StatusSegment::RunState,
+            StatusSegment::Authority,
+            StatusSegment::Workspace,
+        ],
+        right: vec![StatusSegment::QueueCount],
+    };
+    let base = Config { status_line: Some(status_line.clone()), ..Config::default() };
+
+    assert_eq!(base.merge(Config::default()).status_line, Some(status_line));
+}
+
+#[test]
+fn parses_and_validates_typed_status_line_fields() {
+    let config: Config = toml::from_str(
+        r#"
+        [status_line]
+        left = ["run-state", "active-tool", "authority", "workspace"]
+        right = ["anchored-away", "queue-count"]
+        "#,
+    )
+    .expect("status line parses");
+
+    validate_config(&config).expect("status line validates");
+    let status = config.status_line.expect("status line exists");
+    assert_eq!(status.left[0], StatusSegment::RunState);
+    assert_eq!(status.right, [StatusSegment::AnchoredAway, StatusSegment::QueueCount]);
+}
+
+#[test]
+fn rejects_status_lines_that_hide_operational_precedence() {
+    let config: Config = toml::from_str(
+        r#"
+        [status_line]
+        left = ["run-state", "workspace", "authority"]
+        right = []
+        "#,
+    )
+    .expect("status line parses");
+
+    let error = validate_config(&config).expect_err("cosmetic field before authority must fail");
+    assert!(matches!(error, ConfigError::InvalidConfig { key, message }
+            if key == "status_line.left" && message.contains("must precede")));
+}
+
+#[test]
+fn rejects_unknown_status_line_fields() {
+    let error = toml::from_str::<Config>(
+        r#"
+        [status_line]
+        left = ["run-state", "authority", "shell-command"]
+        right = []
+        "#,
+    )
+    .expect_err("unknown status fields must fail");
+
+    assert!(error.to_string().contains("shell-command"));
+}
+
+#[test]
 fn parses_known_config_fields() {
     let config: Config = toml::from_str(
         r#"
@@ -1047,6 +1109,6 @@ websearch=Some(Searxng)
 verbose=Some(true)
 session_dir_suffix=.thndrs/sessions
 layers=[("project", ".thndrs/config.toml")]
-origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml"), ("websearch_url", "default", "default")]
+origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("status_line", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml"), ("websearch_url", "default", "default")]
 "###);
 }

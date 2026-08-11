@@ -18,7 +18,7 @@ use thndrs_agent::context::ContextConfig;
 use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use crate::utils;
 
-static CONFIG_KEYS: [&str; 14] = [
+static CONFIG_KEYS: [&str; 15] = [
     "model",
     "websearch",
     "websearch_url",
@@ -33,7 +33,44 @@ static CONFIG_KEYS: [&str; 14] = [
     "default_workspace",
     "acp_agents",
     "context",
+    "status_line",
 ];
+
+/// A known, non-executable status-line field.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum StatusSegment {
+    RunState,
+    ActiveTool,
+    Route,
+    Authority,
+    Workspace,
+    Session,
+    QueueCount,
+    AnchoredAway,
+    ActiveChildren,
+}
+
+/// Ordered status-line fields shown on either side of the terminal.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct StatusLineConfig {
+    pub left: Vec<StatusSegment>,
+    pub right: Vec<StatusSegment>,
+}
+
+impl Default for StatusLineConfig {
+    fn default() -> Self {
+        Self {
+            left: vec![
+                StatusSegment::RunState,
+                StatusSegment::ActiveTool,
+                StatusSegment::Authority,
+            ],
+            right: vec![StatusSegment::AnchoredAway, StatusSegment::QueueCount],
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -124,6 +161,7 @@ pub struct Config {
     pub default_workspace: Option<PathBuf>,
     pub acp_agents: AcpAgentsConfig,
     pub context: ContextConfig,
+    pub status_line: Option<StatusLineConfig>,
 }
 
 impl Config {
@@ -145,6 +183,7 @@ impl Config {
         if other.context != ContextConfig::default() {
             self.context = other.context;
         }
+        self.status_line = other.status_line.or(self.status_line);
         self
     }
 
@@ -435,6 +474,9 @@ fn load_file(path: &Path) -> Result<(Config, String), ConfigError> {
 }
 
 fn validate_config(config: &Config) -> Result<(), ConfigError> {
+    if let Some(status) = &config.status_line {
+        validate_status_line(status)?;
+    }
     for (name, agent) in &config.acp_agents {
         validate_acp_agent_name(name)?;
         if agent.command.trim().is_empty() {
@@ -445,6 +487,56 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
         }
     }
     Ok(())
+}
+
+fn validate_status_line(status: &StatusLineConfig) -> Result<(), ConfigError> {
+    let fields = status.left.iter().chain(&status.right).copied().collect::<Vec<_>>();
+    for (index, field) in fields.iter().enumerate() {
+        if fields[..index].contains(field) {
+            return Err(ConfigError::InvalidConfig {
+                key: "status_line".to_string(),
+                message: format!("duplicate status field `{}`", status_segment_label(*field)),
+            });
+        }
+    }
+    if status.left.first() != Some(&StatusSegment::RunState) {
+        return Err(ConfigError::InvalidConfig {
+            key: "status_line.left".to_string(),
+            message: "`run-state` must be the first field so operational state remains visible".to_string(),
+        });
+    }
+    let Some(authority_index) = status.left.iter().position(|field| *field == StatusSegment::Authority) else {
+        return Err(ConfigError::InvalidConfig {
+            key: "status_line.left".to_string(),
+            message: "`authority` is required on the left side".to_string(),
+        });
+    };
+    if status.left[..authority_index].iter().any(|field| {
+        matches!(
+            field,
+            StatusSegment::Route | StatusSegment::Workspace | StatusSegment::Session
+        )
+    }) {
+        return Err(ConfigError::InvalidConfig {
+            key: "status_line.left".to_string(),
+            message: "`authority` must precede route, workspace, and session fields".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn status_segment_label(segment: StatusSegment) -> &'static str {
+    match segment {
+        StatusSegment::RunState => "run-state",
+        StatusSegment::ActiveTool => "active-tool",
+        StatusSegment::Route => "route",
+        StatusSegment::Authority => "authority",
+        StatusSegment::Workspace => "workspace",
+        StatusSegment::Session => "session",
+        StatusSegment::QueueCount => "queue-count",
+        StatusSegment::AnchoredAway => "anchored-away",
+        StatusSegment::ActiveChildren => "active-children",
+    }
 }
 
 /// Validate an ACP agent name accepted by `acp:<name>` model ids.
@@ -813,6 +905,7 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         default_workspace: Some(cwd.to_path_buf()),
         acp_agents: BTreeMap::new(),
         context: ContextConfig::default(),
+        status_line: Some(StatusLineConfig::default()),
     }
 }
 

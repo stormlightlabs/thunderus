@@ -138,29 +138,35 @@ panel.
 
 **Acceptance:**
 
-- [ ] The status line distinguishes idle, thinking, named running tool, waiting
+- [x] The status line distinguishes idle, thinking, named running tool, waiting
       for permission, compacting, cancelling, failed, and complete.
-- [ ] Configuration selects and orders known typed segments in left and right
+- [x] Configuration selects and orders known typed segments in left and right
       groups. It supports run state, active tool, model/provider route, authority,
       workspace, session, queue count, anchored-away state, and active child count.
-- [ ] Configuration does not execute commands or interpolate arbitrary
+- [x] Configuration does not execute commands or interpolate arbitrary
       templates. Invalid or unavailable segment names produce an actionable
       configuration error.
-- [ ] Every segment declares priority, minimum width, and truncation behavior.
+- [x] Every segment declares priority, minimum width, and truncation behavior.
       Narrow layouts drop optional segments before truncating eligible values and
       never wrap the status line.
-- [ ] Run state, permission waits, failures, and authority remain visible ahead
+- [x] Run state, permission waits, failures, and authority remain visible ahead
       of cosmetic context. The default configuration stays sparse.
-- [ ] Quota, token, account, and detailed diagnostics remain in `/status` or
+- [x] Quota, token, account, and detailed diagnostics remain in `/status` or
       `/usage`, not the status line.
-- [ ] Unknown, unavailable, stale, and zero are visually and semantically
+- [x] Unknown, unavailable, stale, and zero are visually and semantically
       distinct.
-- [ ] Tool failures include enough bounded transcript/log context to diagnose
+- [x] Tool failures include enough bounded transcript/log context to diagnose
       the failing operation without exposing secrets.
 
 **Verify:** Configuration parse/validation tests, pure status projection tests,
 normal/narrow/tiny/monochrome snapshots, and transitions driven by fake
 provider/tool/permission events.
+
+**Completed:** 2026-08-10. The footer is now a typed, configurable single-row
+status projection with safe precedence, width-aware omission and truncation,
+and explicit operational states. Its sparse default keeps authority and active
+work visible while leaving usage and account diagnostics in their existing
+detail surfaces.
 
 ### UI-9: Add structured review as a complete workflow
 
@@ -171,20 +177,26 @@ deterministic actionable findings or a clean result.
 
 **Acceptance:**
 
-- [ ] The finding contract requires severity, evidence, and a tight valid
+- [x] The finding contract requires severity, evidence, and a tight valid
       location; it distinguishes actionable findings from a clean review.
-- [ ] Exactly one working-tree, revision, range, or session change set is
+- [x] Exactly one working-tree, revision, range, or session change set is
       resolved before the provider runs.
-- [ ] Review uses read-only tools and cannot modify the repository.
-- [ ] The review surface shows paths, bounded diffs, verification, failures,
+- [x] Review uses read-only tools and cannot modify the repository.
+- [x] The review surface shows paths, bounded diffs, verification, failures,
       unresolved findings, and a clear clean-review outcome.
-- [ ] Human, JSONL, and ACP output share the semantic finding contract and
+- [x] Human, JSONL, and ACP output share the semantic finding contract and
       deterministic ordering.
-- [ ] Invalid/out-of-range findings are rejected rather than rendered as fact.
+- [x] Invalid/out-of-range findings are rejected rather than rendered as fact.
 
 **Verify:** Finding validation/serialization tests, deterministic fake-provider
 review cases, clean/finding/error snapshots, and a bounded real-repository
 smoke.
+
+**Completed:** 2026-08-10. `thndrs review` resolves and bounds exactly one
+working-tree, revision, range, or redacted session target before invoking the
+provider with enforced read-only authority. Validated findings have stable
+ordering and a shared serializable contract; human output distinguishes clean
+reviews and reports paths, input bounds, verification, and failures.
 
 ### UI-10: Make search and file-discovery degradation explicit
 

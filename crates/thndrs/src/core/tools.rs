@@ -94,11 +94,41 @@ pub use thndrs_agent::{ToolBudgetDecision, ToolIterationBudget};
 pub use registry::ProviderSchemaFormat;
 pub(crate) use state_identity::identity_for as state_identity_for;
 
+/// Filesystem and process authority granted to one provider run.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ToolAuthority {
+    /// Allow the normal workspace-scoped read and write tool set.
+    #[default]
+    WorkspaceWrite,
+    /// Allow only built-in tools whose contract is read-only.
+    ReadOnly,
+}
+
+impl ToolAuthority {
+    /// Stable label used by terminal and machine-readable surfaces.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::WorkspaceWrite => "workspace-write",
+            Self::ReadOnly => "read-only",
+        }
+    }
+
+    /// Reader-facing label used by interactive surfaces.
+    pub const fn display_label(self) -> &'static str {
+        match self {
+            Self::WorkspaceWrite => "Editable",
+            Self::ReadOnly => "Read-only",
+        }
+    }
+}
+
 /// Configuration for an agent run, shared by fake and built-in providers.
 #[derive(Clone, Debug)]
 pub struct AgentRunConfig {
     /// Workspace root for tool containment and file reads.
     pub root: PathBuf,
+    /// Tool authority enforced for catalog projection and dispatch.
+    pub authority: ToolAuthority,
     /// Additional read-only roots advertised for discovered skills.
     pub extra_read_roots: Vec<PathBuf>,
     /// Selected model name.
@@ -138,6 +168,7 @@ impl AgentRunConfig {
     pub fn new(root: PathBuf, model: String, search_mode: WebSearchMode) -> Self {
         AgentRunConfig {
             root,
+            authority: ToolAuthority::default(),
             extra_read_roots: Vec::new(),
             model,
             search_mode,
@@ -152,6 +183,12 @@ impl AgentRunConfig {
             model_reduction: thndrs_agent::context::ReductionConfig::default(),
             artifact_store: None,
         }
+    }
+
+    /// Restrict the tool catalog and dispatch boundary for this run.
+    pub fn with_authority(mut self, authority: ToolAuthority) -> Self {
+        self.authority = authority;
+        self
     }
 
     /// Apply the resolved reasoning settings for this run.
@@ -300,6 +337,24 @@ pub fn runtime_tool_definitions(mcp_manager: Option<&McpManager>) -> Vec<ToolDef
     definitions
 }
 
+/// Return the provider-visible catalog allowed by `authority`.
+pub fn runtime_tool_definitions_for(authority: ToolAuthority, mcp_manager: Option<&McpManager>) -> Vec<ToolDefinition> {
+    if authority == ToolAuthority::WorkspaceWrite {
+        return runtime_tool_definitions(mcp_manager);
+    }
+    tool_definitions()
+        .into_iter()
+        .filter(|definition| is_read_only_tool(&definition.name))
+        .collect()
+}
+
+fn is_read_only_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "find_files" | "list_searchable_files" | "search_text" | "read_file_range" | "sawk" | "web_search" | "read_url"
+    )
+}
+
 /// Convert the tool catalog into provider-compatible tool schemas.
 pub fn provider_tool_catalog_schemas(defs: &[ToolDefinition], format: ProviderSchemaFormat) -> serde_json::Value {
     registry::provider_tool_catalog_schemas(defs, format)
@@ -424,6 +479,32 @@ pub fn dispatch_runtime_full_with_cancel_and_search_and_registry(
     dispatch_full_with_cancel_and_search_and_registry(request, root, cancel, search, process_registry, extra_read_roots)
 }
 
+/// Dispatch a request after enforcing the run's authority.
+pub fn dispatch_authorized_runtime_full_with_cancel_and_search_and_registry(
+    request: &ToolUseRequest, config: &AgentRunConfig, cancel: &CancelToken,
+) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
+    if config.authority == ToolAuthority::ReadOnly && !is_read_only_tool(&request.name) {
+        return (
+            ToolOutput::failed(
+                &request.name,
+                "tool is unavailable under read-only authority".to_string(),
+            ),
+            None,
+            None,
+        );
+    }
+    let search = config.search_config();
+    dispatch_runtime_full_with_cancel_and_search_and_registry(
+        request,
+        &config.root,
+        config.mcp_manager.as_deref(),
+        cancel,
+        &search,
+        config.process_registry.as_ref(),
+        &config.extra_read_roots,
+    )
+}
+
 /// Return searchable file paths for UI features that need file selection.
 pub fn searchable_file_paths(root: &Path, max_results: usize) -> Result<Vec<String>, String> {
     let output = list_searchable_files::exec(root, None, max_results, false);
@@ -468,6 +549,38 @@ mod tests {
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.display.lines.is_empty());
         assert_eq!(output.error.as_deref(), Some("something went wrong"));
+    }
+
+    #[test]
+    fn read_only_authority_hides_and_rejects_mutating_tools() {
+        let definitions = runtime_tool_definitions_for(ToolAuthority::ReadOnly, None);
+        assert!(
+            definitions
+                .iter()
+                .any(|definition| definition.name == "read_file_range")
+        );
+        assert!(!definitions.iter().any(|definition| definition.name == "write_file"));
+        assert!(!definitions.iter().any(|definition| definition.name == "run_shell"));
+
+        let dir = tempfile::tempdir().expect("temp workspace");
+        let request = ToolUseRequest::new(
+            "write_file",
+            serde_json::json!({ "path": "forbidden.txt", "content": "must not exist" }).to_string(),
+            "call_1",
+        );
+        let config = AgentRunConfig::new(dir.path().to_path_buf(), "test-model".to_string(), WebSearchMode::None)
+            .with_authority(ToolAuthority::ReadOnly);
+        let (output, write, process) = dispatch_authorized_runtime_full_with_cancel_and_search_and_registry(
+            &request,
+            &config,
+            &CancelToken::new(),
+        );
+
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert!(output.error.as_deref().is_some_and(|error| error.contains("read-only")));
+        assert!(write.is_none());
+        assert!(process.is_none());
+        assert!(!dir.path().join("forbidden.txt").exists());
     }
 
     #[test]

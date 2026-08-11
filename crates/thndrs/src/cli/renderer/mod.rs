@@ -14,6 +14,7 @@ pub mod layout;
 pub mod live;
 pub mod path_display;
 pub mod row;
+mod status;
 pub mod style;
 pub mod surface;
 pub mod transcript;

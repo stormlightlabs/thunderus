@@ -20,7 +20,12 @@ fn render_entry_styled(entry: &Entry, width: usize) -> String {
 fn render_banner_styled(app: &App, width: usize) -> String {
     let rows = app.render_banner_rows(width);
     let frame = row::Frame { rows, width, cursor: None, cursor_visible: true };
-    frame.render_styled()
+    frame
+        .render_styled()
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[test]
@@ -72,6 +77,8 @@ fn test_app() -> App {
         config_origins: std::collections::BTreeMap::new(),
         acp_agents: std::collections::BTreeMap::new(),
         context: thndrs_agent::context::ContextConfig::default(),
+        status_line: Default::default(),
+        authority: Default::default(),
         command: None,
     });
     app.overlay.close();

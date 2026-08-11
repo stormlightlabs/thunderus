@@ -13,6 +13,7 @@ pub mod mcp;
 pub mod prelude;
 pub mod prompt;
 pub mod providers;
+pub mod review;
 pub mod search;
 pub mod skills;
 pub mod tools;

@@ -231,6 +231,8 @@ pub enum Command {
     },
     /// Run one coding prompt without opening the terminal interface.
     Run(commands::run::RunCommand),
+    /// Review one change target with read-only tools and structured findings.
+    Review(commands::review::ReviewCommand),
     /// Inspect local append-only session history.
     #[command(alias = "sessions")]
     Session {
@@ -335,6 +337,12 @@ pub struct Cli {
     /// Effective context-control and model-projection reduction settings.
     #[arg(skip)]
     pub context: thndrs_agent::context::ContextConfig,
+    /// Ordered, typed fields rendered in the single-line terminal status.
+    #[arg(skip)]
+    pub status_line: config::StatusLineConfig,
+    /// Tool authority applied to the active run.
+    #[arg(skip)]
+    pub authority: crate::tools::ToolAuthority,
     /// Optional non-interactive command.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -364,6 +372,8 @@ impl Default for Cli {
             config_origins: BTreeMap::new(),
             acp_agents: BTreeMap::new(),
             context: thndrs_agent::context::ContextConfig::default(),
+            status_line: config::StatusLineConfig::default(),
+            authority: crate::tools::ToolAuthority::default(),
             command: None,
         }
     }
@@ -509,6 +519,7 @@ impl Cli {
         self.config_origins = origins;
         self.acp_agents = config.acp_agents;
         self.context = config.context;
+        self.status_line = config.status_line.unwrap_or_default();
         self
     }
 }
@@ -576,6 +587,22 @@ mod tests {
                 jsonl: true,
                 stdin_max_bytes: 128,
             }))
+        ));
+    }
+
+    #[test]
+    fn review_command_requires_exactly_one_target() {
+        assert!(Cli::try_parse_from(["thndrs", "review"]).is_err());
+        assert!(Cli::try_parse_from(["thndrs", "review", "--working-tree", "--revision", "HEAD"]).is_err());
+
+        let cli = Cli::try_parse_from(["thndrs", "review", "--range", "main..HEAD", "--jsonl"]).expect("parse review");
+        assert!(matches!(
+            cli.command,
+            Some(Command::Review(commands::review::ReviewCommand {
+                range: Some(range),
+                jsonl: true,
+                ..
+            })) if range == "main..HEAD"
         ));
     }
 

@@ -33,6 +33,8 @@ fn test_app() -> App {
         config_origins: std::collections::BTreeMap::new(),
         acp_agents: std::collections::BTreeMap::new(),
         context: thndrs_agent::context::ContextConfig::default(),
+        status_line: Default::default(),
+        authority: Default::default(),
         command: None,
     });
     app.overlay.close();
@@ -368,8 +370,8 @@ fn build_view_prompt_clipping_keeps_cursor_row() {
     );
     assert_eq!(
         view.live.prompt_cursor.map(|cursor| cursor.row),
-        Some(renderer::live::MAX_PROMPT_ROWS - 1),
-        "cursor row should be rebased into the clipped prompt rows"
+        Some(renderer::live::MAX_PROMPT_ROWS - 2),
+        "cursor row should be rebased above the composer's bottom padding"
     );
 }
 

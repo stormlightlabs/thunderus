@@ -35,6 +35,8 @@ fn test_app() -> App {
         config_origins: std::collections::BTreeMap::new(),
         acp_agents: std::collections::BTreeMap::new(),
         context: thndrs_agent::context::ContextConfig::default(),
+        status_line: Default::default(),
+        authority: Default::default(),
         command: None,
     });
     app.overlay.close();
@@ -103,19 +105,47 @@ fn frame_prompt_rows_adds_borderless_metadata_and_offsets_cursor() {
     let (body_rows, cursor) = prompt_rows_for(&app, 80);
     let (rows, cursor) = frame_prompt_rows(&app, 80, body_rows, cursor);
 
-    assert_eq!(rows.len(), 2);
+    assert_eq!(rows.len(), 4);
     assert!(rows[0].text().contains("test-session"));
     assert!(!rows[0].text().contains("prompt"));
     assert!(!rows[0].text().contains("idle"));
-    assert!(rows[1].text().contains("❯  hello"));
+    assert!(rows[2].text().contains("❯  hello"));
     assert!(!rows.iter().any(|row| row.text().contains(['╭', '╮', '╰', '╯', '│'])));
-    assert_eq!(cursor, Some(CursorCoord::new(1, 12)));
-    assert!(
-        rows.iter()
-            .flat_map(|row| &row.spans)
-            .all(|span| span.style.bg == renderer::style::palette().panel_bg),
-        "the full composer block should retain its background"
+    assert_eq!(cursor, Some(CursorCoord::new(2, 12)));
+    let content_column = rows[0].text().find("test-session").expect("session label");
+    assert_eq!(rows[2].text().find('❯'), Some(content_column));
+    assert_eq!(static_status_row(&app, 80).text().find("Idle"), Some(content_column));
+    assert_eq!(
+        app.render_banner_rows(80)[0].text().find("thndrs"),
+        Some(content_column)
     );
+    assert!(
+        rows[0].spans.iter().all(|span| span.style.bg == Color::Reset),
+        "session metadata should use the terminal background"
+    );
+    assert!(
+        rows[2].spans.first().is_some_and(|span| span.style.bg == Color::Reset)
+            && rows[2].spans.last().is_some_and(|span| span.style.bg == Color::Reset),
+        "the editable input surface should be inset from the terminal edges"
+    );
+    assert!(
+        rows[2]
+            .spans
+            .iter()
+            .any(|span| span.style.bg == renderer::style::palette().panel_bg),
+        "the editable input surface should retain the composer background"
+    );
+    for row in [&rows[1], &rows[3]] {
+        assert!(
+            row.spans.first().is_some_and(|span| span.style.bg == Color::Reset)
+                && row.spans.last().is_some_and(|span| span.style.bg == Color::Reset)
+                && row
+                    .spans
+                    .iter()
+                    .any(|span| span.style.bg == renderer::style::palette().panel_bg),
+            "vertical composer padding should share the inset input background"
+        );
+    }
 }
 
 #[test]
@@ -163,19 +193,20 @@ fn prompt_rows_submitted_shows_queue_icon() {
 }
 
 #[test]
-fn static_status_row_hides_everything_at_tiny_width() {
+fn static_status_row_keeps_run_state_at_tiny_width() {
     let app = test_app();
     let row = static_status_row(&app, 10);
     let text = row.text();
-    assert!(text.trim().is_empty(), "nothing should show at width 10");
+    assert_eq!(text.trim(), "Idle");
 }
 
 #[test]
 fn static_status_row_prioritizes_immediate_state() {
     let app = test_app();
     let text = static_status_row(&app, 80).text();
-    assert!(text.contains("Ready"));
-    assert!(text.contains("/status details"));
+    assert!(text.contains("Idle"));
+    assert!(text.contains("Editable"));
+    assert!(text.contains("queue 0"));
     assert!(!text.contains("model:"));
     assert!(!text.contains("tok:"));
     assert!(!text.contains("quota"));
@@ -512,8 +543,10 @@ fn snapshot_prompt_at_widths(name: &str, text: &str) {
         let (rows, _) = prompt_rows_for(&app, width);
         let frame = Frame { rows, width, cursor: None, cursor_visible: true };
         combined.push_str(&format!("width={width}:\n"));
-        combined.push_str(&frame.render_styled());
-        combined.push('\n');
+        for line in frame.render_styled().lines() {
+            combined.push_str(line.trim_end());
+            combined.push('\n');
+        }
     }
     insta::assert_snapshot!(name, combined);
 }
