@@ -2,9 +2,9 @@
 //! skills, pins, compaction summaries, and transcript candidates.
 //!
 //! Pin, drop, and recovery actions append redacted metadata to the session.
-//! Compaction saves the current transcript and applies a provider summary only
-//! after its audit record is written; failed or rejected compactions restore the
-//! saved transcript and any pending user turn.
+//! Compaction keeps the transcript append-only and applies a provider summary
+//! to the model-facing projection only after its audit record is written.
+//! Failed or rejected compactions preserve the projection and pending user turn.
 
 use crate::context::export::{ContextExport, ContextExportFormat, ExportArtifact, artifact_from_recovery};
 use crate::session::CompactionRisk;
@@ -15,8 +15,8 @@ pub const CONTEXT_INSPECTION_MAX_ITEMS: usize = 64;
 
 const CONTEXT_DISPLAY_MAX_BYTES: usize = 160;
 
-/// Pending compaction request with enough information to atomically replace
-/// active context after a successful configured-model response.
+/// Pending compaction request with enough information to atomically update the
+/// model-facing projection after a successful configured-model response.
 ///
 /// Carries both the manual (`/compact`) and automatic (preflight pressure)
 /// paths. For automatic compaction, `original_user_turn` holds the user turn
@@ -25,6 +25,7 @@ const CONTEXT_DISPLAY_MAX_BYTES: usize = 160;
 #[derive(Clone, Debug)]
 pub struct PendingManualCompaction {
     original_transcript: TranscriptBlocks,
+    source_transcript: Vec<Entry>,
     covered_start_seq: u64,
     covered_end_seq: u64,
     recovery_handle: String,
@@ -40,7 +41,7 @@ pub struct PendingManualCompaction {
 }
 
 /// A provider-generated summary waiting for the user to approve or reject its
-/// replacement of the active transcript range.
+/// replacement of the active model-facing range.
 #[derive(Clone, Debug)]
 pub struct PendingCompactionReview {
     pending: PendingManualCompaction,
@@ -304,6 +305,9 @@ impl App {
         let (limits, mut diagnostics) =
             agent_context::ModelContextLimits::resolve(provider, &self.runtime.model, None, None);
         let mut ledger = agent_context::select_context(&selection_input, limits);
+        ledger.budget.auto_compaction_threshold = self
+            .effective_compaction_policy()
+            .auto_compaction_threshold(ledger.budget.available_input);
         for item in &mut ledger.items {
             if let Some(mut lifecycle) = self.transcript.context_lifecycles.get(&item.id).cloned() {
                 lifecycle.merge_derived_protection(&item.lifecycle.protection);
@@ -927,24 +931,57 @@ pub fn start_auto_compaction(app: &mut App, original_user_turn: String) -> Optio
 /// Shared core for manual and automatic compaction.
 ///
 /// Saves the active transcript, builds a configured-model summary request,
-/// starts it as an internal turn, and records enough state to atomically
-/// replace active context on success or restore it on failure.
+/// starts it as an internal turn, and records enough state to atomically update
+/// the model-facing projection on success or preserve it on failure.
 pub fn start_compaction(
     app: &mut App, trigger: session::CompactionTrigger, original_user_turn: Option<String>,
 ) -> Option<Msg> {
     let original_transcript = app.transcript.entries.clone();
-    let source = render_compaction_source(&original_transcript);
     let policy = app.effective_compaction_policy();
-    let covered_start_seq = 1;
-    let covered_end_seq = original_transcript.len() as u64;
+    let latest_summary = app
+        .transcript
+        .compaction_summaries
+        .iter()
+        .find(|summary| summary.latest);
+    let previous_end = latest_summary.map_or(0, |summary| summary.end_seq) as usize;
+    let maximum_end = original_user_turn
+        .as_deref()
+        .and_then(|turn| {
+            original_transcript
+                .iter()
+                .rposition(|entry| matches!(entry, Entry::User { text } if text == turn))
+        })
+        .unwrap_or(original_transcript.len());
+    let covered_end = compaction_cut(&original_transcript, maximum_end, policy.keep_recent_tokens);
+    if covered_end <= previous_end {
+        app.transcript
+            .entries
+            .push(Entry::Status { text: "there is no closed history old enough to compact".to_string() });
+        if trigger == session::CompactionTrigger::Automatic
+            && let Some(turn) = original_user_turn
+        {
+            app.composer.last_input = Some(turn);
+        }
+        return None;
+    }
+    let source_transcript = original_transcript[previous_end..covered_end].to_vec();
+    let mut source_parts = Vec::new();
+    if let Some(previous) = latest_summary.and_then(|summary| summary.content.as_deref()) {
+        source_parts.push(format!("previous anchored summary:\n{previous}"));
+    }
+    source_parts.push(render_compaction_source(&source_transcript));
+    let source = source_parts.join("\n\n");
+    let covered_start_seq = latest_summary.map_or(1, |summary| summary.start_seq);
+    let covered_end_seq = covered_end as u64;
+    let source_start_seq = previous_end as u64 + 1;
     let recovery_handle = format!("session:{}:{covered_start_seq}..{covered_end_seq}", app.session.id);
-    let (sources, protected_facts) = range_sources(&app.session.id, &original_transcript);
+    let (sources, protected_facts) = range_sources(&app.session.id, source_start_seq, &source_transcript);
     let source_summary_ids = source_summary_ids(&app.transcript.compaction_summaries);
     let request = match agent_context::prepare_range_compression(
         policy,
         &app.runtime.model,
         agent_context::RangeCompressionInput {
-            start_seq: covered_start_seq,
+            start_seq: source_start_seq,
             end_seq: covered_end_seq,
             focus: "preserve the task objective, decisions, failures, verification, and blockers for continuation"
                 .to_string(),
@@ -980,6 +1017,7 @@ pub fn start_compaction(
     };
     app.transcript.pending_manual_compaction = Some(PendingManualCompaction {
         original_transcript,
+        source_transcript,
         covered_start_seq,
         covered_end_seq,
         recovery_handle,
@@ -1013,7 +1051,7 @@ pub fn finish_manual_compaction(app: &mut App) -> Option<Option<Msg>> {
             return Some(None);
         }
     };
-    let risk = classify_compaction_risk(&pending.original_transcript);
+    let risk = classify_compaction_risk(&pending.source_transcript);
     let review = if app.effective_compaction_policy().requires_review(match risk {
         session::CompactionRisk::Low => agent_context::CompactionRisk::Low,
         session::CompactionRisk::High => agent_context::CompactionRisk::High,
@@ -1041,7 +1079,7 @@ pub fn finish_manual_compaction(app: &mut App) -> Option<Option<Msg>> {
     }
 }
 
-/// Apply an approved or review-free summary to the active working set.
+/// Apply an approved or review-free summary to the model-facing working set.
 /// FIXME: wrapping an option in an option is awful
 pub fn apply_compaction(
     app: &mut App, pending: PendingManualCompaction, summary: &agent_context::RangeSummary,
@@ -1070,29 +1108,20 @@ pub fn apply_compaction(
         rendered_summary.len(),
         true,
     );
-    summary_candidate.content = Some(rendered_summary.clone());
+    summary_candidate.content = Some(rendered_summary);
     app.transcript.compaction_summaries.push(summary_candidate);
 
+    app.transcript.entries = pending.original_transcript;
+    app.transcript.entries.push(Entry::Status {
+        text: format!(
+            "{}compacted  {}",
+            if is_automatic { "auto-" } else { "" },
+            pending.recovery_handle
+        ),
+    });
     if is_automatic {
-        app.transcript.entries.clear();
-    } else {
-        app.transcript.entries = pending.original_transcript;
-        app.transcript
-            .entries
-            .push(Entry::Status { text: format!("compacted  {}", pending.recovery_handle) });
-    }
-    let summary_entry = Entry::Agent { text: rendered_summary, streaming: false };
-    app.transcript.entries.push(summary_entry.clone());
-    if let Some(writer) = app.session.writer.as_mut() {
-        let turn_id = format!("turn_{}", app.session.turn_count);
-        let _ = writer.append_entry(&summary_entry, &turn_id);
-    }
-    if is_automatic {
-        app.transcript
-            .entries
-            .push(Entry::Status { text: format!("auto-compacted  {}", pending.recovery_handle) });
         if let Some(turn) = original_user_turn {
-            return Some(super::input::submit_user_turn(app, turn));
+            return Some(super::input::submit_internal_turn(app, turn));
         }
     }
     Some(None)
@@ -1255,6 +1284,40 @@ fn render_compaction_source(entries: &[Entry]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+/// Select a complete prefix while retaining a recent, user-turn-aligned tail.
+///
+/// `maximum_end` excludes an in-flight user turn during automatic compaction.
+/// Small histories still honor an explicit `/compact`; the recent-token target
+/// becomes relevant once the transcript is larger than that target.
+fn compaction_cut(entries: &[Entry], maximum_end: usize, keep_recent_tokens: u64) -> usize {
+    let maximum_end = maximum_end.min(entries.len());
+    if maximum_end == 0 || keep_recent_tokens == 0 {
+        return maximum_end;
+    }
+    let total_tokens = agent_context::estimate_tokens(render_compaction_source(entries).len()) as u64;
+    if total_tokens <= keep_recent_tokens {
+        return maximum_end;
+    }
+
+    let mut tail_start = entries[..maximum_end]
+        .iter()
+        .rposition(|entry| matches!(entry, Entry::User { .. }))
+        .unwrap_or(maximum_end);
+    loop {
+        let tail_tokens = agent_context::estimate_tokens(render_compaction_source(&entries[tail_start..]).len()) as u64;
+        if tail_tokens >= keep_recent_tokens {
+            return tail_start;
+        }
+        let Some(previous_start) = entries[..tail_start]
+            .iter()
+            .rposition(|entry| matches!(entry, Entry::User { .. }))
+        else {
+            return 0;
+        };
+        tail_start = previous_start;
+    }
 }
 
 fn handle_context_verification(app: &mut App, input: &str) -> Option<Msg> {
@@ -1433,12 +1496,12 @@ fn handle_context_review(app: &mut App, action: &str) -> Option<Msg> {
 /// Build addressable source metadata and exact protected facts for a closed
 /// transcript range. The source body itself remains process-local.
 fn range_sources(
-    session_id: &str, entries: &[Entry],
+    session_id: &str, start_seq: u64, entries: &[Entry],
 ) -> (Vec<agent_context::RangeSource>, Vec<agent_context::ProtectedFact>) {
     let mut sources = Vec::with_capacity(entries.len());
     let mut protected_facts = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
-        let sequence = index as u64 + 1;
+        let sequence = start_seq + index as u64;
         let id = agent_context::item_id_for_session_range(&ContextItemKind::Transcript, session_id, sequence, sequence);
         let text = render_compaction_entry(entry);
         sources.push(agent_context::RangeSource {
@@ -1476,7 +1539,7 @@ fn compaction_audit(
         .iter()
         .map(|source| session::CompactionSourceHash { id: source.id.clone(), content_hash: Some(source.content_hash) })
         .collect();
-    let before_bytes = render_compaction_source(&pending.original_transcript).len();
+    let before_bytes = render_compaction_source(&pending.source_transcript).len();
     session::CompactionAudit {
         summary: rendered_summary.to_string(),
         typed_summary: Some(summary.clone()),
@@ -1485,7 +1548,7 @@ fn compaction_audit(
         source_hashes,
         source_summary_ids: pending.source_summary_ids.clone(),
         trigger: pending.trigger,
-        risk: classify_compaction_risk(&pending.original_transcript),
+        risk: classify_compaction_risk(&pending.source_transcript),
         review: Some(review),
         recovery_handles: pending
             .request
@@ -1630,4 +1693,44 @@ pub(crate) fn range_summary_response(app: &App, objective: &str) -> String {
         source_summary_ids: request.source_summary_ids.clone(),
     })
     .expect("serialize typed test summary")
+}
+
+#[cfg(test)]
+mod compaction_cut_tests {
+    use super::*;
+
+    fn user(text: impl Into<String>) -> Entry {
+        Entry::User { text: text.into() }
+    }
+
+    fn agent(text: impl Into<String>) -> Entry {
+        Entry::Agent { text: text.into(), streaming: false }
+    }
+
+    #[test]
+    fn explicit_compaction_covers_a_small_closed_history() {
+        let entries = vec![user("question"), agent("answer")];
+
+        assert_eq!(compaction_cut(&entries, entries.len(), 20_000), entries.len());
+    }
+
+    #[test]
+    fn large_history_retains_a_complete_recent_turn() {
+        let large = "x".repeat(48_000);
+        let entries = vec![
+            user("old question"),
+            agent(large.clone()),
+            user("recent question"),
+            agent(large),
+        ];
+
+        assert_eq!(compaction_cut(&entries, entries.len(), 10_000), 2);
+    }
+
+    #[test]
+    fn automatic_compaction_never_covers_the_in_flight_user_turn() {
+        let entries = vec![user("old question"), agent("old answer"), user("current question")];
+
+        assert_eq!(compaction_cut(&entries, 2, 0), 2);
+    }
 }

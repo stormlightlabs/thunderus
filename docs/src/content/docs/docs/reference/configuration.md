@@ -71,6 +71,7 @@ provider-specific names.
 | `session_dir`       | path               | `.thndrs/sessions` in the workspace | Directory for append-only session JSONL files.                            |
 | `default_workspace` | path               | current process directory           | Workspace used when `--cwd` is omitted.                                   |
 | `acp_agents`        | table              | `{}`                                | Configured external ACP agents.                                           |
+| `context`           | table              | see below                           | Context compaction and deterministic reduction settings.                  |
 
 Relative `skill_dirs`, `session_dir`, and `default_workspace` values are
 resolved relative to the config file that declares them.
@@ -97,6 +98,12 @@ skill_dirs = ["vendor/agent-skills"]
 session_dir = ".thndrs/sessions"
 default_workspace = ".."
 
+[context.compaction]
+mode = "manual"
+review = "auto"
+threshold = "92%"
+keep_recent_tokens = 20000
+
 [acp_agents.codex]
 command = "npx"
 args = ["-y", "@zed-industries/codex-acp@latest"]
@@ -107,6 +114,40 @@ timeout_secs = 60
 
 A standalone sample is available at
 [`/thndrs-config.sample.toml`](/thndrs-config.sample.toml).
+
+## Context Compaction
+
+`/compact` is available when `context.compaction.mode` is `manual` or `auto`.
+Set the mode to `off` to disable both explicit and automatic compaction. In
+`auto` mode, thndrs checks the projected request before sending it and compacts
+first when it exceeds `threshold` of the available input budget. The available
+input budget already accounts for the selected model's context window and
+completion reserve.
+
+```toml
+[context.compaction]
+mode = "auto"              # off | manual | auto
+review = "auto"            # always | auto | never
+threshold = "92%"          # 1% through 100%
+keep_recent_tokens = 20000  # approximate token target
+```
+
+`threshold` uses percentage syntax so it remains model-aware as the selected
+model changes. Compaction starts only after the projected request exceeds the
+resolved threshold. `keep_recent_tokens` is an approximate target: thndrs cuts
+only at a user-turn boundary, so the retained tail may be larger. An explicit
+`/compact` still compacts a small closed history rather than refusing because
+the history is below that target.
+
+`review = "auto"` pauses only summaries that cover tool output, failures,
+permissions, corrections, or unresolved work. Resolve them with `/context
+review approve` or `/context review reject`. `always` pauses every summary;
+`never` applies a valid typed summary immediately.
+
+Compaction is separate from deterministic tool-output reduction. The latter is
+configured under `[context.reduction]` and runs without asking a model. The
+selected provider model performs semantic compaction; there is no separate
+compaction backend setting.
 
 ## CLI-Only Settings
 

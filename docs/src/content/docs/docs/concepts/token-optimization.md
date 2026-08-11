@@ -29,9 +29,9 @@ summary that changes a source hash, recovery handle, source sequence, protected
 fact, or prior-summary reference.
 
 An approved summary replaces only the transcript entries it covers in the next
-model projection. Unrelated transcript entries stay available. The original
-entries remain in the append-only session file and can be recovered from their
-recorded handles.
+model projection. The canonical transcript stays append-only. Recent complete
+turns remain verbatim when the conversation is large, and a later compaction
+merges the previous anchored summary with only the newly closed history.
 
 Ranges containing tool output, failures, permission state, or unresolved work
 wait for `/context review approve` or `/context review reject`. Rejection and
@@ -41,3 +41,5 @@ and cache values appear only when the provider reports them.
 
 See [Prompting and Input](/docs/usage/prompting-and-input/) for the commands and
 [Session Format](/docs/reference/session-format/) for the durable audit record.
+See [Configuration](/docs/reference/configuration/#context-compaction) for
+automatic triggering and recent-tail controls.

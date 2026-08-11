@@ -15,6 +15,14 @@ skill_dirs = ["vendor/agent-skills"]
 session_dir = ".thndrs/sessions"
 default_workspace = "."
 
+# Keep manual compaction available. Use "auto" to compact before an oversized
+# request, or "off" to disable both automatic compaction and /compact.
+[context.compaction]
+mode = "manual"
+review = "auto"
+threshold = "92%"
+keep_recent_tokens = 20000
+
 # External ACP agents are selected with --model acp:<name>.
 # Keep credentials out of TOML. Use agent-owned auth, parent process
 # environment, or a wrapper command for secrets.

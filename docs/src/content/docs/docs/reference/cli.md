@@ -37,7 +37,9 @@ title: "CLI Reference"
 Inside the TUI, `/context` inspects the active context working set and
 `/doctor` reports context source, pin, budget, and compaction review health.
 Use `/context pin <id-or-path>`, `/context drop <id>`, `/context recover <id>`,
-and `/context review <approve|reject>` for task-local context control.
+and `/context review <approve|reject>` for task-local context control. Use
+`/compact` while idle to summarize a closed prefix of the conversation with
+the selected model. The original transcript remains in the append-only session.
 
 Supported setup and login providers are ChatGPT Codex, OpenCode Zen, and
 OpenCode Go. API-key providers use hidden input. ChatGPT Codex setup and login

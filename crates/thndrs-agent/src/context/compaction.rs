@@ -7,6 +7,9 @@ use super::{ContextBudget, ModelContextLimits, ReductionConfig};
 /// Schema version for provider-neutral range summaries.
 pub const RANGE_SUMMARY_SCHEMA_VERSION: u32 = 1;
 
+const DEFAULT_AUTO_COMPACTION_PERCENT: u8 = 92;
+const DEFAULT_KEEP_RECENT_TOKENS: u64 = 20_000;
+
 /// One recoverable source included in a closed compression range.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RangeSource {
@@ -195,13 +198,29 @@ pub struct ContextConfig {
 }
 
 /// Compaction configuration parsed from `[context.compaction]`.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CompactionConfig {
     /// Whether compaction is disabled, manually requested, or automatic.
     pub mode: CompactionMode,
     /// When a generated summary needs user review before becoming active.
     pub review: CompactionReview,
+    /// Percentage of the available input budget that triggers automatic compaction.
+    #[serde(serialize_with = "serialize_threshold", deserialize_with = "deserialize_threshold")]
+    pub threshold: u8,
+    /// Approximate recent transcript tokens retained verbatim when possible.
+    pub keep_recent_tokens: u64,
+}
+
+impl Default for CompactionConfig {
+    fn default() -> Self {
+        Self {
+            mode: CompactionMode::default(),
+            review: CompactionReview::default(),
+            threshold: DEFAULT_AUTO_COMPACTION_PERCENT,
+            keep_recent_tokens: DEFAULT_KEEP_RECENT_TOKENS,
+        }
+    }
 }
 
 /// Risk level of material a summary would replace.
@@ -243,6 +262,16 @@ pub struct CompactionPolicy {
     pub mode: CompactionMode,
     /// Selected review policy.
     pub review: CompactionReview,
+    /// Percentage of available input at which automatic compaction starts.
+    pub threshold: u8,
+    /// Approximate recent transcript tokens retained verbatim when possible.
+    pub keep_recent_tokens: u64,
+}
+
+impl Default for CompactionPolicy {
+    fn default() -> Self {
+        Self::from_config(&CompactionConfig::default())
+    }
 }
 
 /// A configured-model request for one manual compaction.
@@ -396,7 +425,12 @@ pub fn validate_range_summary(
 impl CompactionPolicy {
     /// Build a policy from parsed configuration.
     pub fn from_config(config: &CompactionConfig) -> Self {
-        Self { mode: config.mode, review: config.review }
+        Self {
+            mode: config.mode,
+            review: config.review,
+            threshold: config.threshold,
+            keep_recent_tokens: config.keep_recent_tokens,
+        }
     }
 
     /// Whether an idle `/compact` request may start a configured-model summary.
@@ -406,10 +440,16 @@ impl CompactionPolicy {
 
     /// Whether auto-compaction is eligible after normal selection.
     ///
-    /// The strict comparison deliberately preserves the specified 92% boundary:
-    /// exactly 92% does not compact; values above it may compact.
+    /// The strict comparison preserves the configured boundary: exactly the
+    /// threshold does not compact; values above it may compact.
     pub fn should_auto_compact(self, budget: &ContextBudget) -> bool {
-        matches!(self.mode, CompactionMode::Auto) && budget.exceeds_auto_compaction()
+        matches!(self.mode, CompactionMode::Auto)
+            && budget.used > self.auto_compaction_threshold(budget.available_input)
+    }
+
+    /// Resolve the configured percentage against an available input budget.
+    pub fn auto_compaction_threshold(self, available_input: u64) -> u64 {
+        available_input.saturating_mul(u64::from(self.threshold)) / 100
     }
 
     /// Whether a proposed summary requires user review before it becomes active.
@@ -446,16 +486,40 @@ pub enum AutoCompactionDecision {
 /// returns [`AutoCompactionDecision::Compact`] only when auto mode is enabled
 /// and the estimate exceeds the auto-compaction threshold.
 ///
-/// Uses [`ModelContextLimits::auto_compaction_threshold`] directly so the
-/// 92% boundary stays consistent with budget-based pressure checks.
 pub fn preflight_auto_compaction(
     policy: CompactionPolicy, limits: &ModelContextLimits, prompt_token_estimate: u64,
 ) -> AutoCompactionDecision {
-    if matches!(policy.mode, CompactionMode::Auto) && prompt_token_estimate > limits.auto_compaction_threshold() {
+    let threshold = policy.auto_compaction_threshold(limits.available_input_budget());
+    if matches!(policy.mode, CompactionMode::Auto) && prompt_token_estimate > threshold {
         AutoCompactionDecision::Compact
     } else {
         AutoCompactionDecision::Send
     }
+}
+
+fn serialize_threshold<S>(threshold: &u8, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&format!("{threshold}%"))
+}
+
+fn deserialize_threshold<'de, D>(deserializer: D) -> Result<u8, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    let percent = value
+        .strip_suffix('%')
+        .ok_or_else(|| serde::de::Error::custom("compaction threshold must be a percentage such as `80%`"))?
+        .parse::<u8>()
+        .map_err(serde::de::Error::custom)?;
+    if !(1..=100).contains(&percent) {
+        return Err(serde::de::Error::custom(
+            "compaction threshold must be between 1% and 100%",
+        ));
+    }
+    Ok(percent)
 }
 
 #[cfg(test)]
@@ -481,8 +545,31 @@ mod tests {
         let config: ContextConfig = serde_json::from_str(r#"{"compaction":{}}"#).expect("parse config");
         assert_eq!(config.compaction.mode, CompactionMode::Manual);
         assert_eq!(config.compaction.review, CompactionReview::Auto);
+        assert_eq!(config.compaction.threshold, 92);
+        assert_eq!(config.compaction.keep_recent_tokens, 20_000);
         assert!(config.reduction.shadow);
         assert!(config.reduction.enabled_reducers().is_empty());
+    }
+
+    #[test]
+    fn compaction_pressure_and_recent_tail_are_configurable() {
+        let config: ContextConfig =
+            serde_json::from_str(r#"{"compaction":{"mode":"auto","threshold":"80%","keep_recent_tokens":12000}}"#)
+                .expect("parse config");
+        let policy = CompactionPolicy::from_config(&config.compaction);
+
+        assert_eq!(policy.threshold, 80);
+        assert_eq!(policy.keep_recent_tokens, 12_000);
+        assert!(!policy.should_auto_compact(&budget(80_000)));
+        assert!(policy.should_auto_compact(&budget(80_001)));
+    }
+
+    #[test]
+    fn compaction_threshold_requires_a_bounded_percentage() {
+        for threshold in [r#""80""#, r#""0%""#, r#""101%""#] {
+            let input = format!(r#"{{"compaction":{{"threshold":{threshold}}}}}"#);
+            assert!(serde_json::from_str::<ContextConfig>(&input).is_err());
+        }
     }
 
     #[test]
@@ -541,11 +628,11 @@ mod tests {
 
     #[test]
     fn auto_compaction_starts_only_above_92_percent() {
-        let policy = CompactionPolicy { mode: CompactionMode::Auto, review: CompactionReview::Auto };
+        let policy = CompactionPolicy { mode: CompactionMode::Auto, ..Default::default() };
         assert!(!policy.should_auto_compact(&budget(92_000)));
         assert!(policy.should_auto_compact(&budget(92_001)));
         assert!(
-            !CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Auto }
+            !CompactionPolicy { mode: CompactionMode::Manual, ..Default::default() }
                 .should_auto_compact(&budget(100_000))
         );
     }
@@ -565,26 +652,20 @@ mod tests {
     #[test]
     fn review_policy_respects_all_choices() {
         assert!(
-            CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Always }
+            CompactionPolicy { review: CompactionReview::Always, ..Default::default() }
                 .requires_review(CompactionRisk::Low)
         );
+        assert!(CompactionPolicy::default().requires_review(CompactionRisk::High));
+        assert!(!CompactionPolicy::default().requires_review(CompactionRisk::Low));
         assert!(
-            CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Auto }
-                .requires_review(CompactionRisk::High)
-        );
-        assert!(
-            !CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Auto }
-                .requires_review(CompactionRisk::Low)
-        );
-        assert!(
-            !CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Never }
+            !CompactionPolicy { review: CompactionReview::Never, ..Default::default() }
                 .requires_review(CompactionRisk::High)
         );
     }
 
     #[test]
     fn manual_request_uses_the_configured_model_and_is_non_mutating_on_error() {
-        let policy = CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Auto };
+        let policy = CompactionPolicy::default();
         let request = prepare_manual_compaction(policy, "provider/model", "fixed the parser", "session:12..47")
             .expect("prepare request");
         assert_eq!(request.model, "provider/model");
@@ -596,7 +677,7 @@ mod tests {
 
     fn range_request() -> RangeCompressionRequest {
         prepare_range_compression(
-            CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Always },
+            CompactionPolicy { review: CompactionReview::Always, ..Default::default() },
             "provider/model",
             RangeCompressionInput {
                 start_seq: 4,
@@ -671,7 +752,7 @@ mod tests {
         request.sources.pop();
         assert!(
             prepare_range_compression(
-                CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Always },
+                CompactionPolicy { review: CompactionReview::Always, ..Default::default() },
                 "provider/model",
                 RangeCompressionInput {
                     start_seq: 4,
@@ -693,7 +774,7 @@ mod tests {
         request.sources[1].sequence = 7;
         assert!(
             prepare_range_compression(
-                CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Always },
+                CompactionPolicy { review: CompactionReview::Always, ..Default::default() },
                 "provider/model",
                 RangeCompressionInput {
                     start_seq: 4,
@@ -723,9 +804,9 @@ mod tests {
 
     #[test]
     fn preflight_compacts_only_in_auto_mode_above_threshold() {
-        let auto = CompactionPolicy { mode: CompactionMode::Auto, review: CompactionReview::Auto };
-        let manual = CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Auto };
-        let off = CompactionPolicy { mode: CompactionMode::Off, review: CompactionReview::Auto };
+        let auto = CompactionPolicy { mode: CompactionMode::Auto, ..Default::default() };
+        let manual = CompactionPolicy::default();
+        let off = CompactionPolicy { mode: CompactionMode::Off, ..Default::default() };
         let limits = limits_for(101_024);
         let threshold = limits.auto_compaction_threshold();
         assert_eq!(

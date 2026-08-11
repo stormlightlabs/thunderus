@@ -82,6 +82,7 @@ export default defineConfig({
               collapsed: true,
             },
             { label: "Transcripts", slug: "docs/concepts/transcript-model" },
+            { label: "Context Compaction", slug: "docs/concepts/context-compaction" },
           ],
         },
         /* Providers: integration-specific behavior and provider boundaries. */

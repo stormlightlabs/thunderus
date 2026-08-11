@@ -62,6 +62,7 @@ Supported command families include:
 | `model`                       | Open the model picker.                                |
 | `skills`                      | Browse loaded skills.                                 |
 | `context`                     | Inspect the bounded active context working set.       |
+| `compact`                     | Summarize older conversation for continuation.        |
 | `context pin <id-or-path>`    | Keep one context item visible across turn rebuilds.   |
 | `context drop <id>`           | Exclude one item until it is recovered or reset.      |
 | `context recover <id>`        | Re-enable an item and pin omitted detail when needed. |
@@ -99,11 +100,17 @@ recovery handles, protected facts, and any earlier summary references named in
 the request. A malformed or incomplete response is rejected before it changes
 the model-visible projection.
 
+For a long conversation, compaction retains a recent, complete sequence of user
+turns and responses verbatim. A later compaction combines the previous anchored
+summary with newly closed history, so it does not repeatedly summarize the
+entire transcript. Project instructions, skills, tools, and other durable
+context are rebuilt separately and are not entrusted to the summary.
+
 When the covered range contains tool output, failures, permissions, or
 unresolved work, the summary waits for `/context review approve` or `/context
 review reject`. Approval replaces only the covered transcript entries in later
 model requests. Rejection and provider failure preserve the active projection.
-The original session records remain available for recovery.
+The original records remain in the append-only session in every case.
 
 ## File Mentions
 

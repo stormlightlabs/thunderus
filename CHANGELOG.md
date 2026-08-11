@@ -15,6 +15,9 @@
   result reducers with frozen replay fixtures and projection benchmarks.
 - Review-gated range compression with source provenance, protected-fact
   preservation, atomic rejection, and bounded recovery.
+- Context compaction through `/compact` or automatic budget thresholds, with
+  anchored summaries, a retained recent turn-aligned tail, and configurable
+  mode, review policy, threshold, and tail size.
 
 ## v0.1.0
 

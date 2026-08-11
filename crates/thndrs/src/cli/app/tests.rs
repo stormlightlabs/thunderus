@@ -517,9 +517,13 @@ fn compact_uses_provider_summary_and_replaces_active_context_only_after_success(
             .iter()
             .all(|entry| !matches!(entry, Entry::User { text } if text.contains("Summarize")))
     );
-    assert!(
-        matches!(app.transcript.entries.last(), Some(Entry::Agent { text, .. }) if text.contains("parser: empty input is rejected"))
-    );
+    assert!(app.transcript.compaction_summaries.iter().any(|summary| {
+        summary.latest
+            && summary
+                .content
+                .as_deref()
+                .is_some_and(|text| text.contains("parser: empty input is rejected"))
+    }));
 }
 
 #[test]
@@ -603,6 +607,81 @@ fn compact_writes_a_recoverable_manual_audit_record() {
 }
 
 #[test]
+fn repeated_compaction_anchors_the_previous_summary_and_only_adds_new_history() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    auth::set_credential(
+        &auth::project_credentials_path(dir.path()),
+        auth::OPENCODE_ZEN_KEY_ENV,
+        "test-zen-key",
+    )
+    .expect("seed credential");
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
+    let mut app = App::from_cli(&cli);
+    let path = app
+        .session
+        .writer
+        .as_ref()
+        .expect("session writer")
+        .path()
+        .to_path_buf();
+    app.transcript.entries = vec![
+        Entry::User { text: "inspect the parser".to_string() },
+        Entry::Agent { text: "the parser rejects empty input".to_string(), streaming: false },
+    ]
+    .into();
+
+    assert_eq!(
+        handle_command(&mut app, "compact"),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    let first_summary = context::range_summary_response(&app, "parser summary");
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(first_summary)));
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+    let first_summary_id = app
+        .transcript
+        .compaction_summaries
+        .iter()
+        .find(|summary| summary.latest)
+        .expect("latest summary")
+        .id
+        .clone();
+
+    app.transcript
+        .entries
+        .push(Entry::User { text: "fix that behavior".to_string() });
+    app.transcript
+        .entries
+        .push(Entry::Agent { text: "the empty-input case is fixed".to_string(), streaming: false });
+    assert_eq!(
+        handle_command(&mut app, "compact"),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    let second_summary = context::range_summary_response(&app, "updated parser summary");
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(second_summary)));
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    let audits = session::SessionReader::read_records(&path)
+        .into_iter()
+        .filter_map(|record| match record {
+            session::SessionRecord::Compaction { audit, .. } => Some(audit),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(audits.len(), 2);
+    assert_eq!(audits[1].source_summary_ids, vec![first_summary_id]);
+    assert_eq!(audits[1].covered_start_seq, audits[0].covered_start_seq);
+    assert!(audits[1].covered_end_seq > audits[0].covered_end_seq);
+    assert!(
+        audits[1]
+            .source_hashes
+            .iter()
+            .all(|source| !audits[0].source_hashes.iter().any(|previous| previous.id == source.id))
+    );
+}
+
+#[test]
 fn risky_compaction_waits_for_review_and_preserves_context_until_approval() {
     let mut app = fresh_app();
     let original = vec![
@@ -642,10 +721,13 @@ fn risky_compaction_waits_for_review_and_preserves_context_until_approval() {
         app.transcript.last_compaction_review,
         Some(session::CompactionReviewResult::Approved)
     );
-    assert!(app.transcript.entries.iter().any(|entry| matches!(
-        entry,
-        Entry::Agent { text, streaming: false } if text.contains("reviewable summary")
-    )));
+    assert!(app.transcript.compaction_summaries.iter().any(|summary| {
+        summary.latest
+            && summary
+                .content
+                .as_deref()
+                .is_some_and(|text| text.contains("reviewable summary"))
+    }));
 }
 
 #[test]
@@ -698,12 +780,13 @@ fn rejected_compaction_keeps_the_projection_and_does_not_append_a_summary_record
 #[test]
 fn auto_compaction_restarts_the_user_turn_after_success() {
     let mut app = fresh_app();
+    let original_turn = "continue the work".to_string();
     app.transcript.entries = vec![
         Entry::User { text: "long conversation".to_string() },
         Entry::Agent { text: "lots of detail".to_string(), streaming: false },
+        Entry::User { text: original_turn.clone() },
     ]
     .into();
-    let original_turn = "continue the work".to_string();
 
     assert_eq!(
         start_auto_compaction(&mut app, original_turn.clone()),
@@ -724,16 +807,23 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
     let restart = update(&mut app, &Msg::Agent(AgentEvent::Finished));
 
     assert!(!app.compaction_in_flight());
-    assert!(matches!(app.transcript.entries.last(), Some(Entry::User { text }) if *text == original_turn));
-    assert_eq!(restart, Some(Msg::Agent(AgentEvent::Started)));
-    assert!(
+    assert_eq!(
         app.transcript
             .entries
             .iter()
-            .any(|entry| matches!(entry, Entry::Agent { text, .. } if text.contains("compacted summary")))
+            .filter(|entry| matches!(entry, Entry::User { text } if text == &original_turn))
+            .count(),
+        1
     );
+    assert_eq!(restart, Some(Msg::Agent(AgentEvent::Started)));
+    assert!(app.transcript.compaction_summaries.iter().any(|summary| {
+        summary
+            .content
+            .as_deref()
+            .is_some_and(|text| text.contains("compacted summary"))
+    }));
     assert!(
-        !app.transcript
+        app.transcript
             .entries
             .iter()
             .any(|entry| matches!(entry, Entry::User { text } if text == "long conversation"))
@@ -743,13 +833,18 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
 #[test]
 fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
     let mut app = fresh_app();
-    app.transcript.entries = vec![Entry::User { text: "long conversation".to_string() }].into();
+    let original_turn = "continue the work".to_string();
+    app.transcript.entries = vec![
+        Entry::User { text: "long conversation".to_string() },
+        Entry::Agent { text: "old answer".to_string(), streaming: false },
+        Entry::User { text: original_turn.clone() },
+    ]
+    .into();
     app.composer.queue.push(
         QueueTarget::FollowUp,
         "follow-up after restart".to_string(),
         "test".to_string(),
     );
-    let original_turn = "continue the work".to_string();
 
     assert_eq!(
         start_auto_compaction(&mut app, original_turn.clone()),
@@ -761,7 +856,14 @@ fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
 
     let restart = update(&mut app, &Msg::Agent(AgentEvent::Finished));
     assert_eq!(restart, Some(Msg::Agent(AgentEvent::Started)));
-    assert!(matches!(app.transcript.entries.last(), Some(Entry::User { text }) if *text == original_turn));
+    assert_eq!(
+        app.transcript
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry, Entry::User { text } if text == &original_turn))
+            .count(),
+        1
+    );
     assert_eq!(
         app.composer.queue.pending_count(QueueTarget::FollowUp),
         1,
