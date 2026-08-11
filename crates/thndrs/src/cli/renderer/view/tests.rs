@@ -302,6 +302,155 @@ fn consecutive_tools_share_one_activity_heading() {
 }
 
 #[test]
+fn routine_exploration_collapses_into_one_activity_summary() {
+    let mut app = test_app();
+    for (name, arguments) in [
+        ("find_files", r#"{"pattern":"Cargo.toml"}"#),
+        ("read_file_range", r#"{"path":"Cargo.toml"}"#),
+        ("search_text", r#"{"pattern":"workspace"}"#),
+    ] {
+        app.transcript.entries.push(Entry::Tool {
+            name: name.to_string(),
+            arguments: arguments.to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["stored output".to_string()],
+        });
+    }
+
+    let rendered = RendererView::build(&app, 80, 24)
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        rendered.contains("✓ Explored · 3 calls · 1 read · 2 searches"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("Ctrl+O details"), "{rendered}");
+    assert!(!rendered.contains("find_files"), "{rendered}");
+    assert!(!rendered.contains("read_file_range"), "{rendered}");
+    assert!(!rendered.contains("search_text"), "{rendered}");
+}
+
+#[test]
+fn activity_summary_keeps_disclosure_visible_when_narrow() {
+    let mut app = test_app();
+    for name in ["find_files", "read_file_range", "search_text"] {
+        app.transcript.entries.push(Entry::Tool {
+            name: name.to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["stored output".to_string()],
+        });
+    }
+
+    let narrow = RendererView::build(&app, 40, 24);
+    let narrow_text = narrow
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(narrow_text.contains("Ctrl+O details"), "{narrow_text}");
+    assert!(narrow.transcript.rows.iter().all(|row| row.text_width() == 40));
+
+    let tiny = RendererView::build(&app, 20, 24);
+    assert!(tiny.transcript.rows.iter().all(|row| row.text_width() == 20));
+    assert!(
+        tiny.transcript.rows.iter().any(|row| row.text().contains("Explored")),
+        "tiny activity summary should retain its semantic status"
+    );
+}
+
+#[test]
+fn activity_detail_discloses_individual_exploration_calls() {
+    let mut app = test_app();
+    for name in ["find_files", "search_text"] {
+        app.transcript.entries.push(Entry::Tool {
+            name: name.to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Ok,
+            output: vec![format!("{name} output")],
+        });
+    }
+    app.overlay.show_detail(1);
+
+    let rendered = RendererView::build(&app, 80, 24)
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        rendered.contains("✓ Explored · 2 calls · 2 searches · Esc close"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("find_files"), "{rendered}");
+    assert!(rendered.contains("search_text"), "{rendered}");
+    assert!(rendered.contains("search_text output"), "{rendered}");
+}
+
+#[test]
+fn running_exploration_updates_one_live_summary_row() {
+    let mut app = test_app();
+    app.transcript.entries.push(Entry::Tool {
+        name: "read_file_range".to_string(),
+        arguments: r#"{"path":"src/lib.rs"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["stored read".to_string()],
+    });
+    app.transcript.entries.push(Entry::Tool {
+        name: "search_text".to_string(),
+        arguments: r#"{"pattern":"Activity"}"#.to_string(),
+        status: ToolStatus::Running,
+        output: vec!["streaming match".to_string()],
+    });
+
+    let view = RendererView::build(&app, 80, 24);
+    let live = view
+        .transcript
+        .live_rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(live.contains("· Exploring · 2 calls · 1 read · 1 search"), "{live}");
+    assert!(!live.contains("read_file_range"), "{live}");
+    assert!(!live.contains("search_text"), "{live}");
+    assert!(!live.contains("streaming match"), "{live}");
+}
+
+#[test]
+fn failed_exploration_remains_expanded() {
+    let mut app = test_app();
+    app.transcript.entries.push(Entry::Tool {
+        name: "search_text".to_string(),
+        arguments: r#"{"pattern":"missing"}"#.to_string(),
+        status: ToolStatus::Failed,
+        output: vec!["permission denied".to_string()],
+    });
+
+    let rendered = RendererView::build(&app, 80, 24)
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("search_text"), "{rendered}");
+    assert!(rendered.contains("permission denied"), "{rendered}");
+    assert!(!rendered.contains("Explored"), "{rendered}");
+}
+
+#[test]
 fn build_view_narrow_changes_row_counts() {
     let mut app = test_app();
     app.composer

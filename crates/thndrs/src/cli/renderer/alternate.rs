@@ -30,7 +30,10 @@ use crate::app::{Action, App, Entry, PromptAccessory, PromptState};
 
 use super::row::{Frame, Row};
 use super::style::{CellStyle, Color};
-use super::view::{LiveView, RendererView, SemanticUiView, TranscriptView, project_transcript_entry};
+use super::view::{
+    LiveView, RendererView, SemanticUiView, TranscriptProjectionKey, TranscriptView, project_transcript_entry,
+    transcript_projection_key,
+};
 
 /// Owns terminal modes for one alternate-screen application session.
 ///
@@ -197,7 +200,7 @@ pub struct AlternateViewport {
 struct CachedEntryProjection {
     source: Entry,
     width: usize,
-    tool_group_start: bool,
+    key: TranscriptProjectionKey,
     stable_rows: Vec<Row>,
     live_rows: Vec<Row>,
 }
@@ -217,19 +220,16 @@ impl TranscriptProjectionCache {
         }
         self.entries.truncate(app.transcript.entries.len());
         for (entry_index, entry) in app.transcript.entries.iter().enumerate() {
-            let tool_group_start = entry_index
-                .checked_sub(1)
-                .and_then(|index| app.transcript.entries.get(index))
-                .is_none_or(|entry| !matches!(entry, Entry::Tool { .. }));
-            let reusable = self.entries.get(entry_index).is_some_and(|cached| {
-                cached.width == width && cached.tool_group_start == tool_group_start && cached.source == *entry
-            });
+            let key = transcript_projection_key(app, entry_index);
+            let reusable = self
+                .entries
+                .get(entry_index)
+                .is_some_and(|cached| cached.width == width && cached.key == key && cached.source == *entry);
             if reusable {
                 continue;
             }
             let (stable_rows, live_rows) = project_transcript_entry(app, entry_index, width);
-            let projection =
-                CachedEntryProjection { source: entry.clone(), width, tool_group_start, stable_rows, live_rows };
+            let projection = CachedEntryProjection { source: entry.clone(), width, key, stable_rows, live_rows };
             if entry_index < self.entries.len() {
                 self.entries[entry_index] = projection;
             } else {
@@ -772,7 +772,7 @@ mod tests {
     use ratatui::backend::{Backend, TestBackend};
 
     use super::*;
-    use crate::app::Entry;
+    use crate::app::{Entry, ToolStatus};
     use crate::cli::Cli;
     use crate::renderer::row::{CursorCoord, Row};
     use crate::renderer::style::Span;
@@ -947,6 +947,32 @@ mod tests {
         let first = text.find("first mutable").expect("mutable entry");
         let second = text.find("second settled").expect("settled entry");
         assert!(first < second, "transcript rows must remain chronological");
+    }
+
+    #[test]
+    fn projection_cache_refreshes_a_growing_activity_summary() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session.writer = None;
+        app.transcript.entries.push(Entry::Tool {
+            name: "find_files".to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["first".to_string()],
+        });
+        let mut cache = TranscriptProjectionCache::default();
+        let first = cache.project(&app, 80);
+        assert!(first.rows.iter().any(|row| row.text().contains("1 call")));
+
+        app.transcript.entries.push(Entry::Tool {
+            name: "search_text".to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["second".to_string()],
+        });
+        let grown = cache.project(&app, 80);
+        assert!(grown.rows.iter().any(|row| row.text().contains("2 calls")));
+        assert!(!grown.rows.iter().any(|row| row.text().contains("find_files")));
+        assert!(!grown.rows.iter().any(|row| row.text().contains("search_text")));
     }
 
     #[test]

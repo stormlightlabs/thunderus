@@ -16,7 +16,9 @@ use crate::app::{
 };
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::renderer::row::{CursorCoord, Row};
-use crate::renderer::transcript::TranscriptRowContext;
+use crate::renderer::transcript::{
+    ActivityProjection, ActivitySummary, TranscriptRowContext, summarize_tool_invocation,
+};
 use crate::tools::shell::redact_secrets;
 use crate::utils;
 
@@ -326,6 +328,41 @@ pub struct TranscriptView {
     pub live_rows: Vec<Row>,
 }
 
+/// Inputs beyond the entry itself that affect its cached row projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TranscriptProjectionKey {
+    tool_group_start: bool,
+    detail_target: bool,
+    detail_open: bool,
+    detail_scroll: usize,
+    activity: ActivityProjection,
+}
+
+/// Return all presentation state needed to decide whether an entry projection is reusable.
+pub(crate) fn transcript_projection_key(app: &App, entry_index: usize) -> TranscriptProjectionKey {
+    let previous_was_tool = entry_index
+        .checked_sub(1)
+        .and_then(|index| app.transcript.entries.get(index))
+        .is_some_and(|entry| matches!(entry, Entry::Tool { .. }));
+    let detail_target_index = crate::app::next_detail_target(app);
+    let open_detail = app.overlay.detail();
+    let activity = exploration_projection(
+        app,
+        entry_index,
+        detail_target_index,
+        open_detail.map(|detail| detail.entry_index),
+    );
+    TranscriptProjectionKey {
+        tool_group_start: !previous_was_tool,
+        detail_target: detail_target_index == Some(entry_index),
+        detail_open: open_detail.is_some_and(|detail| detail.entry_index == entry_index),
+        detail_scroll: open_detail
+            .filter(|detail| detail.entry_index == entry_index)
+            .map_or(0, |detail| detail.scroll),
+        activity,
+    }
+}
+
 /// Project one transcript entry at a specific width.
 ///
 /// Alternate-screen caching uses this boundary to invalidate a changing entry
@@ -334,21 +371,17 @@ pub fn project_transcript_entry(app: &App, entry_index: usize, width: usize) -> 
     let Some(entry) = app.transcript.entries.get(entry_index) else {
         return (Vec::new(), Vec::new());
     };
-    let previous_was_tool = entry_index
-        .checked_sub(1)
-        .and_then(|index| app.transcript.entries.get(index))
-        .is_some_and(|entry| matches!(entry, Entry::Tool { .. }));
-    let detail_target = crate::app::next_detail_target(app) == Some(entry_index);
-    let detail = app.overlay.detail().filter(|detail| detail.entry_index == entry_index);
+    let key = transcript_projection_key(app, entry_index);
     TranscriptRowContext {
         user_label: &app.runtime.user_label,
         cwd: &app.runtime.cwd,
         width,
         entry_index: Some(entry_index),
-        tool_group_start: !previous_was_tool,
-        detail_target,
-        detail_open: detail.is_some(),
-        detail_scroll: detail.map_or(0, |detail| detail.scroll),
+        tool_group_start: key.tool_group_start,
+        detail_target: key.detail_target,
+        detail_open: key.detail_open,
+        detail_scroll: key.detail_scroll,
+        activity: key.activity,
     }
     .rows_for_entry_stable_and_live_rows(entry)
 }
@@ -366,31 +399,8 @@ impl TranscriptView {
         let mut live_rows = Vec::new();
         stable_rows.extend(banner_rows);
 
-        let ctx = TranscriptRowContext {
-            user_label: &app.runtime.user_label,
-            cwd: &app.runtime.cwd,
-            width,
-            entry_index: None,
-            tool_group_start: true,
-            detail_target: false,
-            detail_open: false,
-            detail_scroll: 0,
-        };
-
-        let detail_target = crate::app::next_detail_target(app);
-        let open_detail = app.overlay.detail();
-
-        let mut previous_was_tool = false;
-        for (index, entry) in app.transcript.entries.iter().enumerate() {
-            let mut entry_ctx = ctx.clone();
-            entry_ctx.entry_index = Some(index);
-            entry_ctx.tool_group_start = !previous_was_tool;
-            entry_ctx.detail_target = detail_target == Some(index);
-            entry_ctx.detail_open = open_detail.is_some_and(|detail| detail.entry_index == index);
-            entry_ctx.detail_scroll = open_detail
-                .filter(|detail| detail.entry_index == index)
-                .map_or(0, |detail| detail.scroll);
-            let (entry_stable, entry_live) = entry_ctx.rows_for_entry_stable_and_live_rows(entry);
+        for index in 0..app.transcript.entries.len() {
+            let (entry_stable, entry_live) = project_transcript_entry(app, index, width);
             rows.extend(entry_stable.iter().cloned());
             rows.extend(entry_live.iter().cloned());
             if entry_stable.is_empty() {
@@ -399,11 +409,84 @@ impl TranscriptView {
                 stable_rows.extend(entry_stable);
                 live_rows.extend(entry_live);
             }
-            previous_was_tool = matches!(entry, Entry::Tool { .. });
         }
 
         Self { rows, banner_rows: Vec::new(), stable_rows, live_rows }
     }
+}
+
+fn exploration_projection(
+    app: &App, entry_index: usize, detail_target: Option<usize>, open_detail: Option<usize>,
+) -> ActivityProjection {
+    let entries = &app.transcript.entries;
+    if !entries.get(entry_index).is_some_and(is_routine_exploration) {
+        return ActivityProjection::Regular;
+    }
+
+    let group_start = entry_index == 0 || !is_routine_exploration(&entries[entry_index - 1]);
+    let disclosed = open_detail.is_some_and(|detail_index| same_exploration_group(entries, entry_index, detail_index));
+    if !group_start {
+        return if disclosed { ActivityProjection::DisclosedTool } else { ActivityProjection::Hidden };
+    }
+
+    let mut end = entry_index;
+    while entries.get(end + 1).is_some_and(is_routine_exploration) {
+        end += 1;
+    }
+
+    let mut reads = 0;
+    let mut searches = 0;
+    let mut running = false;
+    let mut latest = String::new();
+    for entry in &entries[entry_index..=end] {
+        let Entry::Tool { name, arguments, status, .. } = entry else {
+            continue;
+        };
+        let base_name = name.split('#').next().unwrap_or(name);
+        match base_name {
+            "read_file_range" | "read_url" | "sawk" => reads += 1,
+            "find_files" | "list_searchable_files" | "search_text" | "web_search" => searches += 1,
+            _ => {}
+        }
+        running |= *status == ToolStatus::Running;
+        latest = summarize_tool_invocation(base_name, arguments, &app.runtime.cwd);
+    }
+    ActivityProjection::Summary {
+        summary: ActivitySummary {
+            calls: end - entry_index + 1,
+            reads,
+            searches,
+            running,
+            latest,
+            detail_target: detail_target.is_some_and(|index| (entry_index..=end).contains(&index)),
+            detail_open: disclosed,
+        },
+        show_tool: disclosed,
+    }
+}
+
+fn same_exploration_group(entries: &[Entry], left: usize, right: usize) -> bool {
+    let Some(slice) = entries.get(left.min(right)..=left.max(right)) else {
+        return false;
+    };
+    slice.iter().all(is_routine_exploration)
+}
+
+fn is_routine_exploration(entry: &Entry) -> bool {
+    let Entry::Tool { name, status, .. } = entry else {
+        return false;
+    };
+    matches!(status, ToolStatus::Running | ToolStatus::Ok)
+        && matches!(
+            name.split('#').next().unwrap_or(name),
+            "find_files"
+                | "list_searchable_files"
+                | "search_text"
+                | "read_file_range"
+                | "sawk"
+                | "web_search"
+                | "read_url"
+        )
 }
 
 /// Renderer-owned semantic view data.

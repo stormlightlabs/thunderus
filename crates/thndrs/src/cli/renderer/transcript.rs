@@ -27,6 +27,32 @@ pub const ENTRY_RAIL: &str = "  ";
 /// Stable rail shared by consecutive tool activity rows.
 const ACTIVITY_RAIL: &str = "│ ";
 
+/// Progressive-disclosure treatment for a routine exploration tool entry.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) enum ActivityProjection {
+    /// Render the tool normally because it is not routine exploration activity.
+    #[default]
+    Regular,
+    /// The entry is represented by the summary attached to the first entry in its group.
+    Hidden,
+    /// Render the group summary, optionally followed by this entry's disclosed tool row.
+    Summary { summary: ActivitySummary, show_tool: bool },
+    /// Render an individual tool row because its activity group is disclosed.
+    DisclosedTool,
+}
+
+/// Counts and lifecycle state displayed by one coalesced exploration activity row.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ActivitySummary {
+    pub calls: usize,
+    pub reads: usize,
+    pub searches: usize,
+    pub running: bool,
+    pub latest: String,
+    pub detail_target: bool,
+    pub detail_open: bool,
+}
+
 #[derive(Clone, Copy)]
 enum TableAlign {
     Left,
@@ -52,6 +78,8 @@ pub struct TranscriptRowContext<'a> {
     pub detail_open: bool,
     /// First raw output line displayed for an expanded tool.
     pub detail_scroll: usize,
+    /// Coalesced routine exploration state for this entry.
+    pub(crate) activity: ActivityProjection,
 }
 
 impl TranscriptRowContext<'_> {
@@ -73,7 +101,12 @@ impl TranscriptRowContext<'_> {
     /// until they finish. All other entries are fully stable.
     pub fn rows_for_entry_stable_and_live_rows(&self, entry: &Entry) -> (Vec<Row>, Vec<Row>) {
         let rows = self.rows_for_entry(entry);
-        if self.detail_open {
+        let activity_is_live = match &self.activity {
+            ActivityProjection::DisclosedTool => true,
+            ActivityProjection::Summary { summary, .. } => summary.running || summary.detail_open,
+            ActivityProjection::Regular | ActivityProjection::Hidden => false,
+        };
+        if self.detail_open || activity_is_live {
             return (Vec::new(), rows);
         }
         match entry {
@@ -98,6 +131,7 @@ impl<'a> TranscriptRowContext<'a> {
             detail_target: true,
             detail_open: false,
             detail_scroll: 0,
+            activity: ActivityProjection::Regular,
         }
     }
 }
@@ -404,6 +438,91 @@ impl ToolBlockView<'_> {
 
         rows
     }
+}
+
+fn activity_summary_rows(
+    summary: &ActivitySummary, group_start: bool, width: usize, body_width: usize, bg: Color,
+) -> Vec<Row> {
+    let p = super::style::palette();
+    let rail_style = CellStyle::new().fg(p.yellow).bg(bg);
+    let status_style = CellStyle::new()
+        .fg(if summary.running { p.peach } else { p.green })
+        .bg(bg);
+    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+    let mut rows = Vec::new();
+    if group_start {
+        rows.push(Row::blank(width, CellStyle::new().bg(bg)));
+        rows.push(Row::padded(
+            vec![
+                Span::styled(ENTRY_RAIL, rail_style),
+                Span::styled("Activity", CellStyle::new().fg(p.yellow).bg(bg).bold()),
+            ],
+            width,
+            CellStyle::new().bg(bg),
+        ));
+    }
+
+    let mut details = vec![format!(
+        "{} {}",
+        summary.calls,
+        if summary.calls == 1 { "call" } else { "calls" }
+    )];
+    if summary.reads > 0 {
+        details.push(format!(
+            "{} {}",
+            summary.reads,
+            if summary.reads == 1 { "read" } else { "reads" }
+        ));
+    }
+    if summary.searches > 0 {
+        details.push(format!(
+            "{} {}",
+            summary.searches,
+            if summary.searches == 1 { "search" } else { "searches" }
+        ));
+    }
+    if summary.calls == 1 && !summary.latest.is_empty() {
+        details.push(summary.latest.clone());
+    }
+    let status = format!(
+        "{} {}",
+        if summary.running { "·" } else { "✓" },
+        if summary.running { "Exploring" } else { "Explored" }
+    );
+    let available = body_width.saturating_sub(utils::text_width(ACTIVITY_RAIL) + utils::text_width(&status));
+    let disclosure = if summary.detail_open {
+        Some("Esc close")
+    } else if summary.detail_target {
+        Some("Ctrl+O details")
+    } else {
+        None
+    };
+    let full_details = disclosure.map_or_else(
+        || format!(" · {}", details.join(" · ")),
+        |hint| format!(" · {} · {hint}", details.join(" · ")),
+    );
+    let details = if utils::text_width(&full_details) <= available {
+        full_details
+    } else if let Some(hint) = disclosure {
+        let compact = format!(" · {} calls · {hint}", summary.calls);
+        if utils::text_width(&compact) <= available {
+            compact
+        } else {
+            utils::truncate_ellipsis(&format!(" · {hint}"), available)
+        }
+    } else {
+        utils::truncate_ellipsis(&full_details, available)
+    };
+    rows.push(Row::padded(
+        vec![
+            Span::styled(ACTIVITY_RAIL, rail_style),
+            Span::styled(status, status_style),
+            Span::styled(details, muted_style),
+        ],
+        width,
+        CellStyle::new().bg(bg),
+    ));
+    rows
 }
 
 #[derive(Clone, Copy)]
@@ -980,21 +1099,37 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
             LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
                 .build_compact(label, text)
         }
-        Entry::Tool { name, arguments, status, output } => ToolBlockView {
-            name,
-            args: arguments,
-            status: *status,
-            output,
-            width,
-            body_width,
-            bg,
-            cwd: context.cwd,
-            group_start: context.tool_group_start,
-            detail_target: context.detail_target,
-            detail_open: context.detail_open,
-            detail_scroll: context.detail_scroll,
+        Entry::Tool { name, arguments, status, output } => {
+            let tool_rows = |group_start| {
+                ToolBlockView {
+                    name,
+                    args: arguments,
+                    status: *status,
+                    output,
+                    width,
+                    body_width,
+                    bg,
+                    cwd: context.cwd,
+                    group_start,
+                    detail_target: context.detail_target,
+                    detail_open: context.detail_open,
+                    detail_scroll: context.detail_scroll,
+                }
+                .rows()
+            };
+            match &context.activity {
+                ActivityProjection::Regular => tool_rows(context.tool_group_start),
+                ActivityProjection::Hidden => Vec::new(),
+                ActivityProjection::DisclosedTool => tool_rows(false),
+                ActivityProjection::Summary { summary, show_tool } => {
+                    let mut rows = activity_summary_rows(summary, context.tool_group_start, width, body_width, bg);
+                    if *show_tool {
+                        rows.extend(tool_rows(false));
+                    }
+                    rows
+                }
+            }
         }
-        .rows(),
         Entry::Status { text } => {
             let rail_style = CellStyle::new().fg(p.overlay1).bg(bg);
             let label_style = CellStyle::new().fg(p.overlay1).bg(bg);
