@@ -105,43 +105,48 @@ failed, cancelled, truncated, compiler, search, and diff tools.
 
 ### UI-5: Consolidate bounded rendering on Ratatui
 
-**Outcome:** Make Ratatui the only bounded-screen renderer and remove the
-iocraft canvas-to-row path after proven parity.
+**Outcome:** Ratatui is the only bounded-screen renderer. The former iocraft
+canvas-to-row path has been removed after parity coverage.
 
 **Blocked by:** UI-1. UI-4 should land first for transcript surfaces;
 independent focused surfaces may move earlier.
 
 **Acceptance:**
 
-- [ ] Port one focused surface at a time from `IocraftSurfaceRenderer` to a
+- [x] Port one focused surface at a time from `IocraftSurfaceRenderer` to a
       direct Ratatui widget consuming the existing semantic projection.
-- [ ] Add only the characterization test needed for each surface before moving
+- [x] Add only the characterization test needed for each surface before moving
       it; use existing snapshots and state-transition tests wherever they already
       protect the behavior.
-- [ ] Remove decorative borders and box-drawing chrome from the normal frame,
+- [x] Remove decorative borders and box-drawing chrome from the normal frame,
       composer, focused surfaces, pickers, permissions, help, and details. Use
       spacing, alignment, background, text attributes, selection, and accent
       glyphs for hierarchy and focus.
-- [ ] Preserve content, focus, accessibility labels, cursor, narrow/short
+- [x] Preserve content, focus, accessibility labels, cursor, narrow/short
       behavior, and terminal cleanup. Treat the borderless presentation as an
       intentional parity exception.
-- [ ] Remove `renderer/adapter.rs`, its snapshots, and the `iocraft` dependency
+- [x] Remove `renderer/adapter.rs`, its snapshots, and the `iocraft` dependency
       only after the final caller moves.
-- [ ] Keep Crossterm and focused Unicode/text utilities. Add no second general
+- [x] Keep Crossterm and focused Unicode/text utilities. Add no second general
       component or layout framework; justify any new utility with a concrete
       editor, wrapping, ANSI, or clipboard requirement.
-- [ ] Retain custom row/style/layout types only when a non-Ratatui consumer or a
+- [x] Retain custom row/style/layout types only when a non-Ratatui consumer or a
       useful pure presentation boundary remains; otherwise use Ratatui primitives
       directly.
-- [ ] Rendering performs no filesystem, Git, provider, process, session, or
+- [x] Rendering performs no filesystem, Git, provider, process, session, or
       clipboard I/O.
-- [ ] The alternate-screen driver continues to own complete dirty frames and
+- [x] The alternate-screen driver continues to own complete dirty frames and
       restores the terminal on every exit path.
 
 **Verify:** Semantic projection tests, Ratatui buffer snapshots for each moved
 surface, borderless normal/narrow/monochrome full-frame `TestBackend` snapshots,
 and `cargo tree -i iocraft` showing no application dependency before removal is
 declared complete.
+
+**Completed:** 2026-08-10. Focused surfaces now use the shared pure row
+projection and Ratatui terminal backend. TestBackend snapshots cover each
+surface and borderless full frames at normal, narrow, and style-independent
+sizes.
 
 ### UI-6: Complete full-screen transcript navigation
 

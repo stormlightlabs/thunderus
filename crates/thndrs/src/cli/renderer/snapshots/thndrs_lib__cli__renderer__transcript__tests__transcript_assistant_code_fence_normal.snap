@@ -3,9 +3,9 @@ source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
 │                                                                                   # [-]=                                                                                
-│   │ Response                                                                      # [-]=   [fg=#37f499 b]=│  [fg=#37f499 b]=Response [-]=                                                                   [-]=  
-│   │ Here is the code:                                                             # [-]=   [fg=#37f499 b]=│  [fg=#ebfafa]=Here is the code: [-]=                                                          [-]=  
+│     Response                                                                      # [-]=   [fg=#37f499 b]=   [fg=#37f499 b]=Response [-]=                                                                   [-]=  
+│     Here is the code:                                                             # [-]=   [fg=#37f499 b]=   [fg=#ebfafa]=Here is the code: [-]=                                                          [-]=  
 │                                                                                   # [-]=                                                                                
-│   │    │ fn main() {                                                              # [-]=   [fg=#37f499 b]=│  [fg=#3b4261]=   │  [fg=#b48ead]=fn [fg=#c0c5ce]=  [fg=#8fa1b3]=main [fg=#c0c5ce]=() { [-]=                                                           [-]=  
-│   │    │     println!("hello");                                                   # [-]=   [fg=#37f499 b]=│  [fg=#3b4261]=   │  [fg=#c0c5ce]=    println!(" [fg=#a3be8c]=hello [fg=#c0c5ce]="); [-]=                                                [-]=  
-│   │    │ }                                                                        # [-]=   [fg=#37f499 b]=│  [fg=#3b4261]=   │  [fg=#c0c5ce]=} [-]=                                                                     [-]=
+│        · fn main() {                                                              # [-]=   [fg=#37f499 b]=   [fg=#3b4261]=   ·  [fg=#b48ead]=fn [fg=#c0c5ce]=  [fg=#8fa1b3]=main [fg=#c0c5ce]=() { [-]=                                                           [-]=  
+│        ·     println!("hello");                                                   # [-]=   [fg=#37f499 b]=   [fg=#3b4261]=   ·  [fg=#c0c5ce]=    println!(" [fg=#a3be8c]=hello [fg=#c0c5ce]="); [-]=                                                [-]=  
+│        · }                                                                        # [-]=   [fg=#37f499 b]=   [fg=#3b4261]=   ·  [fg=#c0c5ce]=} [-]=                                                                     [-]=

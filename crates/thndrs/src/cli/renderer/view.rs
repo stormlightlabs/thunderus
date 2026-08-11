@@ -20,11 +20,6 @@ use crate::renderer::transcript::TranscriptRowContext;
 use crate::tools::shell::redact_secrets;
 use crate::utils;
 
-/// Renderer adapter for iocraft-backed or other bounded surfaces.
-pub trait SurfaceRenderer {
-    fn render_surface(&mut self, input: SurfaceRenderInput<'_>) -> Vec<Row>;
-}
-
 /// A backend-neutral theme role.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ThemeRole {
@@ -807,7 +802,7 @@ impl LiveView {
         let detail_pane = match &semantic.focused_surface {
             FocusedSurfaceView::ToolDetail(_)
             | FocusedSurfaceView::DiffDetail(_)
-            | FocusedSurfaceView::TranscriptLens { .. } => super::adapter::render_surface(&SurfaceRenderInput::new(
+            | FocusedSurfaceView::TranscriptLens { .. } => super::surface::render_surface(&SurfaceRenderInput::new(
                 &semantic.focused_surface,
                 &SurfaceThemeView::new(),
                 width,

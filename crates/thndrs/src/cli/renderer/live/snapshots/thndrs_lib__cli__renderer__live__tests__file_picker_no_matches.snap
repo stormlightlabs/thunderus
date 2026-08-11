@@ -2,7 +2,7 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│   │  FILES                                                          option 1/1    # [-]=   [fg=#3b4261]=│   [fg=#f1fc79 b]=FILES [-]=                                                           [fg=#6473b7]=option 1/1 [-]=  
-│   │  filter: xyz                                                                  # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=filter: xyz [-]=                                                               [-]=  
-│   │  no matches                                                                   # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=no matches [-]=                                                                [-]=  
-│   │  Enter select · Esc close                                                     # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=Enter select · Esc close [-]=                                                  [-]=
+│     FILES                                                           option 1/1    # [-]=   [-]=   [fg=#f1fc79 b]=FILES [-]=                                                            [fg=#6473b7]=option 1/1 [-]=  
+│     filter: xyz                                                                   # [-]=   [-]=   [fg=#3b4261]=filter: xyz [-]=                                                                [-]=  
+│     no matches                                                                    # [-]=   [-]=   [fg=#3b4261]=no matches [-]=                                                                 [-]=  
+│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#3b4261]=Enter select · Esc close [-]=                                                   [-]=

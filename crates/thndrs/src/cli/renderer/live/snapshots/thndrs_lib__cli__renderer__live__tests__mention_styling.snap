@@ -2,4 +2,4 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│   │ ❯  check @src/main.rs for details                                        │    # [bg=#171928]=   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  [fg=#f1fc79 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=check  [fg=#37f499 bg=#171928 b]=@src/main.rs [fg=#ebfafa bg=#171928]= for details [bg=#171928]=                                         [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=
+│     ❯  check @src/main.rs for details                                             # [bg=#171928]=   [bg=#171928]=   [fg=#f1fc79 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=check  [fg=#37f499 bg=#171928 b]=@src/main.rs [fg=#ebfafa bg=#171928]= for details [bg=#171928]=                                          [bg=#171928]=

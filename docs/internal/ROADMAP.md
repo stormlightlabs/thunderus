@@ -166,8 +166,8 @@ The main structural liabilities are concentrated rather than pervasive:
 - `App` owns unrelated UI, session, auth, process, audit, permission, and queue
   state, so small features increase field coupling.
 - raw terminal input still reaches large mode-specific mutation branches;
-- transcript projection, custom rows, Ratatui drawing, and an iocraft
-  canvas-to-row adapter form parallel presentation layers;
+- transcript projection and custom rows remain a pure presentation boundary;
+  Ratatui alone writes bounded terminal frames;
 - completed tool activity does not yet have one stable block identity and
   complete progressive-disclosure behavior;
 - full-screen terminal ownership is not matched by complete in-app search,
@@ -264,12 +264,11 @@ Routine successful reads and searches should settle to a one-line summary.
 Edits, failures, permission decisions, verification, and unexpected effects
 stay prominent. Expanded detail must remain bounded and deterministic.
 
-### Use Ratatui as the only bounded-screen renderer
+### Use Ratatui as the only bounded-screen renderer (complete)
 
-Port the focused surfaces currently rendered through iocraft to direct Ratatui
-widgets, using existing semantic view types and snapshots to prove parity.
-Remove the iocraft canvas-to-row adapter and dependency after the last surface
-moves. Retain the custom row/style types only where they are a useful
+Focused surfaces use existing semantic view types and a pure row projection
+rendered by Ratatui, with buffer snapshots proving parity. The iocraft
+canvas-to-row adapter and dependency are gone. Custom row/style types remain a useful
 presentation primitive shared by transcript tests or non-terminal output; do
 not keep them merely to mirror Ratatui's `Line`, `Span`, `Style`, and `Buffer`.
 
@@ -278,13 +277,12 @@ alternate-screen driver, terminal cleanup, resize handling, and full-frame
 ownership stay intact throughout.
 
 The dependency tree supports this choice but is not the main reason for it.
-`iocraft 0.8.3` has 61 packages in its normal dependency subtree in the current
-lockfile, including its macro crate, `taffy`, `generational-box`, `futures`,
-`regex`, and a second `unicode-width` version. Some are already shared by the
-application, so removing iocraft will not remove all 61 packages. The decisive
-cost is architectural: focused surfaces currently render into an iocraft
-canvas, convert that canvas into custom rows, and then draw those rows through
-Ratatui. One renderer and one layout vocabulary are easier to change and test.
+Before removal, `iocraft 0.8.3` brought 61 packages into its normal dependency
+subtree, including its macro crate, `taffy`, `generational-box`, `futures`,
+`regex`, and a second `unicode-width` version. Some were already shared by the
+application, so removal did not eliminate all 61 packages. The decisive gain
+was architectural: focused surfaces no longer pass through a second canvas and
+conversion layer before Ratatui draws them.
 
 ### Use a borderless visual language
 
@@ -406,7 +404,7 @@ scope for v1.
 Split cohesive application state, normalize input into actions, introduce
 explicit effects where mutation is currently mixed with I/O, and establish
 stable transcript blocks. Port focused surfaces to direct Ratatui, adopt the
-borderless frame and configurable status line, and remove iocraft only after
+borderless frame and configurable status line, with iocraft removed after
 parity. Use the existing test suite as the baseline and add characterization or
 performance evidence only for the boundary being changed.
 

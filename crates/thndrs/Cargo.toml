@@ -24,7 +24,6 @@ crossterm.workspace = true
 ctrlc.workspace = true
 futures.workspace = true
 http.workspace = true
-iocraft.workspace = true
 lectito.workspace = true
 markdown.workspace = true
 minijinja.workspace = true

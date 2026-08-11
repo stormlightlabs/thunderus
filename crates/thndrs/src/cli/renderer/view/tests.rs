@@ -358,17 +358,17 @@ fn build_view_prompt_clipping_keeps_cursor_row() {
 
     assert_eq!(view.live.prompt_rows.len(), renderer::live::MAX_PROMPT_ROWS);
     assert!(
-        text.contains("╭─ test-session"),
-        "clipping should preserve the top frame:\n{text}"
+        text.contains("test-session"),
+        "clipping should preserve the metadata row:\n{text}"
     );
-    assert!(text.contains('╰'), "clipping should preserve the bottom frame:\n{text}");
+    assert!(!text.contains(['╭', '╮', '╰', '╯', '│']));
     assert!(
         text.contains("line 19"),
         "prompt clipping should keep the editable tail:\n{text}"
     );
     assert_eq!(
         view.live.prompt_cursor.map(|cursor| cursor.row),
-        Some(renderer::live::MAX_PROMPT_ROWS - 2),
+        Some(renderer::live::MAX_PROMPT_ROWS - 1),
         "cursor row should be rebased into the clipped prompt rows"
     );
 }

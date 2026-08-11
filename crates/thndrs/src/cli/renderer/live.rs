@@ -41,9 +41,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
 
     let prefix_width = if app.composer.mode == Mode::Command { 4 } else { 3 };
     let row_body_width = super::layout::content_width(width);
-    let framed = composer_frame_height(width) > 0;
-    let horizontal_chrome = if framed { 4 } else { LIVE_INSET };
-    let body_width = row_body_width.saturating_sub(horizontal_chrome + prefix_width).max(1);
+    let body_width = row_body_width.saturating_sub(LIVE_INSET + prefix_width).max(1);
     let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
     let hidden_entry_active = app.overlay.setup().is_some_and(|recovery| {
         matches!(
@@ -61,26 +59,9 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let text_style = CellStyle::new().fg(p.text).bg(surface);
     let mention_style = CellStyle::new().fg(p.accent).bg(surface).bold();
 
-    let border_style = CellStyle::new().fg(prompt_color).bg(surface);
     let mut rows = Vec::with_capacity(visual_rows.len());
     for (idx, line) in visual_rows.into_iter().enumerate() {
-        let mut spans: Vec<Span> = if framed && idx == 0 {
-            let mut s = vec![
-                Span::styled("│", border_style),
-                Span::styled(" ", CellStyle::new().bg(surface)),
-                Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
-                Span::styled("  ", CellStyle::new().bg(surface)),
-            ];
-            if app.composer.mode == Mode::Command {
-                s.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
-            }
-            s
-        } else if framed {
-            vec![
-                Span::styled("│", border_style),
-                Span::styled(" ".repeat(1 + prefix_width), CellStyle::new().bg(surface)),
-            ]
-        } else if idx == 0 {
+        let mut spans: Vec<Span> = if idx == 0 {
             let mut s = vec![
                 Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(surface)),
                 Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
@@ -100,38 +81,17 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         if !line.is_empty() {
             spans.extend(mention_styled_spans(&line, text_style, mention_style, surface));
         }
-        if framed {
-            let used = super::layout::spans_width(&spans);
-            let fill = row_body_width.saturating_sub(used + 1);
-            spans.push(Span::styled(" ".repeat(fill), CellStyle::new().bg(surface)));
-            spans.push(Span::styled("│", border_style));
-        }
         rows.push(Row::padded(spans, width, CellStyle::new().bg(surface)));
     }
 
     if rows.is_empty() {
-        let mut spans = if framed {
-            vec![
-                Span::styled("│", border_style),
-                Span::styled(" ", CellStyle::new().bg(surface)),
-                Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
-                Span::styled("  ", CellStyle::new().bg(surface)),
-            ]
-        } else {
-            vec![
-                Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(surface)),
-                Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
-                Span::styled("  ", CellStyle::new().bg(surface)),
-            ]
-        };
+        let mut spans = vec![
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(surface)),
+            Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
+            Span::styled("  ", CellStyle::new().bg(surface)),
+        ];
         if app.composer.mode == Mode::Command {
             spans.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
-        }
-        if framed {
-            let used = super::layout::spans_width(&spans);
-            let fill = row_body_width.saturating_sub(used + 1);
-            spans.push(Span::styled(" ".repeat(fill), CellStyle::new().bg(surface)));
-            spans.push(Span::styled("│", border_style));
         }
         rows.push(Row::padded(spans, width, CellStyle::new().bg(surface)));
     }
@@ -139,12 +99,12 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     (rows, if hidden_entry_active { None } else { Some(cursor) })
 }
 
-/// Number of horizontal frame rows reserved by the composer at this width.
+/// Number of metadata rows reserved by the composer at this width.
 pub fn composer_frame_height(width: usize) -> usize {
-    usize::from(super::layout::content_width(width) >= COMPOSER_MIN_CONTENT_WIDTH) * 2
+    usize::from(super::layout::content_width(width) >= COMPOSER_MIN_CONTENT_WIDTH)
 }
 
-/// Add the horizontal frame around already-wrapped prompt body rows.
+/// Add a borderless session and status row above the prompt body.
 pub fn frame_prompt_rows(
     app: &App, width: usize, rows: Vec<Row>, cursor: Option<CursorCoord>,
 ) -> (Vec<Row>, Option<CursorCoord>) {
@@ -154,19 +114,17 @@ pub fn frame_prompt_rows(
 
     let p = super::style::palette();
     let bg = p.panel_bg;
-    let border_color = match app.prompt_state() {
+    let accent = match app.prompt_state() {
         PromptState::Editable => p.yellow,
         PromptState::Submitted | PromptState::Streaming | PromptState::RunningTool | PromptState::Stopped => p.teal,
         PromptState::Errored => p.red,
     };
-    let border_style = CellStyle::new().fg(border_color).bg(bg);
-    let label_style = border_style.bold();
+    let label_style = CellStyle::new().fg(accent).bg(bg).bold();
     let content_width = super::layout::content_width(width);
 
-    let left = "╭─";
     let session = app.run_label();
-    let session_budget = content_width.saturating_sub(5).max(1);
-    let label = format!(" {} ", utils::truncate_ellipsis(session, session_budget));
+    let session_budget = content_width.saturating_sub(LIVE_INSET).max(1);
+    let label = utils::truncate_ellipsis(session, session_budget);
     let status_label = app.status_label();
     let status = (status_label != "Ready").then(|| {
         let icon = super::style::status_icon(
@@ -176,12 +134,12 @@ pub fn frame_prompt_rows(
         format!(" {icon} {status_label} ")
     });
     let status_width = status.as_deref().map_or(0, utils::text_width);
-    let fixed = utils::text_width(left) + utils::text_width(&label) + status_width + 1;
-    let top_spans = if fixed + 2 <= content_width {
+    let fixed = LIVE_INSET + utils::text_width(&label) + status_width;
+    let top_spans = if fixed < content_width {
         let mut spans = vec![
-            Span::styled(left, border_style),
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
             Span::styled(label, label_style),
-            Span::styled("─".repeat(content_width - fixed), border_style),
+            Span::styled(" ".repeat(content_width - fixed), CellStyle::new().bg(bg)),
         ];
         if let Some(status) = status {
             spans.push(Span::styled(
@@ -189,34 +147,17 @@ pub fn frame_prompt_rows(
                 CellStyle::new().fg(super::style::status_color(&status_label)).bg(bg),
             ));
         }
-        spans.push(Span::styled("╮", border_style));
         spans
-    } else if utils::text_width(left) + utils::text_width(&label) < content_width {
-        let fixed = utils::text_width(left) + utils::text_width(&label) + 1;
-        vec![
-            Span::styled(left, border_style),
-            Span::styled(label, label_style),
-            Span::styled("─".repeat(content_width - fixed), border_style),
-            Span::styled("╮", border_style),
-        ]
     } else {
-        vec![Span::styled(
-            format!("╭{}╮", "─".repeat(content_width.saturating_sub(2))),
-            border_style,
-        )]
+        vec![
+            Span::styled(" ".repeat(LIVE_INSET.min(content_width)), CellStyle::new().bg(bg)),
+            Span::styled(label, label_style),
+        ]
     };
 
-    let mut framed = Vec::with_capacity(rows.len() + 2);
+    let mut framed = Vec::with_capacity(rows.len() + 1);
     framed.push(Row::padded(top_spans, width, CellStyle::new().bg(bg)));
     framed.extend(rows);
-    framed.push(Row::padded(
-        vec![Span::styled(
-            format!("╰{}╯", "─".repeat(content_width.saturating_sub(2))),
-            border_style,
-        )],
-        width,
-        CellStyle::new().bg(bg),
-    ));
 
     let cursor = cursor.map(|mut cursor| {
         cursor.row += 1;
@@ -235,7 +176,7 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
 
     let focused_surface = FocusedSurfaceView::from(app);
     if !matches!(focused_surface, FocusedSurfaceView::None) {
-        return super::adapter::render_surface(&SurfaceRenderInput {
+        return super::surface::render_surface(&SurfaceRenderInput {
             surface: &focused_surface,
             theme: &SurfaceThemeView::new(),
             width,
@@ -380,9 +321,9 @@ fn clipped_detail_indicator_row(
     width: usize, bg: Color, style: CellStyle, hidden_above: usize, hidden_below: usize,
 ) -> Row {
     let text = match (hidden_above, hidden_below) {
-        (0, below) => format!("   │ … {below} rows below"),
-        (above, 0) => format!("   │ … {above} rows above"),
-        (above, below) => format!("   │ … {above} rows above, {below} below"),
+        (0, below) => format!("     … {below} rows below"),
+        (above, 0) => format!("     … {above} rows above"),
+        (above, below) => format!("     … {above} rows above, {below} below"),
     };
     Row::padded(vec![Span::styled(text, style)], width, CellStyle::new().bg(bg))
 }

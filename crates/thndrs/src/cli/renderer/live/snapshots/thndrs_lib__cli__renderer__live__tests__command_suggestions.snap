@@ -2,11 +2,11 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│   │  COMMANDS                                                       option 1/7    # [-]=   [fg=#3b4261]=│   [fg=#f1fc79 b]=COMMANDS [-]=                                                        [fg=#6473b7]=option 1/7 [-]=  
-│   │  filter: c                                                                    # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=filter: c [-]=                                                                 [-]=  
-│   │  ❯ clear  clear transcript                                                    # [-]=   [fg=#3b4261]=│   [fg=#ebfafa b]=❯ clear  clear transcript [-]=                                                 [-]=  
-│   │    context  inspect context lifecycle                                         # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  context  inspect context lifecycle [-]=                                      [-]=  
-│   │    context verify  review a verification relation                             # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  context verify  review a verification relation [-]=                          [-]=  
-│   │    context release  explicitly release context prot…                          # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  context release  explicitly release context prot… [-]=                       [-]=  
-│   │  … 3 rows below                                                               # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=… 3 rows below [-]=                                                            [-]=  
-│   │  Enter select · Esc close                                                     # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=Enter select · Esc close [-]=                                                  [-]=
+│     COMMANDS                                                        option 1/7    # [-]=   [-]=   [fg=#f1fc79 b]=COMMANDS [-]=                                                         [fg=#6473b7]=option 1/7 [-]=  
+│     filter: c                                                                     # [-]=   [-]=   [fg=#3b4261]=filter: c [-]=                                                                  [-]=  
+│     ❯ clear  clear transcript                                                     # [-]=   [-]=   [fg=#ebfafa b]=❯ clear  clear transcript [-]=                                                  [-]=  
+│       context  inspect context lifecycle                                          # [-]=   [-]=   [fg=#ebfafa]=  context  inspect context lifecycle [-]=                                       [-]=  
+│       context verify  review a verification relation                              # [-]=   [-]=   [fg=#ebfafa]=  context verify  review a verification relation [-]=                           [-]=  
+│       context release  explicitly release context prot…                           # [-]=   [-]=   [fg=#ebfafa]=  context release  explicitly release context prot… [-]=                        [-]=  
+│     … 3 rows below                                                                # [-]=   [-]=   [fg=#3b4261]=… 3 rows below [-]=                                                             [-]=  
+│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#3b4261]=Enter select · Esc close [-]=                                                   [-]=

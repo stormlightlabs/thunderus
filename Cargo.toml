@@ -18,7 +18,6 @@ divan = "0.1.21"
 futures = "0.3"
 http = "1"
 insta = "1.48.0"
-iocraft = "0.8.3"
 lectito = "0.2"
 markdown = "1.0.0"
 minijinja = { version = "2.21.0", default-features = false, features = ["builtins", "debug", "fuel", "serde"] }

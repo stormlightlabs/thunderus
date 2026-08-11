@@ -1,31 +1,17 @@
-//! iocraft adapter for bounded surface rendering.
+//! Pure presentation for bounded focused surfaces.
 //!
-//! This module is the only place the direct TUI renderer calls iocraft. It
-//! renders declarative iocraft elements into an inspectable canvas, then
-//! converts the canvas back into the existing [`Row`] contract. It does not call
-//! iocraft render loops, fullscreen mode, stdout, or stderr.
+//! Semantic surface state is projected into the shared [`Row`] contract.
+//! Ratatui remains the sole terminal-cell renderer.
 
-use iocraft::prelude::*;
 use thndrs_agent::ToolStatus;
 
 use crate::renderer::row::Row;
-use crate::renderer::style::{self, CellStyle, Color as RendererColor, Span};
+use crate::renderer::style::{self, CellStyle, Span};
 use crate::renderer::view::{
     ColumnAlignment, ColumnWidthPolicy, DiffDetailView, FocusedSurfaceView, HelpView, PermissionView, PickerView,
-    SetupFormView, SurfaceRenderInput, SurfaceRenderer, SurfaceThemeView, TableCellView, TableView, ThemeRole,
-    ToolDetailView,
+    SetupFormView, SurfaceRenderInput, SurfaceThemeView, TableCellView, TableView, ThemeRole, ToolDetailView,
 };
 use crate::utils;
-
-/// iocraft-backed renderer for bounded focused surfaces.
-#[derive(Default)]
-pub struct IocraftSurfaceRenderer;
-
-impl SurfaceRenderer for IocraftSurfaceRenderer {
-    fn render_surface(&mut self, input: SurfaceRenderInput<'_>) -> Vec<Row> {
-        render_surface(&input)
-    }
-}
 
 struct ViewContent {
     title: String,
@@ -64,7 +50,7 @@ impl SurfaceLine {
     }
 }
 
-/// Render a semantic focused surface through iocraft.
+/// Project a semantic focused surface into bounded presentation rows.
 pub fn render_surface(input: &SurfaceRenderInput<'_>) -> Vec<Row> {
     if input.width == 0 || input.height == 0 {
         return Vec::new();
@@ -89,35 +75,30 @@ pub fn render_surface(input: &SurfaceRenderInput<'_>) -> Vec<Row> {
     }
 }
 
-/// Render a bounded transcript/detail lens with iocraft.
+/// Render a bounded transcript/detail lens.
 pub fn transcript_lens_rows(title: &str, body: &[String], width: usize, height: usize) -> Vec<Row> {
     if width == 0 || height == 0 {
         return Vec::new();
     }
 
-    let content = body.join("\n");
-    let view_width = width.min(u32::MAX as usize) as u32;
-    let view_height = height.min(u32::MAX as usize) as u32;
-    let body_height = height.saturating_sub(1).min(u32::MAX as usize) as u32;
-    let mut element = element! {
-        View(
-            flex_direction: FlexDirection::Column,
-            width: view_width,
-            height: view_height,
-        ) {
-            Text(content: title.to_string(), weight: Weight::Bold)
-            View(
-                height: body_height,
-            ) {
-                ScrollView {
-                    Text(content: content)
-                }
-            }
-        }
-    };
-
-    let canvas = element.render(Some(width));
-    canvas_to_rows(&canvas, width, CellStyle::default())
+    let p = style::palette();
+    let mut rows = Vec::with_capacity(height);
+    rows.push(Row::padded(
+        vec![Span::styled(
+            utils::truncate_ellipsis(title, width),
+            CellStyle::new().fg(p.text).bold(),
+        )],
+        width,
+        CellStyle::new().bg(p.surface0),
+    ));
+    rows.extend(body.iter().take(height.saturating_sub(1)).map(|line| {
+        Row::padded(
+            vec![Span::plain(utils::truncate_ellipsis(line, width))],
+            width,
+            CellStyle::new().bg(p.surface0),
+        )
+    }));
+    rows
 }
 
 fn picker_content(picker: &PickerView, width: usize) -> ViewContent {
@@ -165,9 +146,8 @@ fn quiet_picker_rows(picker: &PickerView, width: usize, height: usize) -> Vec<Ro
     }
     let p = style::palette();
     let content = picker_content(picker, width);
-    let rail_style = CellStyle::new().fg(p.overlay0);
     let mut header_spans = vec![
-        Span::styled("│  ", rail_style),
+        Span::plain("  "),
         Span::styled(content.title.to_uppercase(), CellStyle::new().fg(p.yellow).bold()),
     ];
     let used = super::layout::spans_width(&header_spans);
@@ -188,7 +168,7 @@ fn quiet_picker_rows(picker: &PickerView, width: usize, height: usize) -> Vec<Ro
             role => theme_role_style(role),
         };
         rows.push(Row::padded(
-            vec![Span::styled("│  ", rail_style), Span::styled(line.text, text_style)],
+            vec![Span::plain("  "), Span::styled(line.text, text_style)],
             width,
             CellStyle::new(),
         ));
@@ -399,13 +379,6 @@ fn table_rows(table: &TableView, width: usize, height: usize, theme: &SurfaceThe
 
     let widths = table_column_widths(table, body_width);
     let mut body = vec![SurfaceLine::title(table_line(&table.header, &widths))];
-    body.push(SurfaceLine::muted(
-        widths
-            .iter()
-            .map(|width| "─".repeat(*width))
-            .collect::<Vec<_>>()
-            .join(" "),
-    ));
     body.extend(table.rows.iter().enumerate().map(|(index, row)| {
         let selected = table.selected_row == Some(index);
         let marker = if selected { "❯" } else { " " };
@@ -421,7 +394,7 @@ fn table_rows(table: &TableView, width: usize, height: usize, theme: &SurfaceThe
             title: "context".to_string(),
             status,
             body,
-            focus: table.selected_row.map(|row| row + 2),
+            focus: table.selected_row.map(|row| row + 1),
             hints: "↑/↓ inspect · Esc close".to_string(),
             border: ThemeRole::Selected,
         },
@@ -463,31 +436,12 @@ fn render_bounded_view(content: &ViewContent, width: usize, height: usize, theme
     let palette = style::palette();
     let background = palette.surface0;
     let header = format!("{} · {}", content.title, content.status);
-    let framed = width >= 8 && height >= 3;
-    if framed {
-        let inner_width = width.saturating_sub(2);
-        let max_inner_height = height.saturating_sub(2);
-        let body_rows = layout_surface_body(content, max_inner_height);
-        let inner_height = body_rows.len().max(1).min(max_inner_height.max(1));
-        let inner_rows = render_lines(&body_rows, inner_width, inner_height, theme);
-        let border_style = theme_role_style(content.border).bg(background);
-        let mut rows = Vec::with_capacity(inner_height + 2);
-        rows.push(frame_edge(width, &header, true, border_style, background));
-        rows.extend(
-            inner_rows
-                .into_iter()
-                .map(|row| framed_content_row(row, width, border_style, background)),
-        );
-        rows.push(frame_edge(width, "", false, border_style, background));
-        rows
-    } else {
-        let max_body_height = height.saturating_sub(1);
-        let body_rows = layout_surface_body(content, max_body_height);
-        let mut lines = Vec::with_capacity(body_rows.len() + 1);
-        lines.push(SurfaceLine::new(header, content.border));
-        lines.extend(body_rows);
-        render_lines(&lines, width, height, theme)
-    }
+    let max_body_height = height.saturating_sub(1);
+    let body_rows = layout_surface_body(content, max_body_height);
+    let mut lines = Vec::with_capacity(body_rows.len() + 1);
+    lines.push(SurfaceLine::new(header, content.border));
+    lines.extend(body_rows);
+    render_lines(&lines, width, height, theme, background)
 }
 
 fn layout_surface_body(content: &ViewContent, max_lines: usize) -> Vec<SurfaceLine> {
@@ -563,129 +517,27 @@ fn clip_surface_body(lines: &[SurfaceLine], focus: Option<usize>, budget: usize)
     (lines[start..end].to_vec(), start, lines.len().saturating_sub(end))
 }
 
-fn frame_edge(width: usize, label: &str, top: bool, style: CellStyle, background: RendererColor) -> Row {
-    let available = width.saturating_sub(2);
-    let label = if top {
-        format!(" {} ", utils::truncate_ellipsis(label, available.saturating_sub(2)))
-    } else {
-        String::new()
-    };
-    let label_width = utils::text_width(&label).min(available);
-    let edge = "─".repeat(available.saturating_sub(label_width));
-    let text = if top { format!("╭{label}{edge}╮") } else { format!("╰{}╯", "─".repeat(available)) };
-    Row::padded(vec![Span::styled(text, style)], width, CellStyle::new().bg(background))
-}
-
-fn framed_content_row(row: Row, width: usize, border_style: CellStyle, background: RendererColor) -> Row {
-    let mut spans = Vec::with_capacity(row.spans.len() + 2);
-    spans.push(Span::styled("│", border_style));
-    spans.extend(row.spans);
-    spans.push(Span::styled("│", border_style));
-    Row::padded(spans, width, CellStyle::new().bg(background))
-}
-
-fn render_lines(lines: &[SurfaceLine], width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
+fn render_lines(
+    lines: &[SurfaceLine], width: usize, height: usize, theme: &SurfaceThemeView, background: style::Color,
+) -> Vec<Row> {
     if width == 0 || height == 0 {
         return Vec::new();
     }
 
     let p = style::palette();
-    let bg = p.surface0;
-    let view_width = width.min(u32::MAX as usize) as u32;
-    let view_height = height.min(u32::MAX as usize) as u32;
-    let content = lines
+    lines
         .iter()
-        .map(|line| utils::truncate_ellipsis(&line.text, width))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut element = element! {
-        View(
-            background_color: Some(bg),
-            flex_direction: FlexDirection::Column,
-            width: view_width,
-            height: view_height,
-        ) {
-            Text(color: Some(p.text), content: content, wrap: TextWrap::NoWrap)
-        }
-    };
-    let canvas = element.render(Some(width));
-    let pad_style = CellStyle::default().bg(bg);
-    let mut rows = canvas_to_rows(&canvas, width, pad_style);
-    rows.truncate(height.min(lines.len()));
-    while rows.len() < height.min(lines.len()) {
-        rows.push(Row::blank(width, pad_style));
-    }
-    for (row, line) in rows.iter_mut().zip(lines.iter()) {
-        restyle_row(row, line.role, theme);
-    }
-    rows
-}
-
-fn restyle_row(row: &mut Row, role: ThemeRole, theme: &SurfaceThemeView) {
-    let p = style::palette();
-    let bg = if role == theme.selected { p.surface1 } else { p.surface0 };
-    let style = theme_role_style(role).bg(bg);
-    let text = {
-        let mut out = String::new();
-        for span in &row.spans {
-            out.push_str(&span.text);
-        }
-        out
-    };
-    *row = Row::padded(vec![Span::styled(text, style)], row.width, CellStyle::default().bg(bg));
-}
-
-fn canvas_to_rows(canvas: &Canvas, width: usize, pad_style: CellStyle) -> Vec<Row> {
-    (0..canvas.height())
-        .map(|y| {
-            let mut spans = Vec::new();
-            let mut current_text = String::new();
-            let mut current_style: Option<CellStyle> = None;
-            let mut skip_cells = 0usize;
-            for x in 0..canvas.width().min(width) {
-                if skip_cells > 0 {
-                    skip_cells -= 1;
-                    continue;
-                }
-                let cell = canvas.cell(x, y);
-                let style = cell.map_or(pad_style, cell_style);
-                let text = cell.and_then(CanvasCell::text).unwrap_or(" ");
-                skip_cells = utils::text_width(text).saturating_sub(1);
-                if current_style == Some(style) {
-                    current_text.push_str(text);
-                } else {
-                    if let Some(style) = current_style.take() {
-                        spans.push(Span::styled(std::mem::take(&mut current_text), style));
-                    }
-                    current_style = Some(style);
-                    current_text.push_str(text);
-                }
-            }
-            if let Some(style) = current_style {
-                spans.push(Span::styled(current_text, style));
-            }
-            Row::padded(spans, width, pad_style)
+        .take(height)
+        .map(|line| {
+            let row_background = if line.role == theme.selected { p.surface1 } else { background };
+            let row_style = theme_role_style(line.role).bg(row_background);
+            Row::padded(
+                vec![Span::styled(utils::truncate_ellipsis(&line.text, width), row_style)],
+                width,
+                CellStyle::default().bg(row_background),
+            )
         })
         .collect()
-}
-
-fn cell_style(cell: &CanvasCell) -> CellStyle {
-    let mut style = CellStyle::new()
-        .fg(cell
-            .text_style()
-            .and_then(|style| style.color)
-            .unwrap_or(RendererColor::Reset))
-        .bg(cell.background_color.unwrap_or(RendererColor::Reset));
-    if let Some(text_style) = cell.text_style() {
-        style.bold = text_style.weight == Weight::Bold;
-        style.dim = text_style.weight == Weight::Light;
-        style.italic = text_style.italic;
-        style.underlined = text_style.underline;
-        if text_style.invert {
-            std::mem::swap(&mut style.fg, &mut style.bg);
-        }
-    }
-    style
 }
 
 fn table_column_widths(table: &TableView, width: usize) -> Vec<usize> {
@@ -773,14 +625,18 @@ fn theme_role_style(role: ThemeRole) -> CellStyle {
 
 #[cfg(test)]
 mod tests {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
     use super::*;
     use crate::renderer::row::Frame;
     use crate::renderer::view::{
-        DiffSummaryView, PickerItemView, SetupFieldView, SurfaceThemeView, TableCellView, ThemeRole,
+        DiffSummaryView, PermissionOptionView, PickerItemView, SetupFieldView, SurfaceThemeView, TableCellView,
+        ThemeRole,
     };
 
     #[test]
-    fn transcript_lens_uses_iocraft_canvas_without_render_loop() {
+    fn transcript_lens_preserves_bounded_row_contract() {
         let rows = transcript_lens_rows(
             "details",
             &["one".to_string(), "two".to_string(), "three".to_string()],
@@ -789,17 +645,11 @@ mod tests {
         );
         let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
 
-        assert!(
-            text.contains("details"),
-            "title should render through iocraft canvas:\n{text}"
-        );
-        assert!(
-            text.contains("one"),
-            "body should render through iocraft canvas:\n{text}"
-        );
+        assert!(text.contains("details"), "title should remain visible:\n{text}");
+        assert!(text.contains("one"), "body should remain visible:\n{text}");
         assert!(
             rows.iter().all(|row| row.width == 24),
-            "converted rows should preserve the existing row contract"
+            "surface rows should preserve the existing row contract"
         );
     }
 
@@ -814,13 +664,8 @@ mod tests {
                 PickerItemView { label: "health".to_string(), detail: "run doctor".to_string() },
             ],
         });
-        let mut renderer = IocraftSurfaceRenderer;
-        let rows = renderer.render_surface(SurfaceRenderInput {
-            surface: &surface,
-            theme: &test_theme(),
-            width: 32,
-            height: 4,
-        });
+        let rows =
+            render_surface(&SurfaceRenderInput { surface: &surface, theme: &test_theme(), width: 32, height: 4 });
         let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
 
         assert!(text.contains("COMMANDS"));
@@ -831,36 +676,9 @@ mod tests {
         );
         assert!(
             rows.iter()
-                .all(|row| row.spans.iter().all(|span| span.style.bg == RendererColor::Reset))
+                .all(|row| row.spans.iter().all(|span| span.style.bg == style::Color::Reset))
         );
         assert!(rows.iter().all(|row| row.width == 32));
-    }
-
-    #[test]
-    fn canvas_conversion_preserves_iocraft_text_style() {
-        let mut element = element! {
-            View(width: 16, height: 1) {
-                Text(
-                    color: Color::Red,
-                    content: "warn",
-                    weight: Weight::Bold,
-                    decoration: TextDecoration::Underline,
-                    italic: true,
-                )
-            }
-        };
-        let rows = canvas_to_rows(&element.render(Some(16)), 16, CellStyle::default());
-        let style = rows[0]
-            .spans
-            .iter()
-            .find(|span| span.text.contains("warn"))
-            .expect("styled text span")
-            .style;
-
-        assert_eq!(style.fg, RendererColor::Red);
-        assert!(style.bold);
-        assert!(style.underlined);
-        assert!(style.italic);
     }
 
     #[test]
@@ -901,7 +719,7 @@ mod tests {
     }
 
     #[test]
-    fn file_picker_uses_quiet_rail_and_preserves_content_rows() {
+    fn file_picker_uses_borderless_rows_and_preserves_content() {
         let surface = FocusedSurfaceView::FilePicker(PickerView {
             title: "files".to_string(),
             query: "missing".to_string(),
@@ -917,14 +735,26 @@ mod tests {
         assert!(!rows.iter().any(|row| row.text().contains('╭')));
         assert!(
             rows.iter()
-                .all(|row| row.spans.iter().all(|span| span.style.bg == RendererColor::Reset))
+                .all(|row| row.spans.iter().all(|span| span.style.bg == style::Color::Reset))
         );
         assert!(rows.iter().any(|row| row.text().contains("no matches")));
     }
 
     #[test]
-    fn snapshot_iocraft_focused_surfaces() {
+    fn snapshot_focused_surfaces() {
         let cases = vec![
+            (
+                "permission",
+                FocusedSurfaceView::Permission(PermissionView {
+                    title: "Run cargo test".to_string(),
+                    scope: "local user · active tool only".to_string(),
+                    selected: 1,
+                    options: vec![
+                        PermissionOptionView { label: "Allow once".to_string(), kind: "allow once".to_string() },
+                        PermissionOptionView { label: "Reject".to_string(), kind: "reject once".to_string() },
+                    ],
+                }),
+            ),
             (
                 "command picker",
                 FocusedSurfaceView::CommandPicker(PickerView {
@@ -946,7 +776,7 @@ mod tests {
                     items: vec![
                         PickerItemView { label: "src/main.rs".to_string(), detail: "binary".to_string() },
                         PickerItemView {
-                            label: "src/cli/renderer/adapter.rs".to_string(),
+                            label: "src/cli/renderer/surface.rs".to_string(),
                             detail: "focused UI".to_string(),
                         },
                     ],
@@ -984,6 +814,10 @@ mod tests {
                         "+new".to_string(),
                     ],
                 }),
+            ),
+            (
+                "transcript lens",
+                FocusedSurfaceView::TranscriptLens { selected_entry: Some(12), scroll: 3 },
             ),
             (
                 "setup form",
@@ -1060,14 +894,38 @@ mod tests {
         for (label, surface) in cases {
             let rows =
                 render_surface(&SurfaceRenderInput { surface: &surface, theme: &test_theme(), width: 48, height: 5 });
+            assert!(
+                rows.iter().all(|row| !row.text().contains(['╭', '╮', '╰', '╯', '│'])),
+                "{label} should be borderless"
+            );
             rendered.push_str(label);
-            rendered.push_str(":\n");
+            rendered.push_str(" buffer:\n");
+            rendered.push_str(&ratatui_buffer_text(&rows, 48));
+            rendered.push_str("styles:\n");
             rendered.push_str(&Frame { rows, width: 48, cursor: None, cursor_visible: true }.render_styled());
             rendered.push('\n');
         }
 
         assert!(!rendered.contains("sk-hidden"));
-        insta::assert_snapshot!("iocraft_focused_surfaces", rendered);
+        insta::assert_snapshot!("focused_surfaces", rendered);
+    }
+
+    fn ratatui_buffer_text(rows: &[Row], width: usize) -> String {
+        let height = rows.len().max(1);
+        let backend = TestBackend::new(width as u16, height as u16);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        let logical = Frame { rows: rows.to_vec(), width, cursor: None, cursor_visible: false };
+        terminal
+            .draw(|frame| super::super::alternate::render_logical_frame(frame, &logical))
+            .expect("render surface through Ratatui");
+        let buffer = terminal.backend().buffer();
+        let mut rendered = String::new();
+        for y in 0..height as u16 {
+            let line = (0..width as u16).map(|x| buffer[(x, y)].symbol()).collect::<String>();
+            rendered.push_str(line.trim_end());
+            rendered.push('\n');
+        }
+        rendered
     }
 
     fn test_theme() -> SurfaceThemeView {

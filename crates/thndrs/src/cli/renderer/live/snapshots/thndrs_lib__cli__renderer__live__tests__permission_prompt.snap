@@ -2,9 +2,8 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│   ╭ permission · Write src/main.rs · approval required · focused ────────────────╮  # [bg=#212337]=   [fg=#f7c67f bg=#212337]=╭ permission · Write src/main.rs · approval required · focused ────────────────╮
-│   │    scope: local user · active tool only · no TUI sandbox                         │  # [bg=#212337]=   [fg=#f7c67f bg=#212337]=│ [bg=#212337]=   [fg=#f7c67f bg=#212337]=  scope: local user · active tool only · no TUI sandbox                          [fg=#f7c67f bg=#212337]=│
-│   │      Allow once  [allow once]                                                    │  # [bg=#212337]=   [fg=#f7c67f bg=#212337]=│ [bg=#212337]=   [fg=#ebfafa bg=#212337]=    Allow once  [allow once]                                                     [fg=#f7c67f bg=#212337]=│
-│   │    ❯ Reject  [reject once]                                                       │  # [bg=#212337]=   [fg=#f7c67f bg=#212337]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ Reject  [reject once]                                                        [fg=#f7c67f bg=#212337]=│
-│   │    Enter choose · Esc cancel                                                     │  # [bg=#212337]=   [fg=#f7c67f bg=#212337]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter choose · Esc cancel                                                      [fg=#f7c67f bg=#212337]=│
-│   ╰──────────────────────────────────────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#f7c67f bg=#212337]=╰──────────────────────────────────────────────────────────────────────────────╯
+│   permission · Write src/main.rs · approval required · focused                    # [bg=#212337]=   [fg=#f7c67f bg=#212337]=permission · Write src/main.rs · approval required · focused [bg=#212337]=                 [bg=#212337]=  
+│   scope: local user · active tool only · no TUI sandbox                           # [bg=#212337]=   [fg=#f7c67f bg=#212337]=scope: local user · active tool only · no TUI sandbox [bg=#212337]=                        [bg=#212337]=  
+│     Allow once  [allow once]                                                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Allow once  [allow once] [bg=#212337]=                                                   [bg=#212337]=  
+│   ❯ Reject  [reject once]                                                         # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=❯ Reject  [reject once] [bg=#292e42]=                                                      [bg=#292e42]=  
+│   Enter choose · Esc cancel                                                       # [bg=#212337]=   [fg=#3b4261 bg=#212337]=Enter choose · Esc cancel [bg=#212337]=                                                    [bg=#212337]=

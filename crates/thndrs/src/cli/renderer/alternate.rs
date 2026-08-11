@@ -672,6 +672,49 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_borderless_full_frames_through_ratatui() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session.writer = None;
+        app.session.id = "test-session".to_string();
+        app.overlay.close();
+        app.transcript.entries = vec![
+            Entry::User { text: "Explain the renderer migration.".to_string() },
+            Entry::Agent { text: "Ratatui now owns the bounded terminal frame.".to_string(), streaming: false },
+        ]
+        .into();
+        app.composer.input.insert_str("Keep the interface quiet");
+
+        let mut rendered = String::new();
+        for (label, width, height) in [("normal", 80, 12), ("narrow", 32, 9), ("monochrome", 48, 10)] {
+            let logical = AlternateViewport::default().build_frame(&app, width, height);
+            let text = test_backend_text(&logical, width, height);
+            assert!(
+                !text.contains(['╭', '╮', '╰', '╯', '│', '─']),
+                "{label} full frame should be borderless:\n{text}"
+            );
+            rendered.push_str(&format!("{label} ({width}x{height}):\n{text}\n"));
+        }
+
+        insta::assert_snapshot!("borderless_full_frames", rendered);
+    }
+
+    fn test_backend_text(logical: &Frame, width: usize, height: usize) -> String {
+        let backend = TestBackend::new(width as u16, height as u16);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_logical_frame(frame, logical))
+            .expect("render logical frame");
+        let buffer = terminal.backend().buffer();
+        let mut rendered = String::new();
+        for y in 0..height as u16 {
+            let line = (0..width as u16).map(|x| buffer[(x, y)].symbol()).collect::<String>();
+            rendered.push_str(line.trim_end());
+            rendered.push('\n');
+        }
+        rendered
+    }
+
+    #[test]
     fn chronological_projection_does_not_partition_later_settled_entries_first() {
         let mut app = App::from_cli(&Cli::default());
         app.session.writer = None;

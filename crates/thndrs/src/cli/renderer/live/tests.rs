@@ -82,11 +82,11 @@ fn prompt_rows_wraps_long_text() {
 #[test]
 fn prompt_rows_wrap_at_visible_content_width() {
     let mut app = test_app();
-    app.composer.input.set_text(&"x".repeat(9));
+    app.composer.input.set_text(&"x".repeat(11));
     let (rows, cursor) = prompt_rows_for(&app, 20);
 
     assert_eq!(rows.len(), 1);
-    assert_eq!(cursor, Some(CursorCoord::new(0, 16)));
+    assert_eq!(cursor, Some(CursorCoord::new(0, 18)));
 
     app.composer.input.insert_char('x');
     let (rows, cursor) = prompt_rows_for(&app, 20);
@@ -96,21 +96,19 @@ fn prompt_rows_wrap_at_visible_content_width() {
 }
 
 #[test]
-fn frame_prompt_rows_adds_complete_composer_border_and_offsets_cursor() {
+fn frame_prompt_rows_adds_borderless_metadata_and_offsets_cursor() {
     let mut app = test_app();
     app.session.id = "test-session".to_string();
     app.composer.input.set_text("hello");
     let (body_rows, cursor) = prompt_rows_for(&app, 80);
     let (rows, cursor) = frame_prompt_rows(&app, 80, body_rows, cursor);
 
-    assert_eq!(rows.len(), 3);
-    assert!(rows[0].text().contains("╭─ test-session"));
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].text().contains("test-session"));
     assert!(!rows[0].text().contains("prompt"));
     assert!(!rows[0].text().contains("idle"));
-    assert!(rows[1].text().contains("│ ❯  hello"));
-    assert!(rows[1].text().trim_end().ends_with('│'));
-    assert!(rows[2].text().contains('╰'));
-    assert!(rows[2].text().contains('╯'));
+    assert!(rows[1].text().contains("❯  hello"));
+    assert!(!rows.iter().any(|row| row.text().contains(['╭', '╮', '╰', '╯', '│'])));
     assert_eq!(cursor, Some(CursorCoord::new(1, 12)));
     assert!(
         rows.iter()

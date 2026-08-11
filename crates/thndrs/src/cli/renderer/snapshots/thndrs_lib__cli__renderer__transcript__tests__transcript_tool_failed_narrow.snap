@@ -3,11 +3,11 @@ source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
 │                                           # [-]=                                        
-│   │ Activity                              # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=  
-│   │ ✕ run_shell [Failed]                  # [-]=   [fg=#f1fc79]=│  [fg=#f16c75]=✕  [fg=#ebfafa b]=run_shell [fg=#f16c75]= [Failed] [-]=               [-]=  
-│   │   $ cargo build                       # [-]=   [fg=#f1fc79]=│  [-]=   [fg=#abb4da]=$ cargo build [-]=                    [-]=  
-│   │    │ error[E0308]: mismatched typ…    # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=error[E0308]: [fg=#c0c5ce]= mismatched typ [fg=#abb4da]=… [-]=  
-│   │    │   --> src/main.rs:5:14           # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#c0c5ce]=   [fg=#8fa1b3]=-- [fg=#c0c5ce]=> [fg=#c0c5ce]= src/main.rs:5:14 [-]=        [-]=  
-│   │    │    |                             # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#c0c5ce]=    [fg=#c0c5ce]=| [-]=                          [-]=  
-│   │    │ 5 |     let x: i32 = "hello";    # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=5 [fg=#c0c5ce]=  [fg=#c0c5ce]=| [fg=#c0c5ce]=      [fg=#96b5b4]=let [fg=#c0c5ce]= x [fg=#c0c5ce]=: [fg=#c0c5ce]= i32  [fg=#c0c5ce]== [fg=#c0c5ce]=  [fg=#c0c5ce]=" [fg=#a3be8c]=hello [fg=#c0c5ce]=" [fg=#c0c5ce]=; [-]=  
-│   │    │    |               ^^^^^^^^      # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#c0c5ce]=    [fg=#c0c5ce]=| [fg=#c0c5ce]=                [fg=#8fa1b3]=^^^^^^^^ [-]=   [-]=
+│     Activity                              # [-]=   [fg=#f1fc79]=   [fg=#f1fc79 b]=Activity [-]=                           [-]=  
+│     ✕ run_shell [Failed]                  # [-]=   [fg=#f1fc79]=   [fg=#f16c75]=✕  [fg=#ebfafa b]=run_shell [fg=#f16c75]= [Failed] [-]=               [-]=  
+│       $ cargo build                       # [-]=   [fg=#f1fc79]=   [-]=   [fg=#abb4da]=$ cargo build [-]=                    [-]=  
+│        · error[E0308]: mismatched typ…    # [-]=   [fg=#f1fc79]=   [fg=#3b4261]=   ·  [fg=#8fa1b3]=error[E0308]: [fg=#c0c5ce]= mismatched typ [fg=#abb4da]=… [-]=  
+│        ·   --> src/main.rs:5:14           # [-]=   [fg=#f1fc79]=   [fg=#3b4261]=   ·  [fg=#c0c5ce]=   [fg=#8fa1b3]=-- [fg=#c0c5ce]=> [fg=#c0c5ce]= src/main.rs:5:14 [-]=        [-]=  
+│        ·    |                             # [-]=   [fg=#f1fc79]=   [fg=#3b4261]=   ·  [fg=#c0c5ce]=    [fg=#c0c5ce]=| [-]=                          [-]=  
+│        · 5 |     let x: i32 = "hello";    # [-]=   [fg=#f1fc79]=   [fg=#3b4261]=   ·  [fg=#8fa1b3]=5 [fg=#c0c5ce]=  [fg=#c0c5ce]=| [fg=#c0c5ce]=      [fg=#96b5b4]=let [fg=#c0c5ce]= x [fg=#c0c5ce]=: [fg=#c0c5ce]= i32  [fg=#c0c5ce]== [fg=#c0c5ce]=  [fg=#c0c5ce]=" [fg=#a3be8c]=hello [fg=#c0c5ce]=" [fg=#c0c5ce]=; [-]=  
+│        ·    |               ^^^^^^^^      # [-]=   [fg=#f1fc79]=   [fg=#3b4261]=   ·  [fg=#c0c5ce]=    [fg=#c0c5ce]=| [fg=#c0c5ce]=                [fg=#8fa1b3]=^^^^^^^^ [-]=   [-]=

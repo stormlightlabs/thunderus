@@ -3,7 +3,7 @@ source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
 │                                           # [-]=                                        
-│   │ Activity                              # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=  
-│   │ ✓ search_text [Done]                  # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=search_text [fg=#37f499]= [Done] [-]=               [-]=  
-│   │   pattern: fn main                    # [-]=   [fg=#f1fc79]=│  [-]=   [fg=#abb4da]=pattern: fn main [-]=                 [-]=  
-│   │   3 lines · Ctrl+O details            # [-]=   [fg=#f1fc79]=│  [-]=   [fg=#abb4da]=3 lines · Ctrl+O details [-]=         [-]=
+│     Activity                              # [-]=   [fg=#f1fc79]=   [fg=#f1fc79 b]=Activity [-]=                           [-]=  
+│     ✓ search_text [Done]                  # [-]=   [fg=#f1fc79]=   [fg=#37f499]=✓  [fg=#ebfafa b]=search_text [fg=#37f499]= [Done] [-]=               [-]=  
+│       pattern: fn main                    # [-]=   [fg=#f1fc79]=   [-]=   [fg=#abb4da]=pattern: fn main [-]=                 [-]=  
+│       3 lines · Ctrl+O details            # [-]=   [fg=#f1fc79]=   [-]=   [fg=#abb4da]=3 lines · Ctrl+O details [-]=         [-]=

@@ -19,10 +19,10 @@ const MAX_TOOL_OUTPUT_LINES: usize = 6;
 const MIN_TABLE_RENDER_WIDTH: usize = 24;
 
 /// Gutter prefix for tool output lines.
-pub const GUTTER: &str = "   │ ";
+pub const GUTTER: &str = "   · ";
 
 /// Role rail shown on transcript entry rows and partial-entry continuations.
-pub const ENTRY_RAIL: &str = "│ ";
+pub const ENTRY_RAIL: &str = "  ";
 
 #[derive(Clone, Copy)]
 enum TableAlign {
@@ -350,7 +350,7 @@ impl ToolBlockView<'_> {
                     Span::styled(ENTRY_RAIL, rail_style),
                     Span::styled(
                         format!(
-                            "   │ … ({} lines stored, {} shown here) · Ctrl+O details",
+                            "     … ({} lines stored, {} shown here) · Ctrl+O details",
                             self.output.len(),
                             MAX_TOOL_OUTPUT_LINES
                         ),
@@ -421,14 +421,6 @@ impl MarkdownTable {
 
         let mut rows = Vec::new();
         rows.push(Self::row(&self.headers, &self.alignments, &column_widths, header_theme));
-        rows.push(Row::padded(
-            vec![
-                Span::styled(ENTRY_RAIL, rail_style),
-                Span::styled(Self::separator(&column_widths), separator_style),
-            ],
-            width,
-            CellStyle::new().bg(bg),
-        ));
         for cells in &self.rows {
             rows.push(Self::row(cells, &self.alignments, &column_widths, body_theme));
         }
@@ -490,14 +482,6 @@ impl MarkdownTable {
             spans.push(Span::styled(text, theme.cell_style));
         }
         Row::padded(spans, theme.width, CellStyle::new().bg(theme.bg))
-    }
-
-    fn separator(widths: &[usize]) -> String {
-        widths
-            .iter()
-            .map(|width| "─".repeat((*width).max(1)))
-            .collect::<Vec<_>>()
-            .join("  ")
     }
 
     fn column_widths(&self, body_width: usize) -> Vec<usize> {
@@ -806,14 +790,14 @@ fn push_banner_brand_row(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
 }
 
 fn push_banner_readiness_row(rows: &mut Vec<Row>, text: &str, meta: &str, ready: bool, theme: StartupBannerTheme) {
-    let prefix_width = utils::text_width("│   ✓ ");
+    let prefix_width = utils::text_width("    ✓ ");
     let available = theme.body_width().saturating_sub(prefix_width).max(1);
     let wrapped = super::layout::wrap_text(text, available);
     for (index, line) in wrapped.into_iter().enumerate() {
         let marker = if index == 0 { if ready { "✓ " } else { "· " } } else { "  " };
         let marker_style = if ready { theme.success_style } else { theme.muted_style };
         let mut spans = vec![
-            Span::styled("│   ", theme.rail_style),
+            Span::styled("    ", theme.rail_style),
             Span::styled(marker, marker_style),
             Span::styled(line, theme.muted_style),
         ];

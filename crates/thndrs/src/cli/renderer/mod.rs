@@ -6,7 +6,6 @@
 //! unit-testable. [`alternate`] owns the production Ratatui surface and terminal
 //! lifecycle.
 
-pub mod adapter;
 pub mod alternate;
 pub mod cursor;
 pub mod git;
@@ -16,6 +15,7 @@ pub mod live;
 pub mod path_display;
 pub mod row;
 pub mod style;
+pub mod surface;
 pub mod transcript;
 pub mod view;
 
