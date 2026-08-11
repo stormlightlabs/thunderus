@@ -66,6 +66,12 @@ pub struct DoctorToolAvailability {
     pub rg: bool,
     /// `fd` binary availability.
     pub fd: bool,
+    /// Selected file-discovery implementation.
+    pub file_discovery: String,
+    /// Selected content-search implementation.
+    pub content_search: String,
+    /// Whether either search capability is using a fallback.
+    pub degraded: bool,
 }
 
 /// Session directory status.

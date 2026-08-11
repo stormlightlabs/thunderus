@@ -27,7 +27,7 @@ mod read_url;
 mod registry;
 mod replace_range;
 mod sawk;
-mod search_text;
+pub(crate) mod search;
 mod state_identity;
 mod subproc;
 mod web_search;

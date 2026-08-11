@@ -86,16 +86,6 @@ pub fn truncate_results(results: Vec<String>, max_results: usize) -> Vec<String>
     if results.len() <= max_results { results } else { results.into_iter().take(max_results).collect() }
 }
 
-/// Check whether a command exists on the system.
-pub fn command_exists(name: &str) -> bool {
-    Command::new("which")
-        .args([name])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

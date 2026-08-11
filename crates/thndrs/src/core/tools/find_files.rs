@@ -1,4 +1,3 @@
-use std::io;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -39,7 +38,7 @@ pub struct FindFiles<'a> {
 impl FindFiles<'_> {
     /// Find files by name pattern.
     ///
-    /// Backed by `fd` with `find` fallback. Uses argv arrays, never shell strings.
+    /// Backed by `fd` with a bounded in-process fallback. Uses argv arrays, never shell strings.
     /// Respects ignore rules and skips hidden files by default; both are opt-in.
     ///
     /// Enforces workspace-root containment, result-count, output-byte, and timeout caps.
@@ -48,8 +47,12 @@ impl FindFiles<'_> {
             return ToolOutput::failed("find_files", "invalid workspace root".to_string());
         }
 
+        self.run_with_programs(&super::search::backend::SearchPrograms::discover())
+    }
+
+    fn run_with_programs(&self, programs: &super::search::backend::SearchPrograms) -> ToolOutput {
         let timeout = Duration::from_secs(TIMEOUT_SECS);
-        let result = if super::subproc::command_exists("fd") {
+        let result = if let Some(fd) = programs.fd() {
             FdFind {
                 pattern: self.pattern,
                 root: self.root,
@@ -60,46 +63,58 @@ impl FindFiles<'_> {
                 follow_symlinks: self.follow_symlinks,
                 timeout,
             }
-            .run()
+            .run_with_executable(fd)
+            .map(|output| {
+                output
+                    .stdout
+                    .lines()
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .map(|paths| ("fd", paths))
         } else {
-            self.fallback(timeout)
+            self.fallback().map(|paths| ("in-process fallback (degraded)", paths))
         };
 
         match result {
-            Ok(output) => {
-                let paths: Vec<String> = output
-                    .stdout
-                    .lines()
-                    .filter(|l| !l.is_empty())
-                    .map(|s| s.to_string())
-                    .collect();
+            Ok((label, paths)) => {
                 let paths = super::subproc::truncate_results(paths, self.max_results);
-                ToolOutput::ok("find_files", paths)
+                ToolOutput::ok(
+                    "find_files",
+                    super::search::backend::with_implementation_line(label, paths),
+                )
             }
             Err(e) => ToolOutput::failed("find_files", format!("find_files failed: {e}")),
         }
     }
 
-    fn fallback(&self, timeout: Duration) -> io::Result<CommandResult> {
-        let mut cmd = Command::new("find");
-        cmd.arg(self.root).arg("-type").arg("f");
-        if !self.include_hidden {
-            cmd.arg("-not").arg("-path").arg("*/.*");
-        }
-        if let Some(depth) = self.max_depth {
-            cmd.arg("-maxdepth").arg(depth.to_string());
-        }
-        cmd.arg("-name").arg(self.pattern);
-        for ext in self.extensions {
-            cmd.arg("-o").arg("-name").arg(format!("*.{ext}"));
-        }
-        super::subproc::run_with_timeout(cmd, timeout)
+    fn fallback(&self) -> std::io::Result<Vec<String>> {
+        let files = super::search::backend::fallback_files(self.root, self.include_hidden, self.max_depth)?;
+        Ok(files
+            .into_iter()
+            .filter_map(|path| {
+                let display = super::search::backend::display_path(self.root, &path);
+                let name = path.file_name()?.to_string_lossy();
+                let pattern_matches = super::search::backend::matches_glob(&name, self.pattern);
+                let glob_matches = self
+                    .glob
+                    .is_none_or(|glob| super::search::backend::matches_glob(&display, glob));
+                let extension_matches = self.extensions.is_empty()
+                    || path.extension().is_some_and(|extension| {
+                        self.extensions
+                            .iter()
+                            .any(|expected| extension == expected.trim_start_matches('.'))
+                    });
+                (pattern_matches && glob_matches && extension_matches).then_some(display)
+            })
+            .collect())
     }
 }
 
 /// Encapsulates `fd` command arguments.
 #[derive(Clone, Debug)]
-pub struct FdFind<'a> {
+struct FdFind<'a> {
     pub pattern: &'a str,
     pub root: &'a Path,
     pub glob: Option<&'a str>,
@@ -111,8 +126,8 @@ pub struct FdFind<'a> {
 }
 
 impl FdFind<'_> {
-    pub fn run(&self) -> io::Result<CommandResult> {
-        let mut cmd = Command::new("fd");
+    fn run_with_executable(&self, executable: &Path) -> std::io::Result<CommandResult> {
+        let mut cmd = Command::new(executable);
         cmd.arg("--type").arg("f");
         if self.include_hidden {
             cmd.arg("--hidden");
@@ -256,7 +271,8 @@ mod tests {
         }
         .run();
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.display.lines.is_empty());
+        assert_eq!(output.display.lines.len(), 1);
+        assert!(output.display.lines[0].starts_with("[implementation: "));
     }
 
     #[test]

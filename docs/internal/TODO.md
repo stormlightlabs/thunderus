@@ -207,21 +207,27 @@ without pretending the fallback is equivalent.
 
 **Acceptance:**
 
-- [ ] Prefer `fd` for file discovery and `rg --json` for content search.
-- [ ] Missing binaries use bounded fallbacks that preserve workspace
+- [x] Prefer `fd` for file discovery and `rg --json` for content search.
+- [x] Missing binaries use bounded fallbacks that preserve workspace
       containment, output caps, and generated/vendor exclusions.
-- [ ] Diagnostics and tool metadata name the selected implementation and mark
+- [x] Diagnostics and tool metadata name the selected implementation and mark
       degraded results.
-- [ ] Fallback behavior cannot escape allowed roots or turn unbounded output
+- [x] Fallback behavior cannot escape allowed roots or turn unbounded output
       into transcript/session data.
 
 **Verify:** Deterministic path-injection tests for native and missing-binary
 cases, containment tests, cap tests, and transcript metadata snapshots.
 
+**Completed:** 2026-08-11. File discovery prefers `fd`, then `rg --files`, and
+content search prefers `rg --json`. Missing binaries use contained in-process
+fallbacks with file, byte, depth, result, and line limits. Tool output and
+`thndrs doctor` report the selected implementation and identify degraded
+results.
+
 ### UI-11: Pass the daily-driver gate
 
 **Outcome:** Demonstrate that the refactored TUI is a better daily driver before
-instances or Quiver add new surface area.
+instances or external capabilities add new surface area.
 
 **Blocked by:** UI-4 through UI-10. UI-1 through UI-3 must be sufficiently
 complete for the exercised flows.
@@ -460,155 +466,103 @@ routes that claim capacity support.
 **Verify:** A redacted dogfood ledger, focused regression suite, provider smokes,
 and real-terminal cleanup review.
 
-## P3 — Quiver v1
+## P3 — External Capabilities
 
-Quiver follows the trust, permission, containment, and effect boundaries used by
-built-in tools. It does not create a second plugin runtime.
+Skills own instructions, reference knowledge, and straightforward CLI
+workflows. MCP owns typed operations, resources, prompts, discovery, and server
+lifecycle. Project trust, permissions, containment, redaction, auditing, and
+transcript behavior stay in shared application policy.
 
-### QUIV-1: Resolve arrow manifests without running them
+### EXT-1: Apply project trust and permissions to MCP
 
-**Outcome:** Discover and validate global/project arrows as pure data.
+**Outcome:** Prevent project MCP configuration and server operations from
+gaining authority through discovery alone.
 
 **Blocked by:** None.
 
 **Acceptance:**
 
-- [ ] Discover valid manifests from documented global and project roots with
-      deterministic ordering.
-- [ ] Accept either TOML plus optional sibling `overlay.toml`, or JSON plus
-      optional sibling overlay, according to one versioned schema.
-- [ ] Reject directories containing both manifest formats, mismatched overlays,
-      invalid names, traversal, unknown required schema versions, and duplicate
-      operations with actionable diagnostics.
-- [ ] A project arrow fully shadows a global arrow with the same name; no fields
-      merge across trust scopes.
-- [ ] Invalid arrows remain inspectable without breaking unrelated startup.
-- [ ] Discovery neither enables an arrow nor runs its entrypoint/health check.
-- [ ] Parsed types distinguish trusted manifest fields from mutable learned
-      overlay fields.
+- [ ] Project MCP configuration remains inactive until the project is trusted
+      for MCP, independently of ACP, skills, prompts, and commands.
+- [ ] Trust decisions are explicit, inspectable, revocable, scoped, and durable.
+- [ ] Server startup and tool or resource access cannot exceed the current run's
+      authority and use the shared permission flow.
+- [ ] Calls record the configured server, original capability name, requested
+      authority, decision, result, and observed effects where available.
+- [ ] Global and project configuration precedence is deterministic and visible.
+- [ ] Documentation states when a server process is external to an enforcing
+      sandbox.
 
-**Verify:** Pure parser/resolver tests over deterministic temporary fixtures,
-including shadowing, malformed, traversal, and mixed-format cases.
+**Verify:** Configuration-resolution tests, trust transitions, fake MCP client
+permission cases, and semantic transcript/session projections.
 
-### QUIV-2: Add lifecycle, health, and explicit enablement
+### EXT-2: Add bounded MCP resources
 
-**Outcome:** Make discovered, enabled, healthy, and runnable distinct states.
+**Outcome:** Let servers provide structured context without presenting every
+read as a tool or injecting resource contents at startup.
 
-**Blocked by:** QUIV-1.
+**Blocked by:** EXT-1.
 
 **Acceptance:**
 
-- [ ] Humans can inspect status and explicitly enable/disable an arrow at the
-      correct scope.
-- [ ] Agents can request enablement only through normal permission interaction;
-      they cannot self-enable silently.
-- [ ] Health checks use manifest-declared explicit argv, contained cwd,
-      timeout, and bounded output; shell command strings are rejected.
-- [ ] Missing/incompatible runtime remains visible with an actionable degraded
-      state.
-- [ ] Project-local entrypoints are visibly classified and require explicit
-      project trust before health or invocation.
-- [ ] State transitions and configuration writes are atomic and audited.
+- [ ] Negotiate and expose resources only when the server advertises the
+      capability.
+- [ ] List compact, namespaced resource metadata and fetch content explicitly.
+- [ ] Enforce URI, item, byte, timeout, and serialization limits with visible
+      truncation or omission.
+- [ ] Preserve media type and distinguish text from opaque binary content.
+- [ ] Apply project trust, permission, cancellation, redaction, and auditing to
+      resource access.
+- [ ] Resource failures do not remove unrelated servers or tools.
 
-**Verify:** Lifecycle transition tests, fake process executor tests, trust and
-permission cases, and atomic-config failure tests.
+**Verify:** Fake-server negotiation, listing and read cases, limit and media-type
+tests, permission failures, and transcript/context projections.
 
-### QUIV-3: Project arrow knowledge into context safely
+### EXT-3: Make MCP lifecycle and failures easy to diagnose
 
-**Outcome:** Expose compact capability metadata by default and load full or
-learned knowledge only on demand.
+**Outcome:** Explain whether each configured server is disabled, blocked by
+trust, starting, ready, degraded, failed, or stopped.
 
-**Blocked by:** QUIV-1 and QUIV-2.
+**Blocked by:** EXT-1.
 
 **Acceptance:**
 
-- [ ] Default context contains only compact identity, scope, state, operation
-      names, effects, and a bounded description.
-- [ ] Full docs and learned notes load through explicit tool/context operations.
-- [ ] Agent-written learning records provenance, confidence, observed version,
-      timestamp, and review state in the optional overlay.
-- [ ] Overlays cannot modify entrypoints, argv templates, operations, effects,
-      permissions, containment, trust, or manifest identity.
-- [ ] Users can inspect, reset, reject, and deliberately promote learned
-      changes.
-- [ ] Context budget and serialization caps fail closed with visible omission.
+- [ ] `mcp list`, `mcp test`, startup diagnostics, and `/status` use consistent
+      lifecycle terms and identify the configuration scope.
+- [ ] Diagnostics distinguish configuration, environment, process startup,
+      negotiation, capability-listing, timeout, cancellation, and shutdown
+      failures.
+- [ ] Stdio stderr and protocol diagnostics remain bounded and redact secrets.
+- [ ] One failed server does not break unrelated startup or capability use.
+- [ ] Cancellation and application shutdown settle child processes and report
+      cleanup failures accurately.
+- [ ] Diagnostics recommend only actions supported by the current CLI.
 
-**Verify:** Projection snapshots, budget/cap tests, overlay authority tests, and
-atomic learning-record round trips.
+**Verify:** Lifecycle transition tests, fake process and MCP client failures,
+output-cap/redaction tests, and command snapshots.
 
-### QUIV-4: Invoke declared arrow operations as tools
+### EXT-4: Improve skill compatibility diagnostics
 
-**Outcome:** Provide generic Quiver management and bounded direct operations for
-healthy enabled arrows.
+**Outcome:** Make an installed skill's compatibility limits and missing local
+requirements visible without turning skills into executable authority.
 
-**Blocked by:** QUIV-2 and QUIV-3; the applicable sandbox/permission policy must
-be explicit even if the first slice is read-only.
-
-**Acceptance:**
-
-- [ ] Quiver exposes generic inspect, status, enable, disable, documentation,
-      and learning operations.
-- [ ] A healthy enabled arrow may contribute a direct named operation without
-      rewriting the core tool registry architecture.
-- [ ] Invocation uses explicit argv, contained cwd, timeout, output caps,
-      cancellation, redaction, and process cleanup.
-- [ ] Declared effects participate in permission policy before execution and
-      actual effects are recorded afterward.
-- [ ] A project arrow cannot exceed project trust or the current run's
-      authority.
-- [ ] The shell tool remains an explicit escape hatch, not an implicit Quiver
-      execution path.
-
-**Verify:** Fake-executor operation tests, permission/containment tests,
-cancellation/output-cap tests, and semantic transcript/session projections.
-
-### QUIV-5: Ship `mccabre` as the first read-only arrow
-
-**Outcome:** Prove the whole Quiver path with an independently installed,
-read-only code-analysis capability.
-
-**Blocked by:** QUIV-1 through QUIV-4.
+**Blocked by:** Existing skill-loading safety tests.
 
 **Acceptance:**
 
-- [ ] `thndrs` presents `mccabre` as a bundled manifest/integration but an
-      independently installed executable.
-- [ ] Setup diagnoses absent, incompatible, disabled, unhealthy, and untrusted
-      installations without auto-installing or executing project code.
-- [ ] Supported analyses run from the selected contained workspace and return
-      bounded semantic findings plus raw-detail handles where safe.
-- [ ] Artifact-writing/report operations and remote authority are not exposed
-      in v1.
-- [ ] Threshold output is presented as analysis data, not an enforced quality
-      gate unless a separate policy says so.
-- [ ] Automated tests use deterministic fakes; a documented real local smoke
-      proves executable compatibility.
+- [ ] `skills doctor` shows declared compatibility and unsupported required
+      tools or local commands using a documented metadata convention.
+- [ ] A missing or incompatible dependency produces a diagnostic and does not
+      run installation or project code.
+- [ ] Skill metadata cannot grant permissions, enable tools, or weaken the
+      current run's authority.
+- [ ] Unknown optional metadata remains preserved without being treated as
+      trusted policy.
+- [ ] Duplicate resolution and bounded progressive loading keep their current
+      behavior.
 
-**Verify:** Manifest/setup fixtures, fake analysis outputs, transcript/context
-snapshots, and one version-recorded local smoke.
-
-### QUIV-6: Document and review the vertical slice
-
-**Outcome:** Make Quiver's installation, scope, trust, learning, invocation, and
-limitations understandable to users and maintainers.
-
-**Blocked by:** QUIV-5.
-
-**Acceptance:**
-
-- [ ] User documentation distinguishes arrow installation records from the
-      external executable and explains global/project shadowing.
-- [ ] Documentation explains project-local script trust, explicit enablement,
-      health, effects, permissions, overlay learning, reset/promotion, and limits.
-- [ ] Comparison language describes the implemented relationship among arrows,
-      tools, skills, slash commands, and MCP without claiming a generic plugin
-      ecosystem.
-- [ ] Maintainer documentation records the versioned schema, pure/effect
-      boundaries, compatibility policy, and test strategy.
-- [ ] Public docs build successfully.
-
-**Verify:** Documentation review, examples exercised against the current CLI,
-and `pnpm --dir docs build`.
+**Verify:** Metadata parser and diagnostic fixtures, missing-command fakes,
+permission invariants, and `skills doctor` snapshots.
 
 ## Later Vertical Slices
 
@@ -671,8 +625,9 @@ a priority milestone only when it has an owner and its blocker is satisfied.
 
 ### SAFETY-1: Gate project-owned runtime configuration on trust
 
-- [ ] Cover project MCP, ACP, arrows, prompt templates, commands, and skills
-      without one setting silently authorizing unrelated capabilities.
+- [ ] Cover project ACP, prompt templates, commands, and skills without one
+      setting silently authorizing unrelated capabilities. EXT-1 owns MCP
+      trust.
 - [ ] Untrusted projects use global/user configuration and show what was
       ignored.
 - [ ] Decisions are explicit, inspectable, revocable, scoped, and durable.
@@ -685,7 +640,7 @@ a priority milestone only when it has an owner and its blocker is satisfied.
 
 - [ ] Distinguish read-only, workspace-write, and external isolation.
 - [ ] Treat filesystem and network authority as separate inputs.
-- [ ] Make built-in shell, ACP terminals, MCP children, arrows, and supervised
+- [ ] Make built-in shell, ACP terminals, MCP children, and supervised
       instances report the boundary they actually use.
 - [ ] Claim no isolation when no enforcing backend exists.
 
@@ -705,8 +660,8 @@ a priority milestone only when it has an owner and its blocker is satisfied.
 - [ ] Describe the exact command, resource, effects, and requested authority.
 - [ ] Audit allow, reject, cancel, timeout, and unavailable-interaction results.
 - [ ] Never weaken the sandbox silently or claim enforcement that is absent.
-- [ ] Apply skill-, arrow-, MCP-, and child-specific permission constraints
-      through the same policy model.
+- [ ] Apply skill-, MCP-, and child-specific permission constraints through the
+      same policy model.
 
 ### CONTEXT-1: Inspect context at a provider request
 
@@ -785,38 +740,35 @@ a priority milestone only when it has an owner and its blocker is satisfied.
       transcript, queue, or child lifecycle.
 - [ ] Avoid a second planning system or provider-specific todo payload.
 
-### EXT-1: Expand skills and Quiver distribution deliberately
+### EXT-5: Expand skill distribution deliberately
 
-**Blocked by:** QUIV-6 and existing skill-loading safety tests.
+**Blocked by:** EXT-4 and existing skill-loading safety tests.
 
 - [ ] Add metadata validation, progressive-loading, remote-fetch safety,
       reference-depth, and self-knowledge snapshot coverage before distribution.
 - [ ] Design marketplace/install/share behavior as a separate trust and supply-
-      chain slice; do not imply that Quiver v1 ships a marketplace.
-- [ ] Prefer skills, slash commands, MCP, or arrows over a generic plugin
-      framework unless a concrete capability cannot fit those boundaries.
+      chain slice; do not imply that skills ship through a marketplace today.
+- [ ] Prefer skills, slash commands, or MCP over a generic plugin framework
+      unless a concrete capability cannot fit those boundaries.
 
 ## Trigger-Gated Horizons
 
 These items are retained from the superseded feature plans but are not active
 tasks. Convert one into a vertical slice only when its stated trigger exists.
 
-### Quiver horizons
+### External-capability horizons
 
-- **Repository map:** proceed only when repeated workflows show that bounded,
-  targeted derived context improves on normal search. Define cache creation,
-  invalidation, inspection, and deletion before implementation.
-- **Durable memory:** proceed only with an explicit facts model, provenance,
-  retention and forgetting, and user-controlled writes. Learned context must
-  not become executable authority.
-- **Sandboxed arrows:** use the shared sandbox and permission semantics from
-  SAFETY-2 and SAFETY-3; do not build a Quiver-only isolation model.
+- **New integrations:** require repeated workflow evidence and a clear reason
+  that an existing skill, CLI, or MCP server is insufficient. Define ownership,
+  trust, permissions, versioning, and failure behavior before implementation.
+- **Persistent indexes and stores:** define creation, invalidation, retention,
+  inspection, and deletion before keeping application data outside sessions.
+- **Contained MCP servers:** use the shared sandbox and permission semantics
+  from SAFETY-2 and SAFETY-3; do not build an MCP-only isolation model.
 - **Jobs, watch triggers, and a local daemon:** require a concrete durable
   workload that cannot be handled by an explicit foreground or headless run.
-- **First-class `ocaat`:** permission local reads and remote writes separately;
-  do not infer remote authority from discovery or enablement.
-- **Distribution and comparison copy:** wait until the `mccabre` vertical slice
-  is real and reviewable, then describe implemented behavior only.
+- **Distribution and comparison copy:** wait until an integration is real and
+  reviewable, then describe implemented behavior only.
 
 ### Instance horizons
 

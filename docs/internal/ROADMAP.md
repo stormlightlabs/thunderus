@@ -1,10 +1,5 @@
 # Product and Architecture Roadmap
 
-This is the canonical product direction for `thndrs`. It consolidates the
-former harness-instance and Quiver feature plans, the internal backlog, and the
-UI research completed on 2026-08-10. [`TODO.md`](TODO.md) is the executable
-backlog; this document explains the sequence and the decisions behind it.
-
 ## North Star
 
 `thndrs` should be a quiet, transcript-first coding agent that works equally
@@ -23,7 +18,7 @@ The product has three reinforcing roles:
    permission, workspace, and session semantics as the TUI.
 3. **Small harness.** A foreground session can supervise a bounded number of
    explicit child `thndrs` processes and can load trusted external capabilities
-   through Quiver without absorbing their runtimes into `thndrs-agent`.
+   through skills and MCP without absorbing their runtimes into `thndrs-agent`.
 
 This is not a multiplexer, IDE, plugin host, or general workflow engine. Herdr,
 the user's terminal, ACP clients, and external tools remain first-class peers.
@@ -174,7 +169,8 @@ The main structural liabilities are concentrated rather than pervasive:
   selection, copy, and anchored-follow behavior;
 - queued input is visible only as a summary and cannot be reliably inspected
   and edited;
-- process-instance and Quiver contracts are planned but not implemented.
+- process-instance contracts and several external-capability safety boundaries
+  are planned but not implemented.
 
 The highest-churn files and bug-fix clusters overlap `cli/app`, input,
 transcript/rendering, core agent lifecycle, session handling, and server
@@ -379,23 +375,23 @@ failure isolation, permission visibility, and durable result handles are
 proven. Provider-reported capacity can inform routing only when a supported and
 reliable account API exists; `unknown` must never be treated as zero or safe.
 
-### Make Quiver the external capability boundary
+### Use skills and MCP for external capabilities
 
-Quiver is a registry and policy layer for independently installed tools called
-arrows. "Arrow" is the canonical product term; do not introduce "bolt" in
-public CLI or configuration names. Quiver is not a second plugin runtime.
+Skills teach the agent how and when to use a capability. They also carry
+documentation and bounded reference material. A simple existing CLI should use
+a skill and the built-in `run_shell` tool rather than gain a thndrs-specific
+adapter.
 
-An arrow has a declarative TOML or JSON manifest, optional agent-authored
-overlay, explicit argv operations, declared effects, health, enablement, and
-scope. Project arrows shadow global arrows by name. Trusted manifest fields own
-entrypoints and authority; an overlay can add bounded learned context but cannot
-change execution, effects, permissions, or trust.
+MCP owns typed reusable operations, structured resources, reusable prompts,
+capability discovery, and server lifecycle. The application owns project trust,
+permissions, containment, output limits, redaction, auditing, and transcript
+projection for every tool call. These responsibilities stay in the shared tool
+and process policy instead of a separate extension registry.
 
-The default context receives only compact identity/status/capability metadata.
-Full docs and learned notes load explicitly. Invocation remains contained,
-timed, bounded, permission-aware, and auditable. `mccabre` is the first
-read-only vertical slice; artifact writing and remote authority remain out of
-scope for v1.
+Learned context belongs in a system with provenance and user-controlled writes.
+It is not extension metadata. Add a capability-specific MCP adapter only when
+repeated use needs a stable semantic API that is more useful than invoking
+bounded commands and interpreting their output.
 
 ## Delivery Sequence
 
@@ -427,12 +423,12 @@ prove provider routes through TUI/JSONL/ACP, supervise one read-only child, then
 add bounded concurrency and sparse controls. Recursive delegation stays off
 until authority and lifecycle invariants have direct tests.
 
-### Milestone 4: Ship Quiver v1
+### Milestone 4: Harden external capabilities
 
-Implement pure manifest discovery, explicit enablement and health, compact
-context projection, bounded operations, the read-only `mccabre` arrow, and the
-public setup/trust documentation. Quiver follows the sandbox/permission model;
-it does not invent a parallel one.
+Apply project trust and the shared permission policy to MCP, add MCP resources,
+and make server lifecycle failures easy to diagnose. Improve skill compatibility
+diagnostics. Add capability-specific integrations only when an observed workflow
+cannot use an existing skill, CLI, or MCP server.
 
 ### Milestone 5: Expand platform and safety deliberately
 
@@ -446,36 +442,15 @@ instances and OS-enforced write containment are proven.
 
 Do not schedule these merely because the architecture can accommodate them:
 
-- a repository-map arrow needs evidence that bounded, targeted derived context
-  beats existing search, plus an explicit cache/index lifecycle;
-- a memory arrow needs a facts model, provenance, retention and forgetting,
-  and user-controlled writes;
-- Quiver sandbox execution waits for the shared application sandbox boundary;
+- a new external integration needs repeated workflow evidence and a clear
+  reason that existing skills, CLIs, or MCP servers are insufficient;
+- persistent indexes and stores need explicit creation, invalidation,
+  retention, inspection, and deletion behavior;
+- stronger containment for MCP servers waits for the shared application
+  sandbox boundary;
 - jobs, watch triggers, or a local daemon wait for a demonstrated durable
   workload;
-- first-class `ocaat` support needs separately permissioned local reads and
-  remote writes;
 - write-capable children wait for isolated workspaces and explicit Git
   authority; remote transports, automatic model routing, a public instance SDK,
   or a permanent instance cockpit each need an observed use case that ACP,
   JSONL, manual routing, and sparse controls cannot meet.
-
-## Quality Gates
-
-Every milestone must preserve these invariants:
-
-- `thndrs-agent` remains provider- and UI-neutral.
-- provider payloads do not enter public library APIs or session-domain models.
-- rendering and projection are pure where practical; terminal, process,
-  provider, filesystem, clipboard, and network effects stay isolated.
-- raw input never bypasses focus, mode, and permission policy.
-- transcript, queue, session, and child lifecycle transitions are deterministic
-  and reject invalid transitions.
-- protocol stdout is clean; diagnostics are bounded, redacted, and routed to
-  stderr or durable audit records as appropriate.
-- unknown capacity, diff, authority, or completion state is displayed as
-  unknown rather than inferred.
-- full-screen cleanup works on success, error, cancellation, panic, suspend,
-  resume, and resize.
-- focused tests precede workspace checks; real-terminal and provider smokes are
-  reserved for behavior deterministic tests cannot establish.

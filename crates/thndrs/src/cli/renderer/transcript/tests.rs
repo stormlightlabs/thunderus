@@ -236,7 +236,7 @@ fn assistant_markdown_table_renders_as_structured_rows() {
             .to_string(),
         streaming: false,
     };
-    let rendered = render_entry_styled(&entry, 80);
+    let rendered = render_entry_styled(&entry, 120);
 
     assert!(rendered.contains("File"), "table header should render:\n{rendered}");
     assert!(
@@ -386,6 +386,25 @@ fn settled_tool_collapses_output_behind_detail_affordance() {
     assert!(
         !rendered.contains("src/main.rs:1:fn main()"),
         "settled output should stay in the detail surface: {rendered}"
+    );
+}
+
+#[test]
+fn running_search_shows_degraded_implementation_metadata() {
+    let entry = Entry::Tool {
+        name: "search_text".to_string(),
+        arguments: r#"{"pattern":"needle"}"#.to_string(),
+        status: ToolStatus::Running,
+        output: vec![
+            "[implementation: in-process fallback (degraded)]".to_string(),
+            "src/lib.rs:1:needle".to_string(),
+        ],
+    };
+
+    let rendered = render_entry_styled(&entry, 80);
+    assert!(
+        rendered.contains("[implementation: in-process fallback (degraded)]"),
+        "running transcript should expose degraded search metadata:\n{rendered}"
     );
 }
 

@@ -1,12 +1,21 @@
+//! Repository text search.
+
+use std::collections::BTreeSet;
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
+
+use regex_lite::Regex;
 
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::tools::{MAX_RESULTS, SearchMatch, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest};
 use crate::utils;
 
 const NAME: &str = "search_text";
+const MAX_FALLBACK_FILE_BYTES: u64 = 1_048_576;
+const MAX_FALLBACK_SCAN_BYTES: u64 = 16_777_216;
 
 /// Parsed provider input for `search_text`.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,16 +40,41 @@ pub fn exec(
         return ToolOutput::failed("search_text", "missing or empty 'pattern' field".to_string());
     }
 
-    if !super::subproc::command_exists("rg") {
-        return ToolOutput::failed(
-            "search_text",
-            "rg is required for search_text; grep fallback is not implemented".to_string(),
-        );
+    exec_with_programs(
+        pattern,
+        root,
+        glob,
+        extensions,
+        max_results,
+        context_lines,
+        include_hidden,
+        &super::backend::SearchPrograms::discover(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn exec_with_programs(
+    pattern: &str, root: &Path, glob: Option<&str>, extensions: &[String], max_results: usize, context_lines: u32,
+    include_hidden: bool, programs: &super::backend::SearchPrograms,
+) -> ToolOutput {
+    if pattern.trim().is_empty() {
+        return ToolOutput::failed("search_text", "missing or empty 'pattern' field".to_string());
     }
 
+    let Some(rg) = programs.rg() else {
+        return fallback_search(
+            pattern,
+            root,
+            glob,
+            extensions,
+            max_results,
+            context_lines,
+            include_hidden,
+        );
+    };
     let timeout = Duration::from_secs(TIMEOUT_SECS);
 
-    let mut cmd = Command::new("rg");
+    let mut cmd = Command::new(rg);
     cmd.arg("--json");
     cmd.arg("--line-number");
     if context_lines > 0 {
@@ -60,11 +94,14 @@ pub fn exec(
     }
     cmd.arg(pattern).arg(root);
 
-    let result = super::subproc::run_with_timeout(cmd, timeout);
+    let result = super::super::subproc::run_with_timeout(cmd, timeout);
     match result {
         Ok(output) => {
             if output.exit_code == 1 {
-                return ToolOutput::ok("search_text", Vec::new());
+                return ToolOutput::ok(
+                    "search_text",
+                    super::backend::with_implementation_line("rg --json", Vec::new()),
+                );
             }
             if !output.success && output.exit_code != 0 {
                 let err_msg = if output.stderr.is_empty() {
@@ -81,11 +118,87 @@ pub fn exec(
                 .iter()
                 .map(|m| utils::truncate_line(&format!("{}:{}:{}", m.path, m.line_number, m.text.trim_end())))
                 .collect();
-            ToolOutput::ok("search_text", lines)
-                .with_evidence_content_hash(format!("{:016x}", crate::tools::hash_content(&output.stdout)))
+            ToolOutput::ok(
+                "search_text",
+                super::backend::with_implementation_line("rg --json", lines),
+            )
+            .with_evidence_content_hash(format!("{:016x}", crate::tools::hash_content(&output.stdout)))
         }
         Err(e) => ToolOutput::failed("search_text", format!("search_text failed: {e}")),
     }
+}
+
+fn fallback_search(
+    pattern: &str, root: &Path, glob: Option<&str>, extensions: &[String], max_results: usize, context_lines: u32,
+    include_hidden: bool,
+) -> ToolOutput {
+    let regex = match Regex::new(pattern) {
+        Ok(regex) => regex,
+        Err(error) => return ToolOutput::failed(NAME, format!("invalid regex: {error}")),
+    };
+    let files = match super::backend::fallback_files(root, include_hidden, None) {
+        Ok(files) => files,
+        Err(error) => return ToolOutput::failed(NAME, format!("search_text failed: {error}")),
+    };
+
+    let mut lines = Vec::new();
+    let mut scanned_bytes = 0u64;
+    for path in files {
+        if lines.len() >= max_results || scanned_bytes >= MAX_FALLBACK_SCAN_BYTES {
+            break;
+        }
+        let display = super::backend::display_path(root, &path);
+        if glob.is_some_and(|glob| !super::backend::matches_glob(&display, glob))
+            || (!extensions.is_empty()
+                && !path.extension().is_some_and(|extension| {
+                    extensions
+                        .iter()
+                        .any(|expected| extension == expected.trim_start_matches('.'))
+                }))
+        {
+            continue;
+        }
+
+        let remaining = MAX_FALLBACK_SCAN_BYTES - scanned_bytes;
+        let read_limit = MAX_FALLBACK_FILE_BYTES.min(remaining);
+        let mut bytes = Vec::new();
+        let read = match File::open(&path).and_then(|file| file.take(read_limit).read_to_end(&mut bytes)) {
+            Ok(read) => read,
+            Err(_) => continue,
+        };
+        scanned_bytes += read as u64;
+        if bytes.contains(&0) {
+            continue;
+        }
+        let content = String::from_utf8_lossy(&bytes);
+        let file_lines = content.lines().collect::<Vec<_>>();
+        let mut selected = BTreeSet::new();
+        for (index, line) in file_lines.iter().enumerate() {
+            if regex.is_match(line) {
+                let start = index.saturating_sub(context_lines as usize);
+                let end = (index + context_lines as usize + 1).min(file_lines.len());
+                selected.extend(start..end);
+            }
+        }
+        for index in selected {
+            if lines.len() >= max_results {
+                break;
+            }
+            lines.push(utils::truncate_line(&format!(
+                "{}:{}:{}",
+                display,
+                index + 1,
+                file_lines[index]
+            )));
+        }
+    }
+
+    let evidence = lines.join("\n");
+    ToolOutput::ok(
+        NAME,
+        super::backend::with_implementation_line("in-process fallback (degraded)", lines),
+    )
+    .with_evidence_content_hash(format!("{:016x}", crate::tools::hash_content(&evidence)))
 }
 
 /// Provider-visible definition for `search_text`.
@@ -272,7 +385,7 @@ mod tests {
             false,
         );
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.display.lines.is_empty());
+        assert_eq!(output.display.lines, ["[implementation: rg --json]"]);
     }
 
     #[test]
@@ -280,7 +393,8 @@ mod tests {
         let output = exec("thndrs", Path::new("Cargo.toml"), None, &[], MAX_RESULTS, 0, false);
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(!output.display.lines.is_empty());
-        assert!(output.display.lines[0].contains("Cargo.toml"));
+        assert_eq!(output.display.lines[0], "[implementation: rg --json]");
+        assert!(output.display.lines.iter().any(|line| line.contains("Cargo.toml")));
     }
 
     #[test]
@@ -302,14 +416,14 @@ mod tests {
             false,
         );
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.display.lines.iter().any(|line| line.contains("search_text.rs")));
+        assert!(output.display.lines.iter().any(|line| line.contains("search/text.rs")));
     }
 
     #[test]
     fn search_text_returns_context_lines() {
         let output = exec(
             "fn search_text_finds_matches",
-            Path::new("src/core/tools/search_text.rs"),
+            Path::new("src/core/tools/search/text.rs"),
             None,
             &[],
             MAX_RESULTS,
@@ -362,5 +476,25 @@ mod tests {
 
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.display.lines.iter().any(|line| line.contains("alpha.rs")));
+    }
+
+    #[test]
+    fn fallback_is_capped_and_persists_degraded_metadata() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        for index in 0..10 {
+            std::fs::write(dir.path().join(format!("file{index}.rs")), "needle\n").expect("write fixture");
+        }
+
+        let output = exec_with_programs("needle", dir.path(), None, &[], 3, 0, false, &Default::default());
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert_eq!(
+            output.display.lines[0],
+            "[implementation: in-process fallback (degraded)]"
+        );
+        insta::assert_snapshot!(output.display.lines[0], @"[implementation: in-process fallback (degraded)]");
+        assert_eq!(output.display.lines.len(), 4);
+        assert_eq!(output.display.lines, output.model.lines);
+        assert!(output.display.lines.join("\n").len() <= crate::tools::MAX_OUTPUT_BYTES);
     }
 }

@@ -33,8 +33,8 @@ const BUILTIN_TOOLS: &[ToolEntry] = &[
     },
     ToolEntry {
         name: "search_text",
-        definition: super::search_text::definition,
-        execute: super::search_text::execute_request,
+        definition: super::search::text::definition,
+        execute: super::search::text::execute_request,
         example_input: r#"{"pattern":"fn main","glob":"src/**/*.rs"}"#,
     },
     ToolEntry {

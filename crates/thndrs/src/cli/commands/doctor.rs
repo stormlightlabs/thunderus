@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 use crate::context;
 use serde_json::to_string_pretty;
@@ -83,7 +82,14 @@ fn gather_doctor_report(cli: &Cli) -> DoctorReport {
         .collect();
 
     let credentials = collect_credential_statuses(&workspace);
-    let tools = DoctorToolAvailability { rg: executable_available("rg"), fd: executable_available("fd") };
+    let search_programs = crate::tools::search::backend::SearchPrograms::discover();
+    let tools = DoctorToolAvailability {
+        rg: search_programs.rg().is_some(),
+        fd: search_programs.fd().is_some(),
+        file_discovery: search_programs.file_discovery_label().to_string(),
+        content_search: search_programs.content_search_label().to_string(),
+        degraded: search_programs.is_degraded(),
+    };
     let session_path = cli
         .session_dir
         .clone()
@@ -199,15 +205,6 @@ fn collect_terminal_summary() -> DoctorTerminalSummary {
     DoctorTerminalSummary { tty: io::stdout().is_terminal(), width, height, term_env, no_color }
 }
 
-fn executable_available(name: &str) -> bool {
-    Command::new(name)
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok()
-}
-
 fn check_session_dir_writable(path: &Path) -> (bool, Option<String>) {
     if path.exists() {
         if !path.is_dir() {
@@ -293,15 +290,14 @@ fn render_human_report<W: Write>(report: &DoctorReport, writer: &mut W) -> io::R
     }
 
     writeln!(writer, "tools:")?;
+    writeln!(writer, "  rg: {}", bool_to_status(report.tools.rg))?;
+    writeln!(writer, "  fd: {}", bool_to_status(report.tools.fd))?;
+    writeln!(writer, "  file_discovery: {}", report.tools.file_discovery)?;
+    writeln!(writer, "  content_search: {}", report.tools.content_search)?;
     writeln!(
         writer,
-        "  rg: {} (required for search_text)",
-        bool_to_status(report.tools.rg)
-    )?;
-    writeln!(
-        writer,
-        "  fd: {} (optional; file discovery falls back to find)",
-        bool_to_status(report.tools.fd)
+        "  degraded: {}",
+        if report.tools.degraded { "yes" } else { "no" }
     )?;
 
     writeln!(
@@ -510,6 +506,9 @@ mod tests {
         assert!(output.contains("model: \nprovider: <none>"));
         assert!(output.contains("issue: no model provider selected"));
         assert!(output.contains("setup: run `thndrs setup` to choose a provider and model"));
+        assert!(output.contains("file_discovery:"));
+        assert!(output.contains("content_search:"));
+        assert!(output.contains("degraded:"));
         assert!(!output.contains("missing credential for model provider umans"));
         assert!(!output.contains("UMANS_API_KEY"));
         assert_eq!(error_kind, Some(io::ErrorKind::PermissionDenied));
@@ -527,6 +526,9 @@ mod tests {
         let report: DoctorReport = serde_json::from_str(&output).expect("doctor json");
         assert_eq!(report.model, "");
         assert_eq!(report.provider, None);
+        assert!(!report.tools.file_discovery.is_empty());
+        assert!(!report.tools.content_search.is_empty());
+        assert_eq!(report.tools.degraded, !report.tools.fd || !report.tools.rg);
         assert_eq!(report.blocking_issues, vec!["no model provider selected"]);
         assert_eq!(
             report.setup_hint.as_deref(),
