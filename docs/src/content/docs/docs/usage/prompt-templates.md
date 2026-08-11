@@ -114,6 +114,7 @@ so the arguments can be corrected and retried.
 | `/issue`              | Independently analyze a bug report or feature request.     |
 | `/pr-review`          | Review a pull request with linked-issue and test context.  |
 | `/changelog-audit`    | Compare recent user-visible work with changelog entries.   |
+| `/commit`             | Draft a Conventional Commit message without changing Git.  |
 | `/security-advisory`  | Investigate and draft an advisory without publishing it.   |
 | `/wrap`               | Finish and verify the current task within its permissions. |
 

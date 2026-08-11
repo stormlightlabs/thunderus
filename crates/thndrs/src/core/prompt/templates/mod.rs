@@ -21,6 +21,7 @@ const RENDER_FUEL: u64 = 50_000;
 const BUILTIN_TEMPLATES: &[(&str, &str)] = &[
     ("adversarial-review.j2", include_str!("builtins/adversarial-review.j2")),
     ("changelog-audit.j2", include_str!("builtins/changelog-audit.j2")),
+    ("commit.j2", include_str!("builtins/commit.j2")),
     ("issue.j2", include_str!("builtins/issue.j2")),
     ("pr-review.j2", include_str!("builtins/pr-review.j2")),
     ("review.j2", include_str!("builtins/review.j2")),
@@ -503,6 +504,27 @@ mod tests {
 
         let error = render(&template, "").unwrap_err();
         assert!(error.contains("fuel"), "unexpected render error: {error}");
+    }
+
+    #[test]
+    fn bundled_commit_template_is_read_only_and_conventional() {
+        let root = tempfile::tempdir().expect("temp workspace");
+        let inventory = discover(root.path());
+        let commit = inventory
+            .templates
+            .iter()
+            .find(|template| template.name == "commit")
+            .expect("commit template");
+
+        assert_eq!(commit.source, PromptTemplateSource::BuiltIn);
+        assert!(commit.description.contains("Conventional Commit"));
+        assert!(commit.body.contains("describe only the staged changes"));
+        assert!(commit.body.contains("<type>[optional scope][!]: <description>"));
+        assert!(
+            commit
+                .body
+                .contains("Do not edit files, stage changes, create\na commit")
+        );
     }
 
     #[test]

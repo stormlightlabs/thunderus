@@ -1,0 +1,36 @@
+---
+description: Draft a Conventional Commit message without changing Git state
+argument-hint: "[focus]"
+---
+Draft one commit message for the current changes.
+{% if arguments %}
+
+Use this additional guidance: {{ arguments }}
+{% endif %}
+
+Inspect Git state and diffs with read-only commands. If changes are staged,
+describe only the staged changes. If nothing is staged, describe the current
+working-tree changes, including relevant untracked files. Read nearby code when
+the diff alone does not explain the intent. Use recent commit subjects only to
+infer repository-specific wording and scopes; do not copy them.
+
+Follow Conventional Commits 1.0.0:
+
+- Use `<type>[optional scope][!]: <description>` for the subject.
+- Choose the type from the change's purpose. Prefer `feat` for a feature and
+  `fix` for a bug fix. Other suitable types include `docs`, `refactor`, `test`,
+  `perf`, `build`, `ci`, `chore`, and `revert`.
+- Use a short, imperative description with no trailing punctuation. Aim for a
+  subject no longer than 50 characters and never exceed 72 characters.
+- Add a scope only when it helps identify the affected part of the project.
+- Mark a breaking change with `!` and add a `BREAKING CHANGE:` footer when the
+  migration impact needs explanation.
+- Add a body only when it provides useful context, especially why the change was
+  made. Separate it from the subject with a blank line, wrap it at 72 characters,
+  and do not repeat the subject.
+- Do not add issue references, authors, or other metadata that cannot be inferred
+  from the changes.
+
+Return only the commit message as plain text. Do not include Markdown fences,
+analysis, alternatives, or commentary. Do not edit files, stage changes, create
+a commit, or otherwise change Git or workspace state.
