@@ -1012,6 +1012,7 @@ fn semantic_view_represents_edit_and_diff_summaries() {
             "wrote update: src/lib.rs".to_string(),
             "--- a/src/lib.rs".to_string(),
             "+++ b/src/lib.rs".to_string(),
+            "@@ -1 +1 @@".to_string(),
             "-old".to_string(),
             "+new".to_string(),
         ],

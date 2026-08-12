@@ -25,11 +25,11 @@ pub const GUTTER: &str = "   · ";
 pub const ENTRY_RAIL: &str = "  ";
 
 /// Stable rail shared by consecutive tool activity rows.
-const ACTIVITY_RAIL: &str = "│ ";
+pub const ACTIVITY_RAIL: &str = "│ ";
 
 /// Progressive-disclosure treatment for a routine exploration tool entry.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) enum ActivityProjection {
+pub enum ActivityProjection {
     /// Render the tool normally because it is not routine exploration activity.
     #[default]
     Regular,
@@ -43,7 +43,7 @@ pub(crate) enum ActivityProjection {
 
 /// Counts and lifecycle state displayed by one coalesced exploration activity row.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ActivitySummary {
+pub struct ActivitySummary {
     pub calls: usize,
     pub reads: usize,
     pub searches: usize,
@@ -79,7 +79,7 @@ pub struct TranscriptRowContext<'a> {
     /// First raw output line displayed for an expanded tool.
     pub detail_scroll: usize,
     /// Coalesced routine exploration state for this entry.
-    pub(crate) activity: ActivityProjection,
+    pub activity: ActivityProjection,
 }
 
 impl TranscriptRowContext<'_> {
@@ -267,7 +267,7 @@ impl ToolBlockView<'_> {
 
         let base_name = self.name.split('#').next().unwrap_or(self.name);
         let args_summary = summarize_tool_invocation(base_name, self.args, self.cwd);
-        let lang = super::highlight::tool_output_language(base_name, self.args);
+        let content = super::tool_output::project(base_name, self.args, self.output);
 
         let mut rows = Vec::new();
         if self.group_start {
@@ -313,14 +313,17 @@ impl ToolBlockView<'_> {
                 format!("{} lines · Ctrl+O details", self.output.len())
             }
         });
-        if let Some(details) = output_details.as_ref()
-            && !header_spans.is_empty()
-        {
+        let details_in_header = output_details.as_ref().is_some_and(|details| {
+            !header_spans.is_empty()
+                && super::layout::spans_width(&header_spans) + 2 + utils::text_width(details) <= self.body_width
+        });
+        if details_in_header && let Some(details) = output_details.as_ref() {
             header_spans.push(Span::styled(format!("  {details}"), muted_style));
         }
         if !header_spans.is_empty() {
             rows.push(Row::padded(header_spans, self.width, CellStyle::new().bg(self.bg)));
-        } else if let Some(details) = output_details {
+        }
+        if !details_in_header && let Some(details) = output_details {
             rows.push(Row::padded(
                 vec![
                     Span::styled(ACTIVITY_RAIL, rail_style),
@@ -344,7 +347,7 @@ impl ToolBlockView<'_> {
             ));
         }
 
-        if let Some(summary) = diff_summary_line(self.output) {
+        if let Some(summary) = projected_diff_summary(&content) {
             rows.push(Row::padded(
                 vec![
                     Span::styled(ACTIVITY_RAIL, rail_style),
@@ -360,6 +363,14 @@ impl ToolBlockView<'_> {
             return rows;
         }
 
+        if let super::tool_output::ContentKind::Diff(diff) = &content {
+            let limit = (!self.detail_open).then_some(MAX_TOOL_OUTPUT_LINES);
+            let diff_rows = super::diff::rows(diff, self.width, self.body_width, self.bg, limit);
+            let start = if self.detail_open { self.detail_scroll.min(diff_rows.len()) } else { 0 };
+            rows.extend(diff_rows.into_iter().skip(start));
+            return rows;
+        }
+
         let preview_start = if self.detail_open {
             self.detail_scroll.min(self.output.len())
         } else if self.status == ToolStatus::Running {
@@ -369,8 +380,8 @@ impl ToolBlockView<'_> {
         };
         let preview = &self.output[preview_start..];
 
-        match lang {
-            Some(lang_str) => {
+        match content {
+            super::tool_output::ContentKind::Code { language } => {
                 let joined: String = preview
                     .iter()
                     .map(|line| {
@@ -378,7 +389,7 @@ impl ToolBlockView<'_> {
                         format!("{line}\n")
                     })
                     .collect();
-                let highlighted = super::highlight::highlight_lines(&joined, Some(lang_str));
+                let highlighted = super::highlight::highlight_lines(&joined, Some(language));
                 for hl_row in highlighted {
                     let mut spans = vec![
                         Span::styled(ACTIVITY_RAIL, rail_style),
@@ -396,24 +407,61 @@ impl ToolBlockView<'_> {
                     rows.push(Row::padded(spans, self.width, CellStyle::new().bg(self.bg)));
                 }
             }
-            None => {
+            super::tool_output::ContentKind::SearchResults => {
                 for line in preview {
                     let line = super::path_display::transcript_line(line, self.cwd);
-                    let content_style = if is_section_header(&line) {
-                        CellStyle::new().fg(p.overlay1).bg(self.bg).bold()
-                    } else {
-                        CellStyle::new().fg(p.subtext0).bg(self.bg)
-                    };
-                    for wrapped in super::layout::wrap_text_preserving_whitespace(&line, tool_content_width) {
-                        let spans = vec![
-                            Span::styled(ACTIVITY_RAIL, rail_style),
-                            Span::styled(GUTTER, gutter_style),
-                            Span::styled(wrapped, content_style),
+                    if let Some((path, number, content)) = search_result_parts(&line) {
+                        let prefix = vec![
+                            Span::styled(path, CellStyle::new().fg(p.blue).bg(self.bg)),
+                            Span::styled(format!(":{number}:"), CellStyle::new().fg(p.yellow).bg(self.bg)),
                         ];
-                        rows.push(Row::padded(spans, self.width, CellStyle::new().bg(self.bg)));
+                        let prefix = super::layout::truncate_spans(&prefix, tool_content_width, muted_style);
+                        let prefix_width = super::layout::spans_width(&prefix);
+                        let first_width = tool_content_width.saturating_sub(prefix_width);
+                        let wrapped = super::layout::wrap_text_preserving_whitespace(content, first_width.max(1));
+                        for (index, part) in wrapped.into_iter().enumerate() {
+                            let mut spans = vec![
+                                Span::styled(ACTIVITY_RAIL, rail_style),
+                                Span::styled(GUTTER, gutter_style),
+                            ];
+                            if index == 0 {
+                                spans.extend(prefix.clone());
+                            }
+                            spans.push(Span::styled(part, CellStyle::new().fg(p.subtext0).bg(self.bg)));
+                            rows.push(Row::padded(
+                                super::layout::truncate_spans(&spans, self.body_width, muted_style),
+                                self.width,
+                                CellStyle::new().bg(self.bg),
+                            ));
+                        }
+                    } else {
+                        push_plain_tool_line(
+                            &mut rows,
+                            &line,
+                            self.width,
+                            tool_content_width,
+                            self.bg,
+                            rail_style,
+                            gutter_style,
+                        );
                     }
                 }
             }
+            super::tool_output::ContentKind::Plain => {
+                for line in preview {
+                    let line = super::path_display::transcript_line(line, self.cwd);
+                    push_plain_tool_line(
+                        &mut rows,
+                        &line,
+                        self.width,
+                        tool_content_width,
+                        self.bg,
+                        rail_style,
+                        gutter_style,
+                    );
+                }
+            }
+            super::tool_output::ContentKind::Diff(_) => unreachable!("diff content returned above"),
         }
 
         if !self.detail_open && self.output.len() > MAX_TOOL_OUTPUT_LINES {
@@ -438,6 +486,36 @@ impl ToolBlockView<'_> {
 
         rows
     }
+}
+
+fn push_plain_tool_line(
+    rows: &mut Vec<Row>, line: &str, width: usize, content_width: usize, bg: Color, rail_style: CellStyle,
+    gutter_style: CellStyle,
+) {
+    let p = super::style::palette();
+    let content_style = if is_section_header(line) {
+        CellStyle::new().fg(p.overlay1).bg(bg).bold()
+    } else {
+        CellStyle::new().fg(p.subtext0).bg(bg)
+    };
+    for wrapped in super::layout::wrap_text_preserving_whitespace(line, content_width) {
+        rows.push(Row::padded(
+            vec![
+                Span::styled(ACTIVITY_RAIL, rail_style),
+                Span::styled(GUTTER, gutter_style),
+                Span::styled(wrapped, content_style),
+            ],
+            width,
+            CellStyle::new().bg(bg),
+        ));
+    }
+}
+
+fn search_result_parts(line: &str) -> Option<(String, &str, &str)> {
+    let (path, tail) = line.split_once(':')?;
+    let (number, content) = tail.split_once(':')?;
+    number.parse::<usize>().ok()?;
+    Some((path.to_string(), number, content))
 }
 
 fn activity_summary_rows(
@@ -1033,30 +1111,24 @@ fn edit_summary_line(name: &str, output: &[String], status: ToolStatus, cwd: &Pa
     Some(format!("{operation} {path} [{}]", status.label()))
 }
 
-fn diff_summary_line(output: &[String]) -> Option<String> {
-    let mut added = 0usize;
-    let mut removed = 0usize;
-    let mut files = Vec::new();
-    for line in output {
-        if let Some(path) = line.strip_prefix("+++ ") {
-            files.push(path.trim_start_matches("b/").to_string());
-        } else if line.starts_with('+') && !line.starts_with("+++") {
-            added += 1;
-        } else if line.starts_with('-') && !line.starts_with("---") {
-            removed += 1;
-        }
-    }
+fn diff_summary_line(diff: &super::diff::UnifiedDiff) -> Option<String> {
+    let (files, added, removed) = diff.summary();
     if added == 0 && removed == 0 && files.is_empty() {
         return None;
     }
-    files.sort();
-    files.dedup();
     let file_label = match files.as_slice() {
         [] => "unknown file".to_string(),
         [file] => file.clone(),
         _ => format!("{} files", files.len()),
     };
     Some(format!("{file_label} +{added} -{removed}"))
+}
+
+fn projected_diff_summary(content: &super::tool_output::ContentKind) -> Option<String> {
+    match content {
+        super::tool_output::ContentKind::Diff(diff) => diff_summary_line(diff),
+        _ => None,
+    }
 }
 
 fn path_like_suffix(line: &str) -> Option<String> {

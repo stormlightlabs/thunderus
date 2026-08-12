@@ -9,7 +9,7 @@ static CANCELLATION: OnceLock<Mutex<Option<CancelToken>>> = OnceLock::new();
 static CTRL_C_HANDLER: OnceLock<std::result::Result<(), String>> = OnceLock::new();
 
 /// Clears the active cancellation target when a command finishes.
-pub(crate) struct CancellationRegistration;
+pub struct CancellationRegistration;
 
 impl Drop for CancellationRegistration {
     fn drop(&mut self) {
@@ -20,7 +20,7 @@ impl Drop for CancellationRegistration {
 }
 
 /// Route Ctrl-C to the supplied cooperative cancellation token.
-pub(crate) fn register(cancellation: CancelToken) -> io::Result<CancellationRegistration> {
+pub fn register(cancellation: CancelToken) -> io::Result<CancellationRegistration> {
     let slot = CANCELLATION.get_or_init(|| Mutex::new(None));
     let registration = CTRL_C_HANDLER.get_or_init(|| {
         ctrlc::set_handler(|| {
@@ -42,7 +42,7 @@ pub(crate) fn register(cancellation: CancelToken) -> io::Result<CancellationRegi
 }
 
 /// Return an interrupted I/O error when cancellation has been requested.
-pub(crate) fn check(cancellation: &CancelToken) -> io::Result<()> {
+pub fn check(cancellation: &CancelToken) -> io::Result<()> {
     if cancellation.is_cancelled() {
         Err(io::Error::new(
             io::ErrorKind::Interrupted,

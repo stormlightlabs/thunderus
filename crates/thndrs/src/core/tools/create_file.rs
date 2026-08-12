@@ -35,10 +35,10 @@ pub fn exec(path_str: &str, root: &Path, content: &str) -> (ToolOutput, Option<W
         }
     };
 
-    replace_range::with_file_lock(&resolved, || exec_locked(&resolved, content))
+    replace_range::with_file_lock(&resolved, || exec_locked(path_str, &resolved, content))
 }
 
-fn exec_locked(resolved: &Path, content: &str) -> (ToolOutput, Option<WriteResult>) {
+fn exec_locked(path_str: &str, resolved: &Path, content: &str) -> (ToolOutput, Option<WriteResult>) {
     if resolved.exists() {
         return (
             ToolOutput::failed("create_file", format!("file already exists: {}", resolved.display())),
@@ -77,7 +77,9 @@ fn exec_locked(resolved: &Path, content: &str) -> (ToolOutput, Option<WriteResul
         after_bytes,
     };
 
-    (ToolOutput::ok("create_file", vec![result.summary()]), Some(result))
+    let mut lines = vec![result.summary()];
+    lines.extend(replace_range::diff_lines(path_str, None, content));
+    (ToolOutput::ok("create_file", lines), Some(result))
 }
 
 /// Provider-visible definition for `create_file`.
@@ -146,6 +148,8 @@ mod tests {
 
         let written = std::fs::read_to_string(root.join("new_file.txt")).expect("read file");
         assert_eq!(written, "hello world\n");
+        assert!(output.display.lines.iter().any(|line| line == "--- /dev/null"));
+        assert!(output.display.lines.iter().any(|line| line == "+++ b/new_file.txt"));
 
         let r = result.unwrap();
         assert_eq!(r.op, WriteOp::Create);

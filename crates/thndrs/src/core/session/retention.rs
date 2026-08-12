@@ -88,7 +88,7 @@ pub struct PruneReport {
 
 /// Completed prune work reported while a plan is being applied.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct PruneProgress {
+pub struct PruneProgress {
     /// Lifecycle operations that have finished.
     pub completed: usize,
     /// Sessions successfully moved to trash.
@@ -183,7 +183,7 @@ pub fn apply_prune_cancellable(
 }
 
 /// Apply a prune plan and report completed lifecycle operations from the coordinating thread.
-pub(crate) fn apply_prune_cancellable_with_progress<F>(
+pub fn apply_prune_cancellable_with_progress<F>(
     lifecycle: &SessionLifecycle, candidates: Vec<PruneCandidate>, active_session_id: Option<&str>, dry_run: bool,
     cancellation: &CancelToken, on_progress: F,
 ) -> io::Result<PruneReport>

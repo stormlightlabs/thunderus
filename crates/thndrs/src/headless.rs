@@ -329,7 +329,7 @@ pub fn run_command(cli: &Cli, command: &RunCommand) -> io::Result<()> {
 }
 
 /// Run one prompt through the shared lifecycle and return only assistant text.
-pub(crate) fn run_prompt_capture(cli: &Cli, prompt: &str) -> io::Result<String> {
+pub fn run_prompt_capture(cli: &Cli, prompt: &str) -> io::Result<String> {
     let cancellation = CancelToken::new();
     let _registration = cancellation::register(cancellation.clone())?;
     let mut stdout = Vec::new();

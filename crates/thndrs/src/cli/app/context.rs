@@ -1716,7 +1716,7 @@ fn classify_compaction_risk(entries: &[Entry]) -> CompactionRisk {
 }
 
 #[cfg(test)]
-pub(crate) fn range_summary_response(app: &App, objective: &str) -> String {
+pub fn range_summary_response(app: &App, objective: &str) -> String {
     let request = &app
         .transcript
         .pending_manual_compaction

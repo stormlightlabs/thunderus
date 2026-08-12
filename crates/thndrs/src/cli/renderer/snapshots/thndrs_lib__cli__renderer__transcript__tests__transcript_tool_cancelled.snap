@@ -5,5 +5,5 @@ expression: contents
 │                                                                                   # [-]=                                                                                
 │     Activity                                                                      # [-]=   [fg=#f1fc79]=   [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
 │   │ ○ [Stopped] run_shell  $ cargo test  2 lines · Ctrl+O details                 # [-]=   [fg=#f1fc79]=│  [fg=#f7c67f]=○ [Stopped]  [fg=#ebfafa b]=run_shell [-]=   [fg=#abb4da]=$ cargo test [fg=#abb4da]=  2 lines · Ctrl+O details [-]=              [-]=  
-│   │    · running 3 tests                                                          # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   ·  [fg=#8fa1b3]=running [fg=#c0c5ce]= 3 tests [-]=                                                       [-]=  
-│   │    · test tests::foo ... ok                                                   # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   ·  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::foo ... ok [-]=                                                [-]=
+│   │    · running 3 tests                                                          # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   ·  [fg=#abb4da]=running 3 tests [-]=                                                       [-]=  
+│   │    · test tests::foo ... ok                                                   # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   ·  [fg=#abb4da]=test tests::foo ... ok [-]=                                                [-]=

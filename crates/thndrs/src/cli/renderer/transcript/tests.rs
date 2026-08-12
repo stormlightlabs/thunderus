@@ -17,6 +17,14 @@ fn render_entry_styled(entry: &Entry, width: usize) -> String {
     frame.render_styled()
 }
 
+fn render_entry_detail_styled(entry: &Entry, width: usize) -> String {
+    let mut context = ctx(width);
+    context.detail_open = true;
+    let rows = context.rows_for_entry(entry);
+    let frame = row::Frame { rows, width, cursor: None, cursor_visible: true };
+    frame.render_styled()
+}
+
 fn render_banner_styled(app: &App, width: usize) -> String {
     let rows = app.render_banner_rows(width);
     let frame = row::Frame { rows, width, cursor: None, cursor_visible: true };
@@ -439,7 +447,7 @@ fn snapshot_tool_ok_highlighted() {
 }
 
 #[test]
-fn highlighted_tool_output_marks_horizontal_truncation() {
+fn ordinary_shell_output_wraps_without_syntax_highlighting() {
     let entry = Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program": "cargo test"}"#.to_string(),
@@ -452,9 +460,52 @@ fn highlighted_tool_output_marks_horizontal_truncation() {
     let rendered = render_entry_styled(&entry, 48);
 
     assert!(
-        rendered.contains('…'),
-        "wide highlighted tool output should include visible truncation marker:\n{rendered}"
+        !rendered.contains('…'),
+        "ordinary output should wrap instead of truncate:\n{rendered}"
     );
+    assert!(
+        !rendered.contains("[fg=#b48ead]=error"),
+        "ordinary shell output should not be parsed as source code:\n{rendered}"
+    );
+}
+
+#[test]
+fn snapshot_tool_diff_detail_normal() {
+    let entry = representative_diff_entry();
+    assert_snapshot(
+        "transcript_tool_diff_detail_normal",
+        &render_entry_detail_styled(&entry, 80),
+    );
+}
+
+#[test]
+fn snapshot_tool_diff_detail_narrow() {
+    let entry = representative_diff_entry();
+    assert_snapshot(
+        "transcript_tool_diff_detail_narrow",
+        &render_entry_detail_styled(&entry, 36),
+    );
+}
+
+fn representative_diff_entry() -> Entry {
+    Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"program":"git diff"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: [
+            "diff --git a/src/lib.rs b/src/lib.rs",
+            "--- a/src/lib.rs",
+            "+++ b/src/lib.rs",
+            "@@ -41,2 +41,3 @@ fn render()",
+            " let state = 1;",
+            "-old_call();",
+            "+new_call();",
+            "+another_call();",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect(),
+    }
 }
 
 #[test]
@@ -837,6 +888,7 @@ fn diff_tool_rows_include_visible_diff_summary() {
         output: vec![
             "--- a/src/lib.rs".to_string(),
             "+++ b/src/lib.rs".to_string(),
+            "@@ -1 +1,2 @@".to_string(),
             "-old".to_string(),
             "+new".to_string(),
             "+newer".to_string(),
@@ -847,6 +899,22 @@ fn diff_tool_rows_include_visible_diff_summary() {
     assert!(
         rendered.contains("diff") && rendered.contains("src/lib.rs +2 -1"),
         "diff output should include a changed-file summary:\n{rendered}"
+    );
+}
+
+#[test]
+fn ordinary_shell_output_does_not_get_a_diff_summary() {
+    let entry = Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"program":"printf"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["+ enabled".to_string(), "- disabled".to_string()],
+    };
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(
+        !rendered.contains("diff  "),
+        "plain output should not be summarized as a diff:\n{rendered}"
     );
 }
 

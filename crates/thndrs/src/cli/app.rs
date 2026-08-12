@@ -35,7 +35,7 @@ pub use input::{
     Action, FilePickerSource, InputFocus, KeyBinding, KeyHelp, Keymap, Mode, PickerItem, PickerState, PromptAccessory,
     translate_input, translate_input_with_keymap,
 };
-pub(crate) use input::{audit_queue_transition, next_detail_target};
+pub use input::{audit_queue_transition, next_detail_target};
 pub use onboarding::setup_model_options;
 pub use onboarding::{
     ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryIntent, RecoveryStage,
@@ -87,9 +87,9 @@ use crate::tools::shell::ProcessRegistry;
 use crate::{config, fuzzy, internals, prompt, session, skills, tools, utils};
 
 /// Cancel an ACP permission request from an application adapter without UI input.
-pub(crate) use agent_lifecycle::cancel_pending_permission;
+pub use agent_lifecycle::cancel_pending_permission;
 /// Submit a user turn from an application adapter without synthesizing key input.
-pub(crate) use input::submit_user_turn;
+pub use input::submit_user_turn;
 
 /// How long a Ctrl+D quit confirmation stays armed.
 const QUIT_CONFIRM_TIMEOUT_MS: u64 = 3_000;
@@ -627,7 +627,7 @@ pub struct SessionState {
     /// Append-only session writer, when durable persistence is available.
     pub writer: Option<session::SessionWriter>,
     /// Dedicated workspace-local persistence for submitted prompt recall.
-    pub(crate) input_history_store: InputHistoryStore,
+    pub input_history_store: InputHistoryStore,
     /// Monotonic turn counter for session record correlation.
     pub turn_count: u64,
     /// Most recent completed provider request accounting.
@@ -664,21 +664,21 @@ pub struct TranscriptState {
     /// Tool-call ids mapped to bounded redacted recovery handles.
     pub tool_artifacts: HashMap<String, String>,
     /// State-aware model-projection decisions indexed by tool-call id.
-    pub(crate) tool_projection_decisions: HashMap<String, agent_context::StateProjectionDecision>,
+    pub tool_projection_decisions: HashMap<String, agent_context::StateProjectionDecision>,
     /// Durable context lifecycle/protection state.
-    pub(crate) context_lifecycles: BTreeMap<String, agent_context::ContextLifecycle>,
+    pub context_lifecycles: BTreeMap<String, agent_context::ContextLifecycle>,
     /// In-flight compaction request.
-    pub(crate) pending_manual_compaction: Option<context::PendingManualCompaction>,
+    pub pending_manual_compaction: Option<context::PendingManualCompaction>,
     /// Summary awaiting explicit review.
-    pub(crate) pending_compaction_review: Option<context::PendingCompactionReview>,
+    pub pending_compaction_review: Option<context::PendingCompactionReview>,
     /// Last compaction review state.
     pub last_compaction_review: Option<session::CompactionReviewResult>,
     /// Task-local context pins.
-    pub(crate) context_pins: Vec<PinnedCandidate>,
+    pub context_pins: Vec<PinnedCandidate>,
     /// Explicitly dropped context ids.
-    pub(crate) context_dropped_ids: Vec<String>,
+    pub context_dropped_ids: Vec<String>,
     /// Summaries retained across context rebuilds.
-    pub(crate) compaction_summaries: Vec<CompactionSummaryCandidate>,
+    pub compaction_summaries: Vec<CompactionSummaryCandidate>,
 }
 
 /// Prompt editing, history, queue, and recovery-draft state.
@@ -1074,7 +1074,7 @@ pub struct RuntimeState {
     pub ui_tick: u64,
     pub ctrl_d_pending: Option<u64>,
     pub stopping_deadline: Option<u64>,
-    pub(crate) stopping_timed_out: bool,
+    pub stopping_timed_out: bool,
     pub process_registry: ProcessRegistry,
     pub quit: bool,
 }
@@ -1264,14 +1264,14 @@ impl App {
     ///
     /// The existing session is resolved and locked before any new session file
     /// is created.
-    pub(crate) fn from_cli_resuming(cli: &Cli, session_id: &str) -> io::Result<Self> {
+    pub fn from_cli_resuming(cli: &Cli, session_id: &str) -> io::Result<Self> {
         let mut app = Self::build(cli, SessionStartup::Existing);
         app.resume_session(session_id)?;
         Ok(app)
     }
 
     /// Replace the active session with a validated durable session.
-    pub(crate) fn resume_session(&mut self, session_id: &str) -> io::Result<()> {
+    pub fn resume_session(&mut self, session_id: &str) -> io::Result<()> {
         if self.is_ephemeral() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -1329,7 +1329,7 @@ impl App {
     }
 
     /// Append a display-name change without changing the active session identity.
-    pub(crate) fn rename_session(&mut self, name: &str) -> io::Result<()> {
+    pub fn rename_session(&mut self, name: &str) -> io::Result<()> {
         let writer =
             self.session.writer.as_mut().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "cannot name a session in ephemeral mode")

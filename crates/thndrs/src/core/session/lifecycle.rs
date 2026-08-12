@@ -244,7 +244,7 @@ impl SessionLifecycle {
     ///
     /// Retention selection already inventories every session. This path rechecks
     /// the mutable protection markers immediately before changing the candidate.
-    pub(crate) fn delete_live_retention_candidate(
+    pub fn delete_live_retention_candidate(
         &self, session_id: &str, options: &DeleteSessionOptions,
     ) -> Result<SessionLifecycleReport, SessionLifecycleError> {
         if options.active_session_id.as_deref() == Some(session_id) {

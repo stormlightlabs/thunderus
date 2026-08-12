@@ -39,7 +39,7 @@ impl HarnessHandle {
     }
 
     #[cfg(test)]
-    pub(crate) fn from_test_receiver(events: Receiver<AgentEvent>, cancel: CancelToken) -> Self {
+    pub fn from_test_receiver(events: Receiver<AgentEvent>, cancel: CancelToken) -> Self {
         let mut initial = Vec::new();
         let disconnected = match events.try_recv() {
             Ok(event) => {

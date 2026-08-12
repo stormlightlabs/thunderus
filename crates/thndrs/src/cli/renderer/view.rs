@@ -330,7 +330,7 @@ pub struct TranscriptView {
 
 /// Inputs beyond the entry itself that affect its cached row projection.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct TranscriptProjectionKey {
+pub struct TranscriptProjectionKey {
     tool_group_start: bool,
     detail_target: bool,
     detail_open: bool,
@@ -339,7 +339,7 @@ pub(crate) struct TranscriptProjectionKey {
 }
 
 /// Return all presentation state needed to decide whether an entry projection is reusable.
-pub(crate) fn transcript_projection_key(app: &App, entry_index: usize) -> TranscriptProjectionKey {
+pub fn transcript_projection_key(app: &App, entry_index: usize) -> TranscriptProjectionKey {
     let previous_was_tool = entry_index
         .checked_sub(1)
         .and_then(|index| app.transcript.entries.get(index))
@@ -540,7 +540,7 @@ impl From<&Entry> for TranscriptRowView {
             Entry::Status { text } => TranscriptRowKind::Status.build_row(true, text.clone()),
             Entry::Error { text } => TranscriptRowKind::Error.build_row(true, text.clone()),
             Entry::Tool { name, arguments, status, output } => {
-                let diff = DiffSummaryView::build(output);
+                let diff = DiffSummaryView::build(name, output);
                 let edit = EditSummaryView::build(name, output, *status);
                 let kind = if diff.is_some() {
                     TranscriptRowKind::Diff
@@ -652,24 +652,12 @@ pub struct DiffSummaryView {
 }
 
 impl DiffSummaryView {
-    fn build(output: &[String]) -> Option<Self> {
-        let mut added = 0usize;
-        let mut removed = 0usize;
-        let mut files = Vec::new();
-        for line in output {
-            if let Some(path) = line.strip_prefix("+++ ") {
-                files.push(path.trim_start_matches("b/").to_string());
-            } else if line.starts_with('+') && !line.starts_with("+++") {
-                added += 1;
-            } else if line.starts_with('-') && !line.starts_with("---") {
-                removed += 1;
-            }
-        }
+    fn build(name: &str, output: &[String]) -> Option<Self> {
+        let diff = super::tool_output::projected_diff(name, output)?;
+        let (files, added, removed) = diff.summary();
         if added == 0 && removed == 0 && files.is_empty() {
             None
         } else {
-            files.sort();
-            files.dedup();
             Some(Self { files, added, removed })
         }
     }

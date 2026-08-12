@@ -233,7 +233,7 @@ fn exec_many_locked(
                 after_bytes,
             };
             let mut lines = vec![result.summary()];
-            lines.extend(diff_lines(&normalized_content, &new_normalized_content));
+            lines.extend(diff_lines(path_str, Some(&normalized_content), &new_normalized_content));
             (ToolOutput::ok("replace_range", lines), Some(result))
         }
     }
@@ -449,7 +449,9 @@ fn file_preview(content: &str) -> String {
 }
 
 /// Render a compact unified-style diff with a bounded number of lines.
-fn diff_lines(before: &str, after: &str) -> Vec<String> {
+pub(super) fn diff_lines(path: &str, before: Option<&str>, after: &str) -> Vec<String> {
+    let is_new = before.is_none();
+    let before = before.unwrap_or_default();
     if before == after {
         return Vec::new();
     }
@@ -474,12 +476,22 @@ fn diff_lines(before: &str, after: &str) -> Vec<String> {
     let old_end = (before_lines.len() - suffix + DIFF_CONTEXT_LINES).min(before_lines.len());
     let new_end = (after_lines.len() - suffix + DIFF_CONTEXT_LINES).min(after_lines.len());
 
-    let mut out = vec!["--- before".to_string(), "+++ after".to_string()];
+    let context_before = prefix.saturating_sub(old_start);
+    let removed = before_lines.len().saturating_sub(prefix + suffix);
+    let added = after_lines.len().saturating_sub(prefix + suffix);
+    let context_after = old_end.saturating_sub(before_lines.len().saturating_sub(suffix));
+    if context_before + removed + added + context_after + 3 > MAX_DIFF_LINES {
+        return Vec::new();
+    }
+
+    let old_path = if is_new { "/dev/null".to_string() } else { format_diff_path("a/", path) };
+    let new_path = format_diff_path("b/", path);
+    let mut out = vec![format!("--- {old_path}"), format!("+++ {new_path}")];
     out.push(format!(
         "@@ -{},{} +{},{} @@",
-        old_start + 1,
+        if before_lines.is_empty() { 0 } else { old_start + 1 },
         old_end.saturating_sub(old_start),
-        new_start + 1,
+        if after_lines.is_empty() { 0 } else { new_start + 1 },
         new_end.saturating_sub(new_start)
     ));
 
@@ -496,11 +508,27 @@ fn diff_lines(before: &str, after: &str) -> Vec<String> {
         out.push(format!(" {}", utils::truncate_line(line)));
     }
 
-    if out.len() > MAX_DIFF_LINES {
-        out.truncate(MAX_DIFF_LINES);
-        out.push("... diff truncated".to_string());
-    }
     out
+}
+
+fn format_diff_path(prefix: &str, path: &str) -> String {
+    let path = format!("{prefix}{path}");
+    if path.chars().any(|ch| ch.is_whitespace() || matches!(ch, '"' | '\\')) {
+        let mut escaped = String::with_capacity(path.len());
+        for ch in path.chars() {
+            match ch {
+                '\\' => escaped.push_str("\\\\"),
+                '"' => escaped.push_str("\\\""),
+                '\n' => escaped.push_str("\\n"),
+                '\r' => escaped.push_str("\\r"),
+                '\t' => escaped.push_str("\\t"),
+                other => escaped.push(other),
+            }
+        }
+        format!("\"{escaped}\"")
+    } else {
+        path
+    }
 }
 
 #[cfg(test)]
@@ -521,6 +549,8 @@ mod tests {
 
         let written = std::fs::read_to_string(&file).expect("read");
         assert_eq!(written, "hello there\nfoo bar\n");
+        assert!(output.display.lines.iter().any(|line| line == "--- a/file.txt"));
+        assert!(output.display.lines.iter().any(|line| line == "+++ b/file.txt"));
         assert!(output.display.lines.iter().any(|line| line == "-hello world"));
         assert!(output.display.lines.iter().any(|line| line == "+hello there"));
     }

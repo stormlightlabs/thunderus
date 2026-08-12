@@ -1128,7 +1128,7 @@ fn handle_queue_action(app: &mut App, action: Action) -> Option<Msg> {
     None
 }
 
-pub(crate) fn audit_queue_transition(app: &mut App, id: QueueItemId, action: &str) {
+pub fn audit_queue_transition(app: &mut App, id: QueueItemId, action: &str) {
     let Some(item) = app.composer.queue.item(id) else {
         return;
     };

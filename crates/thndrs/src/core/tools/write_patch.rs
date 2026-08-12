@@ -214,22 +214,24 @@ fn exec_replace(
 ) -> (ToolOutput, Option<WriteResult>) {
     match path::resolve_within_root(root, path_str) {
         Ok(resolved) => replace_range::with_file_lock(&resolved, || {
-            exec_replace_locked(&resolved, content, expected_before_hash)
+            exec_replace_locked(path_str, &resolved, content, expected_before_hash)
         }),
         Err(e) => (ToolOutput::failed("write_patch", e.to_string()), None),
     }
 }
 
 fn exec_replace_locked(
-    resolved: &Path, content: &str, expected_before_hash: Option<u64>,
+    path_str: &str, resolved: &Path, content: &str, expected_before_hash: Option<u64>,
 ) -> (ToolOutput, Option<WriteResult>) {
-    let (before_hash, before_bytes) = match std::fs::read_to_string(resolved) {
-        Ok(existing) => (Some(super::hash_content(&existing)), Some(existing.len())),
+    let before_content = match std::fs::read_to_string(resolved) {
+        Ok(existing) => Some(existing),
         Err(e) => match e.kind() {
-            std::io::ErrorKind::NotFound => (None, None),
+            std::io::ErrorKind::NotFound => None,
             _ => return (ToolOutput::failed("write_patch", format!("read failed: {e}")), None),
         },
     };
+    let before_hash = before_content.as_deref().map(super::hash_content);
+    let before_bytes = before_content.as_ref().map(String::len);
 
     if let Some(expected) = expected_before_hash
         && before_hash != Some(expected)
@@ -270,7 +272,9 @@ fn exec_replace_locked(
                 after_hash,
                 after_bytes,
             };
-            (ToolOutput::ok("write_patch", vec![result.summary()]), Some(result))
+            let mut lines = vec![result.summary()];
+            lines.extend(replace_range::diff_lines(path_str, before_content.as_deref(), content));
+            (ToolOutput::ok("write_patch", lines), Some(result))
         }
     }
 }
@@ -401,6 +405,8 @@ mod tests {
             std::fs::read_to_string(root.join("file.txt")).expect("read"),
             "new content\n"
         );
+        assert!(output.display.lines.iter().any(|line| line == "--- a/file.txt"));
+        assert!(output.display.lines.iter().any(|line| line == "+++ b/file.txt"));
     }
 
     #[test]

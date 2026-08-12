@@ -658,7 +658,7 @@ impl ProcessRegistry {
         results
     }
 
-    pub(crate) fn spawn_background(
+    pub fn spawn_background(
         &self, args: &ShellArgs, cwd: PathBuf, child: OwnedChild, start: Instant, cancel: CancelToken,
     ) -> u64 {
         let argv = args.argv();

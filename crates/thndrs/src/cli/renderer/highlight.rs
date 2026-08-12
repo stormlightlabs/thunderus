@@ -107,15 +107,14 @@ pub fn path_extension_language(path: &str) -> Option<&'static str> {
     }
 }
 
-/// Determine the syntax highlighting language for a tool's output.
+/// Determine the source language for a tool that returns file contents.
 pub fn tool_output_language(tool_name: &str, arguments: &str) -> Option<&'static str> {
     match tool_name {
-        "read_file_range" | "create_file" | "replace_range" | "write_patch" => {
+        "read_file_range" => {
             let v: serde_json::Value = serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
             let path = v.get("path").and_then(|p| p.as_str())?;
             path_extension_language(path)
         }
-        "run_shell" => Some("bash"),
         _ => None,
     }
 }
@@ -179,7 +178,7 @@ mod tests {
     fn tool_output_language_detects_from_args() {
         let args = r#"{"path": "main.rs"}"#;
         assert_eq!(tool_output_language("read_file_range", args), Some("rs"));
-        assert_eq!(tool_output_language("run_shell", "{}"), Some("bash"));
+        assert_eq!(tool_output_language("run_shell", "{}"), None);
         assert_eq!(tool_output_language("search_text", "{}"), None);
     }
 }

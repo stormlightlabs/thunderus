@@ -53,7 +53,7 @@ pub use lifecycle::{
     DeleteArtifactPreview, DeleteSessionOptions, PermanentDeleteOptions, SessionDeletePreview, SessionLifecycle,
     SessionLifecycleAction, SessionLifecycleError, SessionLifecycleReport, SessionOwnedState,
 };
-pub(crate) use retention::apply_prune_cancellable_with_progress;
+pub use retention::apply_prune_cancellable_with_progress;
 pub use retention::{
     PruneCandidate, PruneFailure, PruneOverrides, PruneReason, PruneReport, SessionRetentionPolicy, apply_prune,
     apply_prune_cancellable, select_prune_candidates,

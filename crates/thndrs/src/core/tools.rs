@@ -27,7 +27,7 @@ mod read_url;
 mod registry;
 mod replace_range;
 mod sawk;
-pub(crate) mod search;
+pub mod search;
 mod state_identity;
 mod subproc;
 mod web_search;
@@ -92,7 +92,7 @@ pub use thndrs_agent::ToolDefinition;
 pub use thndrs_agent::{ToolBudgetDecision, ToolIterationBudget};
 
 pub use registry::ProviderSchemaFormat;
-pub(crate) use state_identity::identity_for as state_identity_for;
+pub use state_identity::identity_for as state_identity_for;
 
 /// Filesystem and process authority granted to one provider run.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

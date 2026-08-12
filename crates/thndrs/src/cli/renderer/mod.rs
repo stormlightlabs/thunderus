@@ -8,6 +8,7 @@
 
 pub mod alternate;
 pub mod cursor;
+mod diff;
 pub mod git;
 pub mod highlight;
 pub mod layout;
@@ -17,6 +18,7 @@ pub mod row;
 mod status;
 pub mod style;
 pub mod surface;
+mod tool_output;
 pub mod transcript;
 pub mod view;
 
