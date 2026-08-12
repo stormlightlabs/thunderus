@@ -292,7 +292,7 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
     let stdout = io::stdout();
     let mut lock = stdout.lock();
     match command {
-        SessionCommand::List => run_session_list(&dir, &mut lock),
+        SessionCommand::List => run_session_list(&dir, &workspace, &mut lock),
         SessionCommand::Latest => run_session_latest(&dir, &mut lock),
         SessionCommand::Titles => run_session_titles(&dir, &mut lock),
         SessionCommand::Show { session_id } => run_session_show(&dir, session_id, &mut lock),
@@ -304,22 +304,35 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
     }
 }
 
-fn run_session_list<W: io::Write>(dir: &Path, writer: &mut W) -> io::Result<()> {
-    let files = session::list_session_files(dir);
-    if files.is_empty() {
+fn run_session_list<W: io::Write>(dir: &Path, workspace: &Path, writer: &mut W) -> io::Result<()> {
+    let inventory = session::SessionInventory::scan(dir, workspace);
+    let sessions = inventory
+        .sessions
+        .iter()
+        .filter(|entry| entry.storage_state == session::SessionStorageState::Live)
+        .collect::<Vec<_>>();
+    if sessions.is_empty() {
         writeln!(writer, "no sessions found")?;
         return Ok(());
     }
-    let summaries = session::list_session_summaries(dir);
-
-    for (file, summary) in files.into_iter().zip(summaries) {
-        let id = file.file_stem().and_then(|stem| stem.to_str()).unwrap_or("session");
+    for entry in sessions {
+        let source = entry
+            .parent_session_id
+            .as_deref()
+            .zip(entry.source_turn_id.as_deref())
+            .map(|(parent, turn)| format!("{parent}@{turn}"))
+            .unwrap_or_else(|| "root".to_string());
         writeln!(
             writer,
-            "{id}\t{}\t{}\t{}",
-            summary.title,
-            summary.model,
-            summary.sidebar_label().replace('\n', " ")
+            "{}\t{}\t{}\tactivity {}\tsource {}\t{}\tin {} out {}",
+            entry.id,
+            entry.title,
+            entry.model,
+            entry.last_activity.as_deref().unwrap_or("unknown"),
+            source,
+            entry.state_label(),
+            entry.input_tokens,
+            entry.output_tokens,
         )?;
     }
     Ok(())
@@ -1954,7 +1967,7 @@ mod tests {
                 ..config::AcpAgentConfig::default()
             },
         );
-        Cli { cwd: cwd.to_path_buf(), acp_agents: agents, ..Cli::default() }
+        Cli { cwd: cwd.to_path_buf(), acp_agents: agents, ephemeral: true, ..Cli::default() }
     }
 
     fn write_registry_fixture(path: &Path, version: &str) {
@@ -2313,7 +2326,7 @@ for line in sys.stdin:
         let mut list_output = Vec::new();
         let mut latest_output = Vec::new();
 
-        run_session_list(&session_dir, &mut list_output).expect("list sessions");
+        run_session_list(&session_dir, temp.path(), &mut list_output).expect("list sessions");
         run_session_latest(&session_dir, &mut latest_output).expect("latest session");
         let list_output = String::from_utf8(list_output).expect("utf8");
         let latest_output = String::from_utf8(latest_output).expect("utf8");
@@ -2321,6 +2334,9 @@ for line in sys.stdin:
         assert!(list_output.contains("session-new"));
         assert!(list_output.contains("Latest Work"));
         assert!(list_output.contains("opencode/big-pickle"));
+        assert!(list_output.contains("activity "));
+        assert!(list_output.contains("source root"));
+        assert!(list_output.contains("locked"));
         assert!(list_output.contains("in 7 out 11"));
         assert!(latest_output.contains("id: session-new"));
         assert!(latest_output.contains("title: Latest Work"));
@@ -2427,7 +2443,7 @@ for line in sys.stdin:
         let mut show = Vec::new();
         let mut inspect = Vec::new();
         let mut export = Vec::new();
-        run_session_list(&session_dir, &mut list).expect("list sessions");
+        run_session_list(&session_dir, temp.path(), &mut list).expect("list sessions");
         run_session_show(&session_dir, "session-named", &mut show).expect("show session");
         run_session_inspect(&session_dir, "session-named", SessionDataFormat::Json, &mut inspect).expect("inspect");
         run_session_export(&session_dir, "session-named", SessionDataFormat::Jsonl, &mut export).expect("export");

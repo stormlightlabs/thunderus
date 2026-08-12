@@ -821,6 +821,7 @@ mod tests {
             model: "acp:local".to_string(),
             acp_agents: agents,
             session_dir: Some(cwd.join("sessions")),
+            ephemeral: true,
             ..Cli::default()
         }
     }
@@ -930,7 +931,8 @@ mod tests {
     #[test]
     fn streams_assistant_text_and_records_the_normal_session_audit() {
         let temp = tempfile::tempdir().expect("create workspace");
-        let cli = fixture_cli(temp.path(), "lifecycle");
+        let mut cli = fixture_cli(temp.path(), "lifecycle");
+        cli.ephemeral = false;
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
@@ -1140,7 +1142,8 @@ mod tests {
     fn keeps_tool_diagnostics_off_stdout_and_audits_tool_use() {
         let temp = tempfile::tempdir().expect("create workspace");
         std::fs::write(temp.path().join("readme.txt"), "alpha\nbeta\n").expect("write fixture");
-        let cli = fixture_cli(temp.path(), "fs-read");
+        let mut cli = fixture_cli(temp.path(), "fs-read");
+        cli.ephemeral = false;
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 

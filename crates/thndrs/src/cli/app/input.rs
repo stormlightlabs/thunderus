@@ -1432,21 +1432,34 @@ pub fn open_session_picker(app: &mut App) {
         return;
     }
 
-    let items = session::list_session_files(&app.session_directory())
+    let inventory = session::SessionInventory::scan(&app.session_directory(), &app.runtime.cwd);
+    let items = inventory
+        .sessions
         .into_iter()
-        .filter_map(|path| {
-            let id = path.file_stem()?.to_str()?.to_string();
-            if id == app.session.id {
+        .filter_map(|entry| {
+            if entry.storage_state != session::SessionStorageState::Live || entry.id == app.session.id {
                 return None;
             }
-            let summary = session::SessionReader::read_summary(&path);
+            let source = entry
+                .parent_session_id
+                .as_deref()
+                .zip(entry.source_turn_id.as_deref())
+                .map(|(parent, turn)| format!("{parent}@{turn}"))
+                .unwrap_or_else(|| "root".to_string());
+            let state = entry.state_label();
             Some(PickerItem::with_value(
-                summary.title,
+                entry.title,
                 format!(
-                    "{id} · {} · {} in / {} out",
-                    summary.model, summary.input_tokens, summary.output_tokens
+                    "{} · {} · activity {} · source {} · {} · {} in / {} out",
+                    entry.id,
+                    entry.model,
+                    entry.last_activity.as_deref().unwrap_or("unknown"),
+                    source,
+                    state,
+                    entry.input_tokens,
+                    entry.output_tokens
                 ),
-                id,
+                entry.id,
             ))
         })
         .collect::<Vec<_>>();

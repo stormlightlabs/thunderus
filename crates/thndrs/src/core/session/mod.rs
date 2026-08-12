@@ -9,10 +9,11 @@
 
 mod contracts;
 mod export;
+mod inventory;
 #[cfg(test)]
 mod tests;
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -27,6 +28,7 @@ use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
 use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
 use crate::{datetime, internals, tools};
+
 use thndrs_agent::ProviderRequestAccounting;
 use thndrs_agent::context::{ContextItem, ContextLedger, RangeSummary};
 
@@ -35,6 +37,10 @@ pub use contracts::{
     ContextLifecycleAudit, ContextSourceMeta, McpToolSessionMeta, SessionConfigFile, SessionConfigMeta,
 };
 pub use export::{SessionExport, export_session};
+pub use inventory::{
+    ArtifactInventoryEntry, SessionInventory, SessionInventoryDiagnostic, SessionInventoryEntry, SessionLineageState,
+    SessionStorageState, SessionStorageTotals,
+};
 
 /// Current JSONL schema version.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -580,6 +586,58 @@ impl SessionRecord {
             _ => None,
         }
     }
+
+    fn record_time(&self) -> Option<String> {
+        serde_json::to_value(self)
+            .ok()?
+            .get("time")?
+            .as_str()
+            .map(str::to_string)
+    }
+
+    fn artifact_handles(&self) -> Vec<String> {
+        let Ok(value) = serde_json::to_value(self) else {
+            return Vec::new();
+        };
+        let mut handles = BTreeSet::new();
+        collect_handles(&value, None, &mut handles);
+        handles.into_iter().collect()
+    }
+
+    /// Set the seq field on a record (used by `SessionWriter::append`).
+    fn set_seq(&mut self, seq: u64) {
+        match self {
+            SessionRecord::SessionMeta { seq: s, .. }
+            | SessionRecord::SessionFork { seq: s, .. }
+            | SessionRecord::Context { seq: s, .. }
+            | SessionRecord::ContextLedger { seq: s, .. }
+            | SessionRecord::ContextPin { seq: s, .. }
+            | SessionRecord::ContextDrop { seq: s, .. }
+            | SessionRecord::ContextRecovery { seq: s, .. }
+            | SessionRecord::ContextLifecycle { seq: s, .. }
+            | SessionRecord::Compaction { seq: s, .. }
+            | SessionRecord::CompactionReview { seq: s, .. }
+            | SessionRecord::User { seq: s, .. }
+            | SessionRecord::PromptMetadata { seq: s, .. }
+            | SessionRecord::AssistantFinished { seq: s, .. }
+            | SessionRecord::ReasoningFinished { seq: s, .. }
+            | SessionRecord::Usage { seq: s, .. }
+            | SessionRecord::RequestAccounting { seq: s, .. }
+            | SessionRecord::ToolStarted { seq: s, .. }
+            | SessionRecord::ToolFinished { seq: s, .. }
+            | SessionRecord::Cancelled { seq: s, .. }
+            | SessionRecord::Failed { seq: s, .. }
+            | SessionRecord::AcpSession { seq: s, .. }
+            | SessionRecord::SessionRenamed { seq: s, .. }
+            | SessionRecord::FileWrite { seq: s, .. }
+            | SessionRecord::McpConfigChanged { seq: s, .. }
+            | SessionRecord::ShellExec { seq: s, .. }
+            | SessionRecord::SkillActivated { seq: s, .. }
+            | SessionRecord::QueuedInput { seq: s, .. }
+            | SessionRecord::AcpPermissionRequest { seq: s, .. }
+            | SessionRecord::AcpPermissionOutcome { seq: s, .. } => *s = seq,
+        }
+    }
 }
 
 /// Metadata for a single prompt turn, suitable for append-only JSONL storage.
@@ -845,27 +903,6 @@ impl CompactionAudit {
     }
 }
 
-fn redact_range_summary(summary: &RangeSummary) -> RangeSummary {
-    let mut redacted = summary.clone();
-    redacted.objective = tools::shell::redact_secrets(&redacted.objective);
-    for values in [
-        &mut redacted.findings,
-        &mut redacted.decisions,
-        &mut redacted.paths,
-        &mut redacted.failures,
-        &mut redacted.verification,
-        &mut redacted.blockers,
-    ] {
-        for value in values {
-            *value = tools::shell::redact_secrets(value);
-        }
-    }
-    for fact in &mut redacted.protected_facts {
-        fact.text = tools::shell::redact_secrets(&fact.text);
-    }
-    redacted
-}
-
 /// Persisted metadata for a loaded skill reference.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SkillReferenceRecord {
@@ -993,7 +1030,7 @@ impl SessionWriter {
     /// Append a record to the session file.
     pub fn append(&mut self, mut record: SessionRecord) -> std::io::Result<()> {
         let seq = self.seq;
-        set_seq(&mut record, seq);
+        record.set_seq(seq);
 
         let line = record.to_json().map_err(io_err)?;
         use std::io::Write;
@@ -1711,6 +1748,12 @@ pub struct SessionSummary {
     pub output_tokens: u64,
 }
 
+impl SessionSummary {
+    pub fn sidebar_label(&self) -> String {
+        format!("{}\nin {} out {}", self.model, self.input_tokens, self.output_tokens)
+    }
+}
+
 /// An error resolving a user-supplied local session identifier.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SessionLookupError {
@@ -1736,12 +1779,6 @@ impl std::fmt::Display for SessionLookupError {
 }
 
 impl std::error::Error for SessionLookupError {}
-
-impl SessionSummary {
-    pub fn sidebar_label(&self) -> String {
-        format!("{}\nin {} out {}", self.model, self.input_tokens, self.output_tokens)
-    }
-}
 
 /// The sessions directory under a workspace root: `{root}/.thndrs/sessions/`.
 pub fn sessions_dir(workspace_root: &Path) -> PathBuf {
@@ -1982,6 +2019,27 @@ pub fn fork_session(dir: &Path, parent_path: &Path, parent_session_id: &str, tur
     Ok(session_id)
 }
 
+fn redact_range_summary(summary: &RangeSummary) -> RangeSummary {
+    let mut redacted = summary.clone();
+    redacted.objective = tools::shell::redact_secrets(&redacted.objective);
+    for values in [
+        &mut redacted.findings,
+        &mut redacted.decisions,
+        &mut redacted.paths,
+        &mut redacted.failures,
+        &mut redacted.verification,
+        &mut redacted.blockers,
+    ] {
+        for value in values {
+            *value = tools::shell::redact_secrets(value);
+        }
+    }
+    for fact in &mut redacted.protected_facts {
+        fact.text = tools::shell::redact_secrets(&fact.text);
+    }
+    redacted
+}
+
 /// Convert a serde_json error into an io::Error.
 fn io_err(e: serde_json::Error) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, e)
@@ -2107,37 +2165,26 @@ fn mcp_tool_session_meta(name: &str) -> Option<McpToolSessionMeta> {
     })
 }
 
-/// Set the seq field on a record (used by `SessionWriter::append`).
-fn set_seq(record: &mut SessionRecord, seq: u64) {
-    match record {
-        SessionRecord::SessionMeta { seq: s, .. }
-        | SessionRecord::SessionFork { seq: s, .. }
-        | SessionRecord::Context { seq: s, .. }
-        | SessionRecord::ContextLedger { seq: s, .. }
-        | SessionRecord::ContextPin { seq: s, .. }
-        | SessionRecord::ContextDrop { seq: s, .. }
-        | SessionRecord::ContextRecovery { seq: s, .. }
-        | SessionRecord::ContextLifecycle { seq: s, .. }
-        | SessionRecord::Compaction { seq: s, .. }
-        | SessionRecord::CompactionReview { seq: s, .. }
-        | SessionRecord::User { seq: s, .. }
-        | SessionRecord::PromptMetadata { seq: s, .. }
-        | SessionRecord::AssistantFinished { seq: s, .. }
-        | SessionRecord::ReasoningFinished { seq: s, .. }
-        | SessionRecord::Usage { seq: s, .. }
-        | SessionRecord::RequestAccounting { seq: s, .. }
-        | SessionRecord::ToolStarted { seq: s, .. }
-        | SessionRecord::ToolFinished { seq: s, .. }
-        | SessionRecord::Cancelled { seq: s, .. }
-        | SessionRecord::Failed { seq: s, .. }
-        | SessionRecord::AcpSession { seq: s, .. }
-        | SessionRecord::SessionRenamed { seq: s, .. }
-        | SessionRecord::FileWrite { seq: s, .. }
-        | SessionRecord::McpConfigChanged { seq: s, .. }
-        | SessionRecord::ShellExec { seq: s, .. }
-        | SessionRecord::SkillActivated { seq: s, .. }
-        | SessionRecord::QueuedInput { seq: s, .. }
-        | SessionRecord::AcpPermissionRequest { seq: s, .. }
-        | SessionRecord::AcpPermissionOutcome { seq: s, .. } => *s = seq,
+fn collect_handles(value: &serde_json::Value, key: Option<&str>, handles: &mut BTreeSet<String>) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            if key == Some("artifact")
+                && let Some(handle) = fields.get("handle").and_then(serde_json::Value::as_str)
+            {
+                handles.insert(handle.to_string());
+            }
+            for (field, value) in fields {
+                collect_handles(value, Some(field), handles);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                collect_handles(value, key, handles);
+            }
+        }
+        serde_json::Value::String(handle) if key == Some("artifact_handle") => {
+            handles.insert(handle.clone());
+        }
+        _ => {}
     }
 }

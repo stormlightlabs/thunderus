@@ -12,10 +12,12 @@ are appended and not rewritten.
 
 - `session_meta`: session id, cwd, title, provider, model, web-search backend, and
   app version.
+- `session_fork`: parent session, settled source turn, and complete lineage for
+  a forked session.
 - `context`: loaded `AGENTS.md` metadata: path, scope, content hash,
   truncation state, and byte count.
-- `context_ledger`, `context_pin`, `context_drop`, and `context_recovery`:
-  content-free context working-set and decision evidence.
+- `context_ledger`, `context_pin`, `context_drop`, `context_recovery`, and
+  `context_lifecycle`: content-free context working-set and decision evidence.
 - `compaction`: an approved, redacted range summary with its covered source
   sequences and hashes, protected facts, prior-summary references, recovery
   handles, review state, local before/after estimates, provider usage when
@@ -23,9 +25,12 @@ are appended and not rewritten.
 - `compaction_review`: the user's approval or rejection of a pending summary,
   keyed by its recovery handle.
 - `user`: user prompt text and turn id.
+- `prompt_metadata`: content-free prompt assembly metadata for one turn.
 - `assistant_finished`: final replayable assistant text.
 - `reasoning_finished`: final replayable reasoning text.
 - `usage`: provider token usage increment.
+- `request_accounting`: provider-neutral request measurements and their
+  provenance when reported.
 - `tool_started`: tool call id, tool name, and arguments.
 - `tool_finished`: tool call id, status, and capped/redacted output.
 - `file_write`: file write audit metadata.
@@ -44,6 +49,16 @@ are appended and not rewritten.
 
 `file_write` stores operation type, target path, before/after content hashes,
 byte counts, and status. It does not store full file content.
+
+## Lineage
+
+A fork begins with its own `session_meta` and adds one `session_fork` record.
+The record identifies the direct parent and settled source turn. Its `lineage`
+array contains the root-to-parent chain, including the direct parent boundary.
+
+Session browsing validates this chain against the retained sessions. A missing
+parent, malformed chain, or cycle is shown as diagnostic state. Valid sessions
+remain available even when another session has damaged lineage.
 
 ## Compaction Records
 
@@ -89,6 +104,32 @@ are not persisted by default.
 Prompt metadata also records compact self-knowledge inputs. This supports prompt
 inspection and replay audits without persisting full prompt text, project instruction
 text, or provider-private state.
+
+## Storage Graph
+
+The session application owns the files around the append-only record stream:
+
+```text
+.thndrs/sessions/<id>.jsonl
+.thndrs/sessions/<id>.jsonl.lock
+.thndrs/sessions/artifacts/<handle>.json
+.thndrs/sessions/artifacts/<handle>.body
+.thndrs/sessions/archive/
+.thndrs/sessions/trash/
+.thndrs/sessions/pins/
+.thndrs/sessions/state/
+.thndrs/logs/sessions/thndrs-<id>.log
+```
+
+The archive, trash, pin, and state locations are reserved for session lifecycle
+data. The inventory scans them together with JSONL, locks, logs, and artifacts.
+Artifact bodies are measured from filesystem metadata rather than loaded. An
+artifact may be referenced by more than one live or archived session; it is
+retained and counted once until no retained session references it.
+
+Missing or malformed sidecars, missing bodies, shared artifacts, orphaned
+storage, and unreferenced artifacts produce diagnostics. These diagnostics do
+not prevent valid sessions from being browsed.
 
 ## Inspection and Export
 

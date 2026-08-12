@@ -13,6 +13,10 @@ title: "CLI Reference"
 - `--mouse`: enable terminal mouse capture for transcript scrolling and overlay events (the default).
 - `--no-mouse`: disable capture for native terminal selection and scrollback.
 - `--print-prompt`: print the assembled prompt bundle and exit without calling the provider.
+- `--ephemeral`, `--no-session`: keep the run in memory without session JSONL,
+  artifact bodies, or session and daily logs. Resume and session naming are not
+  available in this mode; shared settings and prompt history keep their normal
+  policies.
 
 ## Commands
 
@@ -116,10 +120,14 @@ the server. Provider-facing names are namespaced as `mcp__{server}__{tool}`.
 
 ### Session History & Management
 
-- `thndrs sessions list`: list local sessions newest first.
+- `thndrs sessions list`: list local sessions newest first with title, model,
+  last activity, fork source, token totals, and lock, corruption, or lineage
+  state.
 - `thndrs sessions show <id>`: print the replayable transcript.
 - `thndrs sessions resume <id>`: validate and exclusively lock a local session
   for append-only continuation.
+- `thndrs sessions fork <id> <turn-id>`: create an independent session from a
+  replayable settled turn and record its lineage.
 - `thndrs sessions inspect <id> --format json`: print the stable redacted JSON
   session projection.
 - `thndrs sessions export <id> --format jsonl`: write redacted JSONL records in

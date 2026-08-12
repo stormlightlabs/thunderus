@@ -103,6 +103,14 @@ pub fn key(code: KeyCode, modifiers: KeyModifiers) -> Msg {
 }
 
 pub fn fresh_app() -> App {
+    fresh_app_with_persistence(true)
+}
+
+pub fn fresh_durable_app() -> App {
+    fresh_app_with_persistence(false)
+}
+
+fn fresh_app_with_persistence(ephemeral: bool) -> App {
     let dir = tempfile::tempdir().expect("create temp dir");
     let cwd = dir.path().to_path_buf();
     auth::set_credential(
@@ -118,7 +126,7 @@ pub fn fresh_app() -> App {
     )
     .expect("seed test Zen credential");
     let _kept = dir.keep();
-    let cli = Cli { cwd, model: "opencode/big-pickle".to_string(), ..Cli::default() };
+    let cli = Cli { cwd, model: "opencode/big-pickle".to_string(), ephemeral, ..Cli::default() };
     let mut app = App::from_cli(&cli);
     app.session.writer = None;
     app.overlay.close();

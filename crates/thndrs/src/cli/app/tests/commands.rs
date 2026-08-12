@@ -137,7 +137,7 @@ fn ephemeral_runs_cannot_resume_a_durable_session() {
 
 #[test]
 fn resume_restores_transcript_and_usage_without_live_run_state() {
-    let mut app = fresh_app();
+    let mut app = fresh_durable_app();
     let sessions_dir = session::sessions_dir(&app.runtime.cwd);
     let mut writer = session::SessionWriter::create(
         &sessions_dir,
@@ -204,7 +204,7 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
 
 #[test]
 fn cancelling_the_session_picker_preserves_the_current_session_and_draft() {
-    let mut app = fresh_app();
+    let mut app = fresh_durable_app();
     let current_id = app.session.id.clone();
     let sessions_dir = session::sessions_dir(&app.runtime.cwd);
     session::SessionWriter::create(
@@ -231,7 +231,7 @@ fn cancelling_the_session_picker_preserves_the_current_session_and_draft() {
 
 #[test]
 fn locked_session_picker_selection_preserves_the_current_session_and_draft() {
-    let mut app = fresh_app();
+    let mut app = fresh_durable_app();
     let current_id = app.session.id.clone();
     let sessions_dir = session::sessions_dir(&app.runtime.cwd);
     let _locked = session::SessionWriter::create(
@@ -258,7 +258,7 @@ fn locked_session_picker_selection_preserves_the_current_session_and_draft() {
 
 #[test]
 fn corrupt_session_picker_selection_preserves_the_current_session_and_draft() {
-    let mut app = fresh_app();
+    let mut app = fresh_durable_app();
     let current_id = app.session.id.clone();
     let sessions_dir = session::sessions_dir(&app.runtime.cwd);
     let writer = session::SessionWriter::create(
@@ -288,7 +288,7 @@ fn corrupt_session_picker_selection_preserves_the_current_session_and_draft() {
 
 #[test]
 fn missing_session_picker_selection_preserves_the_current_session_and_draft() {
-    let mut app = fresh_app();
+    let mut app = fresh_durable_app();
     let current_id = app.session.id.clone();
     let sessions_dir = session::sessions_dir(&app.runtime.cwd);
     let writer = session::SessionWriter::create(
@@ -318,7 +318,7 @@ fn missing_session_picker_selection_preserves_the_current_session_and_draft() {
 
 #[test]
 fn name_command_appends_changes_without_replacing_the_session_id() {
-    let mut app = fresh_app();
+    let mut app = fresh_durable_app();
     let id = app.session.id.clone();
     let path = session::resolve_session_file(&session::sessions_dir(&app.runtime.cwd), &id).expect("current session");
     app.session.writer = Some(session::SessionWriter::resume(&path, &id).expect("resume current writer"));
@@ -341,7 +341,7 @@ fn name_command_appends_changes_without_replacing_the_session_id() {
 
 #[test]
 fn invalid_name_command_preserves_the_prompt_draft() {
-    let mut app = fresh_app();
+    let mut app = fresh_durable_app();
     let id = app.session.id.clone();
     let path = session::resolve_session_file(&session::sessions_dir(&app.runtime.cwd), &id).expect("current session");
     app.session.writer = Some(session::SessionWriter::resume(&path, &id).expect("resume current writer"));

@@ -21,10 +21,10 @@
 
 **Blocked by:** SESSION-1.
 
-- [ ] Show source turn, title, model, activity, and lock or corruption state.
-- [ ] Provide inspect, resume, fork, and export actions through their existing
+- [x] Show source turn, title, model, activity, and lock or corruption state.
+- [x] Provide inspect, resume, fork, and export actions through their existing
       workflows.
-- [ ] Report missing parents, malformed lineage, and cycles while leaving valid
+- [x] Report missing parents, malformed lineage, and cycles while leaving valid
       sessions accessible.
 
 ## SESSION-4: Support ephemeral runs
@@ -35,21 +35,21 @@
       bodies, a per-session log, or a shared daily log.
 - [x] Reject resume and session naming in ephemeral mode while leaving shared
       settings and prompt history under their existing policies.
-- [ ] Make test and automation helpers ephemeral by default unless the test
+- [x] Make test and automation helpers ephemeral by default unless the test
       exercises persistence.
 
 ## SESSION-5: Inventory the session storage graph
 
-- [ ] Build one application-owned inventory of session JSONL, locks,
+- [x] Build one application-owned inventory of session JSONL, locks,
       per-session logs, artifact references and bodies, trash, and future
       session-owned state.
-- [ ] Track references across forks and retain an artifact while any live or
+- [x] Track references across forks and retain an artifact while any live or
       archived session references it.
-- [ ] Report missing, malformed, multiply referenced, and unreferenced state
+- [x] Report missing, malformed, multiply referenced, and unreferenced state
       without making valid sessions inaccessible.
-- [ ] Calculate counts, bytes, age, archive and pin state, and reclaimable bytes
+- [x] Calculate counts, bytes, age, archive and pin state, and reclaimable bytes
       without loading artifact bodies.
-- [ ] Keep storage and retention policy out of `thndrs-agent` public APIs.
+- [x] Keep storage and retention policy out of `thndrs-agent` public APIs.
 
 ## SESSION-6: Add manual lifecycle controls
 

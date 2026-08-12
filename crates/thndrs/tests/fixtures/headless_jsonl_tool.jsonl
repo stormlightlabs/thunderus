@@ -1,4 +1,4 @@
-{"version":1,"type":"started","ephemeral":false}
+{"version":1,"type":"started","ephemeral":true}
 {"version":1,"type":"status","message":"acp: starting `local` with python3 <fake-acp-agent> fs-read"}
 {"version":1,"type":"status","message":"acp stderr: fake-agent stderr diagnostic"}
 {"version":1,"type":"status","message":"acp: connected to fake-acp-agent 0.0.0"}
