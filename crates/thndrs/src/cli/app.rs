@@ -93,6 +93,8 @@ pub use input::submit_user_turn;
 
 /// How long a Ctrl+D quit confirmation stays armed.
 const QUIT_CONFIRM_TIMEOUT_MS: u64 = 3_000;
+/// How long transient status-bar feedback remains visible.
+const STATUS_TOAST_TIMEOUT_MS: u64 = 2_000;
 /// How long the UI waits for an agent to acknowledge cancellation before
 /// releasing the stopped prompt.
 const STOPPING_GRACE_MS: u64 = 250;
@@ -1048,6 +1050,21 @@ impl OverlayState {
     }
 }
 
+/// Visual intent for a transient status-bar message.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StatusToastKind {
+    Success,
+    Error,
+}
+
+/// Short-lived feedback displayed in place of the operational status.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StatusToast {
+    pub text: String,
+    pub kind: StatusToastKind,
+    expires_at_tick: u64,
+}
+
 /// Runtime configuration, provider status, and owned background processes.
 #[derive(Debug)]
 pub struct RuntimeState {
@@ -1064,6 +1081,8 @@ pub struct RuntimeState {
     pub run_state: RunState,
     /// Transient provider backoff shown in the status line instead of the transcript.
     pub provider_retry: Option<String>,
+    /// Short-lived user feedback shown in the status line.
+    pub status_toast: Option<StatusToast>,
     /// Identity of the agent run whose effect results are currently accepted.
     pub active_effect_request: Option<EffectRequest>,
     pub git_status: Option<GitStatusSummary>,
@@ -1220,6 +1239,7 @@ impl App {
                 keymap: Keymap::default(),
                 run_state: RunState::default(),
                 provider_retry: None,
+                status_toast: None,
                 active_effect_request: None,
                 git_status: git::collect(&workspace_root),
                 session_tokens_in: 0,
@@ -1340,6 +1360,17 @@ impl App {
             .entries
             .push(Entry::Status { text: format!("session named: {title}") });
         Ok(())
+    }
+
+    /// Show short-lived feedback in the status bar.
+    pub fn show_status_toast(&mut self, text: impl Into<String>, kind: StatusToastKind) {
+        let tick_ms = self.runtime.cli.tick_rate_ms.max(1);
+        let timeout_ticks = STATUS_TOAST_TIMEOUT_MS.div_ceil(tick_ms).max(1);
+        self.runtime.status_toast = Some(StatusToast {
+            text: text.into(),
+            kind,
+            expires_at_tick: self.runtime.ui_tick.wrapping_add(timeout_ticks),
+        });
     }
 
     /// Whether a compaction turn is currently in flight.
@@ -1760,6 +1791,14 @@ pub fn update_with_effects(app: &mut App, msg: &Msg) -> UpdateResult {
                 && agent_lifecycle::now_or_after_deadline(app.runtime.ui_tick, deadline)
             {
                 app.runtime.ctrl_d_pending = None;
+            }
+            if app
+                .runtime
+                .status_toast
+                .as_ref()
+                .is_some_and(|toast| agent_lifecycle::now_or_after_deadline(app.runtime.ui_tick, toast.expires_at_tick))
+            {
+                app.runtime.status_toast = None;
             }
             agent_lifecycle::finish_stopping_if_due(app);
             poll_chatgpt_oauth_on_tick(app);

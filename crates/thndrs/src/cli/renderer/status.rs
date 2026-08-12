@@ -4,7 +4,7 @@ use std::path::Path;
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, Entry, RunState, ToolStatus};
+use crate::app::{App, Entry, RunState, StatusToastKind, ToolStatus};
 use crate::config::StatusSegment;
 use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Span};
@@ -34,6 +34,23 @@ struct Field {
 pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
     let palette = super::style::palette();
     let background = CellStyle::new();
+    if let Some(toast) = &app.runtime.status_toast {
+        let color = match toast.kind {
+            StatusToastKind::Success => palette.green,
+            StatusToastKind::Error => palette.red,
+        };
+        let body_width = super::layout::content_width(width);
+        let inset = width.min(2);
+        let text = utils::truncate_ellipsis(&toast.text, body_width.saturating_sub(inset).max(1));
+        return Row::padded(
+            vec![
+                Span::styled(" ".repeat(inset), background),
+                Span::styled(text, CellStyle::new().fg(color).bold()),
+            ],
+            width,
+            background,
+        );
+    }
     if width < 8 {
         let model = model_name(app);
         return Row::padded(
@@ -354,6 +371,21 @@ mod tests {
                 assert!(row.text().contains("fake-agent"));
             }
         }
+    }
+
+    #[test]
+    fn transient_toast_replaces_operational_status() {
+        let mut app = App::from_cli(&Cli::default());
+        app.show_status_toast("Copied transcript selection", StatusToastKind::Success);
+
+        let row = status_row(&app, 40, false);
+        assert!(row.text().contains("Copied transcript selection"));
+        assert!(!row.text().contains("queue 0"));
+        assert!(
+            row.spans
+                .iter()
+                .any(|span| span.style.fg == super::super::style::palette().green)
+        );
     }
 
     #[test]

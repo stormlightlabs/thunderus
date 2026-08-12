@@ -1228,6 +1228,20 @@ fn tick_increments_ui_tick() {
 }
 
 #[test]
+fn status_toast_expires_after_its_timeout() {
+    let mut app = fresh_app();
+    app.runtime.cli.tick_rate_ms = 1_000;
+    app.show_status_toast("Copied transcript selection", StatusToastKind::Success);
+
+    update(&mut app, &Msg::Tick);
+    assert!(app.runtime.status_toast.is_some());
+    update(&mut app, &Msg::Tick);
+    assert!(app.runtime.status_toast.is_some());
+    update(&mut app, &Msg::Tick);
+    assert!(app.runtime.status_toast.is_none());
+}
+
+#[test]
 fn quit_message_sets_quit_flag() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Quit);

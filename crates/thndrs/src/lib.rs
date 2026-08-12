@@ -1805,14 +1805,11 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
                     stdout.flush()
                 });
             match result {
-                Ok(()) => app
-                    .transcript
-                    .entries
-                    .push(app::Entry::Status { text: "Copied transcript selection.".to_string() }),
-                Err(error) => app
-                    .transcript
-                    .entries
-                    .push(app::Entry::Error { text: format!("Could not copy transcript selection: {error}") }),
+                Ok(()) => app.show_status_toast("Copied transcript selection", app::StatusToastKind::Success),
+                Err(error) => app.show_status_toast(
+                    format!("Could not copy transcript selection: {error}"),
+                    app::StatusToastKind::Error,
+                ),
             }
             return true;
         }
@@ -1886,8 +1883,9 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
 
         if now >= next_tick {
             let run_state_before_tick = app.runtime.run_state.clone();
+            let had_status_toast = app.runtime.status_toast.is_some();
             handle_msg(&mut app, Msg::Tick, surface, &mut agent)?;
-            if tick_requires_render(&run_state_before_tick, &app) {
+            if tick_requires_render(&run_state_before_tick, had_status_toast, &app) {
                 presenter.request_throttled(now);
             }
             next_tick = now + tick;
@@ -1946,11 +1944,13 @@ fn present_if_due<S: InteractiveSurface>(
     Ok(())
 }
 
-fn tick_requires_render(previous_state: &RunState, app: &App) -> bool {
+fn tick_requires_render(previous_state: &RunState, had_status_toast: bool, app: &App) -> bool {
     previous_state != &app.runtime.run_state
+        || had_status_toast != app.runtime.status_toast.is_some()
         || app.runtime.run_state != RunState::Idle
         || app.overlay.setup().is_some()
         || app.runtime.ctrl_d_pending.is_some()
+        || app.runtime.status_toast.is_some()
 }
 
 /// Process a message and all pure follow-ups through one application path.
@@ -3484,7 +3484,7 @@ for line in sys.stdin:
         assert_eq!(app.status_label(), "Stopped");
         assert!(app.runtime.stopping_timed_out, "the UI must detach an unsettled worker");
         assert!(
-            tick_requires_render(&before, &app),
+            tick_requires_render(&before, false, &app),
             "the terminal state must replace the last stopping frame"
         );
     }
