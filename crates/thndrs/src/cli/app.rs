@@ -59,6 +59,7 @@ mod tests;
 use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -1232,6 +1233,9 @@ impl App {
         if let Some(recovery) = selected_provider_missing(&app, false) {
             app.overlay.show_setup(recovery);
         }
+        if session_startup == SessionStartup::New {
+            app.schedule_session_collection();
+        }
         app
     }
 }
@@ -1314,6 +1318,7 @@ impl App {
         self.transcript
             .entries
             .push(Entry::Status { text: format!("resumed session: {id}") });
+        self.schedule_session_collection();
         Ok(())
     }
 
@@ -1570,6 +1575,19 @@ impl App {
             .session_dir
             .clone()
             .unwrap_or_else(|| session::sessions_dir(&self.runtime.cwd))
+    }
+
+    fn schedule_session_collection(&self) {
+        if self.is_ephemeral() {
+            return;
+        }
+        let sessions_dir = self.session_directory();
+        let workspace_root = self.runtime.cwd.clone();
+        let policy = self.runtime.cli.session_retention.clone();
+        let active_session_id = self.session.id.clone();
+        thread::spawn(move || {
+            let _ = session::collect_if_due(&sessions_dir, &workspace_root, &policy, Some(&active_session_id));
+        });
     }
 
     /// Resolve the configured compaction policy from loaded config layers.

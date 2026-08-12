@@ -79,6 +79,14 @@ impl SessionStorageLayout {
     pub(super) fn diagnostics_dir(&self) -> PathBuf {
         self.sessions_dir.join("lifecycle-diagnostics")
     }
+
+    pub(super) fn collection_state(&self) -> PathBuf {
+        self.sessions_dir.join("collection.json")
+    }
+
+    pub(super) fn collection_lock(&self) -> PathBuf {
+        self.sessions_dir.join("collection.lock")
+    }
 }
 
 pub(super) fn path_bytes(path: &Path) -> u64 {

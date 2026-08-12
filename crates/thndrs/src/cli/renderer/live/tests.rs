@@ -36,6 +36,7 @@ fn test_app() -> App {
         acp_agents: std::collections::BTreeMap::new(),
         context: thndrs_agent::context::ContextConfig::default(),
         status_line: Default::default(),
+        session_retention: Default::default(),
         authority: Default::default(),
         command: None,
     });

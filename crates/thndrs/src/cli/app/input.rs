@@ -1433,59 +1433,156 @@ pub fn open_session_picker(app: &mut App) {
     }
 
     let inventory = session::SessionInventory::scan(&app.session_directory(), &app.runtime.cwd);
-    let items = inventory
-        .sessions
-        .into_iter()
-        .filter_map(|entry| {
-            if entry.storage_state != session::SessionStorageState::Live || entry.id == app.session.id {
-                return None;
+    let reclaimable = session::reclaimable_bytes(
+        &app.session_directory(),
+        &app.runtime.cwd,
+        &app.runtime.cli.session_retention,
+        Some(&app.session.id),
+    );
+    let mut items = Vec::new();
+    let mut current_item = None;
+    for entry in inventory.sessions {
+        let source = entry
+            .parent_session_id
+            .as_deref()
+            .zip(entry.source_turn_id.as_deref())
+            .map(|(parent, turn)| format!("{parent}@{turn}"))
+            .unwrap_or_else(|| "root".to_string());
+        let state = entry.state_label();
+        let detail = format!(
+            "{} · {} · activity {} · source {} · {} · {} in / {} out",
+            entry.id,
+            entry.model,
+            entry.last_activity.as_deref().unwrap_or("unknown"),
+            source,
+            state,
+            entry.input_tokens,
+            entry.output_tokens,
+        );
+        if entry.id == app.session.id {
+            current_item = Some(PickerItem::with_value(
+                format!("Current — {}", entry.title),
+                format!("{detail} · protected"),
+                "current",
+            ));
+            continue;
+        }
+        match entry.storage_state {
+            session::SessionStorageState::Live => {
+                items.push(PickerItem::with_value(
+                    format!("Resume — {}", entry.title),
+                    detail.clone(),
+                    format!("resume:{}", entry.id),
+                ));
+                items.push(PickerItem::with_value(
+                    format!("Archive — {}", entry.title),
+                    detail.clone(),
+                    format!("archive:{}", entry.id),
+                ));
             }
-            let source = entry
-                .parent_session_id
-                .as_deref()
-                .zip(entry.source_turn_id.as_deref())
-                .map(|(parent, turn)| format!("{parent}@{turn}"))
-                .unwrap_or_else(|| "root".to_string());
-            let state = entry.state_label();
-            Some(PickerItem::with_value(
-                entry.title,
-                format!(
-                    "{} · {} · activity {} · source {} · {} · {} in / {} out",
-                    entry.id,
-                    entry.model,
-                    entry.last_activity.as_deref().unwrap_or("unknown"),
-                    source,
-                    state,
-                    entry.input_tokens,
-                    entry.output_tokens
-                ),
-                entry.id,
-            ))
-        })
-        .collect::<Vec<_>>();
-    if items.is_empty() {
-        app.transcript
-            .entries
-            .push(Entry::Status { text: String::from("no other sessions found") });
-        return;
+            session::SessionStorageState::Archived => items.push(PickerItem::with_value(
+                format!("Unarchive — {}", entry.title),
+                detail.clone(),
+                format!("unarchive:{}", entry.id),
+            )),
+            session::SessionStorageState::Trash => {
+                items.push(PickerItem::with_value(
+                    format!("Restore — {}", entry.title),
+                    detail,
+                    format!("restore:{}", entry.id),
+                ));
+                continue;
+            }
+        }
+        let pin_action = if entry.pinned { "unpin" } else { "pin" };
+        let pin_label = if entry.pinned { "Unpin" } else { "Pin" };
+        items.push(PickerItem::with_value(
+            format!("{pin_label} — {}", entry.title),
+            detail.clone(),
+            format!("{pin_action}:{}", entry.id),
+        ));
+        items.push(PickerItem::with_value(
+            format!("Delete — {}", entry.title),
+            format!("{detail} · confirmation required"),
+            format!("delete:{}", entry.id),
+        ));
     }
+    items.extend(current_item);
+    items.push(PickerItem::with_value(
+        "Storage",
+        format!(
+            "{} live · {} archived · {} pinned · {} trash · {} reclaimable bytes",
+            inventory.totals.live_sessions,
+            inventory.totals.archived_sessions,
+            inventory.totals.pinned_sessions,
+            inventory.totals.trash_count,
+            reclaimable,
+        ),
+        "storage",
+    ));
     let _ = app
         .overlay
         .show_picker(PromptAccessory::Sessions, PickerState::new(items, LARGE_PICKER_LIMIT));
 }
 
 fn accept_session_suggestion(app: &mut App) {
-    let session_id = app
+    let value = app
         .overlay
         .picker()
         .and_then(PickerState::selected)
         .map(|item| item.value.clone());
-    close_prompt_accessory(app);
-    if let Some(session_id) = session_id
-        && let Err(error) = app.resume_session(&session_id)
-    {
-        app.transcript.entries.push(Entry::Error { text: error.to_string() });
+    let Some(value) = value else { return };
+    if value == "current" || value == "storage" {
+        return;
     }
+    let Some((action, session_id)) = value.split_once(':') else { return };
+    if action == "delete" {
+        let lifecycle = session::SessionLifecycle::new(app.session_directory(), &app.runtime.cwd);
+        match lifecycle.preview_delete(session_id) {
+            Ok(preview) => {
+                let item = PickerItem::with_value(
+                    format!("Confirm delete — {}", preview.title),
+                    format!("move {} owned path(s) to recoverable trash", preview.owned_state.len()),
+                    format!("confirm_delete:{}", preview.session_id),
+                );
+                let _ = app
+                    .overlay
+                    .show_picker(PromptAccessory::Sessions, PickerState::new(vec![item], 1));
+            }
+            Err(error) => app.transcript.entries.push(Entry::Error { text: error.to_string() }),
+        }
+        return;
+    }
+    close_prompt_accessory(app);
+    let lifecycle = session::SessionLifecycle::new(app.session_directory(), &app.runtime.cwd);
+    let result = match action {
+        "resume" => {
+            return if let Err(error) = app.resume_session(session_id) {
+                app.transcript.entries.push(Entry::Error { text: error.to_string() });
+            };
+        }
+        "archive" => lifecycle.archive(session_id),
+        "unarchive" => lifecycle.unarchive(session_id),
+        "pin" => lifecycle.pin(session_id),
+        "unpin" => lifecycle.unpin(session_id),
+        "restore" => lifecycle.restore(
+            session_id,
+            Duration::from_secs(app.runtime.cli.session_retention.trash_retention_seconds()),
+        ),
+        "confirm_delete" => lifecycle.delete(
+            session_id,
+            &session::DeleteSessionOptions { active_session_id: Some(app.session.id.clone()), allow_pinned: true },
+        ),
+        _ => return,
+    };
+    match result {
+        Ok(report) => app
+            .transcript
+            .entries
+            .push(Entry::Status { text: format!("{} session {}", action.replace('_', " "), report.session_id) }),
+        Err(error) => app.transcript.entries.push(Entry::Error { text: error.to_string() }),
+    }
+    open_session_picker(app);
 }
 
 pub fn offline_model_picker_items() -> Vec<PickerItem> {

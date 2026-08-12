@@ -75,7 +75,7 @@ use cli::{
     Cli, Command, MIN_TICK_RATE_MS, commands,
     commands::debug::DebugCommand,
     commands::mcp::McpCommand,
-    commands::session::{SessionCommand, SessionDataFormat},
+    commands::session::{SessionCommand, SessionDataFormat, SessionReportFormat},
 };
 use mcp::manager::McpManager;
 use prompt::PromptBundle;
@@ -301,6 +301,285 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
         SessionCommand::Rename { session_id, name } => run_session_rename(&dir, session_id, name, &mut lock),
         SessionCommand::Inspect { session_id, format } => run_session_inspect(&dir, session_id, *format, &mut lock),
         SessionCommand::Export { session_id, format } => run_session_export(&dir, session_id, *format, &mut lock),
+        SessionCommand::Prune { older_than, keep_count, dry_run, format } => run_session_prune(
+            cli,
+            &dir,
+            &workspace,
+            SessionPruneRequest {
+                overrides: session::PruneOverrides { older_than_days: *older_than, keep_count: *keep_count },
+                dry_run: *dry_run,
+                format: *format,
+            },
+            &mut lock,
+        ),
+        SessionCommand::Storage { format } => run_session_storage(cli, &dir, &workspace, *format, &mut lock),
+        SessionCommand::Archive { session_id, format } => run_session_lifecycle(
+            cli,
+            &dir,
+            &workspace,
+            session_id,
+            SessionLifecycleRequest::new(session::SessionLifecycleAction::Archive, *format),
+            &mut lock,
+        ),
+        SessionCommand::Unarchive { session_id, format } => run_session_lifecycle(
+            cli,
+            &dir,
+            &workspace,
+            session_id,
+            SessionLifecycleRequest::new(session::SessionLifecycleAction::Unarchive, *format),
+            &mut lock,
+        ),
+        SessionCommand::Pin { session_id, format } => run_session_lifecycle(
+            cli,
+            &dir,
+            &workspace,
+            session_id,
+            SessionLifecycleRequest::new(session::SessionLifecycleAction::Pin, *format),
+            &mut lock,
+        ),
+        SessionCommand::Unpin { session_id, format } => run_session_lifecycle(
+            cli,
+            &dir,
+            &workspace,
+            session_id,
+            SessionLifecycleRequest::new(session::SessionLifecycleAction::Unpin, *format),
+            &mut lock,
+        ),
+        SessionCommand::Delete { session_id, yes, allow_pinned, format } => run_session_lifecycle(
+            cli,
+            &dir,
+            &workspace,
+            session_id,
+            SessionLifecycleRequest {
+                action: session::SessionLifecycleAction::Delete,
+                confirmed: *yes,
+                allow_pinned: *allow_pinned,
+                format: *format,
+            },
+            &mut lock,
+        ),
+        SessionCommand::Restore { session_id, format } => run_session_lifecycle(
+            cli,
+            &dir,
+            &workspace,
+            session_id,
+            SessionLifecycleRequest::new(session::SessionLifecycleAction::Restore, *format),
+            &mut lock,
+        ),
+        SessionCommand::Purge { yes, allow_pinned, format } => {
+            run_session_purge(&dir, &workspace, *yes, *allow_pinned, *format, &mut lock)
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SessionPruneRequest {
+    overrides: session::PruneOverrides,
+    dry_run: bool,
+    format: SessionReportFormat,
+}
+
+fn run_session_prune<W: io::Write>(
+    cli: &Cli, dir: &Path, workspace: &Path, request: SessionPruneRequest, writer: &mut W,
+) -> io::Result<()> {
+    let inventory = session::SessionInventory::scan(dir, workspace);
+    let candidates = session::select_prune_candidates(&inventory, &cli.session_retention, request.overrides, None);
+    let lifecycle = session::SessionLifecycle::new(dir, workspace);
+    let report = session::apply_prune(&lifecycle, candidates, None, request.dry_run);
+    write_session_report(writer, request.format, &report, || {
+        let mut lines = vec![format!("{} prune candidate(s)", report.candidates.len())];
+        for candidate in &report.candidates {
+            lines.push(format!(
+                "{}\t{}\t{} days\t{} bytes\t{:?}",
+                candidate.session_id,
+                candidate.title,
+                candidate.age_seconds / (24 * 60 * 60),
+                candidate.bytes,
+                candidate.reasons,
+            ));
+        }
+        lines.push(format!(
+            "moved {} session(s) and {} bytes to trash",
+            report.deleted_session_ids.len(),
+            report.reclaimed_bytes
+        ));
+        for failure in &report.failures {
+            lines.push(format!("failed {}: {}", failure.session_id, failure.error));
+        }
+        lines.join("\n")
+    })
+}
+
+fn run_session_storage<W: io::Write>(
+    cli: &Cli, dir: &Path, workspace: &Path, format: SessionReportFormat, writer: &mut W,
+) -> io::Result<()> {
+    let inventory = session::SessionInventory::scan(dir, workspace);
+    let reclaimable = session::reclaimable_bytes(dir, workspace, &cli.session_retention, None);
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "live": { "count": inventory.totals.live_sessions, "bytes": inventory.sessions.iter().filter(|s| s.storage_state == session::SessionStorageState::Live).map(|s| s.owned_bytes()).sum::<u64>() },
+        "archived": { "count": inventory.totals.archived_sessions, "bytes": inventory.sessions.iter().filter(|s| s.storage_state == session::SessionStorageState::Archived).map(|s| s.owned_bytes()).sum::<u64>() },
+        "pinned": { "count": inventory.totals.pinned_sessions, "bytes": inventory.sessions.iter().filter(|s| s.pinned).map(|s| s.owned_bytes()).sum::<u64>() },
+        "trash": { "count": inventory.totals.trash_count, "bytes": inventory.totals.trash_bytes },
+        "artifacts": { "count": inventory.totals.artifact_count, "bytes": inventory.totals.artifact_bytes },
+        "logs": { "bytes": inventory.totals.log_bytes },
+        "reclaimable_bytes": reclaimable,
+    });
+    write_session_report(writer, format, &value, || {
+        format!(
+            "live {} ({} bytes)\narchived {} ({} bytes)\npinned {}\ntrash {} ({} bytes)\nartifacts {} ({} bytes)\nlogs {} bytes\nreclaimable {} bytes",
+            inventory.totals.live_sessions,
+            value["live"]["bytes"],
+            inventory.totals.archived_sessions,
+            value["archived"]["bytes"],
+            inventory.totals.pinned_sessions,
+            inventory.totals.trash_count,
+            inventory.totals.trash_bytes,
+            inventory.totals.artifact_count,
+            inventory.totals.artifact_bytes,
+            inventory.totals.log_bytes,
+            reclaimable,
+        )
+    })
+}
+
+#[derive(Clone, Copy)]
+struct SessionLifecycleRequest {
+    action: session::SessionLifecycleAction,
+    confirmed: bool,
+    allow_pinned: bool,
+    format: SessionReportFormat,
+}
+
+impl SessionLifecycleRequest {
+    const fn new(action: session::SessionLifecycleAction, format: SessionReportFormat) -> Self {
+        Self { action, confirmed: false, allow_pinned: false, format }
+    }
+}
+
+fn run_session_lifecycle<W: io::Write>(
+    cli: &Cli, dir: &Path, workspace: &Path, session_id: &str, request: SessionLifecycleRequest, writer: &mut W,
+) -> io::Result<()> {
+    let lifecycle = session::SessionLifecycle::new(dir, workspace);
+    if request.action == session::SessionLifecycleAction::Delete && !request.confirmed {
+        let preview = lifecycle.preview_delete(session_id).map_err(io::Error::other)?;
+        return write_session_report(writer, request.format, &preview, || {
+            format!(
+                "delete {} ({}) would move {} owned path(s) to trash; rerun with --yes",
+                preview.session_id,
+                preview.title,
+                preview.owned_state.len(),
+            )
+        });
+    }
+    let report = match request.action {
+        session::SessionLifecycleAction::Archive => lifecycle.archive(session_id),
+        session::SessionLifecycleAction::Unarchive => lifecycle.unarchive(session_id),
+        session::SessionLifecycleAction::Pin => lifecycle.pin(session_id),
+        session::SessionLifecycleAction::Unpin => lifecycle.unpin(session_id),
+        session::SessionLifecycleAction::Delete => lifecycle.delete(
+            session_id,
+            &session::DeleteSessionOptions { active_session_id: None, allow_pinned: request.allow_pinned },
+        ),
+        session::SessionLifecycleAction::Restore => lifecycle.restore(
+            session_id,
+            std::time::Duration::from_secs(cli.session_retention.trash_retention_seconds()),
+        ),
+        session::SessionLifecycleAction::PermanentDelete => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "permanent delete must use session purge",
+            ));
+        }
+    }
+    .map_err(io::Error::other)?;
+    write_session_report(writer, request.format, &report, || {
+        format!("{:?} session {}", request.action, report.session_id).to_lowercase()
+    })
+}
+
+fn run_session_purge<W: io::Write>(
+    dir: &Path, workspace: &Path, confirmed: bool, allow_pinned: bool, format: SessionReportFormat, writer: &mut W,
+) -> io::Result<()> {
+    let inventory = session::SessionInventory::scan(dir, workspace);
+    let eligible = inventory
+        .sessions
+        .iter()
+        .filter(|item| !item.locked && !item.corrupt && (allow_pinned || !item.pinned))
+        .map(|item| (item.id.clone(), item.storage_state))
+        .collect::<Vec<_>>();
+    if !confirmed {
+        let session_ids = eligible.iter().map(|(id, _)| id).collect::<Vec<_>>();
+        let preview =
+            serde_json::json!({ "session_ids": session_ids, "count": eligible.len(), "requires_confirmation": true });
+        return write_session_report(writer, format, &preview, || {
+            format!("purge would remove {} session(s); rerun with --yes", eligible.len())
+        });
+    }
+    let lifecycle = session::SessionLifecycle::new(dir, workspace);
+    let mut removed = Vec::new();
+    let mut failures = Vec::new();
+    for (id, state) in eligible {
+        let result = match state {
+            session::SessionStorageState::Trash => lifecycle.permanently_delete(
+                &id,
+                &session::PermanentDeleteOptions { active_session_id: None, allow_pinned, confirmed: true },
+            ),
+            _ => lifecycle
+                .delete(
+                    &id,
+                    &session::DeleteSessionOptions { active_session_id: None, allow_pinned },
+                )
+                .and_then(|_| {
+                    lifecycle.permanently_delete(
+                        &id,
+                        &session::PermanentDeleteOptions { active_session_id: None, allow_pinned, confirmed: true },
+                    )
+                }),
+        };
+        match result {
+            Ok(_) => removed.push(id),
+            Err(error) => failures.push(format!("{id}: {error}")),
+        }
+    }
+    let remaining = session::SessionInventory::scan(dir, workspace);
+    let mut skipped = Vec::new();
+    if remaining.sessions.iter().any(|item| item.corrupt) {
+        skipped.push("artifact reachability is uncertain while corrupt sessions exist".to_string());
+    } else {
+        for artifact in remaining
+            .artifacts
+            .iter()
+            .filter(|item| item.referenced_by.is_empty() && !item.malformed)
+        {
+            for path in [&artifact.metadata_path, &artifact.body_path].into_iter().flatten() {
+                if let Err(error) = std::fs::remove_file(path) {
+                    if error.kind() != io::ErrorKind::NotFound {
+                        failures.push(format!("{}: {error}", artifact.handle));
+                    }
+                }
+            }
+        }
+    }
+    let report = serde_json::json!({ "removed_session_ids": removed, "skipped": skipped, "failures": failures });
+    write_session_report(writer, format, &report, || {
+        format!(
+            "purged {} session(s); {} skipped operation(s); {} failure(s)",
+            removed.len(),
+            skipped.len(),
+            failures.len()
+        )
+    })
+}
+
+fn write_session_report<W: io::Write, T: serde::Serialize>(
+    writer: &mut W, format: SessionReportFormat, value: &T, human: impl FnOnce() -> String,
+) -> io::Result<()> {
+    match format {
+        SessionReportFormat::Human => writeln!(writer, "{}", human()),
+        SessionReportFormat::Json => serde_json::to_writer_pretty(&mut *writer, value)
+            .map_err(io::Error::other)
+            .and_then(|()| writeln!(writer)),
     }
 }
 

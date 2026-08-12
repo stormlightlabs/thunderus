@@ -340,6 +340,9 @@ pub struct Cli {
     /// Ordered, typed fields rendered in the single-line terminal status.
     #[arg(skip)]
     pub status_line: config::StatusLineConfig,
+    /// Effective automatic session-retention policy.
+    #[arg(skip)]
+    pub session_retention: crate::session::SessionRetentionPolicy,
     /// Tool authority applied to the active run.
     #[arg(skip)]
     pub authority: crate::tools::ToolAuthority,
@@ -373,6 +376,7 @@ impl Default for Cli {
             acp_agents: BTreeMap::new(),
             context: thndrs_agent::context::ContextConfig::default(),
             status_line: config::StatusLineConfig::default(),
+            session_retention: crate::session::SessionRetentionPolicy::default(),
             authority: crate::tools::ToolAuthority::default(),
             command: None,
         }
@@ -520,6 +524,7 @@ impl Cli {
         self.acp_agents = config.acp_agents;
         self.context = config.context;
         self.status_line = config.status_line.unwrap_or_default();
+        self.session_retention = config.session_retention.unwrap_or_default();
         self
     }
 }
@@ -1219,6 +1224,45 @@ mod tests {
                 }
             })
         );
+
+        let prune = Cli::try_parse_from([
+            "thndrs",
+            "session",
+            "prune",
+            "--older-than",
+            "14",
+            "--keep-count",
+            "50",
+            "--dry-run",
+            "--format",
+            "json",
+        ])
+        .expect("parse");
+        assert!(matches!(
+            prune.command,
+            Some(Command::Session {
+                command: commands::session::SessionCommand::Prune {
+                    older_than: Some(14),
+                    keep_count: Some(50),
+                    dry_run: true,
+                    format: commands::session::SessionReportFormat::Json,
+                }
+            })
+        ));
+
+        let delete = Cli::try_parse_from(["thndrs", "sessions", "delete", "session-1", "--yes", "--allow-pinned"])
+            .expect("parse");
+        assert!(matches!(
+            delete.command,
+            Some(Command::Session {
+                command: commands::session::SessionCommand::Delete {
+                    session_id,
+                    yes: true,
+                    allow_pinned: true,
+                    ..
+                }
+            }) if session_id == "session-1"
+        ));
 
         let html =
             Cli::try_parse_from(["thndrs", "session", "export", "session-1", "--format", "html"]).expect("parse");

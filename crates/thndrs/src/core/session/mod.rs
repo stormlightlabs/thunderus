@@ -7,10 +7,12 @@
 //! Each [`SessionRecord`] is one append-only JSONL line tagged with
 //! `schema_version`, a monotonic `seq`, `time`, and `type`.
 
+mod collection;
 mod contracts;
 mod export;
 mod inventory;
 mod lifecycle;
+mod retention;
 mod storage;
 #[cfg(test)]
 mod tests;
@@ -34,6 +36,7 @@ use crate::{datetime, internals, tools};
 use thndrs_agent::ProviderRequestAccounting;
 use thndrs_agent::context::{ContextItem, ContextLedger, RangeSummary};
 
+pub use collection::{CollectionReport, collect_if_due, collect_now, reclaimable_bytes};
 pub use contracts::{
     AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,
     ContextLifecycleAudit, ContextSourceMeta, McpToolSessionMeta, SessionConfigFile, SessionConfigMeta,
@@ -46,6 +49,10 @@ pub use inventory::{
 pub use lifecycle::{
     DeleteArtifactPreview, DeleteSessionOptions, PermanentDeleteOptions, SessionDeletePreview, SessionLifecycle,
     SessionLifecycleAction, SessionLifecycleError, SessionLifecycleReport, SessionOwnedState,
+};
+pub use retention::{
+    PruneCandidate, PruneFailure, PruneOverrides, PruneReason, PruneReport, SessionRetentionPolicy, apply_prune,
+    select_prune_candidates,
 };
 
 /// Current JSONL schema version.

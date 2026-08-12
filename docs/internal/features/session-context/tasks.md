@@ -71,50 +71,50 @@
 
 **Blocked by:** SESSION-5 and SESSION-6.
 
-- [ ] Configure enabled, maximum age, maximum live count, minimum age, and trash
+- [x] Configure enabled, maximum age, maximum live count, minimum age, and trash
       retention with defaults of 30 days, 200 sessions, one day, and seven days.
-- [ ] Select the oldest unpinned, unlocked sessions when either the age or count
+- [x] Select the oldest unpinned, unlocked sessions when either the age or count
       limit is exceeded. Derive age from recorded durable activity rather than
       filesystem modification time, and do not treat a title as a pin.
-- [ ] Add `session prune` overrides for older-than and keep-count, plus a dry run
+- [x] Add `session prune` overrides for older-than and keep-count, plus a dry run
       that reports IDs, titles, ages, sizes, and selection reasons.
-- [ ] Use one deterministic selector for previews, explicit pruning, automatic
+- [x] Use one deterministic selector for previews, explicit pruning, automatic
       collection, and tests.
-- [ ] Cover disabled retention, recent-session bursts, clock boundaries, locked
+- [x] Cover disabled retention, recent-session bursts, clock boundaries, locked
       sessions, pins, archives, forks, and partial failures.
 
 ## SESSION-8: Collect expired and orphaned state
 
 **Blocked by:** SESSION-7.
 
-- [ ] Run collection at startup or resume when the last successful pass is at
+- [x] Run collection at startup or resume when the last successful pass is at
       least 24 hours old, without delaying or failing the agent run.
-- [ ] Apply the retention preview, expire trash, remove unreferenced artifacts
+- [x] Apply the retention preview, expire trash, remove unreferenced artifacts
       and stale temporary state, and skip live locks. Preserve corrupt sessions
       and artifacts whose reachability cannot be proven.
-- [ ] Give shared daily logs independent age and size caps. Move a per-session
+- [x] Give shared daily logs independent age and size caps. Move a per-session
       log with its deleted session graph.
-- [ ] Record the policy version, last successful run, reclaimed bytes, skipped
+- [x] Record the policy version, last successful run, reclaimed bytes, skipped
       state, and bounded failure diagnostics.
-- [ ] Prove repeated collection is idempotent and cannot remove state reachable
+- [x] Prove repeated collection is idempotent and cannot remove state reachable
       from a retained or restored session.
 
 ## SESSION-9: Expose storage and lifecycle in CLI and TUI
 
 **Blocked by:** SESSION-6, SESSION-7, and SESSION-8.
 
-- [ ] Add `session storage` totals for live, archived, pinned, trash, artifact,
+- [x] Add `session storage` totals for live, archived, pinned, trash, artifact,
       and log state, including bytes reclaimable under the current policy.
-- [ ] Provide deterministic JSON for storage reports, prune previews, and
+- [x] Provide deterministic JSON for storage reports, prune previews, and
       lifecycle results used by non-interactive callers.
-- [ ] Add search, archive, pin, delete, restore, and storage details to the
+- [x] Add search, archive, pin, delete, restore, and storage details to the
       session browser using the same inventory and lifecycle operations as the
       CLI.
-- [ ] Keep the current session visible and protected, require confirmation for
+- [x] Keep the current session visible and protected, require confirmation for
       destructive actions, and refresh the picker after each operation.
-- [ ] Add a workspace-scoped purge preview and confirmation that uses the same
+- [x] Add a workspace-scoped purge preview and confirmation that uses the same
       ownership and shared-reference rules.
-- [ ] Test narrow layouts, large inventories, stale locks, corrupt sessions,
+- [x] Test narrow layouts, large inventories, stale locks, corrupt sessions,
       cancellation, and partial cleanup failures.
 
 ## CONTEXT-1: Expand the live context surface

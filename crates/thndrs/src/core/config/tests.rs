@@ -61,6 +61,33 @@ fn config_merge_preserves_an_omitted_status_line() {
 }
 
 #[test]
+fn session_retention_config_parses_and_validates_age_order() {
+    let parsed: Config = toml::from_str(
+        "[session_retention]\nenabled = false\nmax_age_days = 45\nmax_live_count = 80\nmin_age_days = 2\ntrash_retention_days = 10\n",
+    )
+    .expect("retention config");
+    let policy = parsed.session_retention.expect("policy");
+    assert!(!policy.enabled);
+    assert_eq!(policy.max_age_days, 45);
+    assert_eq!(policy.max_live_count, 80);
+    assert_eq!(policy.min_age_days, 2);
+    assert_eq!(policy.trash_retention_days, 10);
+
+    let invalid = Config {
+        session_retention: Some(crate::session::SessionRetentionPolicy {
+            max_age_days: 1,
+            min_age_days: 2,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert!(matches!(
+        validate_config(&invalid),
+        Err(ConfigError::InvalidConfig { key, .. }) if key == "session_retention.min_age_days"
+    ));
+}
+
+#[test]
 fn parses_and_validates_typed_status_line_fields() {
     let config: Config = toml::from_str(
         r#"
@@ -1116,6 +1143,6 @@ websearch=Some(Searxng)
 verbose=Some(true)
 session_dir_suffix=.thndrs/sessions
 layers=[("project", ".thndrs/config.toml")]
-origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("status_line", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml"), ("websearch_url", "default", "default")]
+origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("session_retention", "default", "default"), ("skill_dirs", "default", "default"), ("status_line", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml"), ("websearch_url", "default", "default")]
 "###);
 }

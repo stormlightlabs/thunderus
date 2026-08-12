@@ -51,6 +51,85 @@ pub enum SessionCommand {
         #[arg(long, value_enum, default_value_t = SessionDataFormat::Jsonl)]
         format: SessionDataFormat,
     },
+    /// Preview or apply retention to unprotected live sessions.
+    Prune {
+        /// Select sessions whose durable activity is older than this many days.
+        #[arg(long)]
+        older_than: Option<u64>,
+        /// Keep at least this many unprotected live sessions.
+        #[arg(long)]
+        keep_count: Option<usize>,
+        /// Report the exact plan without changing storage.
+        #[arg(long)]
+        dry_run: bool,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = SessionReportFormat::Human)]
+        format: SessionReportFormat,
+    },
+    /// Report workspace session storage and policy-reclaimable bytes.
+    Storage {
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = SessionReportFormat::Human)]
+        format: SessionReportFormat,
+    },
+    /// Move a live session to the archive.
+    Archive {
+        session_id: String,
+        #[arg(long, value_enum, default_value_t = SessionReportFormat::Human)]
+        format: SessionReportFormat,
+    },
+    /// Return an archived session to the live set.
+    Unarchive {
+        session_id: String,
+        #[arg(long, value_enum, default_value_t = SessionReportFormat::Human)]
+        format: SessionReportFormat,
+    },
+    /// Protect a live or archived session from automatic retention.
+    Pin {
+        session_id: String,
+        #[arg(long, value_enum, default_value_t = SessionReportFormat::Human)]
+        format: SessionReportFormat,
+    },
+    /// Remove retention protection from a session.
+    Unpin {
+        session_id: String,
+        #[arg(long, value_enum, default_value_t = SessionReportFormat::Human)]
+        format: SessionReportFormat,
+    },
+    /// Preview or reversibly delete a session.
+    Delete {
+        session_id: String,
+        /// Apply the previewed deletion.
+        #[arg(long)]
+        yes: bool,
+        /// Explicitly permit deletion of a pinned session.
+        #[arg(long)]
+        allow_pinned: bool,
+        #[arg(long, value_enum, default_value_t = SessionReportFormat::Human)]
+        format: SessionReportFormat,
+    },
+    /// Restore a session within its configured trash-retention period.
+    Restore {
+        session_id: String,
+        #[arg(long, value_enum, default_value_t = SessionReportFormat::Human)]
+        format: SessionReportFormat,
+    },
+    /// Preview or remove all eligible session state owned by this workspace.
+    Purge {
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        allow_pinned: bool,
+        #[arg(long, value_enum, default_value_t = SessionReportFormat::Human)]
+        format: SessionReportFormat,
+    },
+}
+
+/// Stable human or JSON reporting for session administration.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
+pub enum SessionReportFormat {
+    Human,
+    Json,
 }
 
 /// Session command output format.

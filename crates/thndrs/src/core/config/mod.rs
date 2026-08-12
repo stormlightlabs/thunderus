@@ -18,7 +18,7 @@ use thndrs_agent::context::ContextConfig;
 use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use crate::utils;
 
-static CONFIG_KEYS: [&str; 15] = [
+static CONFIG_KEYS: [&str; 16] = [
     "model",
     "websearch",
     "websearch_url",
@@ -34,6 +34,7 @@ static CONFIG_KEYS: [&str; 15] = [
     "acp_agents",
     "context",
     "status_line",
+    "session_retention",
 ];
 
 /// A known, non-executable status-line field.
@@ -162,6 +163,7 @@ pub struct Config {
     pub acp_agents: AcpAgentsConfig,
     pub context: ContextConfig,
     pub status_line: Option<StatusLineConfig>,
+    pub session_retention: Option<crate::session::SessionRetentionPolicy>,
 }
 
 impl Config {
@@ -184,6 +186,7 @@ impl Config {
             self.context = other.context;
         }
         self.status_line = other.status_line.or(self.status_line);
+        self.session_retention = other.session_retention.or(self.session_retention);
         self
     }
 
@@ -476,6 +479,14 @@ fn load_file(path: &Path) -> Result<(Config, String), ConfigError> {
 fn validate_config(config: &Config) -> Result<(), ConfigError> {
     if let Some(status) = &config.status_line {
         validate_status_line(status)?;
+    }
+    if let Some(policy) = &config.session_retention
+        && policy.min_age_days > policy.max_age_days
+    {
+        return Err(ConfigError::InvalidConfig {
+            key: "session_retention.min_age_days".to_string(),
+            message: "must not exceed `session_retention.max_age_days`".to_string(),
+        });
     }
     for (name, agent) in &config.acp_agents {
         validate_acp_agent_name(name)?;
@@ -843,6 +854,12 @@ fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: 
             ConfigOrigin { source, detail: detail.to_string() },
         );
     }
+    if config.session_retention.is_some() {
+        origins.insert(
+            "session_retention".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
     if config.default_workspace.is_some() {
         origins.insert(
             "default_workspace".to_string(),
@@ -877,6 +894,7 @@ fn has_any_value(config: &Config) -> bool {
         || config.session_dir.is_some()
         || config.default_workspace.is_some()
         || !config.acp_agents.is_empty()
+        || config.session_retention.is_some()
 }
 
 fn default_config(workspace: &Path, cwd: &Path) -> Config {
@@ -896,6 +914,7 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         acp_agents: BTreeMap::new(),
         context: ContextConfig::default(),
         status_line: Some(StatusLineConfig::default()),
+        session_retention: Some(crate::session::SessionRetentionPolicy::default()),
     }
 }
 

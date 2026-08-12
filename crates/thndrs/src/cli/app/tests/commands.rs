@@ -169,7 +169,7 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
 
     assert_eq!(app.overlay.accessory(), PromptAccessory::Sessions);
     let picker = app.overlay.picker().expect("session picker");
-    assert_eq!(picker.matches[0].label, "Saved work");
+    assert_eq!(picker.matches[0].label, "Resume — Saved work");
     assert!(picker.matches[0].detail.contains("session-resume"));
     assert!(picker.matches[0].detail.contains("opencode/big-pickle"));
 
@@ -283,7 +283,11 @@ fn corrupt_session_picker_selection_preserves_the_current_session_and_draft() {
 
     assert_eq!(app.session.id, current_id);
     assert_eq!(app.composer.input.as_str(), "/resume");
-    assert!(matches!(app.transcript.entries.last(), Some(Entry::Error { text }) if text.contains("corrupt")));
+    assert!(
+        matches!(app.transcript.entries.last(), Some(Entry::Error { text }) if text.contains("corrupt")),
+        "unexpected transcript entry: {:?}",
+        app.transcript.entries.last()
+    );
 }
 
 #[test]
