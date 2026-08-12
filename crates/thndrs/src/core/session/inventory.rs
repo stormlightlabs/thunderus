@@ -3,14 +3,17 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
 
 use crate::artifacts::ArtifactMetadata;
 
+use super::storage::{SessionStorageLayout, path_bytes, unix_now};
 use super::{SessionLineageEntry, SessionReader, SessionRecord};
 
 /// Lifecycle location of a durable session record.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SessionStorageState {
     Live,
     Archived,
@@ -152,11 +155,12 @@ impl SessionInventory {
     /// and the reserved per-session state directory.
     pub fn scan(sessions_dir: &Path, workspace_root: &Path) -> Self {
         let now = unix_now();
-        let archive_dir = sessions_dir.join("archive");
-        let trash_dir = sessions_dir.join("trash");
-        let pins_dir = sessions_dir.join("pins");
-        let state_dir = sessions_dir.join("state");
-        let logs_dir = workspace_root.join(".thndrs").join("logs").join("sessions");
+        let layout = SessionStorageLayout::new(sessions_dir, workspace_root);
+        let archive_dir = layout.record_dir(SessionStorageState::Archived);
+        let trash_dir = layout.record_dir(SessionStorageState::Trash);
+        let pins_dir = layout.pins_dir(SessionStorageState::Live);
+        let state_dir = layout.state_dir(SessionStorageState::Live);
+        let logs_dir = layout.logs_dir(SessionStorageState::Live);
         let mut inventory = Self::default();
 
         inventory.scan_session_location(
@@ -178,16 +182,21 @@ impl SessionInventory {
         inventory.scan_session_location(
             &trash_dir,
             SessionStorageState::Trash,
-            &pins_dir,
-            &state_dir,
-            &logs_dir,
+            &layout.pins_dir(SessionStorageState::Trash),
+            &layout.state_dir(SessionStorageState::Trash),
+            &layout.logs_dir(SessionStorageState::Trash),
             now,
         );
         inventory.validate_lineage();
         inventory.scan_orphan_locks(sessions_dir, &archive_dir, &trash_dir);
         inventory.scan_orphan_session_storage(&pins_dir, &state_dir, &logs_dir);
-        inventory.scan_artifacts(sessions_dir, now);
-        inventory.totals.trash_bytes = tree_bytes(&trash_dir);
+        inventory.scan_orphan_session_storage(
+            &layout.pins_dir(SessionStorageState::Trash),
+            &layout.state_dir(SessionStorageState::Trash),
+            &layout.logs_dir(SessionStorageState::Trash),
+        );
+        inventory.scan_artifacts(&layout.artifact_dir(), now);
+        inventory.totals.trash_bytes = path_bytes(&trash_dir);
         inventory.totals.reclaimable_bytes = inventory
             .totals
             .reclaimable_bytes
@@ -235,7 +244,7 @@ impl SessionInventory {
             let record_bytes = file_bytes(&path);
             let lock_bytes = file_bytes(&lock_path);
             let log_bytes = file_bytes(&log_path);
-            let state_bytes = tree_bytes(&state_path);
+            let state_bytes = path_bytes(&state_path);
             let (parent_session_id, source_turn_id, lineage) = fork
                 .map(|(parent, turn, lineage)| (Some(parent), Some(turn), lineage))
                 .unwrap_or_default();
@@ -367,9 +376,6 @@ impl SessionInventory {
     fn artifact_references(&self) -> HashMap<String, BTreeSet<String>> {
         let mut references: HashMap<String, BTreeSet<String>> = HashMap::new();
         for session in self.sessions.clone() {
-            if session.storage_state == SessionStorageState::Trash {
-                continue;
-            }
             for handle in &session.artifact_handles {
                 references.entry(handle.clone()).or_default().insert(session.id.clone());
             }
@@ -377,12 +383,11 @@ impl SessionInventory {
         references
     }
 
-    fn scan_artifacts(&mut self, sessions_dir: &Path, now: u64) {
-        let root = sessions_dir.join("artifacts");
+    fn scan_artifacts(&mut self, root: &Path, now: u64) {
         let references = self.artifact_references();
         let mut sidecars = BTreeMap::new();
         let mut bodies = BTreeMap::new();
-        collect_artifact_files(&root, &mut sidecars, &mut bodies);
+        collect_artifact_files(root, &mut sidecars, &mut bodies);
         let mut handles: BTreeSet<String> = references.keys().cloned().collect();
         handles.extend(sidecars.keys().cloned());
         handles.extend(bodies.keys().cloned());
@@ -574,31 +579,6 @@ fn collect_artifact_files(
 
 fn file_bytes(path: &Path) -> u64 {
     fs::metadata(path).map(|metadata| metadata.len()).unwrap_or_default()
-}
-
-fn tree_bytes(path: &Path) -> u64 {
-    let Ok(metadata) = fs::symlink_metadata(path) else {
-        return 0;
-    };
-    if metadata.is_file() {
-        return metadata.len();
-    }
-    if !metadata.is_dir() {
-        return 0;
-    }
-    fs::read_dir(path)
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .map(|entry| tree_bytes(&entry.path()))
-        .fold(0, u64::saturating_add)
-}
-
-fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
 }
 
 fn parse_iso8601(value: &str) -> Option<u64> {

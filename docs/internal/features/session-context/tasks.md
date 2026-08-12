@@ -55,16 +55,16 @@
 
 **Blocked by:** SESSION-5.
 
-- [ ] Add archive, unarchive, pin, and unpin without changing replayable session
+- [x] Add archive, unarchive, pin, and unpin without changing replayable session
       history.
-- [ ] Make delete show the exact session-owned state and shared artifacts it
+- [x] Make delete show the exact session-owned state and shared artifacts it
       will preserve before confirmation.
-- [ ] Move deleted state to application trash and support restore during the
+- [x] Move deleted state to application trash and support restore during the
       configured grace period. Require an explicit option for permanent
       deletion.
-- [ ] Reject deletion of active or locked sessions. Allow explicit deletion of
+- [x] Reject deletion of active or locked sessions. Allow explicit deletion of
       pinned sessions only after confirmation.
-- [ ] Apply moves atomically where practical and leave recoverable diagnostics
+- [x] Apply moves atomically where practical and leave recoverable diagnostics
       after partial filesystem failures.
 
 ## SESSION-7: Add retention policy and prune previews

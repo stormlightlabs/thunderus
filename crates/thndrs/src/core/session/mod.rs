@@ -10,6 +10,8 @@
 mod contracts;
 mod export;
 mod inventory;
+mod lifecycle;
+mod storage;
 #[cfg(test)]
 mod tests;
 
@@ -40,6 +42,10 @@ pub use export::{SessionExport, export_session};
 pub use inventory::{
     ArtifactInventoryEntry, SessionInventory, SessionInventoryDiagnostic, SessionInventoryEntry, SessionLineageState,
     SessionStorageState, SessionStorageTotals,
+};
+pub use lifecycle::{
+    DeleteArtifactPreview, DeleteSessionOptions, PermanentDeleteOptions, SessionDeletePreview, SessionLifecycle,
+    SessionLifecycleAction, SessionLifecycleError, SessionLifecycleReport, SessionOwnedState,
 };
 
 /// Current JSONL schema version.
