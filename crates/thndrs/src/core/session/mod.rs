@@ -36,7 +36,9 @@ use crate::{datetime, internals, tools};
 use thndrs_agent::ProviderRequestAccounting;
 use thndrs_agent::context::{ContextItem, ContextLedger, RangeSummary};
 
-pub use collection::{CollectionReport, collect_if_due, collect_now, reclaimable_bytes};
+pub use collection::{
+    CollectionReport, collect_if_due, collect_now, reclaimable_bytes, reclaimable_bytes_from_inventory,
+};
 pub use contracts::{
     AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,
     ContextLifecycleAudit, ContextSnapshot, ContextSnapshotState, ContextSourceMeta, McpToolSessionMeta,
@@ -51,9 +53,10 @@ pub use lifecycle::{
     DeleteArtifactPreview, DeleteSessionOptions, PermanentDeleteOptions, SessionDeletePreview, SessionLifecycle,
     SessionLifecycleAction, SessionLifecycleError, SessionLifecycleReport, SessionOwnedState,
 };
+pub(crate) use retention::apply_prune_cancellable_with_progress;
 pub use retention::{
     PruneCandidate, PruneFailure, PruneOverrides, PruneReason, PruneReport, SessionRetentionPolicy, apply_prune,
-    select_prune_candidates,
+    apply_prune_cancellable, select_prune_candidates,
 };
 
 /// Current JSONL schema version.

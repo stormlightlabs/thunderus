@@ -1,10 +1,17 @@
 //! Deterministic retention selection and application for live sessions.
 
+use std::io;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::thread;
+
 use serde::{Deserialize, Serialize};
+use thndrs_agent::CancelToken;
 
 use super::{DeleteSessionOptions, SessionInventory, SessionLifecycle, SessionStorageState};
 
 const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
+const MAX_PRUNE_WORKERS: usize = 8;
 
 /// Configurable retention policy for unprotected live sessions.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -79,6 +86,19 @@ pub struct PruneReport {
     pub reclaimed_bytes: u64,
 }
 
+/// Completed prune work reported while a plan is being applied.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PruneProgress {
+    /// Lifecycle operations that have finished.
+    pub completed: usize,
+    /// Sessions successfully moved to trash.
+    pub moved: usize,
+    /// Sessions whose move failed.
+    pub failed: usize,
+    /// Sessions selected before application began.
+    pub total: usize,
+}
+
 /// Select candidates once for previews, explicit prune, automatic collection, and tests.
 pub fn select_prune_candidates(
     inventory: &SessionInventory, policy: &SessionRetentionPolicy, overrides: PruneOverrides,
@@ -151,15 +171,105 @@ pub fn select_prune_candidates(
 pub fn apply_prune(
     lifecycle: &SessionLifecycle, candidates: Vec<PruneCandidate>, active_session_id: Option<&str>, dry_run: bool,
 ) -> PruneReport {
+    apply_prune_inner(lifecycle, candidates, active_session_id, dry_run, None, |_| {}).unwrap_or_else(|report| report)
+}
+
+/// Apply a prune plan, stopping safely between session lifecycle operations.
+pub fn apply_prune_cancellable(
+    lifecycle: &SessionLifecycle, candidates: Vec<PruneCandidate>, active_session_id: Option<&str>, dry_run: bool,
+    cancellation: &CancelToken,
+) -> io::Result<PruneReport> {
+    apply_prune_cancellable_with_progress(lifecycle, candidates, active_session_id, dry_run, cancellation, |_| {})
+}
+
+/// Apply a prune plan and report completed lifecycle operations from the coordinating thread.
+pub(crate) fn apply_prune_cancellable_with_progress<F>(
+    lifecycle: &SessionLifecycle, candidates: Vec<PruneCandidate>, active_session_id: Option<&str>, dry_run: bool,
+    cancellation: &CancelToken, on_progress: F,
+) -> io::Result<PruneReport>
+where
+    F: FnMut(PruneProgress),
+{
+    apply_prune_inner(
+        lifecycle,
+        candidates,
+        active_session_id,
+        dry_run,
+        Some(cancellation),
+        on_progress,
+    )
+    .map_err(|_| io::Error::new(io::ErrorKind::Interrupted, "session operation cancelled"))
+}
+
+fn apply_prune_inner<F>(
+    lifecycle: &SessionLifecycle, candidates: Vec<PruneCandidate>, active_session_id: Option<&str>, dry_run: bool,
+    cancellation: Option<&CancelToken>, mut on_progress: F,
+) -> Result<PruneReport, PruneReport>
+where
+    F: FnMut(PruneProgress),
+{
     let mut report =
         PruneReport { dry_run, candidates, deleted_session_ids: Vec::new(), failures: Vec::new(), reclaimed_bytes: 0 };
     if dry_run {
-        return report;
+        return Ok(report);
     }
-    for candidate in &report.candidates {
-        let options =
-            DeleteSessionOptions { active_session_id: active_session_id.map(str::to_string), allow_pinned: false };
-        match lifecycle.delete(&candidate.session_id, &options) {
+    let options =
+        DeleteSessionOptions { active_session_id: active_session_id.map(str::to_string), allow_pinned: false };
+    let next_candidate = AtomicUsize::new(0);
+    let worker_count = thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(MAX_PRUNE_WORKERS)
+        .min(report.candidates.len());
+    let mut outcomes = thread::scope(|scope| {
+        let (outcome_sender, outcome_receiver) = mpsc::channel();
+        let handles = (0..worker_count)
+            .map(|_| {
+                let outcome_sender = outcome_sender.clone();
+                let next_candidate = &next_candidate;
+                let candidates = &report.candidates;
+                let options = &options;
+                scope.spawn(move || {
+                    loop {
+                        if cancellation.is_some_and(CancelToken::is_cancelled) {
+                            break;
+                        }
+                        let index = next_candidate.fetch_add(1, Ordering::Relaxed);
+                        let Some(candidate) = candidates.get(index) else {
+                            break;
+                        };
+                        if cancellation.is_some_and(CancelToken::is_cancelled) {
+                            break;
+                        }
+                        let outcome = lifecycle.delete_live_retention_candidate(&candidate.session_id, options);
+                        if outcome_sender.send((index, outcome)).is_err() {
+                            break;
+                        }
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        drop(outcome_sender);
+        let mut outcomes = Vec::with_capacity(report.candidates.len());
+        let mut moved = 0;
+        let mut failed = 0;
+        for outcome in outcome_receiver {
+            if outcome.1.is_ok() {
+                moved += 1;
+            } else {
+                failed += 1;
+            }
+            outcomes.push(outcome);
+            on_progress(PruneProgress { completed: outcomes.len(), moved, failed, total: report.candidates.len() });
+        }
+        for handle in handles {
+            let _ = handle.join();
+        }
+        outcomes
+    });
+    outcomes.sort_by_key(|(index, _)| *index);
+    for (index, outcome) in outcomes {
+        let candidate = &report.candidates[index];
+        match outcome {
             Ok(_) => {
                 report.deleted_session_ids.push(candidate.session_id.clone());
                 report.reclaimed_bytes = report.reclaimed_bytes.saturating_add(candidate.bytes);
@@ -169,11 +279,15 @@ pub fn apply_prune(
                 .push(PruneFailure { session_id: candidate.session_id.clone(), error: error.to_string() }),
         }
     }
-    report
+    if cancellation.is_some_and(CancelToken::is_cancelled) {
+        return Err(report);
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
 
     use super::*;
@@ -311,5 +425,81 @@ mod tests {
         assert_eq!(report.failures.len(), 1);
         assert_eq!(report.failures[0].session_id, "missing");
         assert!(sessions.join("trash/healthy.jsonl").is_file());
+    }
+
+    #[test]
+    fn applying_a_plan_rechecks_live_protection_markers() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let sessions = workspace.path().join(".thndrs/sessions");
+        drop(
+            SessionWriter::create(
+                &sessions,
+                "protected",
+                "/repo",
+                "Protected",
+                "provider",
+                "model",
+                "none",
+                "1",
+                None,
+            )
+            .expect("protected session"),
+        );
+        let pin = sessions.join("pins/protected");
+        fs::create_dir_all(pin.parent().expect("pin parent")).expect("pin directory");
+        fs::write(&pin, []).expect("pin session after selection");
+        let candidate = PruneCandidate {
+            session_id: "protected".to_string(),
+            title: "Protected".to_string(),
+            age_seconds: 90 * SECONDS_PER_DAY,
+            bytes: 10,
+            reasons: vec![PruneReason::MaximumAge],
+        };
+
+        let report = apply_prune(
+            &SessionLifecycle::new(&sessions, workspace.path()),
+            vec![candidate],
+            None,
+            false,
+        );
+
+        assert!(report.deleted_session_ids.is_empty());
+        assert_eq!(report.failures[0].session_id, "protected");
+        assert!(sessions.join("protected.jsonl").is_file());
+        assert!(!sessions.join("trash/protected.jsonl").exists());
+    }
+
+    #[test]
+    fn cancelled_plan_stops_before_the_next_session_mutation() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let sessions = workspace.path().join(".thndrs/sessions");
+        drop(
+            SessionWriter::create(
+                &sessions, "healthy", "/repo", "Healthy", "provider", "model", "none", "1", None,
+            )
+            .expect("healthy session"),
+        );
+        let cancellation = CancelToken::new();
+        cancellation.cancel();
+        let candidate = PruneCandidate {
+            session_id: "healthy".to_string(),
+            title: "Healthy".to_string(),
+            age_seconds: 90 * SECONDS_PER_DAY,
+            bytes: 10,
+            reasons: vec![PruneReason::MaximumAge],
+        };
+
+        let error = apply_prune_cancellable(
+            &SessionLifecycle::new(&sessions, workspace.path()),
+            vec![candidate],
+            None,
+            false,
+            &cancellation,
+        )
+        .expect_err("cancelled prune");
+
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert!(sessions.join("healthy.jsonl").is_file());
+        assert!(!sessions.join("trash/healthy.jsonl").exists());
     }
 }

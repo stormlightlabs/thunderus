@@ -2,13 +2,15 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use thndrs_agent::CancelToken;
 
 use crate::artifacts::ArtifactMetadata;
 
-use super::storage::{SessionStorageLayout, path_bytes, unix_now};
+use super::storage::{SessionStorageLayout, path_bytes, path_bytes_cancellable, unix_now};
 use super::{SessionLineageEntry, SessionReader, SessionRecord};
 
 /// Lifecycle location of a durable session record.
@@ -150,10 +152,30 @@ pub struct SessionInventory {
     pub totals: SessionStorageTotals,
 }
 
+#[derive(Clone, Copy)]
+struct SessionLocation<'a> {
+    records_dir: &'a Path,
+    storage_state: SessionStorageState,
+    pins_dir: &'a Path,
+    state_dir: &'a Path,
+    logs_dir: &'a Path,
+}
+
 impl SessionInventory {
     /// Scan records, locks, logs, artifact sidecars/bodies, lifecycle locations,
     /// and the reserved per-session state directory.
     pub fn scan(sessions_dir: &Path, workspace_root: &Path) -> Self {
+        Self::scan_inner(sessions_dir, workspace_root, None).unwrap_or_default()
+    }
+
+    /// Scan session storage while observing cooperative cancellation.
+    pub fn scan_cancellable(
+        sessions_dir: &Path, workspace_root: &Path, cancellation: &CancelToken,
+    ) -> io::Result<Self> {
+        Self::scan_inner(sessions_dir, workspace_root, Some(cancellation))
+    }
+
+    fn scan_inner(sessions_dir: &Path, workspace_root: &Path, cancellation: Option<&CancelToken>) -> io::Result<Self> {
         let now = unix_now();
         let layout = SessionStorageLayout::new(sessions_dir, workspace_root);
         let archive_dir = layout.record_dir(SessionStorageState::Archived);
@@ -164,39 +186,59 @@ impl SessionInventory {
         let mut inventory = Self::default();
 
         inventory.scan_session_location(
-            sessions_dir,
-            SessionStorageState::Live,
-            &pins_dir,
-            &state_dir,
-            &logs_dir,
+            SessionLocation {
+                records_dir: sessions_dir,
+                storage_state: SessionStorageState::Live,
+                pins_dir: &pins_dir,
+                state_dir: &state_dir,
+                logs_dir: &logs_dir,
+            },
             now,
-        );
+            cancellation,
+        )?;
         inventory.scan_session_location(
-            &archive_dir,
-            SessionStorageState::Archived,
-            &pins_dir,
-            &state_dir,
-            &logs_dir,
+            SessionLocation {
+                records_dir: &archive_dir,
+                storage_state: SessionStorageState::Archived,
+                pins_dir: &pins_dir,
+                state_dir: &state_dir,
+                logs_dir: &logs_dir,
+            },
             now,
-        );
+            cancellation,
+        )?;
+        let trash_pins_dir = layout.pins_dir(SessionStorageState::Trash);
+        let trash_state_dir = layout.state_dir(SessionStorageState::Trash);
+        let trash_logs_dir = layout.logs_dir(SessionStorageState::Trash);
         inventory.scan_session_location(
-            &trash_dir,
-            SessionStorageState::Trash,
-            &layout.pins_dir(SessionStorageState::Trash),
-            &layout.state_dir(SessionStorageState::Trash),
-            &layout.logs_dir(SessionStorageState::Trash),
+            SessionLocation {
+                records_dir: &trash_dir,
+                storage_state: SessionStorageState::Trash,
+                pins_dir: &trash_pins_dir,
+                state_dir: &trash_state_dir,
+                logs_dir: &trash_logs_dir,
+            },
             now,
-        );
+            cancellation,
+        )?;
+        check_cancelled(cancellation)?;
         inventory.validate_lineage();
+        check_cancelled(cancellation)?;
         inventory.scan_orphan_locks(sessions_dir, &archive_dir, &trash_dir);
+        check_cancelled(cancellation)?;
         inventory.scan_orphan_session_storage(&pins_dir, &state_dir, &logs_dir);
+        check_cancelled(cancellation)?;
         inventory.scan_orphan_session_storage(
             &layout.pins_dir(SessionStorageState::Trash),
             &layout.state_dir(SessionStorageState::Trash),
             &layout.logs_dir(SessionStorageState::Trash),
         );
-        inventory.scan_artifacts(&layout.artifact_dir(), now);
-        inventory.totals.trash_bytes = path_bytes(&trash_dir);
+        check_cancelled(cancellation)?;
+        inventory.scan_artifacts(&layout.artifact_dir(), now, cancellation)?;
+        inventory.totals.trash_bytes = match cancellation {
+            Some(cancellation) => path_bytes_cancellable(&trash_dir, cancellation)?,
+            None => path_bytes(&trash_dir),
+        };
         inventory.totals.reclaimable_bytes = inventory
             .totals
             .reclaimable_bytes
@@ -210,17 +252,17 @@ impl SessionInventory {
         inventory
             .artifacts
             .sort_by(|left, right| left.handle.cmp(&right.handle));
-        inventory
+        Ok(inventory)
     }
 
     fn scan_session_location(
-        &mut self, dir: &Path, storage_state: SessionStorageState, pins_dir: &Path, state_dir: &Path, logs_dir: &Path,
-        now: u64,
-    ) {
-        let Ok(entries) = fs::read_dir(dir) else {
-            return;
+        &mut self, location: SessionLocation<'_>, now: u64, cancellation: Option<&CancelToken>,
+    ) -> io::Result<()> {
+        let Ok(entries) = fs::read_dir(location.records_dir) else {
+            return Ok(());
         };
         for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
+            check_cancelled(cancellation)?;
             if path.extension().and_then(|extension| extension.to_str()) != Some("jsonl") {
                 continue;
             }
@@ -239,16 +281,19 @@ impl SessionInventory {
             let last_activity = records.iter().filter_map(|r| r.record_time()).next_back();
             let artifact_handles = records.iter().flat_map(|r| r.artifact_handles()).collect();
             let lock_path = path.with_extension("jsonl.lock");
-            let log_path = logs_dir.join(format!("thndrs-{id}.log"));
-            let state_path = state_dir.join(&id);
+            let log_path = location.logs_dir.join(format!("thndrs-{id}.log"));
+            let state_path = location.state_dir.join(&id);
             let record_bytes = file_bytes(&path);
             let lock_bytes = file_bytes(&lock_path);
             let log_bytes = file_bytes(&log_path);
-            let state_bytes = path_bytes(&state_path);
+            let state_bytes = match cancellation {
+                Some(cancellation) => path_bytes_cancellable(&state_path, cancellation)?,
+                None => path_bytes(&state_path),
+            };
             let (parent_session_id, source_turn_id, lineage) = fork
                 .map(|(parent, turn, lineage)| (Some(parent), Some(turn), lineage))
                 .unwrap_or_default();
-            let pinned = pins_dir.join(&id).exists();
+            let pinned = location.pins_dir.join(&id).exists();
             let entry = SessionInventoryEntry {
                 id,
                 path,
@@ -265,7 +310,7 @@ impl SessionInventory {
                 source_turn_id,
                 lineage,
                 lineage_state: SessionLineageState::Root,
-                storage_state,
+                storage_state: location.storage_state,
                 pinned,
                 locked: lock_path.exists(),
                 corrupt,
@@ -276,7 +321,7 @@ impl SessionInventory {
                 artifact_handles,
             };
             self.update_session_totals(&entry);
-            if storage_state == SessionStorageState::Trash {
+            if location.storage_state == SessionStorageState::Trash {
                 self.totals.trash_count = self.totals.trash_count.saturating_add(1);
             }
             if corrupt {
@@ -289,6 +334,7 @@ impl SessionInventory {
             }
             self.sessions.push(entry);
         }
+        Ok(())
     }
 
     fn update_session_totals(&mut self, entry: &SessionInventoryEntry) {
@@ -383,16 +429,17 @@ impl SessionInventory {
         references
     }
 
-    fn scan_artifacts(&mut self, root: &Path, now: u64) {
+    fn scan_artifacts(&mut self, root: &Path, now: u64, cancellation: Option<&CancelToken>) -> io::Result<()> {
         let references = self.artifact_references();
         let mut sidecars = BTreeMap::new();
         let mut bodies = BTreeMap::new();
-        collect_artifact_files(root, &mut sidecars, &mut bodies);
+        collect_artifact_files(root, &mut sidecars, &mut bodies, cancellation)?;
         let mut handles: BTreeSet<String> = references.keys().cloned().collect();
         handles.extend(sidecars.keys().cloned());
         handles.extend(bodies.keys().cloned());
 
         for handle in handles {
+            check_cancelled(cancellation)?;
             let metadata_path = sidecars.remove(&handle);
             let body_path = bodies.remove(&handle);
             let metadata_bytes = metadata_path.as_deref().map(file_bytes).unwrap_or_default();
@@ -471,6 +518,7 @@ impl SessionInventory {
                 malformed,
             });
         }
+        Ok(())
     }
 
     fn scan_orphan_session_storage(&mut self, pins_dir: &Path, state_dir: &Path, logs_dir: &Path) {
@@ -553,13 +601,15 @@ fn lineage_cycles(start: &str, parents: &HashMap<String, Option<String>>) -> boo
 
 fn collect_artifact_files(
     root: &Path, sidecars: &mut BTreeMap<String, PathBuf>, bodies: &mut BTreeMap<String, PathBuf>,
-) {
+    cancellation: Option<&CancelToken>,
+) -> io::Result<()> {
     let Ok(entries) = fs::read_dir(root) else {
-        return;
+        return Ok(());
     };
     for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
+        check_cancelled(cancellation)?;
         if path.is_dir() {
-            collect_artifact_files(&path, sidecars, bodies);
+            collect_artifact_files(&path, sidecars, bodies, cancellation)?;
             continue;
         }
         let Some(handle) = path.file_stem().and_then(|stem| stem.to_str()).map(str::to_string) else {
@@ -574,6 +624,18 @@ fn collect_artifact_files(
             }
             _ => {}
         }
+    }
+    Ok(())
+}
+
+fn check_cancelled(cancellation: Option<&CancelToken>) -> io::Result<()> {
+    if cancellation.is_some_and(CancelToken::is_cancelled) {
+        Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "session operation cancelled",
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -710,6 +772,20 @@ mod tests {
                 .all(|session| session.lineage_state == SessionLineageState::Cycle)
         );
         assert!(inventory.sessions.iter().any(|session| session.id == "valid"));
+    }
+
+    #[test]
+    fn cancelled_scan_returns_interrupted_without_a_partial_inventory() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let sessions = workspace.path().join(".thndrs/sessions");
+        create_session(&sessions, "session-1");
+        let cancellation = CancelToken::new();
+        cancellation.cancel();
+
+        let error =
+            SessionInventory::scan_cancellable(&sessions, workspace.path(), &cancellation).expect_err("cancelled scan");
+
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
     }
 
     #[test]

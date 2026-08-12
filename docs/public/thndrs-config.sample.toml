@@ -23,6 +23,28 @@ review = "auto"
 threshold = "92%"
 keep_recent_tokens = 20000
 
+# Deterministic reducers affect only bounded model projections. Shadow mode
+# records what disabled reducers would do without changing requests.
+[context.reduction]
+shadow = true
+terminal_control = false
+progress_redraw = false
+blank_run = false
+repeated_line = false
+state_identical = false
+command_result = false
+failed_tool_input = false
+max_blank_lines = 1
+
+# Automatic collection protects active, pinned, locked, corrupt, and newly
+# created sessions. Pruned sessions remain recoverable in trash for 7 days.
+[session_retention]
+enabled = true
+max_age_days = 30
+max_live_count = 200
+min_age_days = 1
+trash_retention_days = 7
+
 # External ACP agents are selected with --model acp:<name>.
 # Keep credentials out of TOML. Use agent-owned auth, parent process
 # environment, or a wrapper command for secrets.

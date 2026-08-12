@@ -111,9 +111,17 @@ pub fn collect_now(
 pub fn reclaimable_bytes(
     sessions_dir: &Path, workspace_root: &Path, policy: &SessionRetentionPolicy, active_session_id: Option<&str>,
 ) -> u64 {
-    let layout = SessionStorageLayout::new(sessions_dir, workspace_root);
     let inventory = SessionInventory::scan(sessions_dir, workspace_root);
-    let pruning = select_prune_candidates(&inventory, policy, PruneOverrides::default(), active_session_id)
+    reclaimable_bytes_from_inventory(sessions_dir, workspace_root, &inventory, policy, active_session_id)
+}
+
+/// Calculate reclaimable storage from an inventory that has already been scanned.
+pub fn reclaimable_bytes_from_inventory(
+    sessions_dir: &Path, workspace_root: &Path, inventory: &SessionInventory, policy: &SessionRetentionPolicy,
+    active_session_id: Option<&str>,
+) -> u64 {
+    let layout = SessionStorageLayout::new(sessions_dir, workspace_root);
+    let pruning = select_prune_candidates(inventory, policy, PruneOverrides::default(), active_session_id)
         .iter()
         .map(|candidate| candidate.bytes)
         .sum::<u64>();

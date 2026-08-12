@@ -63,10 +63,13 @@ Supported command families include:
 | `skills`                      | Browse loaded skills.                                 |
 | `context`                     | Inspect the bounded active context working set.       |
 | `compact`                     | Summarize older conversation for continuation.        |
+| `context item <id>`           | Inspect one context item and its recovery state.      |
 | `context pin <id-or-path>`    | Keep one context item visible across turn rebuilds.   |
 | `context drop <id>`           | Exclude one item until it is recovered or reset.      |
-| `context recover <id>`        | Re-enable an item and pin omitted detail when needed. |
+| `context recover <id>`        | Recover and pin bounded omitted evidence.             |
+| `context verify ...`          | Propose, review, or release a verification relation.  |
 | `context review <approve \| reject>` | Resolve a pending compaction review.                  |
+| `context export <path>`       | Export the bounded redacted model projection.         |
 | `context drop --reset`        | Clear all explicit context drops.                     |
 | `doctor`                      | Show setup, context, and budget health.               |
 | `auth status`                 | Show credential source/status without values.         |
@@ -82,7 +85,11 @@ for file locations, MiniJinja variables, arguments, and bundled commands.
 
 ## Context Controls
 
-`/context` opens a bounded ledger of the current working set. It shows stable
+`/context` opens a bounded ledger of the current working set. See the
+[Context guide](/docs/usage/context/) for item states, verification, release,
+compaction review, and export.
+
+It shows stable
 ids, item kinds, visibility, approximate token costs, source labels, budget
 pressure, instruction discovery diagnostics, and compaction review state. It
 does not show project-instruction or transcript content, and secret-shaped

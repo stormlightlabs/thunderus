@@ -62,8 +62,11 @@ Instruction precedence is:
 4. Applicable `AGENTS.md` guidance.
 5. Built-in defaults.
 
-The current implementation loads the root `AGENTS.md` from the selected
-workspace when present and marks truncation visibly.
+The implementation discovers root and nested `AGENTS.md` files. The root is
+broad guidance; nested sources are selected when the current turn or a pin
+references their scope. Non-applicable nested sources remain inspectable
+candidates instead of entering every request. Truncation is visible in source
+metadata.
 
 Good `AGENTS.md` files are short and practical: project overview, relevant
 build/test commands, style conventions, testing expectations, safety gotchas,
@@ -77,11 +80,20 @@ The tool catalog contains provider-native schemas for local tools. Text
 descriptions are intentionally minimal: name, purpose, safety limits, and
 truncation behavior.
 
-## Transcript Tail
+## Context ledger and transcript tail
 
-The model-visible transcript tail includes relevant user, assistant, reasoning,
-and tool entries. UI-only status rows, live-only stream deltas, statusline
-metadata, and renderer artifacts are excluded.
+Before lowering provider messages, `thndrs` builds a context ledger containing
+all candidates, their visibility and lifecycle, token estimates, budget limits,
+and selection reasons. Harness material and the current user turn are protected;
+pins, applicable instructions, and activated skills are selected before the
+ordinary transcript tail. Older settled transcript entries are evicted first
+under pressure.
+
+The model-visible transcript tail includes selected user, assistant, reasoning,
+and tool entries. UI-only status rows, live-only stream deltas, status-line
+metadata, and renderer artifacts are excluded. Approved compaction summaries
+can stand in for a closed older prefix while the append-only session retains the
+source records.
 
 ## User Turn
 
@@ -94,5 +106,7 @@ secrets redacted, then exits without calling the provider.
 
 ## History Reuse
 
-When history reuse is unavailable, `thndrs` includes the active size-capped
-`AGENTS.md` context and records hash/truncation metadata.
+When history reuse is unavailable, `thndrs` includes active size-capped project
+instructions and records hash and truncation metadata. Request-bound
+`context_snapshot` records and `/context export` provide content-free accounting
+and a bounded redacted view of the selected projection.

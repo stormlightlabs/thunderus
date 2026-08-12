@@ -1,8 +1,11 @@
 //! Filesystem layout shared by session inventory and lifecycle operations.
 
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use thndrs_agent::CancelToken;
 
 use super::SessionStorageState;
 
@@ -90,21 +93,37 @@ impl SessionStorageLayout {
 }
 
 pub(super) fn path_bytes(path: &Path) -> u64 {
+    path_bytes_inner(path, None).unwrap_or_default()
+}
+
+pub(super) fn path_bytes_cancellable(path: &Path, cancellation: &CancelToken) -> io::Result<u64> {
+    path_bytes_inner(path, Some(cancellation))
+}
+
+fn path_bytes_inner(path: &Path, cancellation: Option<&CancelToken>) -> io::Result<u64> {
+    if cancellation.is_some_and(CancelToken::is_cancelled) {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "session operation cancelled",
+        ));
+    }
     let Ok(metadata) = fs::symlink_metadata(path) else {
-        return 0;
+        return Ok(0);
     };
     if metadata.is_file() {
-        return metadata.len();
+        return Ok(metadata.len());
     }
     if !metadata.is_dir() {
-        return 0;
+        return Ok(0);
     }
-    fs::read_dir(path)
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .map(|entry| path_bytes(&entry.path()))
-        .fold(0, u64::saturating_add)
+    let Ok(entries) = fs::read_dir(path) else {
+        return Ok(0);
+    };
+    let mut bytes = 0u64;
+    for entry in entries.filter_map(Result::ok) {
+        bytes = bytes.saturating_add(path_bytes_inner(&entry.path(), cancellation)?);
+    }
+    Ok(bytes)
 }
 
 pub(super) fn unix_now() -> u64 {

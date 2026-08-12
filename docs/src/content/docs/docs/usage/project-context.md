@@ -109,29 +109,22 @@ If a session is resumed, the context metadata tells `thndrs` and the user which
 instruction files shaped the run. It does not make historical instructions a
 substitute for the files currently on disk.
 
-## Startup Display
+## Inspecting project instructions
 
-The startup screen shows a compact inventory of the run before the first
-transcript entry. It is deliberately similar to the kind of boot summary shown
-by other local agent tools:
+Use `/context` to see each root or nested `AGENTS.md` as a
+`project_instruction` item. The ledger shows its stable id, scope or source
+path, current visibility, selection reason, token estimate, and lifecycle. A
+nested source that does not apply to the current turn appears as `candidate`
+rather than being sent to the model.
 
-<!-- TODO: this is a little out of date -->
+Use `/context item <id>` for one source or export the complete current
+projection with `/context export <path>`. Session records keep the source path,
+scope, hash, byte count, and truncation flag so a resumed run can compare the
+audit with files currently on disk.
 
-```text
-[Runtime] chatgpt-codex | chatgpt-codex/gpt-5.6-sol | search duckduckgo | direct-inline
-[Context] /repo/AGENTS.md
-[Search] duckduckgo...
-[Skills] inspect-project, release-notes
-[Diagnostics] (none)
-```
-
-For project context, the important line is `[Context]`: it lists the loaded
-instruction source paths. It does not print full `AGENTS.md` text. Skills and
-diagnostics are shown separately because they are discovered references, not
-project-context instructions.
-
-This display is for inspection. The model-visible prompt remains the source of
-truth for what the provider received.
+The startup display provides a compact source inventory. It does not print full
+instruction contents. The context ledger and request snapshot are the detailed
+inspection surfaces for what was selected for a turn.
 
 ## Self-Knowledge Snapshot
 
@@ -192,6 +185,7 @@ diagnostic so stale guidance does not silently shape the run.
 
 ## Related Docs
 
+- [Context](/docs/usage/context/)
 - [Prompt Assembly](/docs/concepts/prompt-assembly/)
 - [Tools](/docs/usage/tools/)
 - [Session Format](/docs/reference/session-format/)

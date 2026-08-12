@@ -38,12 +38,20 @@ title: "CLI Reference"
 - `thndrs login chatgpt-codex [--oauth-method <browser|device-code>]`: log in through ChatGPT OAuth.
 - `thndrs logout chatgpt-codex`: remove the stored ChatGPT Codex credential entry.
 
-Inside the TUI, `/context` inspects the active context working set and
-`/doctor` reports context source, pin, budget, and compaction review health.
-Use `/context pin <id-or-path>`, `/context drop <id>`, `/context recover <id>`,
-and `/context review <approve|reject>` for task-local context control. Use
-`/compact` while idle to summarize a closed prefix of the conversation with
-the selected model. The original transcript remains in the append-only session.
+Inside the TUI, `/context` or `/context show` opens the active working set;
+`/context item <id>` prints one item's details. `/doctor` reports source, pin,
+drop, model-limit, budget, and compaction-review health.
+
+Task-local controls are `/context pin <id-or-path>`, `/context drop <id>`,
+`/context drop --reset`, `/context recover <id-or-handle>`, and `/context
+release <id>`. Verification uses `/context verify propose <protected-id>
+<candidate-id>`, then `approve`, `reject`, or `release` with the returned
+relation id. `/context export <path> [json|markdown] [--artifacts]` writes the
+bounded redacted projection.
+
+Use `/compact` while idle to summarize a closed prefix with the selected model.
+Resolve pending summaries with `/context review approve` or `/context review
+reject`. The original transcript remains in the append-only session.
 
 Supported setup and login providers are ChatGPT Codex, OpenCode Zen, and
 OpenCode Go. API-key providers use hidden input. ChatGPT Codex setup and login
@@ -120,22 +128,36 @@ the server. Provider-facing names are namespaced as `mcp__{server}__{tool}`.
 
 ### Session History & Management
 
-- `thndrs sessions list`: list local sessions newest first with title, model,
-  last activity, fork source, token totals, and lock, corruption, or lineage
-  state.
-- `thndrs sessions show <id>`: print the replayable transcript.
-- `thndrs sessions resume <id>`: validate and exclusively lock a local session
+- `thndrs sessions list`: scan live, archived, and trashed sessions newest first
+  with identity, activity, usage, storage, lock, corruption, and lineage state.
+- `thndrs sessions latest`: print the newest local session.
+- `thndrs sessions titles`: list local titles newest first.
+- `thndrs sessions show <id>`: print replayable transcript entries.
+- `thndrs sessions resume <id>`: validate and exclusively lock a live session
   for append-only continuation.
 - `thndrs sessions fork <id> <turn-id>`: create an independent session from a
   replayable settled turn and record its lineage.
+- `thndrs sessions rename <id> <name>`: change the display title without
+  changing session identity.
 - `thndrs sessions inspect <id> --format json`: print the stable redacted JSON
-  session projection.
-- `thndrs sessions export <id> --format jsonl`: write redacted JSONL records in
-  sequence order.
+  projection.
+- `thndrs sessions export <id> --format <json|jsonl|markdown|html>`: export a
+  redacted record stream or bounded review copy.
+- `thndrs sessions storage [--format <human|json>]`: report storage totals and
+  policy-reclaimable bytes.
+- `thndrs sessions prune [--older-than <days>] [--keep-count <count>]
+  [--dry-run] [--format <human|json>]`: preview or apply retention to eligible
+  unprotected live sessions.
+- `archive`, `unarchive`, `pin`, and `unpin` change session lifecycle state.
+- `delete <id>` previews a reversible move to trash; add `--yes` to apply it.
+  `restore <id>` restores it during the configured grace period.
+- `purge` previews irreversible workspace-session cleanup; add `--yes` to apply
+  it. Destructive commands require `--allow-pinned` for pinned sessions.
 
 `session` is accepted as an alias for `sessions`. `<id>` may be exact or a
 unique prefix; ambiguous prefixes are rejected. All commands use `--cwd` to
 find the workspace session directory unless `--session-dir` is supplied.
+Lifecycle, storage, prune, and purge reports support human or JSON output.
 
 ### Debugging
 

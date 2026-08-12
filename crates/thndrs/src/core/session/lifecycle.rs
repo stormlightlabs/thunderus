@@ -237,27 +237,56 @@ impl SessionLifecycle {
             return Err(wrong_state(session, "live or archived"));
         }
         let paths = self.paths(session);
-        let metadata = TrashMetadata {
-            deleted_at_unix: unix_now(),
-            archived: session.storage_state == SessionStorageState::Archived,
-        };
+        self.delete_prepared(&session.id, session.storage_state, paths)
+    }
+
+    /// Delete a live retention candidate without rebuilding the full inventory.
+    ///
+    /// Retention selection already inventories every session. This path rechecks
+    /// the mutable protection markers immediately before changing the candidate.
+    pub(crate) fn delete_live_retention_candidate(
+        &self, session_id: &str, options: &DeleteSessionOptions,
+    ) -> Result<SessionLifecycleReport, SessionLifecycleError> {
+        if options.active_session_id.as_deref() == Some(session_id) {
+            return Err(SessionLifecycleError::Active { session_id: session_id.to_string() });
+        }
+        let layout = self.layout();
+        let record = layout.record(SessionStorageState::Live, session_id);
+        if !record.is_file() {
+            return Err(SessionLifecycleError::NotFound { session_id: session_id.to_string() });
+        }
+        if record.with_extension("jsonl.lock").exists() {
+            return Err(SessionLifecycleError::Locked { session_id: session_id.to_string() });
+        }
+        if !options.allow_pinned && layout.pin(SessionStorageState::Live, session_id).exists() {
+            return Err(SessionLifecycleError::PinnedConfirmationRequired { session_id: session_id.to_string() });
+        }
+        let paths = self.paths_for_record(session_id, record);
+        self.delete_prepared(session_id, SessionStorageState::Live, paths)
+    }
+
+    fn delete_prepared(
+        &self, session_id: &str, storage_state: SessionStorageState, paths: SessionPaths,
+    ) -> Result<SessionLifecycleReport, SessionLifecycleError> {
+        let metadata =
+            TrashMetadata { deleted_at_unix: unix_now(), archived: storage_state == SessionStorageState::Archived };
         let moves = existing_moves([
             (&paths.log, &paths.trash_log),
             (&paths.state, &paths.trash_state),
             (&paths.pin, &paths.trash_pin),
             (&paths.record, &paths.trash_record),
         ]);
-        self.prepare_moves(&session.id, SessionLifecycleAction::Delete, &moves)?;
-        ensure_destination_absent(&session.id, &paths.trash_metadata)?;
+        self.prepare_moves(session_id, SessionLifecycleAction::Delete, &moves)?;
+        ensure_destination_absent(session_id, &paths.trash_metadata)?;
         write_json_atomic(&paths.trash_metadata, &metadata).map_err(|source| {
             io_error(
                 SessionLifecycleAction::Delete,
-                &session.id,
+                session_id,
                 &paths.trash_metadata,
                 source,
             )
         })?;
-        let mut report = self.move_graph_prepared(&session.id, SessionLifecycleAction::Delete, &moves)?;
+        let mut report = self.move_graph_prepared(session_id, SessionLifecycleAction::Delete, &moves)?;
         report.changed_paths.push(paths.trash_metadata);
         Ok(report)
     }
@@ -378,10 +407,13 @@ impl SessionLifecycle {
     }
 
     fn paths(&self, session: &SessionInventoryEntry) -> SessionPaths {
-        let id = &session.id;
+        self.paths_for_record(&session.id, session.path.clone())
+    }
+
+    fn paths_for_record(&self, id: &str, record: PathBuf) -> SessionPaths {
         let layout = self.layout();
         SessionPaths {
-            record: session.path.clone(),
+            record,
             log: layout.log(SessionStorageState::Live, id),
             state: layout.state(SessionStorageState::Live, id),
             pin: layout.pin(SessionStorageState::Live, id),

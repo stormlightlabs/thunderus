@@ -57,6 +57,7 @@ export default defineConfig({
             { label: "Interaction", slug: "docs/usage/prompting-and-input" },
             { label: "Prompt Templates", slug: "docs/usage/prompt-templates" },
             { label: "Keybindings", slug: "docs/usage/keybinds" },
+            { label: "Context", slug: "docs/usage/context" },
             { label: "Project Context", slug: "docs/usage/project-context" },
             { label: "Skills", slug: "docs/usage/skills" },
             { label: "Tools", slug: "docs/usage/tools" },

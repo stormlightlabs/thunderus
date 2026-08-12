@@ -11,6 +11,7 @@ pub mod agent;
 #[path = "core/session/mod.rs"]
 pub mod session;
 
+mod cancellation;
 mod headless;
 #[path = "core/mod.rs"]
 mod thndrs_core;
@@ -290,17 +291,29 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
         .clone()
         .unwrap_or_else(|| session::sessions_dir(&workspace));
     let stdout = io::stdout();
-    let mut lock = stdout.lock();
+    let stderr = io::stderr();
+    let mut stdout = stdout.lock();
+    let mut stderr = stderr.lock();
+    let cancellation = CancelToken::new();
+    let _registration = matches!(
+        command,
+        SessionCommand::List
+            | SessionCommand::Prune { .. }
+            | SessionCommand::Storage { .. }
+            | SessionCommand::Purge { .. }
+    )
+    .then(|| cancellation::register(cancellation.clone()))
+    .transpose()?;
     match command {
-        SessionCommand::List => run_session_list(&dir, &workspace, &mut lock),
-        SessionCommand::Latest => run_session_latest(&dir, &mut lock),
-        SessionCommand::Titles => run_session_titles(&dir, &mut lock),
-        SessionCommand::Show { session_id } => run_session_show(&dir, session_id, &mut lock),
+        SessionCommand::List => run_session_list(&dir, &workspace, &mut stdout, &mut stderr, &cancellation),
+        SessionCommand::Latest => run_session_latest(&dir, &mut stdout),
+        SessionCommand::Titles => run_session_titles(&dir, &mut stdout),
+        SessionCommand::Show { session_id } => run_session_show(&dir, session_id, &mut stdout),
         SessionCommand::Resume { .. } => Err(io::Error::other("session resume must start an interactive session")),
-        SessionCommand::Fork { session_id, turn_id } => run_session_fork(&dir, session_id, turn_id, &mut lock),
-        SessionCommand::Rename { session_id, name } => run_session_rename(&dir, session_id, name, &mut lock),
-        SessionCommand::Inspect { session_id, format } => run_session_inspect(&dir, session_id, *format, &mut lock),
-        SessionCommand::Export { session_id, format } => run_session_export(&dir, session_id, *format, &mut lock),
+        SessionCommand::Fork { session_id, turn_id } => run_session_fork(&dir, session_id, turn_id, &mut stdout),
+        SessionCommand::Rename { session_id, name } => run_session_rename(&dir, session_id, name, &mut stdout),
+        SessionCommand::Inspect { session_id, format } => run_session_inspect(&dir, session_id, *format, &mut stdout),
+        SessionCommand::Export { session_id, format } => run_session_export(&dir, session_id, *format, &mut stdout),
         SessionCommand::Prune { older_than, keep_count, dry_run, format } => run_session_prune(
             cli,
             &dir,
@@ -310,16 +323,20 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
                 dry_run: *dry_run,
                 format: *format,
             },
-            &mut lock,
+            &mut stdout,
+            &mut stderr,
+            &cancellation,
         ),
-        SessionCommand::Storage { format } => run_session_storage(cli, &dir, &workspace, *format, &mut lock),
+        SessionCommand::Storage { format } => {
+            run_session_storage(cli, &dir, &workspace, *format, &mut stdout, &mut stderr, &cancellation)
+        }
         SessionCommand::Archive { session_id, format } => run_session_lifecycle(
             cli,
             &dir,
             &workspace,
             session_id,
             SessionLifecycleRequest::new(session::SessionLifecycleAction::Archive, *format),
-            &mut lock,
+            &mut stdout,
         ),
         SessionCommand::Unarchive { session_id, format } => run_session_lifecycle(
             cli,
@@ -327,7 +344,7 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
             &workspace,
             session_id,
             SessionLifecycleRequest::new(session::SessionLifecycleAction::Unarchive, *format),
-            &mut lock,
+            &mut stdout,
         ),
         SessionCommand::Pin { session_id, format } => run_session_lifecycle(
             cli,
@@ -335,7 +352,7 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
             &workspace,
             session_id,
             SessionLifecycleRequest::new(session::SessionLifecycleAction::Pin, *format),
-            &mut lock,
+            &mut stdout,
         ),
         SessionCommand::Unpin { session_id, format } => run_session_lifecycle(
             cli,
@@ -343,7 +360,7 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
             &workspace,
             session_id,
             SessionLifecycleRequest::new(session::SessionLifecycleAction::Unpin, *format),
-            &mut lock,
+            &mut stdout,
         ),
         SessionCommand::Delete { session_id, yes, allow_pinned, format } => run_session_lifecycle(
             cli,
@@ -356,7 +373,7 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
                 allow_pinned: *allow_pinned,
                 format: *format,
             },
-            &mut lock,
+            &mut stdout,
         ),
         SessionCommand::Restore { session_id, format } => run_session_lifecycle(
             cli,
@@ -364,11 +381,16 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
             &workspace,
             session_id,
             SessionLifecycleRequest::new(session::SessionLifecycleAction::Restore, *format),
-            &mut lock,
+            &mut stdout,
         ),
-        SessionCommand::Purge { yes, allow_pinned, format } => {
-            run_session_purge(&dir, &workspace, *yes, *allow_pinned, *format, &mut lock)
-        }
+        SessionCommand::Purge { yes, allow_pinned, format } => run_session_purge(
+            &dir,
+            &workspace,
+            SessionPurgeRequest { confirmed: *yes, allow_pinned: *allow_pinned, format: *format },
+            &mut stdout,
+            &mut stderr,
+            &cancellation,
+        ),
     }
 }
 
@@ -379,30 +401,91 @@ struct SessionPruneRequest {
     format: SessionReportFormat,
 }
 
-fn run_session_prune<W: io::Write>(
-    cli: &Cli, dir: &Path, workspace: &Path, request: SessionPruneRequest, writer: &mut W,
+#[derive(Clone, Copy)]
+struct SessionPurgeRequest {
+    confirmed: bool,
+    allow_pinned: bool,
+    format: SessionReportFormat,
+}
+
+fn run_session_prune<W: io::Write, P: io::Write>(
+    cli: &Cli, dir: &Path, workspace: &Path, request: SessionPruneRequest, writer: &mut W, progress: &mut P,
+    cancellation: &CancelToken,
 ) -> io::Result<()> {
-    let inventory = session::SessionInventory::scan(dir, workspace);
+    writeln!(progress, "Scanning sessions for pruning...")?;
+    progress.flush()?;
+    let inventory = session::SessionInventory::scan_cancellable(dir, workspace, cancellation)?;
     let candidates = session::select_prune_candidates(&inventory, &cli.session_retention, request.overrides, None);
+    if request.dry_run {
+        writeln!(
+            progress,
+            "Preparing prune preview for {} candidate(s)...",
+            candidates.len()
+        )?;
+    } else {
+        writeln!(progress, "Moving {} session(s) to trash...", candidates.len())?;
+    }
+    progress.flush()?;
     let lifecycle = session::SessionLifecycle::new(dir, workspace);
-    let report = session::apply_prune(&lifecycle, candidates, None, request.dry_run);
+    let progress_interval = candidates.len().div_ceil(20).max(1);
+    let mut progress_error = None;
+    let report_result = session::apply_prune_cancellable_with_progress(
+        &lifecycle,
+        candidates,
+        None,
+        request.dry_run,
+        cancellation,
+        |update| {
+            if progress_error.is_some()
+                || (update.completed != update.total && update.completed % progress_interval != 0)
+            {
+                return;
+            }
+            progress_error = writeln!(
+                progress,
+                "Prune progress: {}/{} processed ({} moved, {} failed)",
+                update.completed, update.total, update.moved, update.failed
+            )
+            .and_then(|()| progress.flush())
+            .err();
+        },
+    );
+    if let Some(error) = progress_error {
+        return Err(error);
+    }
+    let report = report_result?;
     write_session_report(writer, request.format, &report, || {
-        let mut lines = vec![format!("{} prune candidate(s)", report.candidates.len())];
-        for candidate in &report.candidates {
-            lines.push(format!(
-                "{}\t{}\t{} days\t{} bytes\t{:?}",
-                candidate.session_id,
-                candidate.title,
-                candidate.age_seconds / (24 * 60 * 60),
-                candidate.bytes,
-                candidate.reasons,
-            ));
+        let selected_bytes = report.candidates.iter().map(|candidate| candidate.bytes).sum::<u64>();
+        let age_limit_count = report
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.reasons.contains(&session::PruneReason::MaximumAge))
+            .count();
+        let keep_limit_count = report
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.reasons.contains(&session::PruneReason::LiveCount))
+            .count();
+        let mut lines = if report.dry_run {
+            vec![format!(
+                "would move {} session(s) totaling {} bytes to trash",
+                report.candidates.len(),
+                selected_bytes
+            )]
+        } else {
+            vec![format!(
+                "moved {} of {} selected session(s) and {} bytes to trash",
+                report.deleted_session_ids.len(),
+                report.candidates.len(),
+                report.reclaimed_bytes
+            )]
+        };
+        if age_limit_count > 0 {
+            lines.push(format!("selected by age limit: {age_limit_count}"));
         }
-        lines.push(format!(
-            "moved {} session(s) and {} bytes to trash",
-            report.deleted_session_ids.len(),
-            report.reclaimed_bytes
-        ));
+        if keep_limit_count > 0 {
+            lines.push(format!("selected by live-session keep limit: {keep_limit_count}"));
+        }
         for failure in &report.failures {
             lines.push(format!("failed {}: {}", failure.session_id, failure.error));
         }
@@ -410,11 +493,16 @@ fn run_session_prune<W: io::Write>(
     })
 }
 
-fn run_session_storage<W: io::Write>(
-    cli: &Cli, dir: &Path, workspace: &Path, format: SessionReportFormat, writer: &mut W,
+fn run_session_storage<W: io::Write, P: io::Write>(
+    cli: &Cli, dir: &Path, workspace: &Path, format: SessionReportFormat, writer: &mut W, progress: &mut P,
+    cancellation: &CancelToken,
 ) -> io::Result<()> {
-    let inventory = session::SessionInventory::scan(dir, workspace);
-    let reclaimable = session::reclaimable_bytes(dir, workspace, &cli.session_retention, None);
+    writeln!(progress, "Scanning session storage...")?;
+    progress.flush()?;
+    let inventory = session::SessionInventory::scan_cancellable(dir, workspace, cancellation)?;
+    cancellation::check(cancellation)?;
+    let reclaimable =
+        session::reclaimable_bytes_from_inventory(dir, workspace, &inventory, &cli.session_retention, None);
     let value = serde_json::json!({
         "schema_version": 1,
         "live": { "count": inventory.totals.live_sessions, "bytes": inventory.sessions.iter().filter(|s| s.storage_state == session::SessionStorageState::Live).map(|s| s.owned_bytes()).sum::<u64>() },
@@ -498,42 +586,56 @@ fn run_session_lifecycle<W: io::Write>(
     })
 }
 
-fn run_session_purge<W: io::Write>(
-    dir: &Path, workspace: &Path, confirmed: bool, allow_pinned: bool, format: SessionReportFormat, writer: &mut W,
+fn run_session_purge<W: io::Write, P: io::Write>(
+    dir: &Path, workspace: &Path, request: SessionPurgeRequest, writer: &mut W, progress: &mut P,
+    cancellation: &CancelToken,
 ) -> io::Result<()> {
-    let inventory = session::SessionInventory::scan(dir, workspace);
+    writeln!(progress, "Scanning sessions for purge...")?;
+    progress.flush()?;
+    let inventory = session::SessionInventory::scan_cancellable(dir, workspace, cancellation)?;
     let eligible = inventory
         .sessions
         .iter()
-        .filter(|item| !item.locked && !item.corrupt && (allow_pinned || !item.pinned))
+        .filter(|item| !item.locked && !item.corrupt && (request.allow_pinned || !item.pinned))
         .map(|item| (item.id.clone(), item.storage_state))
         .collect::<Vec<_>>();
-    if !confirmed {
+    if !request.confirmed {
         let session_ids = eligible.iter().map(|(id, _)| id).collect::<Vec<_>>();
         let preview =
             serde_json::json!({ "session_ids": session_ids, "count": eligible.len(), "requires_confirmation": true });
-        return write_session_report(writer, format, &preview, || {
+        return write_session_report(writer, request.format, &preview, || {
             format!("purge would remove {} session(s); rerun with --yes", eligible.len())
         });
     }
+    writeln!(progress, "Purging {} session(s)...", eligible.len())?;
+    progress.flush()?;
     let lifecycle = session::SessionLifecycle::new(dir, workspace);
     let mut removed = Vec::new();
     let mut failures = Vec::new();
     for (id, state) in eligible {
+        cancellation::check(cancellation)?;
         let result = match state {
             session::SessionStorageState::Trash => lifecycle.permanently_delete(
                 &id,
-                &session::PermanentDeleteOptions { active_session_id: None, allow_pinned, confirmed: true },
+                &session::PermanentDeleteOptions {
+                    active_session_id: None,
+                    allow_pinned: request.allow_pinned,
+                    confirmed: true,
+                },
             ),
             _ => lifecycle
                 .delete(
                     &id,
-                    &session::DeleteSessionOptions { active_session_id: None, allow_pinned },
+                    &session::DeleteSessionOptions { active_session_id: None, allow_pinned: request.allow_pinned },
                 )
                 .and_then(|_| {
                     lifecycle.permanently_delete(
                         &id,
-                        &session::PermanentDeleteOptions { active_session_id: None, allow_pinned, confirmed: true },
+                        &session::PermanentDeleteOptions {
+                            active_session_id: None,
+                            allow_pinned: request.allow_pinned,
+                            confirmed: true,
+                        },
                     )
                 }),
         };
@@ -542,7 +644,7 @@ fn run_session_purge<W: io::Write>(
             Err(error) => failures.push(format!("{id}: {error}")),
         }
     }
-    let remaining = session::SessionInventory::scan(dir, workspace);
+    let remaining = session::SessionInventory::scan_cancellable(dir, workspace, cancellation)?;
     let mut skipped = Vec::new();
     if remaining.sessions.iter().any(|item| item.corrupt) {
         skipped.push("artifact reachability is uncertain while corrupt sessions exist".to_string());
@@ -552,7 +654,9 @@ fn run_session_purge<W: io::Write>(
             .iter()
             .filter(|item| item.referenced_by.is_empty() && !item.malformed)
         {
+            cancellation::check(cancellation)?;
             for path in [&artifact.metadata_path, &artifact.body_path].into_iter().flatten() {
+                cancellation::check(cancellation)?;
                 if let Err(error) = std::fs::remove_file(path) {
                     if error.kind() != io::ErrorKind::NotFound {
                         failures.push(format!("{}: {error}", artifact.handle));
@@ -562,7 +666,7 @@ fn run_session_purge<W: io::Write>(
         }
     }
     let report = serde_json::json!({ "removed_session_ids": removed, "skipped": skipped, "failures": failures });
-    write_session_report(writer, format, &report, || {
+    write_session_report(writer, request.format, &report, || {
         format!(
             "purged {} session(s); {} skipped operation(s); {} failure(s)",
             removed.len(),
@@ -583,8 +687,12 @@ fn write_session_report<W: io::Write, T: serde::Serialize>(
     }
 }
 
-fn run_session_list<W: io::Write>(dir: &Path, workspace: &Path, writer: &mut W) -> io::Result<()> {
-    let inventory = session::SessionInventory::scan(dir, workspace);
+fn run_session_list<W: io::Write, P: io::Write>(
+    dir: &Path, workspace: &Path, writer: &mut W, progress: &mut P, cancellation: &CancelToken,
+) -> io::Result<()> {
+    writeln!(progress, "Scanning sessions...")?;
+    progress.flush()?;
+    let inventory = session::SessionInventory::scan_cancellable(dir, workspace, cancellation)?;
     let sessions = inventory
         .sessions
         .iter()
@@ -2601,9 +2709,18 @@ for line in sys.stdin:
         writer.append_usage(7, 11).expect("append usage");
 
         let mut list_output = Vec::new();
+        let mut progress = Vec::new();
         let mut latest_output = Vec::new();
+        let cancellation = CancelToken::new();
 
-        run_session_list(&session_dir, temp.path(), &mut list_output).expect("list sessions");
+        run_session_list(
+            &session_dir,
+            temp.path(),
+            &mut list_output,
+            &mut progress,
+            &cancellation,
+        )
+        .expect("list sessions");
         run_session_latest(&session_dir, &mut latest_output).expect("latest session");
         let list_output = String::from_utf8(list_output).expect("utf8");
         let latest_output = String::from_utf8(latest_output).expect("utf8");
@@ -2611,6 +2728,7 @@ for line in sys.stdin:
         assert!(list_output.contains("session-new"));
         assert!(list_output.contains("Latest Work"));
         assert!(list_output.contains("opencode/big-pickle"));
+        assert_eq!(String::from_utf8(progress).expect("utf8"), "Scanning sessions...\n");
         assert!(list_output.contains("activity "));
         assert!(list_output.contains("source root"));
         assert!(list_output.contains("locked"));
@@ -2618,6 +2736,131 @@ for line in sys.stdin:
         assert!(latest_output.contains("id: session-new"));
         assert!(latest_output.contains("title: Latest Work"));
         assert!(latest_output.contains("tokens: in 7 out 11"));
+    }
+
+    #[test]
+    fn scan_heavy_session_commands_write_progress_separately_from_results() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let session_dir = temp.path().join("sessions");
+        let cli = Cli { cwd: temp.path().to_path_buf(), ..Cli::default() };
+        let cancellation = CancelToken::new();
+
+        let mut prune_output = Vec::new();
+        let mut prune_progress = Vec::new();
+        run_session_prune(
+            &cli,
+            &session_dir,
+            temp.path(),
+            SessionPruneRequest {
+                overrides: session::PruneOverrides { older_than_days: None, keep_count: Some(50) },
+                dry_run: true,
+                format: SessionReportFormat::Human,
+            },
+            &mut prune_output,
+            &mut prune_progress,
+            &cancellation,
+        )
+        .expect("prune preview");
+        assert!(
+            String::from_utf8(prune_progress)
+                .expect("utf8")
+                .starts_with("Scanning sessions for pruning...\n")
+        );
+        assert!(
+            String::from_utf8(prune_output)
+                .expect("utf8")
+                .contains("would move 0 session(s)")
+        );
+
+        let mut storage_output = Vec::new();
+        let mut storage_progress = Vec::new();
+        run_session_storage(
+            &cli,
+            &session_dir,
+            temp.path(),
+            SessionReportFormat::Human,
+            &mut storage_output,
+            &mut storage_progress,
+            &cancellation,
+        )
+        .expect("storage report");
+        assert_eq!(
+            String::from_utf8(storage_progress).expect("utf8"),
+            "Scanning session storage...\n"
+        );
+        assert!(String::from_utf8(storage_output).expect("utf8").contains("live 0"));
+
+        let mut purge_output = Vec::new();
+        let mut purge_progress = Vec::new();
+        run_session_purge(
+            &session_dir,
+            temp.path(),
+            SessionPurgeRequest { confirmed: false, allow_pinned: false, format: SessionReportFormat::Human },
+            &mut purge_output,
+            &mut purge_progress,
+            &cancellation,
+        )
+        .expect("purge preview");
+        assert_eq!(
+            String::from_utf8(purge_progress).expect("utf8"),
+            "Scanning sessions for purge...\n"
+        );
+        assert!(
+            String::from_utf8(purge_output)
+                .expect("utf8")
+                .contains("purge would remove 0 session(s)")
+        );
+    }
+
+    #[test]
+    fn session_prune_reports_live_move_progress_and_a_concise_human_result() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let session_dir = temp.path().join("sessions");
+        for session_id in ["session-oldest", "session-older"] {
+            drop(
+                session::SessionWriter::create(
+                    &session_dir,
+                    session_id,
+                    temp.path().to_str().expect("workspace path"),
+                    session_id,
+                    "provider",
+                    "model",
+                    "none",
+                    "1",
+                    None,
+                )
+                .expect("session writer"),
+            );
+        }
+        let mut cli = Cli { cwd: temp.path().to_path_buf(), ..Cli::default() };
+        cli.session_retention.min_age_days = 0;
+        let cancellation = CancelToken::new();
+        let mut output = Vec::new();
+        let mut progress = Vec::new();
+
+        run_session_prune(
+            &cli,
+            &session_dir,
+            temp.path(),
+            SessionPruneRequest {
+                overrides: session::PruneOverrides { older_than_days: None, keep_count: Some(0) },
+                dry_run: false,
+                format: SessionReportFormat::Human,
+            },
+            &mut output,
+            &mut progress,
+            &cancellation,
+        )
+        .expect("prune sessions");
+
+        let progress = String::from_utf8(progress).expect("utf8");
+        assert!(progress.contains("Moving 2 session(s) to trash..."));
+        assert!(progress.contains("Prune progress: 2/2 processed (2 moved, 0 failed)"));
+        let output = String::from_utf8(output).expect("utf8");
+        assert!(output.contains("moved 2 of 2 selected session(s)"));
+        assert!(output.contains("selected by live-session keep limit: 2"));
+        assert!(!output.contains("session-oldest"));
+        assert!(!output.contains("LiveCount"));
     }
 
     #[test]
@@ -2717,10 +2960,12 @@ for line in sys.stdin:
         run_session_rename(&session_dir, "session-nam", "Named work", &mut rename).expect("rename session");
 
         let mut list = Vec::new();
+        let mut progress = Vec::new();
         let mut show = Vec::new();
         let mut inspect = Vec::new();
         let mut export = Vec::new();
-        run_session_list(&session_dir, temp.path(), &mut list).expect("list sessions");
+        run_session_list(&session_dir, temp.path(), &mut list, &mut progress, &CancelToken::new())
+            .expect("list sessions");
         run_session_show(&session_dir, "session-named", &mut show).expect("show session");
         run_session_inspect(&session_dir, "session-named", SessionDataFormat::Json, &mut inspect).expect("inspect");
         run_session_export(&session_dir, "session-named", SessionDataFormat::Jsonl, &mut export).expect("export");

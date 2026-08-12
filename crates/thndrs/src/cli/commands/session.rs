@@ -57,7 +57,7 @@ pub enum SessionCommand {
         #[arg(long)]
         older_than: Option<u64>,
         /// Keep at least this many unprotected live sessions.
-        #[arg(long)]
+        #[arg(long, short = 'k', visible_aliases = ["keep", "k"])]
         keep_count: Option<usize>,
         /// Report the exact plan without changing storage.
         #[arg(long)]

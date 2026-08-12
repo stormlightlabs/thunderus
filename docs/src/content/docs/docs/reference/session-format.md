@@ -2,112 +2,100 @@
 title: "Session Format"
 ---
 
-Sessions are append-only JSONL files under `.thndrs/sessions/`. Each line is a
-single record with `schema_version`, `seq`, `time`, and `type`.
+Durable sessions are append-only JSONL. Each line is one record with
+`schema_version`, a session-local monotonic `seq`, an ISO 8601 UTC `time`, and a
+`type` tag. The current schema version is `1`. Appends are the only record-file
+mutation.
 
-The current schema version is `1`. `seq` is monotonic within a session. Records
-are appended and not rewritten.
+## Identity and lineage records
 
-## Record Types
+- `session_meta`: id, workspace, title, provider, model, search backend, app
+  version, and redacted effective-configuration provenance.
+- `session_renamed`: a new display title; the latest record wins.
+- `session_fork`: direct parent, settled parent turn, and the complete
+  root-to-parent lineage.
+- `acp_session`: separate local and external ACP session identities plus
+  redacted agent and protocol metadata.
 
-- `session_meta`: session id, cwd, title, provider, model, web-search backend, and
-  app version.
-- `session_fork`: parent session, settled source turn, and complete lineage for
-  a forked session.
-- `context`: loaded `AGENTS.md` metadata: path, scope, content hash,
-  truncation state, and byte count.
-- `context_ledger`, `context_pin`, `context_drop`, `context_recovery`, and
-  `context_lifecycle`: content-free context working-set and decision evidence.
-- `compaction`: an approved, redacted range summary with its covered source
-  sequences and hashes, protected facts, prior-summary references, recovery
-  handles, review state, local before/after estimates, provider usage when
-  reported, and native context-edit capability diagnostics.
-- `compaction_review`: the user's approval or rejection of a pending summary,
-  keyed by its recovery handle.
-- `user`: user prompt text and turn id.
+A fork starts with its own `session_meta` followed by one `session_fork` record.
+Inventory validates retained lineage. Missing parents, malformed chains, and
+cycles become diagnostics; they do not invalidate unrelated sessions.
+
+## Transcript and request records
+
+- `user`: prompt text and turn id.
+- `assistant_finished`: finalized replayable assistant text.
+- `reasoning_finished`: finalized replayable reasoning text.
+- `cancelled` and `failed`: terminal turn state and reason.
+- `usage`: provider token-usage increment.
+- `request_accounting`: provider-neutral serialized request measurements,
+  model projection metadata, reduction receipts, and normalized provider usage.
 - `prompt_metadata`: content-free prompt assembly metadata for one turn.
-- `assistant_finished`: final replayable assistant text.
-- `reasoning_finished`: final replayable reasoning text.
-- `usage`: provider token usage increment.
-- `request_accounting`: provider-neutral request measurements and their
-  provenance when reported.
-- `tool_started`: tool call id, tool name, and arguments.
-- `tool_finished`: tool call id, status, and capped/redacted output.
-- `file_write`: file write audit metadata.
-- `shell_exec`: shell command lifecycle metadata.
-- `mcp_config_changed`: MCP configuration file hashes and diagnostics.
-- `skill_activated`: opened skill metadata and reference hashes.
-- `queued_input`: queued steering or follow-up input audit data.
-- `acp_session`: external ACP session metadata.
-- `acp_permission_request`: ACP permission prompt metadata.
-- `acp_permission_outcome`: ACP permission outcome metadata.
-- `cancelled`: cancelled turn and reason.
-- `failed`: failed turn and error message.
-- `session_renamed`: updated session title.
 
-## File Write Records
+Streaming deltas are not session records. Only settled transcript entries are
+replayable after resume. Raw provider request and response payloads are not
+persisted by default.
 
-`file_write` stores operation type, target path, before/after content hashes,
-byte counts, and status. It does not store full file content.
+## Context records
 
-## Lineage
+- `context`: path, scope, hash, byte count, and truncation state for loaded
+  instruction sources.
+- `context_ledger`: all candidate item metadata, visibility and lifecycle,
+  budget, model-limit provenance, aggregate projection, and diagnostics for a
+  prompt turn.
+- `context_snapshot`: a versioned request-bound ledger for one provider attempt.
+  Append-only states report dispatch, completion, failure, or interruption and
+  can add serialized bytes, estimated input, transformations, and provider
+  usage as they become known.
+- `context_pin`, `context_drop`, and `context_recovery`: explicit working-set
+  actions with content-free item metadata and a redacted reason.
+- `context_lifecycle`: duplicate, supersession, summary, archive, recovery,
+  verification, protection, and release actions.
+- `compaction`: validated approved range summary, covered source sequences and
+  hashes, prior-summary ids, protected facts, recovery handles, review state,
+  local estimates, provider usage when known, and context-edit diagnostics.
+- `compaction_review`: approval or rejection of a pending summary, keyed by its
+  recovery handle.
 
-A fork begins with its own `session_meta` and adds one `session_fork` record.
-The record identifies the direct parent and settled source turn. Its `lineage`
-array contains the root-to-parent chain, including the direct parent boundary.
+Context metadata contains labels, paths, hashes, sizes, token estimates, states,
+and handles. It does not duplicate full `AGENTS.md` text or raw context bodies.
+A rejected compaction writes `compaction_review` but no `compaction` record. A
+successful compaction does not remove the covered records.
 
-Session browsing validates this chain against the retained sessions. A missing
-parent, malformed chain, or cycle is shown as diagnostic state. Valid sessions
-remain available even when another session has damaged lineage.
+## Tool and side-effect records
 
-## Compaction Records
+- `tool_started`: turn, call id, name, arguments, and optional MCP identity.
+- `tool_finished`: call id, status, capped redacted output, optional artifact,
+  and optional MCP identity.
+- `file_write`: operation, path, before and after hashes and byte counts, and
+  status. It does not store file contents.
+- `shell_exec`: command, cwd, process id when backgrounded, lifecycle status,
+  exit code, elapsed time, and one-shot/background kind.
+- `mcp_config_changed`: previous and current MCP config file hashes plus loader
+  diagnostics.
+- `skill_activated`: source and rendered hashes and sizes plus loaded reference
+  metadata.
+- `queued_input`: queue id, steering/follow-up kind, lifecycle action, and text.
+- `acp_permission_request` and `acp_permission_outcome`: redacted permission
+  options and the selected or cancelled result.
 
-A `compaction` record is written only after a typed summary has passed
-validation and any required review has been approved. The typed summary keeps
-the objective, findings, decisions, paths, failures, verification, blockers,
-protected facts, source metadata, and prior-summary ids used to derive it.
+One-shot commands have one terminal `shell_exec` record. Background commands
+have a `running` record and a later terminal record. Full stdout and stderr are
+not stored in `shell_exec`; bounded redacted output belongs to tool evidence.
+Queue records are audit history. Resume does not recreate an unsent queue after
+a crash.
 
-The record stores the model-visible redacted summary, rather than the full
-source body. Covered source records remain in the session log. Their ids,
-hashes, and recovery handles allow an inspection surface to identify the source
-range without persisting raw provider payloads. A rejected review creates a
-`compaction_review` record but no `compaction` record.
+## Artifacts and recovery
 
-## Shell Records
+Completed tool evidence may reference artifact metadata and a stable handle.
+Artifact bodies live outside JSONL, are bounded and redacted before persistence,
+and may be shared by multiple sessions. Context recovery and export can use a
+handle without replaying the original tool.
 
-`shell_exec` stores the command, working directory, optional background process
-id, process status, exit code, elapsed time, and whether the process was
-one-shot or background.
+## Storage graph
 
-One-shot commands have one terminal record.
-
-Background commands have a `running` start record followed by a terminal record when
-the owned child exits, times out, or is cancelled. Output is capped and redacted
-before it is displayed; full stdout and stderr are not stored in `shell_exec`.
-
-## ACP Records
-
-`acp_session` stores the configured ACP agent name, opaque external ACP session
-id, redacted command display, selected protocol version, and optional agent info.
-The local `thndrs` session id and the external ACP session id are stored as
-separate fields.
-
-ACP permission records store the prompt title, option metadata, and selected or
-cancelled outcome. They do not store credentials or raw protocol stdio lines.
-
-## Prompt Metadata
-
-Session context records preserve what prompt context was loaded without storing
-full `AGENTS.md` contents in metadata. Raw provider request and response payloads
-are not persisted by default.
-
-Prompt metadata also records compact self-knowledge inputs. This supports prompt
-inspection and replay audits without persisting full prompt text, project instruction
-text, or provider-private state.
-
-## Storage Graph
-
-The session application owns the files around the append-only record stream:
+For the default workspace layout, session-owned and shared state is organized
+as follows:
 
 ```text
 .thndrs/sessions/<id>.jsonl
@@ -121,20 +109,28 @@ The session application owns the files around the append-only record stream:
 .thndrs/logs/sessions/thndrs-<id>.log
 ```
 
-The archive, trash, pin, and state locations are reserved for session lifecycle
-data. The inventory scans them together with JSONL, locks, logs, and artifacts.
-Artifact bodies are measured from filesystem metadata rather than loaded. An
-artifact may be referenced by more than one live or archived session; it is
-retained and counted once until no retained session references it.
+Archive and trash move session-owned state; pins and state use sidecars.
+Inventory scans the graph without loading artifact bodies. Shared artifacts are
+counted once and remain until no live or archived session references them.
+Missing sidecars or bodies, orphan state, unreferenced artifacts, and malformed
+records produce diagnostics rather than hiding valid sessions.
 
-Missing or malformed sidecars, missing bodies, shared artifacts, orphaned
-storage, and unreferenced artifacts produce diagnostics. These diagnostics do
-not prevent valid sessions from being browsed.
+## Read, inspect, and export behavior
 
-## Inspection and Export
+Readers preserve every valid record after a malformed line. Session inspection
+and export redact secret-looking values, bound their output, and never execute a
+stored action.
 
-`thndrs sessions inspect <id> --format json` projects valid records without
-depending on the terminal renderer. `export --format jsonl` writes the same
-records one per line in sequence order. Both views redact secret-looking values
-and skip malformed lines, while preserving every valid record after a damaged
-line. They never replay a stored action.
+```sh
+thndrs sessions inspect <id> --format json
+thndrs sessions export <id> --format jsonl
+thndrs sessions export <id> --format markdown
+thndrs sessions export <id> --format html
+```
+
+JSONL export preserves valid record sequence order. JSON inspection is a stable
+renderer-independent projection. Markdown and HTML exports are bounded semantic
+review copies rather than byte-for-byte replicas of the JSONL.
+
+See [Sessions](/docs/usage/sessions/) for lifecycle and retention commands, and
+[Context](/docs/usage/context/) for working-set inspection and export.

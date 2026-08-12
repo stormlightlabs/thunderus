@@ -116,7 +116,7 @@ target under `[context.compaction]`.
 See [Configuration](/docs/reference/configuration/#context-compaction) for the supported
 settings and defaults.
 
-See the [CLI reference](/docs/reference/cli/) for `/compact`, `/context`, and context
-review commands. [Token Optimization](/docs/concepts/token-optimization/) explains how
+See the [Context guide](/docs/usage/context/) for `/compact`, working-set
+controls, verification, review, and export. [Token Optimization](/docs/concepts/token-optimization/) explains how
 semantic compaction relates to deterministic reduction, and
-[Session Format](/docs/reference/session-format/#compaction-records) documents the audit record.
+[Session Format](/docs/reference/session-format/#context-records) documents the audit record.

@@ -72,6 +72,7 @@ provider-specific names.
 | `default_workspace` | path               | current process directory           | Workspace used when `--cwd` is omitted.                                   |
 | `acp_agents`        | table              | `{}`                                | Configured external ACP agents.                                           |
 | `context`           | table              | see below                           | Context compaction and deterministic reduction settings.                  |
+| `session_retention` | table              | see below                           | Automatic session retention and trash-grace settings.                     |
 
 Relative `skill_dirs`, `session_dir`, and `default_workspace` values are
 resolved relative to the config file that declares them.
@@ -103,6 +104,24 @@ mode = "manual"
 review = "auto"
 threshold = "92%"
 keep_recent_tokens = 20000
+
+[context.reduction]
+shadow = true
+terminal_control = false
+progress_redraw = false
+blank_run = false
+repeated_line = false
+state_identical = false
+command_result = false
+failed_tool_input = false
+max_blank_lines = 1
+
+[session_retention]
+enabled = true
+max_age_days = 30
+max_live_count = 200
+min_age_days = 1
+trash_retention_days = 7
 
 [acp_agents.codex]
 command = "npx"
@@ -148,6 +167,73 @@ Compaction is separate from deterministic tool-output reduction. The latter is
 configured under `[context.reduction]` and runs without asking a model. The
 selected provider model performs semantic compaction; there is no separate
 compaction backend setting.
+
+## Context Reduction
+
+Projection reducers operate on bounded model-facing tool evidence. They do not
+rewrite session records or durable artifacts. Each reducer records a receipt
+with its version, measurements, mode, and preservation result.
+
+```toml
+[context.reduction]
+shadow = true
+terminal_control = false
+progress_redraw = false
+blank_run = false
+repeated_line = false
+state_identical = false
+command_result = false
+failed_tool_input = false
+max_blank_lines = 1
+```
+
+`shadow = true` measures disabled reducers without changing provider requests.
+It is the default. Each application switch defaults to `false`:
+
+- `terminal_control` removes ANSI and terminal control sequences while retaining
+  rendered text.
+- `progress_redraw` retains the final value from carriage-return redraws.
+- `blank_run` limits consecutive blank lines to `max_blank_lines`, which must be
+  at most `64`.
+- `repeated_line` replaces consecutive exact non-blank repetitions with one
+  counted line.
+- `state_identical` suppresses repeated evidence only when the tool adapter
+  supplies a matching state fingerprint.
+- `command_result` uses an application-owned structured projection for a
+  completed command when its operational evidence can be preserved.
+- `failed_tool_input` removes oversized failed non-command tool arguments from
+  the request only after bounded recovery evidence has been persisted.
+
+There are no bundled reduction presets. Enable only the mechanisms you want to
+apply. `/context export` includes shadow, applied, and baseline-fallback
+receipts for the selected request.
+
+## Session Retention
+
+Automatic collection uses `[session_retention]`:
+
+```toml
+[session_retention]
+enabled = true
+max_age_days = 30
+max_live_count = 200
+min_age_days = 1
+trash_retention_days = 7
+```
+
+At most once every 24 hours, collection selects unprotected live sessions older
+than `max_age_days` or in excess of `max_live_count`. It never selects the
+active session, pinned or locked sessions, corrupt records, or sessions younger
+than `min_age_days`. Selected sessions move to recoverable trash. Trash becomes
+eligible for permanent deletion after `trash_retention_days`.
+
+Set `enabled = false` to disable policy-driven live-session pruning. Explicit
+`thndrs sessions prune` overrides can still select sessions. The collection
+pass also removes expired trash, unreferenced artifacts, orphan session state,
+stale temporary files, and excess logs. Use `thndrs sessions storage` and
+`thndrs sessions prune --dry-run` to inspect the effect first.
+
+`min_age_days` must not exceed `max_age_days`.
 
 ## CLI-Only Settings
 

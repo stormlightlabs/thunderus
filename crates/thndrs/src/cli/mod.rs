@@ -1250,6 +1250,16 @@ mod tests {
             })
         ));
 
+        for keep_flag in ["--keep", "--k", "-k"] {
+            let prune = Cli::try_parse_from(["thndrs", "session", "prune", keep_flag, "50"]).expect("parse keep alias");
+            assert!(matches!(
+                prune.command,
+                Some(Command::Session {
+                    command: commands::session::SessionCommand::Prune { keep_count: Some(50), .. }
+                })
+            ));
+        }
+
         let delete = Cli::try_parse_from(["thndrs", "sessions", "delete", "session-1", "--yes", "--allow-pinned"])
             .expect("parse");
         assert!(matches!(

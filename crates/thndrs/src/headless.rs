@@ -5,13 +5,13 @@
 //! the non-interactive `thndrs run` surface.
 
 use std::io::{self, IsTerminal, Read, Write};
-use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::Serialize;
 use thndrs_agent::CancelToken;
 
 use crate::app::{self, App, Msg, RunState, update};
+use crate::cancellation;
 use crate::cli::Cli;
 use crate::cli::commands::run::{DEFAULT_STDIN_MAX_BYTES, RunCommand};
 use crate::maybe_spawn_agent;
@@ -29,9 +29,6 @@ const JSONL_SCHEMA_VERSION: u8 = 1;
 /// Largest permitted standard-input limit, so a malformed invocation
 /// cannot turn the headless command into an unbounded memory read.
 const MAX_STDIN_MAX_BYTES: usize = 16 * 1024 * 1024;
-
-static CANCELLATION: OnceLock<Mutex<Option<CancelToken>>> = OnceLock::new();
-static CTRL_C_HANDLER: OnceLock<std::result::Result<(), String>> = OnceLock::new();
 
 type Result<T> = std::result::Result<T, RunError>;
 
@@ -302,6 +299,9 @@ struct JsonPermissionOption<'a> {
 ///
 /// Other application errors use `1`.
 pub fn exit_code(error: &io::Error) -> i32 {
+    if error.kind() == io::ErrorKind::Interrupted {
+        return EXIT_CANCELLED;
+    }
     error
         .get_ref()
         .and_then(|source| source.downcast_ref::<RunError>())
@@ -313,7 +313,7 @@ pub fn run_command(cli: &Cli, command: &RunCommand) -> io::Result<()> {
     let stdin = io::stdin();
     let prompt = resolve_prompt(command, &mut stdin.lock(), stdin.is_terminal()).map_err(io::Error::other)?;
     let cancellation = CancelToken::new();
-    install_cancellation_handler(cancellation.clone())?;
+    let _registration = cancellation::register(cancellation.clone())?;
 
     let stdout = io::stdout();
     let stderr = io::stderr();
@@ -325,14 +325,13 @@ pub fn run_command(cli: &Cli, command: &RunCommand) -> io::Result<()> {
         &mut stderr.lock(),
         &cancellation,
     );
-    clear_cancellation_handler();
     result.map_err(io::Error::other)
 }
 
 /// Run one prompt through the shared lifecycle and return only assistant text.
 pub(crate) fn run_prompt_capture(cli: &Cli, prompt: &str) -> io::Result<String> {
     let cancellation = CancelToken::new();
-    install_cancellation_handler(cancellation.clone())?;
+    let _registration = cancellation::register(cancellation.clone())?;
     let mut stdout = Vec::new();
     let mut stderr = io::sink();
     let result = run_with_io(
@@ -343,38 +342,8 @@ pub(crate) fn run_prompt_capture(cli: &Cli, prompt: &str) -> io::Result<String> 
         &mut stderr,
         &cancellation,
     );
-    clear_cancellation_handler();
     result.map_err(io::Error::other)?;
     String::from_utf8(stdout).map_err(|_| io::Error::other("provider response was not valid UTF-8"))
-}
-
-/// Register Ctrl-C as cooperative cancellation for the active headless turn.
-fn install_cancellation_handler(cancellation: CancelToken) -> io::Result<()> {
-    let slot = CANCELLATION.get_or_init(|| Mutex::new(None));
-    let registration = CTRL_C_HANDLER.get_or_init(|| {
-        ctrlc::set_handler(|| {
-            let Some(slot) = CANCELLATION.get() else {
-                return;
-            };
-            let cancellation = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-            if let Some(cancellation) = cancellation {
-                cancellation.cancel();
-            }
-        })
-        .map_err(|error| error.to_string())
-    });
-    if let Err(error) = registration {
-        return Err(io::Error::other(format!("failed to register Ctrl-C handler: {error}")));
-    }
-    *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(cancellation);
-    Ok(())
-}
-
-/// Clear the active headless cancellation target after its run settles.
-fn clear_cancellation_handler() {
-    if let Some(slot) = CANCELLATION.get() {
-        *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-    }
 }
 
 /// Resolve the prompt from an optional argument and bounded piped input.
@@ -771,7 +740,13 @@ mod tests {
         }
 
         fn flush(&mut self) -> io::Result<()> {
-            if !self.cancellation_requested {
+            let status_marker = b"\"type\":\"status\"";
+            if !self.cancellation_requested
+                && self
+                    .bytes
+                    .windows(status_marker.len())
+                    .any(|window| window == status_marker)
+            {
                 self.cancellation.cancel();
                 self.cancellation_requested = true;
             }
@@ -840,6 +815,10 @@ mod tests {
         assert_eq!(Exit::Policy.code(), 3);
         assert_eq!(Exit::Cancelled.code(), 4);
         assert_eq!(exit_code(&io::Error::other("unclassified failure")), EXIT_FAILURE);
+        assert_eq!(
+            exit_code(&io::Error::new(io::ErrorKind::Interrupted, "cancelled")),
+            EXIT_CANCELLED
+        );
     }
 
     #[test]
