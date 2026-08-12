@@ -121,6 +121,18 @@ fn prompt_rows_wrap_at_visible_content_width() {
 }
 
 #[test]
+fn comfortable_prompt_keeps_the_readable_measure() {
+    let mut app = test_app();
+    app.composer.input.set_text(&"x".repeat(150));
+
+    let (rows_at_120, _) = prompt_rows_for(&app, 120);
+    let (rows_at_160, _) = prompt_rows_for(&app, 160);
+
+    assert_eq!(rows_at_120.len(), rows_at_160.len());
+    assert_eq!(rows_at_120[0].text().trim_end(), rows_at_160[0].text().trim_end());
+}
+
+#[test]
 fn frame_prompt_rows_adds_borderless_metadata_and_offsets_cursor() {
     let mut app = test_app();
     app.session.id = "test-session".to_string();

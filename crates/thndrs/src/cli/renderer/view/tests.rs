@@ -171,11 +171,12 @@ fn build_view_streaming_assistant_is_all_live() {
         "live_rows should contain the mutable tail"
     );
     assert!(
-        view.transcript
+        !view
+            .transcript
             .live_rows
             .iter()
             .any(|row| row.text().contains("Response")),
-        "live_rows should contain the response header"
+        "live_rows should not add a response header"
     );
 }
 
@@ -225,11 +226,12 @@ fn build_view_streaming_assistant_short_block_is_all_live() {
     let view = RendererView::build(&app, 80, 24);
 
     assert!(
-        view.transcript
+        !view
+            .transcript
             .live_rows
             .iter()
             .any(|row| row.text().contains("Response")),
-        "live_rows should contain the response header for a short block"
+        "live_rows should not add a response header for a short block"
     );
     assert!(
         view.transcript.live_rows.iter().any(|row| row.text().contains("short")),

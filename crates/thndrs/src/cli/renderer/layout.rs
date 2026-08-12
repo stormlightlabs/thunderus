@@ -9,14 +9,63 @@ use crate::utils;
 use super::style::{CellStyle, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
+const CONTENT_INSET: usize = 2;
+const MAX_PROSE_WIDTH: usize = 116;
+
+/// Amount of secondary UI chrome appropriate for the current terminal width.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Density {
+    Cramped,
+    Compact,
+    Comfortable,
+}
+
+/// Pure width projection shared by transcript and live UI surfaces.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UiGeometry {
+    density: Density,
+    technical_width: usize,
+    prose_width: usize,
+}
+
+impl UiGeometry {
+    /// Project terminal width into density and content measures.
+    pub fn new(max_width: usize) -> Self {
+        let left_inset = max_width.min(CONTENT_INSET);
+        let right_inset = max_width.saturating_sub(left_inset).min(CONTENT_INSET);
+        let technical_width = max_width.saturating_sub(left_inset + right_inset);
+        let density = if max_width >= 120 {
+            Density::Comfortable
+        } else if max_width >= 80 {
+            Density::Compact
+        } else {
+            Density::Cramped
+        };
+        Self { density, technical_width, prose_width: technical_width.min(MAX_PROSE_WIDTH) }
+    }
+
+    /// Density bucket used to suppress secondary chrome.
+    pub fn density(self) -> Density {
+        self.density
+    }
+
+    /// Width available to code, tables, logs, and detail surfaces.
+    pub fn technical_width(self) -> usize {
+        self.technical_width
+    }
+
+    /// Readable width available to prose and editable input.
+    pub fn prose_width(self) -> usize {
+        self.prose_width
+    }
+}
+
 /// Maximum width usable for body content inside a padded block.
 ///
 /// Uses two-cell left / two-cell right block padding used so
 /// transcript rows line up with the live region.
 pub fn content_width(max_width: usize) -> usize {
-    let left_pad = max_width.min(2);
-    let right_pad = max_width.saturating_sub(left_pad).min(2);
-    max_width.saturating_sub(left_pad + right_pad)
+    UiGeometry::new(max_width).technical_width()
 }
 
 /// Word-wrap plain text into rows no wider than `width`.
@@ -259,6 +308,22 @@ mod tests {
         assert_eq!(content_width(4), 0);
         assert_eq!(content_width(0), 0);
         assert_eq!(content_width(6), 2);
+    }
+
+    #[test]
+    fn ui_geometry_projects_density_and_content_rails() {
+        assert_eq!(UiGeometry::new(64).density(), Density::Cramped);
+        assert_eq!(UiGeometry::new(80).density(), Density::Compact);
+        assert_eq!(UiGeometry::new(120).density(), Density::Comfortable);
+        assert_eq!(UiGeometry::new(160).density(), Density::Comfortable);
+        assert_eq!(UiGeometry::new(80).technical_width(), 76);
+    }
+
+    #[test]
+    fn ui_geometry_caps_prose_but_keeps_technical_surfaces_wide() {
+        let geometry = UiGeometry::new(160);
+        assert_eq!(geometry.prose_width(), 116);
+        assert_eq!(geometry.technical_width(), 156);
     }
 
     #[test]

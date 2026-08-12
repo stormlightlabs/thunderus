@@ -44,7 +44,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     };
 
     let prefix_width = if app.composer.mode == Mode::Command { 4 } else { 3 };
-    let row_body_width = super::layout::content_width(width);
+    let row_body_width = super::layout::UiGeometry::new(width).prose_width();
     let body_width = row_body_width.saturating_sub(LIVE_INSET + prefix_width).max(1);
     let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
     let hidden_entry = app.overlay.setup().filter(|recovery| {

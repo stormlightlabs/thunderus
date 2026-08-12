@@ -131,7 +131,7 @@ fn snapshot_user_message_narrow() {
 }
 
 #[test]
-fn user_message_has_balanced_vertical_padding() {
+fn user_message_uses_one_leading_spacer_between_turns() {
     let entry = Entry::User { text: "hello".to_string() };
     let rows = ctx(80).rows_for_entry(&entry);
     assert!(
@@ -139,8 +139,8 @@ fn user_message_has_balanced_vertical_padding() {
         "user block should start with vertical padding"
     );
     assert!(
-        rows.last().is_some_and(|row| row.text().trim().is_empty()),
-        "user block should end with vertical padding"
+        rows.last().is_some_and(|row| !row.text().trim().is_empty()),
+        "user block should not add a second trailing spacer"
     );
 }
 
@@ -215,6 +215,22 @@ fn ordinary_markdown_code_fence_is_highlighted_and_wrapped() {
         rendered.contains("[fg=#b48ead]=fn"),
         "ordinary Markdown code fences should highlight Rust keywords: {rendered}"
     );
+}
+
+#[test]
+fn comfortable_layout_caps_prose_and_preserves_wide_code() {
+    let prose = Entry::Agent { text: "word ".repeat(80), streaming: false };
+    let prose_at_120 = ctx(120).rows_for_entry(&prose).len();
+    let prose_at_160 = ctx(160).rows_for_entry(&prose).len();
+    assert_eq!(
+        prose_at_120, prose_at_160,
+        "wide terminals should keep the readable prose measure"
+    );
+
+    let code = Entry::Agent { text: format!("```text\n{}\n```", "x".repeat(130)), streaming: false };
+    let code_at_120 = ctx(120).rows_for_entry(&code).len();
+    let code_at_160 = ctx(160).rows_for_entry(&code).len();
+    assert!(code_at_160 < code_at_120, "technical content should use the wider rail");
 }
 
 #[test]
@@ -616,7 +632,7 @@ fn snapshot_startup_banner_with_context_and_diagnostics() {
 }
 
 #[test]
-fn banner_keeps_skill_diagnostics_out_of_the_attention_block() {
+fn banner_promotes_skill_diagnostics_without_exposing_paths() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.transcript.skill_diagnostics = vec![SkillDiagnostic {
@@ -626,13 +642,13 @@ fn banner_keeps_skill_diagnostics_out_of_the_attention_block() {
 
     let rendered = render_banner_styled(&app, 80);
 
-    assert!(rendered.contains("skills available · 1 skipped"));
-    assert!(!rendered.contains("ATTENTION"));
-    assert!(!rendered.contains("invalid YAML frontmatter"));
+    assert!(rendered.contains("ATTENTION"));
+    assert!(rendered.contains("Skill skipped (bad): invalid YAML frontmatter"));
+    assert!(!rendered.contains("/Users/test"));
 }
 
 #[test]
-fn banner_context_section_shows_agents_md_not_full_path() {
+fn banner_hides_routine_context_inventory() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.transcript.context_sources = vec![ContextSource {
@@ -647,13 +663,13 @@ fn banner_context_section_shows_agents_md_not_full_path() {
     let rendered = render_banner_styled(&app, 80);
 
     assert!(
-        rendered.contains("AGENTS.md"),
-        "Context section should show AGENTS.md:\n{rendered}"
+        !rendered.contains("AGENTS.md"),
+        "routine context should stay quiet:\n{rendered}"
     );
 }
 
 #[test]
-fn banner_context_section_keeps_truncated_source_compact() {
+fn banner_hides_context_metadata_even_when_source_was_truncated() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.transcript.context_sources = vec![ContextSource {
@@ -668,17 +684,10 @@ fn banner_context_section_keeps_truncated_source_compact() {
     let rendered = render_banner_styled(&app, 80);
 
     assert!(
-        rendered.contains("AGENTS.md loaded"),
-        "context source should remain readable:\n{rendered}"
+        !rendered.contains("AGENTS.md"),
+        "routine context should stay quiet:\n{rendered}"
     );
-    assert!(
-        rendered.contains("./AGENTS.md"),
-        "context path should remain visible:\n{rendered}"
-    );
-    assert!(
-        !rendered.contains("40000 bytes"),
-        "readiness row should remain compact:\n{rendered}"
-    );
+    assert!(!rendered.contains("40000 bytes"));
 }
 
 #[test]
@@ -697,8 +706,8 @@ fn banner_keeps_skipped_skill_diagnostics_compact() {
     let rendered = render_banner_styled(&app, 80);
 
     assert!(
-        rendered.contains("1 skipped"),
-        "banner should summarize skipped skills:\n{rendered}"
+        rendered.contains("Skill skipped (bad): invalid YAML frontmatter: unknown field"),
+        "banner should explain the actionable warning:\n{rendered}"
     );
     assert!(
         !rendered.contains(&home_path.display().to_string()),
@@ -707,7 +716,23 @@ fn banner_keeps_skipped_skill_diagnostics_compact() {
 }
 
 #[test]
-fn banner_no_duplicate_context_loaded_status_entry() {
+fn banner_shows_actionable_context_diagnostics() {
+    let _guard = crate::test_env::lock();
+    let mut app = test_app();
+    app.transcript.context_diagnostics = vec![crate::context::InstructionDiagnostic::unreadable(
+        &app.runtime.cwd.join("nested/AGENTS.md"),
+        "permission denied",
+    )];
+
+    let rendered = render_banner_styled(&app, 80);
+
+    assert!(rendered.contains("ATTENTION"));
+    assert!(rendered.contains("failed to read AGENTS.md: permission denied"));
+    assert!(rendered.contains("nested/AGENTS.md"));
+}
+
+#[test]
+fn banner_does_not_emit_context_loaded_status() {
     let mut app = test_app();
     app.transcript.context_sources = vec![ContextSource {
         path: app.runtime.cwd.join("AGENTS.md"),
@@ -725,21 +750,13 @@ fn banner_no_duplicate_context_loaded_status_entry() {
 
     let rendered = render_banner_styled(&app, 80);
     assert!(
-        rendered.contains("AGENTS.md loaded"),
-        "banner should show context readiness:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("AGENTS.md"),
-        "Context section should list the AGENTS.md source:\n{rendered}"
-    );
-    assert!(
-        !rendered.contains("loaded AGENTS.md"),
-        "banner should not duplicate the old context status wording:\n{rendered}"
+        !rendered.contains("AGENTS.md"),
+        "banner should omit routine context:\n{rendered}"
     );
 }
 
 #[test]
-fn banner_summarizes_loaded_skills_as_readiness() {
+fn banner_hides_routine_skill_inventory() {
     let mut app = test_app();
     app.transcript.skills = [
         "make-interfaces-feel-better",
@@ -758,12 +775,8 @@ fn banner_summarizes_loaded_skills_as_readiness() {
     let rendered = render_banner_styled(&app, 80);
 
     assert!(
-        rendered.contains("8 skills available"),
-        "banner should show the skill count:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("skills"),
-        "banner should label skill readiness:\n{rendered}"
+        !rendered.contains("8 skills available"),
+        "routine inventory should stay quiet:\n{rendered}"
     );
     assert!(
         !rendered.contains("make-interfaces"),
@@ -1011,17 +1024,10 @@ fn entry_rows_omit_group_id_when_entry_index_none() {
 }
 
 #[test]
-fn banner_normal_viewport_shows_all_sections() {
+fn banner_normal_viewport_shows_identity_orientation_and_help() {
     let app = test_app();
     let rendered = render_banner_styled(&app, 80);
-    for section in [
-        "thndrs / ready",
-        "Ask for change, run a command, or inspect the repo.",
-        "No project instructions",
-        "skills",
-        "Web Search",
-        "duckduckgo",
-    ] {
+    for section in ["thndrs / ready", "Ask for change, run a command, or inspect the repo."] {
         assert!(
             rendered.contains(section),
             "normal viewport should show {section}:\n{rendered}"
@@ -1029,7 +1035,14 @@ fn banner_normal_viewport_shows_all_sections() {
     }
 
     assert!(rendered.contains("help"), "banner should show help row");
-    assert!(rendered.contains("/model"), "banner should show model switcher row");
+    assert!(
+        !rendered.contains("/model"),
+        "banner should defer full discovery to help"
+    );
+    assert!(
+        !rendered.contains("Web Search"),
+        "routine provider metadata should stay quiet"
+    );
 }
 
 #[test]
@@ -1049,30 +1062,25 @@ fn banner_ends_with_a_transparent_spacer_below_shortcuts() {
 }
 
 #[test]
-fn banner_search_metadata_uses_quiet_color() {
+fn banner_hides_routine_search_metadata() {
     let app = test_app();
     let rows = app.render_banner_rows(80);
-    let search = rows
-        .iter()
-        .find(|row| row.text().contains("Web Search"))
-        .expect("search readiness row");
-
-    let label = search
-        .spans
-        .iter()
-        .find(|span| span.text == "duckduckgo")
-        .expect("search metadata span");
-    assert_eq!(label.style.fg, renderer::style::palette().overlay1);
+    assert!(rows.iter().all(|row| !row.text().contains("Web Search")));
+    assert!(rows.iter().all(|row| !row.text().contains("duckduckgo")));
 }
 
 #[test]
-fn banner_narrow_viewport_preserves_sections() {
+fn banner_cramped_viewport_preserves_primary_content_only() {
     let app = test_app();
     let rendered = render_banner_styled(&app, 40);
 
     assert!(rendered.contains("thndrs"), "narrow viewport should show identity");
     assert!(
-        rendered.contains("No project instructions"),
-        "narrow viewport should show context readiness"
+        rendered.contains("Ask for change"),
+        "narrow viewport should show orientation"
+    );
+    assert!(
+        !rendered.contains("? help"),
+        "cramped viewport should hide the secondary hint"
     );
 }

@@ -3,10 +3,10 @@ source: crates/thndrs/src/cli/renderer/alternate.rs
 expression: rendered
 ---
 normal (80x12):
+
+    User (owais)
     Explain the renderer migration.
 
-
-    Response
     Ratatui now owns the bounded terminal frame.
 
     test-session
@@ -28,7 +28,7 @@ narrow (32x9):
 
 
 monochrome (48x10):
-    Response
+
     Ratatui now owns the bounded terminal
     frame.
 

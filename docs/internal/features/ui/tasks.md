@@ -2,31 +2,31 @@
 
 ## UI-1: Establish shared geometry and density
 
-- [ ] Add one pure layout projection for comfortable, compact, and cramped
+- [x] Add one pure layout projection for comfortable, compact, and cramped
       density, shared content rails, readable prose width, and wide technical
       surfaces.
-- [ ] Apply it to startup, transcript, live composer, status, and focused
+- [x] Apply it to startup, transcript, live composer, status, and focused
       details without creating a second rendering path.
-- [ ] Let code, diffs, tables, logs, and details use extra width while ordinary
+- [x] Let code, diffs, tables, logs, and details use extra width while ordinary
       prose stays within roughly 100–120 columns.
-- [ ] Hide or shorten low-value metadata before truncating primary content or
+- [x] Hide or shorten low-value metadata before truncating primary content or
       controls.
-- [ ] Cover rail, wrapping, and density decisions at 80, 120, and 160 columns
+- [x] Cover rail, wrapping, and density decisions at 80, 120, and 160 columns
       plus one sub-80 width.
 
 ## UI-2: Clarify startup and conversation hierarchy
 
 **Blocked by:** UI-1.
 
-- [ ] Reduce normal startup to identity, actionable warnings, and one short
+- [x] Reduce normal startup to identity, actionable warnings, and one short
       orientation line; keep diagnostic context available when it matters.
-- [ ] Give user turns a clear but light anchor, keep assistant prose primary,
+- [x] Give user turns a clear but light anchor, keep assistant prose primary,
       and suppress redundant system or operational entries.
-- [ ] Normalize vertical rhythm between turns, reasoning, activity, errors,
+- [x] Normalize vertical rhythm between turns, reasoning, activity, errors,
       code, and lists with one small spacing vocabulary.
-- [ ] Reduce persistent shortcut copy to the minimum useful hint and leave full
+- [x] Reduce persistent shortcut copy to the minimum useful hint and leave full
       discovery in the existing help and command surfaces.
-- [ ] Preserve Markdown, code, table, citation, selection, and scroll behavior
+- [x] Preserve Markdown, code, table, citation, selection, and scroll behavior
       while updating focused transcript snapshots.
 
 ## UI-3: Compose the bottom action area

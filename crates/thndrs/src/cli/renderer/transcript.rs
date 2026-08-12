@@ -166,13 +166,14 @@ struct StartupBannerTheme {
     muted_style: CellStyle,
     hint_style: CellStyle,
     rail_style: CellStyle,
-    success_style: CellStyle,
     meta_style: CellStyle,
 }
 
 impl StartupBannerTheme {
     fn body_width(self) -> usize {
-        super::layout::content_width(self.width).saturating_sub(3)
+        super::layout::UiGeometry::new(self.width)
+            .prose_width()
+            .saturating_sub(3)
     }
 }
 
@@ -853,17 +854,31 @@ impl App {
             muted_style: CellStyle::new().fg(p.subtext0).bg(bg),
             hint_style: CellStyle::new().fg(p.yellow).bg(bg).bold(),
             rail_style: CellStyle::new().fg(p.overlay0).bg(bg),
-            success_style: CellStyle::new().fg(p.green).bg(bg),
             meta_style: CellStyle::new().fg(p.overlay1).bg(bg),
         };
         let snapshot = self.self_knowledge_snapshot();
         let sections = snapshot.startup_sections();
-        let context_lines = self.startup_section_lines(&sections, "Context");
-        let diagnostics = self
+        let mut diagnostics = self
             .startup_section_lines(&sections, "Diagnostics")
             .into_iter()
             .skip(self.transcript.skill_diagnostics.len())
             .collect::<Vec<_>>();
+        diagnostics.extend(
+            self.transcript
+                .context_diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity != crate::context::InstructionSeverity::Info)
+                .map(|diagnostic| super::path_display::transcript_line(&diagnostic.summary(), &self.runtime.cwd)),
+        );
+        diagnostics.extend(self.transcript.skill_diagnostics.iter().map(|diagnostic| {
+            let name = diagnostic
+                .path
+                .parent()
+                .and_then(std::path::Path::file_name)
+                .and_then(std::ffi::OsStr::to_str)
+                .unwrap_or("unknown");
+            format!("Skill skipped ({name}): {}", diagnostic.message)
+        }));
 
         let mut rows = Vec::new();
         push_banner_brand_row(&mut rows, theme);
@@ -874,30 +889,6 @@ impl App {
             theme,
             theme.muted_style,
         );
-        rows.push(Row::blank(width, CellStyle::new()));
-
-        let context_ready = context_lines.iter().any(|line| line != "(none)");
-        let context_text = readiness_context_text(&context_lines);
-        let context_path = context_lines
-            .iter()
-            .find(|line| line.as_str() != "(none)")
-            .map(|line| readiness_context_path(line))
-            .unwrap_or_else(|| "—".to_string());
-        push_banner_readiness_row(&mut rows, &context_text, &context_path, context_ready, theme);
-
-        let skill_count = snapshot.inventory.references.skills.len();
-        let mut skills_text = match skill_count {
-            0 => "No skills available".to_string(),
-            1 => "1 skill available".to_string(),
-            count => format!("{count} skills available"),
-        };
-        if !self.transcript.skill_diagnostics.is_empty() {
-            skills_text.push_str(&format!(" · {} skipped", self.transcript.skill_diagnostics.len()));
-        }
-        push_banner_readiness_row(&mut rows, &skills_text, "skills", skill_count > 0, theme);
-
-        let search_mode = snapshot.runtime.provider.search.mode.as_str();
-        push_banner_readiness_row(&mut rows, "Web Search", search_mode, true, theme);
 
         if diagnostics.iter().any(|line| line != "(none)") {
             rows.push(Row::blank(width, CellStyle::new()));
@@ -908,7 +899,9 @@ impl App {
         }
 
         rows.push(Row::blank(width, CellStyle::new()));
-        push_banner_help(&mut rows, theme);
+        if super::layout::UiGeometry::new(width).density() != super::layout::Density::Cramped {
+            push_banner_help(&mut rows, theme);
+        }
         rows.push(Row::blank(width, CellStyle::new()));
         rows
     }
@@ -1004,27 +997,6 @@ fn wrap_with_indent(text: &str, indent: BannerIndent, width: usize) -> Vec<Strin
     out
 }
 
-fn readiness_context_text(lines: &[String]) -> String {
-    let visible = lines
-        .iter()
-        .filter(|line| line.as_str() != "(none)")
-        .collect::<Vec<_>>();
-    let Some(first) = visible.first() else {
-        return "No project instructions".to_string();
-    };
-    let path = first.split(" (truncated").next().unwrap_or(first);
-    let name = Path::new(path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(path);
-    format!("{name} loaded")
-}
-
-fn readiness_context_path(line: &str) -> String {
-    let path = line.split(" (truncated").next().unwrap_or(line);
-    if Path::new(path).components().count() == 1 { format!("./{path}") } else { path.to_string() }
-}
-
 fn push_banner_brand_row(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
     rows.push(Row::padded(
         vec![
@@ -1035,33 +1007,6 @@ fn push_banner_brand_row(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
         theme.width,
         CellStyle::new(),
     ));
-}
-
-fn push_banner_readiness_row(rows: &mut Vec<Row>, text: &str, meta: &str, ready: bool, theme: StartupBannerTheme) {
-    let prefix_width = utils::text_width("    ✓ ");
-    let available = theme.body_width().saturating_sub(prefix_width).max(1);
-    let wrapped = super::layout::wrap_text(text, available);
-    for (index, line) in wrapped.into_iter().enumerate() {
-        let marker = if index == 0 { if ready { "✓ " } else { "· " } } else { "  " };
-        let marker_style = if ready { theme.success_style } else { theme.muted_style };
-        let mut spans = vec![
-            Span::styled("    ", theme.rail_style),
-            Span::styled(marker, marker_style),
-            Span::styled(line, theme.muted_style),
-        ];
-        if index == 0 {
-            let used = super::layout::spans_width(&spans);
-            let meta_width = utils::text_width(meta);
-            if used + meta_width + 2 <= theme.body_width() {
-                spans.push(Span::styled(
-                    " ".repeat(theme.body_width() - used - meta_width),
-                    theme.muted_style,
-                ));
-                spans.push(Span::styled(meta, theme.meta_style));
-            }
-        }
-        rows.push(Row::padded(spans, theme.width, CellStyle::new()));
-    }
 }
 
 fn push_banner_attention_heading(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
@@ -1079,11 +1024,7 @@ fn push_banner_help(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
     let spans = vec![
         Span::styled("  ", theme.rail_style),
         Span::styled("?", theme.hint_style),
-        Span::styled(" help   ", theme.muted_style),
-        Span::styled("/model", theme.hint_style),
-        Span::styled(" switch   ", theme.muted_style),
-        Span::styled("/search", theme.hint_style),
-        Span::styled(" configure", theme.muted_style),
+        Span::styled(" help", theme.muted_style),
     ];
     for line in super::layout::wrap_spans(&spans, theme.body_width()) {
         rows.push(Row::padded(line, theme.width, CellStyle::new()));
@@ -1170,23 +1111,22 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
     let p = super::style::palette();
     let bg = Color::Reset;
     let width = context.width;
-    let body_width = super::layout::content_width(width);
-    let railed_body_width = body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
+    let geometry = super::layout::UiGeometry::new(width);
+    let body_width = geometry.technical_width();
+    let railed_body_width = geometry.prose_width().saturating_sub(utils::text_width(ENTRY_RAIL));
+    let railed_technical_width = body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
 
     match entry {
         Entry::User { text } => {
             let rail_style = CellStyle::new().fg(p.blue).bg(bg).bold();
             let label_style = CellStyle::new().fg(p.blue).bg(bg).bold();
-            let text_style = CellStyle::new().fg(p.subtext0).bg(bg).italic();
-            let mut rows = LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
-                .build(context.user_label, text);
-            rows.push(Row::blank(width, CellStyle::new().bg(bg)));
-            rows
+            let text_style = CellStyle::new().fg(p.subtext0).bg(bg);
+            LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
+                .build(context.user_label, text)
         }
         Entry::Agent { text, .. } => {
             let rail_style = CellStyle::new().fg(p.green).bg(bg).bold();
-            let label_style = CellStyle::new().fg(p.green).bg(bg).bold();
-            assistant_block_rows(text, rail_style, label_style, bg, width, railed_body_width)
+            assistant_block_rows(text, rail_style, bg, width, railed_body_width, railed_technical_width)
         }
         Entry::Reasoning { text, streaming } => {
             let rail_style = CellStyle::new().fg(p.mauve).bg(bg).bold();
@@ -1252,28 +1192,24 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
 
 /// Build an assistant message block, detecting markdown code fences for syntax highlighting.
 fn assistant_block_rows(
-    text: &str, rail_style: CellStyle, label_style: CellStyle, bg: Color, width: usize, body_width: usize,
+    text: &str, rail_style: CellStyle, bg: Color, width: usize, prose_width: usize, technical_width: usize,
 ) -> Vec<Row> {
     let p = super::style::palette();
     let text_style = CellStyle::new().fg(p.text).bg(bg);
-    let mut rows = vec![
-        Row::blank(width, CellStyle::new().bg(bg)),
-        Row::padded(
-            vec![
-                Span::styled(ENTRY_RAIL, rail_style),
-                Span::styled("Response".to_string(), label_style),
-            ],
-            width,
-            CellStyle::new().bg(bg),
-        ),
-    ];
+    let mut rows = vec![Row::blank(width, CellStyle::new().bg(bg))];
 
     match assistant_markdown_body(text) {
         Some(markdown) => rows.extend(render_markdown_body(
-            markdown, rail_style, text_style, bg, width, body_width,
+            markdown,
+            rail_style,
+            text_style,
+            bg,
+            width,
+            prose_width,
+            technical_width,
         )),
         None => {
-            for line in super::layout::wrap_text(text, body_width) {
+            for line in super::layout::wrap_text(text, prose_width) {
                 match line.is_empty() {
                     true => rows.push(Row::blank(width, CellStyle::new().bg(bg))),
                     false => rows.push(Row::padded(
@@ -1286,7 +1222,7 @@ fn assistant_block_rows(
         }
     }
 
-    if rows.len() == 2 {
+    if rows.len() == 1 {
         rows.push(Row::blank(width, CellStyle::new().bg(bg)));
     }
     rows
@@ -1319,11 +1255,12 @@ fn strip_outer_markdown_fence(text: &str) -> Option<&str> {
 
 /// Render markdown body with code fence detection and syntax highlighting.
 fn render_markdown_body(
-    markdown: &str, rail_style: CellStyle, text_style: CellStyle, bg: Color, width: usize, body_width: usize,
+    markdown: &str, rail_style: CellStyle, text_style: CellStyle, bg: Color, width: usize, prose_width: usize,
+    technical_width: usize,
 ) -> Vec<Row> {
     let p = super::style::palette();
     let gutter_style = CellStyle::new().fg(p.overlay0).bg(bg);
-    let code_width = body_width.saturating_sub(utils::text_width(GUTTER));
+    let code_width = technical_width.saturating_sub(utils::text_width(GUTTER));
     let mut rows = Vec::new();
     let mut in_code_fence = false;
     let mut code_lang: Option<String> = None;
@@ -1340,7 +1277,7 @@ fn render_markdown_body(
                 text_style,
                 bg,
                 width,
-                body_width,
+                prose_width,
             );
             if !in_code_fence {
                 in_code_fence = true;
@@ -1379,7 +1316,7 @@ fn render_markdown_body(
                 }
             }
             if table.is_valid() {
-                rows.extend(table.render(rail_style, bg, width, body_width));
+                rows.extend(table.render(rail_style, bg, width, technical_width));
                 continue;
             }
             pending_plain.push(header);
@@ -1396,7 +1333,7 @@ fn render_markdown_body(
         text_style,
         bg,
         width,
-        body_width,
+        prose_width,
     );
 
     if in_code_fence && !code_buf.is_empty() {
