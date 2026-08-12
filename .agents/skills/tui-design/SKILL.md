@@ -51,7 +51,7 @@ Follow the established flow:
 application state -> RendererView -> semantic surfaces/rows -> Ratatui frame -> Crossterm
 ```
 
-Keep state transitions outside rendering and keep layout, wrapping, truncation, and semantic projection pure where practical. Reuse the current renderer modules before adding abstractions or crates.
+Keep state transitions outside rendering and keep layout, wrapping, truncation, and semantic projection pure where practical. Reuse the current renderer modules before adding abstractions or crates. For editable text, derive rendered wrapping and cursor coordinates from the same layout, and prefer word boundaries with grapheme splitting only for overlong words.
 
 Read [references/ratatui-engineering.md](references/ratatui-engineering.md) only when changing terminal lifecycle, event handling, animation, themes, Unicode layout, dependencies, performance, or renderer boundaries.
 

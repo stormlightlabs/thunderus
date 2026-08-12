@@ -21,6 +21,11 @@ use crate::utils;
 use super::row::CursorCoord;
 use unicode_segmentation::UnicodeSegmentation;
 
+struct PromptLayout {
+    rows: Vec<String>,
+    cursor_positions: Vec<CursorCoord>,
+}
+
 /// Compute the `(row, col)` coordinate of the cursor in the prompt's visual
 /// rows.
 ///
@@ -32,33 +37,9 @@ use unicode_segmentation::UnicodeSegmentation;
 /// The returned column is relative to the start of the visual row including the
 /// indent, i.e. it is the absolute column where the cursor should be placed.
 pub fn prompt_cursor(text: &str, cursor: usize, body_width: usize, indent: usize) -> CursorCoord {
-    let body_width = body_width.max(1);
-    let mut row = 0usize;
-    let mut col = indent;
-    let mut pos = 0usize;
-
-    for grapheme in text.graphemes(true) {
-        if pos == cursor {
-            return CursorCoord { row, col };
-        }
-
-        if grapheme.contains('\n') {
-            row += 1;
-            col = indent;
-            pos += 1;
-            continue;
-        }
-
-        let g_width = utils::grapheme_width(grapheme);
-        if col - indent + g_width > body_width {
-            row += 1;
-            col = indent;
-        }
-        col += g_width;
-        pos += 1;
-    }
-
-    CursorCoord { row, col }
+    let layout = prompt_layout(text, body_width, indent);
+    let cursor = cursor.min(layout.cursor_positions.len().saturating_sub(1));
+    layout.cursor_positions[cursor]
 }
 
 /// Decompose prompt text into visual rows of text (without the indent) for
@@ -68,27 +49,93 @@ pub fn prompt_cursor(text: &str, cursor: usize, body_width: usize, indent: usize
 /// Each returned string is the content of one visual row; the caller adds the
 /// indent prefix. Explicit `\n` characters are not included in the output.
 pub fn prompt_rows(text: &str, body_width: usize) -> Vec<String> {
-    let body_width = body_width.max(1);
-    let mut rows = Vec::new();
-    let mut current = String::new();
-    let mut current_width = 0usize;
+    prompt_layout(text, body_width, 0).rows
+}
 
-    for grapheme in text.graphemes(true) {
+fn prompt_layout(text: &str, body_width: usize, indent: usize) -> PromptLayout {
+    let body_width = body_width.max(1);
+    let graphemes = text.graphemes(true).collect::<Vec<_>>();
+    let mut rows = vec![String::new()];
+    let mut cursor_positions = vec![CursorCoord { row: 0, col: indent }; graphemes.len() + 1];
+    let mut row = 0usize;
+    let mut row_width = 0usize;
+    let mut index = 0usize;
+
+    while index < graphemes.len() {
+        let grapheme = graphemes[index];
         if grapheme.contains('\n') {
-            rows.push(std::mem::take(&mut current));
-            current_width = 0;
+            row += 1;
+            rows.push(String::new());
+            row_width = 0;
+            index += 1;
+            cursor_positions[index] = CursorCoord { row, col: indent };
             continue;
         }
-        let g_width = utils::grapheme_width(grapheme);
-        if current_width > 0 && current_width + g_width > body_width {
-            rows.push(std::mem::take(&mut current));
-            current_width = 0;
+
+        if grapheme.chars().all(char::is_whitespace) {
+            append_grapheme(
+                grapheme,
+                index,
+                body_width,
+                indent,
+                &mut rows,
+                &mut cursor_positions,
+                &mut row,
+                &mut row_width,
+            );
+            index += 1;
+            continue;
         }
-        current.push_str(grapheme);
-        current_width += g_width;
+
+        let word_end = graphemes[index..]
+            .iter()
+            .position(|part| part.contains('\n') || part.chars().all(char::is_whitespace))
+            .map_or(graphemes.len(), |offset| index + offset);
+        let word_width = graphemes[index..word_end]
+            .iter()
+            .map(|part| utils::grapheme_width(part))
+            .sum::<usize>();
+
+        if row_width > 0 && row_width + word_width > body_width {
+            row += 1;
+            rows.push(String::new());
+            row_width = 0;
+            cursor_positions[index] = CursorCoord { row, col: indent };
+        }
+
+        while index < word_end {
+            append_grapheme(
+                graphemes[index],
+                index,
+                body_width,
+                indent,
+                &mut rows,
+                &mut cursor_positions,
+                &mut row,
+                &mut row_width,
+            );
+            index += 1;
+        }
     }
-    rows.push(current);
-    rows
+
+    PromptLayout { rows, cursor_positions }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_grapheme(
+    grapheme: &str, index: usize, body_width: usize, indent: usize, rows: &mut Vec<String>,
+    cursor_positions: &mut [CursorCoord], row: &mut usize, row_width: &mut usize,
+) {
+    let grapheme_width = utils::grapheme_width(grapheme);
+    if *row_width > 0 && *row_width + grapheme_width > body_width {
+        *row += 1;
+        rows.push(String::new());
+        *row_width = 0;
+    }
+
+    rows[*row].push_str(grapheme);
+    *row_width += grapheme_width;
+    cursor_positions[index + 1] = CursorCoord { row: *row, col: indent + *row_width };
 }
 
 #[cfg(test)]
@@ -207,6 +254,18 @@ mod tests {
     fn prompt_rows_wrapped() {
         let rows = prompt_rows("abcdef", 3);
         assert_eq!(rows, vec!["abc", "def"]);
+    }
+
+    #[test]
+    fn prompt_rows_wrap_at_word_boundaries() {
+        let rows = prompt_rows("hello brave world", 11);
+        assert_eq!(rows, vec!["hello brave", " world"]);
+    }
+
+    #[test]
+    fn cursor_follows_word_wrapping() {
+        let coord = prompt_cursor("hello world", 8, 8, 3);
+        assert_eq!(coord, CursorCoord { row: 1, col: 5 });
     }
 
     #[test]
