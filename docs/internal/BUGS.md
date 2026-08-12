@@ -1,6 +1,5 @@
 # Bugs
 
-- [ ] Steering prompts show up as "queued steering" but should just show "Steering"
 - [ ] The transcript should be copyable with a small indicator/toast message in the status
       line that disappears after a few seconds.
 - [ ] We need to either clean-up ANSI escape codes or show colors in output (this is most

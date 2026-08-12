@@ -618,6 +618,24 @@ fn build_view_queued_summary_appears_when_prompts_queued() {
 }
 
 #[test]
+fn build_view_steering_summary_uses_plain_label() {
+    let mut app = test_app();
+    app.runtime.run_state = RunState::Working;
+    app.composer
+        .queue
+        .push(QueueTarget::Steering, "look at tests".to_string(), "test".to_string());
+
+    let view = RendererView::build(&app, 80, 24);
+    let summary = view
+        .live
+        .queued_summary
+        .as_ref()
+        .expect("steering summary should be present");
+
+    assert_eq!(summary.text().trim(), "Steering");
+}
+
+#[test]
 fn build_view_queued_summary_absent_when_nothing_queued() {
     let app = test_app();
     let view = RendererView::build(&app, 80, 24);

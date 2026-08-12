@@ -183,7 +183,7 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
     Vec::new()
 }
 
-/// Build a queued-prompt summary row when steering or follow-up prompts are pending.
+/// Build a summary row when steering or follow-up prompts are pending.
 ///
 /// Returns `None` when the queue is empty or the agent is idle.
 pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
@@ -197,17 +197,20 @@ pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
     let bg = Color::Reset;
     let label_style = CellStyle::new().fg(p.peach).bg(bg).bold();
     let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
-    let mut spans = vec![
-        Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
-        Span::styled("queued", label_style),
-    ];
+    let inset = Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg));
+    if followups == 0 {
+        return Some(Row::padded(
+            vec![inset, Span::styled("Steering", label_style)],
+            width,
+            CellStyle::new().bg(bg),
+        ));
+    }
 
+    let mut spans = vec![inset, Span::styled("queued", label_style)];
     if steering > 0 {
         spans.push(Span::styled(format!("  {steering} steering"), muted_style));
     }
-    if followups > 0 {
-        spans.push(Span::styled(format!("  {followups} follow-up"), muted_style));
-    }
+    spans.push(Span::styled(format!("  {followups} follow-up"), muted_style));
     Some(Row::padded(spans, width, CellStyle::new().bg(bg)))
 }
 
