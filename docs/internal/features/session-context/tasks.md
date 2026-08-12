@@ -156,31 +156,31 @@
 
 **Blocked by:** CONTEXT-2.
 
-- [ ] Make `/context changes` compare the latest two snapshots by default and
+- [x] Make `/context changes` compare the latest two snapshots by default and
       accept two request IDs.
-- [ ] Group additions, removals, lifecycle changes, replacements, reductions,
+- [x] Group additions, removals, lifecycle changes, replacements, reductions,
       compactions, recoveries, omissions, and instruction-scope changes by
       stable item ID.
-- [ ] Compare candidate and selected totals, budget thresholds, projected size,
+- [x] Compare candidate and selected totals, budget thresholds, projected size,
       provider input when measured, and measurement provenance.
-- [ ] Record each compaction's before and after estimates, reclaimed amount,
+- [x] Record each compaction's before and after estimates, reclaimed amount,
       retained recent range, summary reference, source range, and recovery
       details.
-- [ ] Use one diff algorithm across turns, retries, resumed sessions, and fork
+- [x] Use one diff algorithm across turns, retries, resumed sessions, and fork
       lineage.
-- [ ] Cap diff output and retain item references and measurements after bodies
+- [x] Cap diff output and retain item references and measurements after bodies
       expire or when content was never retained.
 
 ## CONTEXT-4: Show context transformations in the transcript
 
 **Blocked by:** CONTEXT-2 and CONTEXT-3.
 
-- [ ] Add context events for compaction, tool-output reduction, and recovery.
-- [ ] Show before and after measurements, the affected request, and a link to
+- [x] Add context events for compaction, tool-output reduction, and recovery.
+- [x] Show before and after measurements, the affected request, and a link to
       the recorded details.
-- [ ] Give context events less visual weight than conversation messages. Do not
+- [x] Give context events less visual weight than conversation messages. Do not
       render them as tool calls or assistant content.
-- [ ] Reconstruct the events after resume and include them in session exports.
+- [x] Reconstruct the events after resume and include them in session exports.
 
 ## CONTEXT-5: Add an optional context status segment
 

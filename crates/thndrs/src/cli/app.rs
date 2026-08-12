@@ -626,6 +626,8 @@ pub struct SessionState {
     pub run_persistence: RunPersistence,
     /// Stable session identity used by records and prompt history.
     pub id: String,
+    /// Root lineage identity used for stable context item ids across forks.
+    pub context_id_namespace: String,
     /// Append-only session writer, when durable persistence is available.
     pub writer: Option<session::SessionWriter>,
     /// Dedicated workspace-local persistence for submitted prompt recall.
@@ -655,6 +657,9 @@ pub struct TranscriptState {
     pub context_diagnostics: Vec<crate::context::InstructionDiagnostic>,
     /// Latest provider-neutral context ledger.
     pub context_ledger: Option<agent_context::ContextLedger>,
+    /// Content-free request snapshots and context transformations used by
+    /// `/context changes` and semantic transcript events.
+    pub context_history: session::ContextHistory,
     /// Discovered Agent Skills metadata.
     pub skills: Vec<skills::SkillMetadata>,
     /// Skill discovery diagnostics.
@@ -1186,6 +1191,7 @@ impl App {
         let mut app = App {
             session: SessionState {
                 run_persistence,
+                context_id_namespace: session_id.clone(),
                 id: session_id,
                 writer: session_writer,
                 input_history_store,
@@ -1201,6 +1207,7 @@ impl App {
                 context_sources,
                 context_diagnostics,
                 context_ledger: None,
+                context_history: session::ContextHistory::default(),
                 skills: skill_inventory.skills,
                 skill_diagnostics: skill_inventory.diagnostics,
                 prompt_templates: prompt_template_inventory.templates,
@@ -1323,6 +1330,15 @@ impl App {
 
         self.session.writer = Some(writer);
         self.session.id = id.clone();
+        self.session.context_id_namespace = records
+            .iter()
+            .find_map(|record| match record {
+                session::SessionRecord::SessionFork { lineage, .. } => {
+                    lineage.first().map(|entry| entry.session_id.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| id.clone());
         self.transcript.entries = transcript;
         self.restore_context_state(&records);
         self.session.last_request_accounting = records.iter().rev().find_map(|record| match record {

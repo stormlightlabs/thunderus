@@ -44,6 +44,7 @@ pub enum TranscriptBlockKind {
     Edit,
     Diff,
     Permission,
+    ContextEvent,
     Status,
     Error,
     ChildActivity,
@@ -321,6 +322,16 @@ impl TranscriptBlocks {
             TranscriptBlockKind::ChildActivity,
             None,
             Some(id),
+        );
+    }
+
+    /// Add a dimmed semantic context event with durable identity.
+    pub fn push_context_event(&mut self, id: String, text: String) {
+        self.push_metadata(
+            Entry::Status { text },
+            TranscriptBlockKind::ContextEvent,
+            None,
+            Some(TranscriptBlockId(id)),
         );
     }
 

@@ -249,10 +249,11 @@ impl App {
             .transcript
             .entries
             .iter()
+            .filter(|entry| is_model_context_entry(entry))
             .enumerate()
             .map(|(index, entry)| TranscriptCandidate {
                 seq: index as u64 + 1,
-                session_id: self.session.id.clone(),
+                session_id: self.session.context_id_namespace.clone(),
                 label: transcript_candidate_label(entry),
                 bytes: transcript_candidate_bytes(entry),
                 artifact_handle: match entry {
@@ -262,7 +263,7 @@ impl App {
                         .cloned(),
                     _ => None,
                 },
-                ui_only: matches!(entry, Entry::Status { .. } | Entry::Error { .. }),
+                ui_only: false,
                 streaming: matches!(
                     entry,
                     Entry::Agent { streaming: true, .. } | Entry::Reasoning { streaming: true, .. }
@@ -290,8 +291,13 @@ impl App {
             .collect();
         let selection_input = SelectionInput {
             harness,
-            user_turn: user_turn
-                .map(|text| UserTurnCandidate::new(&self.session.id, self.session.turn_count + 1, text.len())),
+            user_turn: user_turn.map(|text| {
+                UserTurnCandidate::new(
+                    &self.session.context_id_namespace,
+                    context_entry_count(&self.transcript.entries) + 1,
+                    text.len(),
+                )
+            }),
             pending_permissions,
             instructions,
             pins: self.transcript.context_pins.clone(),
@@ -546,6 +552,7 @@ impl App {
                     .append_context_recovery(&next_item, "user recovered context item")
                     .map_err(|error| format!("failed to record context recovery: {error}"))?;
             }
+            self.record_live_context_recovery(&next_item, "user recovered context item");
             self.transcript.context_lifecycles.insert(item.id.clone(), lifecycle);
         }
         self.transcript.context_dropped_ids.retain(|id| id != &item.id);
@@ -593,8 +600,19 @@ impl App {
                 .append_context_recovery(&next_item, reason)
                 .map_err(|error| format!("failed to record context recovery: {error}"))?;
         }
+        self.record_live_context_recovery(&next_item, reason);
         self.transcript.context_lifecycles.insert(item.id.clone(), lifecycle);
         Ok(recovery)
+    }
+
+    fn record_live_context_recovery(&mut self, item: &agent_context::ContextItem, reason: &str) {
+        let item = session::ContextItemMeta::from(item);
+        let action = self.transcript.entries.len();
+        self.transcript.entries.push_context_event(
+            format!("context:recovery:live:{}:{action}", item.id),
+            session::ContextHistory::live_recovery_event(&item, reason),
+        );
+        self.transcript.context_history.record_recovery(item, reason);
     }
 
     fn reset_context_drops(&mut self) -> Result<(), String> {
@@ -617,6 +635,7 @@ impl App {
             .transcript
             .entries
             .iter()
+            .filter(|entry| is_model_context_entry(entry))
             .enumerate()
             .filter_map(|(index, entry)| match entry {
                 Entry::Tool { name, .. } => name.rsplit_once('#').map(|(_, call_id)| {
@@ -626,7 +645,7 @@ impl App {
                             index,
                             agent_context::item_id_for_session_range(
                                 &ContextItemKind::Transcript,
-                                &self.session.id,
+                                &self.session.context_id_namespace,
                                 index as u64 + 1,
                                 index as u64 + 1,
                             ),
@@ -742,6 +761,7 @@ impl App {
         self.transcript.tool_artifacts.clear();
         self.transcript.tool_projection_decisions.clear();
         self.transcript.context_lifecycles.clear();
+        self.transcript.context_history = session::ContextHistory::from_records(records);
         self.transcript.last_compaction_review = None;
         for record in records {
             match record {
@@ -814,7 +834,7 @@ impl App {
                         candidate.latest = false;
                     }
                     let mut candidate = CompactionSummaryCandidate::new(
-                        &self.session.id,
+                        &self.session.context_id_namespace,
                         audit.covered_start_seq,
                         audit.covered_end_seq,
                         audit.summary.len(),
@@ -952,7 +972,8 @@ pub fn start_compaction(
         .compaction_summaries
         .iter()
         .find(|summary| summary.latest);
-    let previous_end = latest_summary.map_or(0, |summary| summary.end_seq) as usize;
+    let previous_end_seq = latest_summary.map_or(0, |summary| summary.end_seq);
+    let previous_end = raw_index_after_context_entries(&original_transcript, previous_end_seq);
     let maximum_end = original_user_turn
         .as_deref()
         .and_then(|turn| {
@@ -973,7 +994,11 @@ pub fn start_compaction(
         }
         return None;
     }
-    let source_transcript = original_transcript[previous_end..covered_end].to_vec();
+    let source_transcript = original_transcript[previous_end..covered_end]
+        .iter()
+        .filter(|entry| is_model_context_entry(entry))
+        .cloned()
+        .collect::<Vec<_>>();
     let mut source_parts = Vec::new();
     if let Some(previous) = latest_summary.and_then(|summary| summary.content.as_deref()) {
         source_parts.push(format!("previous anchored summary:\n{previous}"));
@@ -981,10 +1006,15 @@ pub fn start_compaction(
     source_parts.push(render_compaction_source(&source_transcript));
     let source = source_parts.join("\n\n");
     let covered_start_seq = latest_summary.map_or(1, |summary| summary.start_seq);
-    let covered_end_seq = covered_end as u64;
-    let source_start_seq = previous_end as u64 + 1;
+    let covered_end_seq = context_entry_count(&original_transcript[..covered_end]);
+    let source_start_seq = previous_end_seq + 1;
     let recovery_handle = format!("session:{}:{covered_start_seq}..{covered_end_seq}", app.session.id);
-    let (sources, protected_facts) = range_sources(&app.session.id, source_start_seq, &source_transcript);
+    let (sources, protected_facts) = range_sources(
+        &app.session.context_id_namespace,
+        &app.session.id,
+        source_start_seq,
+        &source_transcript,
+    );
     let source_summary_ids = source_summary_ids(&app.transcript.compaction_summaries);
     let request = match agent_context::prepare_range_compression(
         policy,
@@ -1097,7 +1127,13 @@ pub fn apply_compaction(
     let is_automatic = pending.trigger == session::CompactionTrigger::Automatic;
     let original_user_turn = pending.original_user_turn.clone();
     let rendered_summary = summary.render_model_text();
-    let audit = compaction_audit(&pending, summary, &rendered_summary, review);
+    let audit = compaction_audit(
+        &app.session.context_id_namespace,
+        &pending,
+        summary,
+        &rendered_summary,
+        review,
+    );
     if let Some(writer) = app.session.writer.as_mut()
         && let Err(error) = writer.append_compaction(&audit)
     {
@@ -1107,11 +1143,12 @@ pub fn apply_compaction(
             .push(Entry::Error { text: format!("failed to record approved compaction audit: {error}") });
         return Some(None);
     }
+    app.transcript.context_history.record_compaction(audit.clone());
     for candidate in &mut app.transcript.compaction_summaries {
         candidate.latest = false;
     }
     let mut summary_candidate = CompactionSummaryCandidate::new(
-        &app.session.id,
+        &app.session.context_id_namespace,
         pending.covered_start_seq,
         pending.covered_end_seq,
         rendered_summary.len(),
@@ -1121,6 +1158,13 @@ pub fn apply_compaction(
     app.transcript.compaction_summaries.push(summary_candidate);
 
     app.transcript.entries = pending.original_transcript;
+    app.transcript.entries.push_context_event(
+        format!(
+            "context:compaction:live:{}-{}",
+            audit.covered_start_seq, audit.covered_end_seq
+        ),
+        session::ContextHistory::live_compaction_event(&audit),
+    );
     app.transcript.entries.push(Entry::Status {
         text: format!(
             "{}compacted  {}",
@@ -1222,6 +1266,7 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
                 app.composer.input.clear();
                 None
             }
+            "changes" => return show_context_changes(app, ""),
             "export" => {
                 app.transcript.entries.push(Entry::Error {
                     text: "usage: /context export <path> [json|markdown] [--artifacts]".to_string(),
@@ -1248,7 +1293,8 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
             }
             _ => {
                 app.transcript.entries.push(Entry::Error {
-                    text: "usage: /context [show|all|item|pin|drop|recover|verify|release|review|export]".to_string(),
+                    text: "usage: /context [show|all|changes|item|pin|drop|recover|verify|release|review|export]"
+                        .to_string(),
                 });
                 None
             }
@@ -1256,6 +1302,7 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
     };
 
     let result = match action {
+        "changes" => return show_context_changes(app, reference.trim()),
         "item" => return show_context_item(app, reference.trim()),
         "pin" => app.pin_context_reference(reference.trim()),
         "drop" if reference.trim() == "--reset" => app.reset_context_drops(),
@@ -1265,7 +1312,7 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
         "review" => return handle_context_review(app, reference.trim()),
         "verify" | "verification" => return handle_context_verification(app, reference.trim()),
         "export" => return handle_context_export(app, reference.trim()),
-        _ => Err("usage: /context [show|all|item|pin|drop|recover|verify|release|review|export]".to_string()),
+        _ => Err("usage: /context [show|all|changes|item|pin|drop|recover|verify|release|review|export]".to_string()),
     };
     match result {
         Ok(()) => {
@@ -1276,6 +1323,16 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
         }
         Err(error) => app.transcript.entries.push(Entry::Error { text: error }),
     }
+    None
+}
+
+fn show_context_changes(app: &mut App, input: &str) -> Option<Msg> {
+    let request_ids = input.split_whitespace().collect::<Vec<_>>();
+    match app.transcript.context_history.render_changes(&request_ids) {
+        Ok(text) => app.transcript.entries.push(Entry::Status { text }),
+        Err(error) => app.transcript.entries.push(Entry::Error { text: error.to_string() }),
+    }
+    app.composer.input.clear();
     None
 }
 
@@ -1362,6 +1419,30 @@ fn compaction_cut(entries: &[Entry], maximum_end: usize, keep_recent_tokens: u64
         };
         tail_start = previous_start;
     }
+}
+
+fn is_model_context_entry(entry: &Entry) -> bool {
+    !matches!(entry, Entry::Status { .. } | Entry::Error { .. })
+}
+
+fn context_entry_count(entries: &[Entry]) -> u64 {
+    entries.iter().filter(|entry| is_model_context_entry(entry)).count() as u64
+}
+
+fn raw_index_after_context_entries(entries: &[Entry], count: u64) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    let mut seen = 0_u64;
+    for (index, entry) in entries.iter().enumerate() {
+        if is_model_context_entry(entry) {
+            seen = seen.saturating_add(1);
+            if seen == count {
+                return index + 1;
+            }
+        }
+    }
+    entries.len()
 }
 
 fn handle_context_verification(app: &mut App, input: &str) -> Option<Msg> {
@@ -1540,19 +1621,20 @@ fn handle_context_review(app: &mut App, action: &str) -> Option<Msg> {
 /// Build addressable source metadata and exact protected facts for a closed
 /// transcript range. The source body itself remains process-local.
 fn range_sources(
-    session_id: &str, start_seq: u64, entries: &[Entry],
+    id_namespace: &str, recovery_session_id: &str, start_seq: u64, entries: &[Entry],
 ) -> (Vec<agent_context::RangeSource>, Vec<agent_context::ProtectedFact>) {
     let mut sources = Vec::with_capacity(entries.len());
     let mut protected_facts = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
         let sequence = start_seq + index as u64;
-        let id = agent_context::item_id_for_session_range(&ContextItemKind::Transcript, session_id, sequence, sequence);
+        let id =
+            agent_context::item_id_for_session_range(&ContextItemKind::Transcript, id_namespace, sequence, sequence);
         let text = render_compaction_entry(entry);
         sources.push(agent_context::RangeSource {
             sequence,
             id: id.clone(),
             content_hash: tools::hash_content(&text),
-            recovery_handle: format!("session:{session_id}:{sequence}"),
+            recovery_handle: format!("session:{recovery_session_id}:{sequence}"),
         });
         if transcript_protection(entry).is_protected() {
             protected_facts.push(agent_context::ProtectedFact { source_id: id, text });
@@ -1574,7 +1656,7 @@ fn source_summary_ids(summaries: &[CompactionSummaryCandidate]) -> Vec<String> {
 
 /// Build the append-only record only after a summary is valid and approved.
 fn compaction_audit(
-    pending: &PendingManualCompaction, summary: &agent_context::RangeSummary, rendered_summary: &str,
+    session_id: &str, pending: &PendingManualCompaction, summary: &agent_context::RangeSummary, rendered_summary: &str,
     review: session::CompactionReviewResult,
 ) -> session::CompactionAudit {
     let source_hashes = pending
@@ -1587,6 +1669,16 @@ fn compaction_audit(
     session::CompactionAudit {
         summary: rendered_summary.to_string(),
         typed_summary: Some(summary.clone()),
+        summary_id: Some(
+            CompactionSummaryCandidate::new(
+                session_id,
+                pending.covered_start_seq,
+                pending.covered_end_seq,
+                rendered_summary.len(),
+                true,
+            )
+            .id,
+        ),
         covered_start_seq: pending.covered_start_seq,
         covered_end_seq: pending.covered_end_seq,
         source_hashes,
@@ -1776,5 +1868,19 @@ mod compaction_cut_tests {
         let entries = vec![user("old question"), agent("old answer"), user("current question")];
 
         assert_eq!(compaction_cut(&entries, 2, 0), 2);
+    }
+
+    #[test]
+    fn transient_rows_do_not_change_context_sequence_numbers() {
+        let entries = vec![
+            user("question"),
+            Entry::Status { text: "resumed session".to_string() },
+            agent("answer"),
+            Entry::Error { text: "display-only error".to_string() },
+        ];
+
+        assert_eq!(context_entry_count(&entries), 2);
+        assert_eq!(raw_index_after_context_entries(&entries, 1), 1);
+        assert_eq!(raw_index_after_context_entries(&entries, 2), 3);
     }
 }

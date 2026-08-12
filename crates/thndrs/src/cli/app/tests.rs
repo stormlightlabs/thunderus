@@ -144,6 +144,7 @@ fn resumed_startup_restores_the_session_without_creating_a_scratch_file() {
     let app = App::from_cli_resuming(&cli, "session-resume").expect("resume saved session");
 
     assert_eq!(app.session.id, "session-resume");
+    assert_eq!(app.session.context_id_namespace, "session-resume");
     assert_eq!(app.runtime.session_tokens_in, 7);
     assert_eq!(app.runtime.session_tokens_out, 11);
     assert_eq!(app.session.turn_count, 1);
@@ -159,6 +160,43 @@ fn resumed_startup_restores_the_session_without_creating_a_scratch_file() {
             .iter()
             .any(|entry| matches!(entry, Entry::User { text } if text == "earlier prompt"))
     );
+}
+
+#[test]
+fn resumed_fork_keeps_the_root_context_id_namespace() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let sessions_dir = dir.path().join("sessions");
+    let mut writer = session::SessionWriter::create(
+        &sessions_dir,
+        "parent-session",
+        &dir.path().display().to_string(),
+        "Parent work",
+        "opencode-go",
+        "opencode/big-pickle",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create parent session");
+    writer
+        .append_entry(&Entry::User { text: "fork here".to_string() }, "turn_1")
+        .expect("append user entry");
+    writer
+        .append_entry(
+            &Entry::Agent { text: "settled".to_string(), streaming: false },
+            "turn_1",
+        )
+        .expect("append assistant entry");
+    let parent_path = writer.path().to_path_buf();
+    drop(writer);
+
+    session::fork_session(&sessions_dir, &parent_path, "parent-session", "turn_1")
+        .expect("create an occupied base fork id");
+    let fork_id = session::fork_session(&sessions_dir, &parent_path, "parent-session", "turn_1").expect("fork session");
+    let cli = Cli { cwd: dir.path().to_path_buf(), session_dir: Some(sessions_dir), ..Cli::default() };
+    let app = App::from_cli_resuming(&cli, &fork_id).expect("resume fork");
+
+    assert_eq!(app.session.context_id_namespace, "parent-session");
 }
 
 #[test]

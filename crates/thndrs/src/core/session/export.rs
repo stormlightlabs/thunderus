@@ -1,6 +1,6 @@
 //! Deterministic, provider-neutral session exports.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::Path;
 
@@ -106,6 +106,7 @@ pub fn export_session(path: &Path, session_id: &str) -> io::Result<SessionExport
         truncated,
     };
     let mut tool_names = HashMap::new();
+    let mut exported_transformations = HashSet::new();
     let mut turns = Vec::new();
 
     for record in &records {
@@ -246,14 +247,33 @@ pub fn export_session(path: &Path, session_id: &str) -> io::Result<SessionExport
                     ("fallback reduction", "fallback_receipts"),
                 ] {
                     if let Some(receipts) = accounting.get(field).and_then(Value::as_array) {
-                        export
-                            .transformations
-                            .extend(receipts.iter().map(|receipt| TransformationItem {
+                        export.transformations.extend(receipts.iter().filter_map(|receipt| {
+                            let key = transformation_key(accounting, receipt);
+                            exported_transformations.insert(key).then(|| TransformationItem {
                                 time: time.clone(),
                                 kind: kind.to_string(),
                                 detail: compact_json(receipt),
-                            }));
+                            })
+                        }));
                     }
+                }
+            }
+            "context_snapshot" => {
+                let snapshot = record.get("snapshot").unwrap_or(&Value::Null);
+                if string(snapshot, "state") != "dispatched"
+                    && let Some(receipts) = snapshot.get("transformations").and_then(Value::as_array)
+                {
+                    export.transformations.extend(receipts.iter().filter_map(|receipt| {
+                        if string(receipt, "mode") != "applied" {
+                            return None;
+                        }
+                        let key = transformation_key(snapshot, receipt);
+                        exported_transformations.insert(key).then(|| TransformationItem {
+                            time: time.clone(),
+                            kind: "applied reduction".to_string(),
+                            detail: compact_json(receipt),
+                        })
+                    }));
                 }
             }
             "compaction" => {
@@ -261,7 +281,7 @@ pub fn export_session(path: &Path, session_id: &str) -> io::Result<SessionExport
                 export.transformations.push(TransformationItem {
                     time,
                     kind: "compaction".to_string(),
-                    detail: string(audit, "summary").to_string(),
+                    detail: compact_json(audit),
                 });
                 if let Some(findings) = audit.pointer("/typed_summary/findings").and_then(Value::as_array) {
                     export
@@ -281,6 +301,15 @@ pub fn export_session(path: &Path, session_id: &str) -> io::Result<SessionExport
     }
     export.turn_count = turns.len();
     Ok(export)
+}
+
+fn transformation_key(request: &Value, receipt: &Value) -> String {
+    format!(
+        "{}#{}:{}",
+        string(request, "request_id"),
+        request.get("attempt").and_then(Value::as_u64).unwrap_or_default(),
+        compact_json(receipt)
+    )
 }
 
 impl SessionExport {

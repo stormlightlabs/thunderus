@@ -58,5 +58,6 @@ cargo test --workspace
 ```
 
 Documentation in the doc site changes require `pnpm --dir docs build`.
+Ensure documentation stays up to date as feature work is completed.
 
 Root level & `docs/internal` files don't require a docs build.

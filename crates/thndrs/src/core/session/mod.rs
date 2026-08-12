@@ -8,6 +8,7 @@
 //! `schema_version`, a monotonic `seq`, `time`, and `type`.
 
 mod collection;
+mod context_changes;
 mod contracts;
 mod export;
 mod inventory;
@@ -39,6 +40,7 @@ use thndrs_agent::context::{ContextItem, ContextLedger, RangeSummary};
 pub use collection::{
     CollectionReport, collect_if_due, collect_now, reclaimable_bytes, reclaimable_bytes_from_inventory,
 };
+pub use context_changes::{ContextChangeError, ContextHistory};
 pub use contracts::{
     AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,
     ContextLifecycleAudit, ContextSnapshot, ContextSnapshotState, ContextSourceMeta, McpToolSessionMeta,
@@ -874,6 +876,9 @@ pub struct CompactionAudit {
     /// Versioned summary contract used to produce `summary`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typed_summary: Option<RangeSummary>,
+    /// Stable item id of the summary that replaces the covered range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_id: Option<String>,
     /// Inclusive first session sequence replaced by this summary.
     pub covered_start_seq: u64,
     /// Inclusive final session sequence replaced by this summary.
@@ -914,6 +919,7 @@ impl CompactionAudit {
         CompactionAudit {
             summary: tools::shell::redact_secrets(&self.summary),
             typed_summary: self.typed_summary.as_ref().map(redact_range_summary),
+            summary_id: self.summary_id.clone(),
             covered_start_seq: self.covered_start_seq,
             covered_end_seq: self.covered_end_seq,
             source_hashes: self.source_hashes.clone(),
@@ -1641,8 +1647,14 @@ impl SessionReader {
     /// Matching tool and permission lifecycle records update their original
     /// block so resume restores the same action, target, and final state.
     pub fn read_transcript_blocks(path: &Path) -> TranscriptBlocks {
+        let records = Self::read_records(path);
+        let context_history = ContextHistory::from_records(&records);
         let mut transcript = TranscriptBlocks::new();
-        for record in Self::read_records(path) {
+        for record in records {
+            if let Some((id, text)) = context_history.transcript_event(&record) {
+                transcript.push_context_event(id, text);
+                continue;
+            }
             match &record {
                 SessionRecord::ToolStarted { call_id, name, arguments, .. } => {
                     if transcript.queue_tool(call_id, name, arguments).is_ok() {

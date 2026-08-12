@@ -42,9 +42,28 @@ fn persist_context_snapshot(
         transformations: accounting.reduction_receipts(),
         provider_usage: accounting.provider_usage.clone(),
     };
-    if let Some(writer) = app.session.writer.as_mut() {
-        let _ = writer.append_context_snapshot(snapshot);
+    let persisted = match app.session.writer.as_mut() {
+        Some(writer) => match writer.append_context_snapshot(snapshot.clone()) {
+            Ok(()) => true,
+            Err(error) => {
+                app.transcript
+                    .entries
+                    .push(Entry::Error { text: format!("failed to record context snapshot: {error}") });
+                false
+            }
+        },
+        None => true,
+    };
+    if !persisted {
+        return;
     }
+    if let Some(text) = session::ContextHistory::live_reduction_event(&snapshot) {
+        app.transcript.entries.push_context_event(
+            format!("context:reduction:live:{}:{}", snapshot.request_id, snapshot.attempt),
+            text,
+        );
+    }
+    app.transcript.context_history.record_snapshot(snapshot);
 }
 
 /// Process an [`AgentEvent`] and mutate `app` accordingly.

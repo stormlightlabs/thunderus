@@ -68,6 +68,7 @@ fn compaction_audit(trigger: CompactionTrigger) -> CompactionAudit {
     CompactionAudit {
         summary: "Kept the build failure and the pending test fix.".to_string(),
         typed_summary: None,
+        summary_id: Some("ctx_summary_12_47".to_string()),
         covered_start_seq: 12,
         covered_end_seq: 47,
         source_hashes: vec![
@@ -2155,6 +2156,30 @@ fn semantic_transcript_replay_replaces_tool_lifecycle_records() {
     assert_eq!(block.target(), Some("needle"));
     assert_eq!(block.lifecycle(), Some(crate::app::ToolLifecycleState::Succeeded));
     assert_eq!(block.result_state(), Some(crate::app::BlockContentState::Present));
+}
+
+#[test]
+fn semantic_transcript_replay_restores_context_events() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "semantic-context-replay");
+    writer
+        .append_compaction(&compaction_audit(CompactionTrigger::Automatic))
+        .expect("append compaction");
+    writer
+        .append_context_recovery(&context_item("recoverable detail"), "user recovered context item")
+        .expect("append recovery");
+
+    let transcript = SessionReader::read_transcript_blocks(writer.path());
+
+    assert_eq!(transcript.len(), 2);
+    let compaction = transcript.block(0).expect("compaction event");
+    assert_eq!(compaction.kind, crate::app::TranscriptBlockKind::ContextEvent);
+    assert!(compaction.id.as_str().starts_with("context:compaction:"));
+    assert!(matches!(compaction.entry, Entry::Status { text } if text.contains("details /context changes")));
+    let recovery = transcript.block(1).expect("recovery event");
+    assert_eq!(recovery.kind, crate::app::TranscriptBlockKind::ContextEvent);
+    assert!(recovery.id.as_str().starts_with("context:recovery:"));
+    assert!(matches!(recovery.entry, Entry::Status { text } if text.contains("user recovered context item")));
 }
 
 #[test]
