@@ -30,6 +30,27 @@ fn ttft_starts_on_submit_and_ignores_status_and_usage() {
 }
 
 #[test]
+fn routine_model_metadata_stays_out_of_the_default_transcript() {
+    let mut app = fresh_app();
+
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Status(String::from(
+            "model: chatgpt-codex/gpt-5.6-sol  ChatGPT/Codex",
+        ))),
+    );
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Status(String::from("model selected: opencode/big-pickle"))),
+    );
+
+    assert_eq!(
+        app.transcript.entries,
+        vec![Entry::Status { text: String::from("model selected: opencode/big-pickle") }]
+    );
+}
+
+#[test]
 fn ttft_stops_on_first_semantic_output_and_is_retained_after_finish() {
     let mut app = fresh_app();
     app.composer.input = PromptInput::from("hello world");

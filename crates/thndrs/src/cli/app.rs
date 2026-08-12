@@ -1894,7 +1894,10 @@ fn default_user_label() -> String {
 }
 
 fn is_verbose_status(text: &str) -> bool {
-    text.starts_with("provider:") || text.starts_with("logs  ") || text.starts_with("tool budget:")
+    text.starts_with("provider:")
+        || text.starts_with("model: ")
+        || text.starts_with("logs  ")
+        || text.starts_with("tool budget:")
 }
 
 /// Translate the fixed Ctrl+D confirmation window to the configured tick cadence.

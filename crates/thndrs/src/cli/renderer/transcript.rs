@@ -275,16 +275,16 @@ impl ToolBlockView<'_> {
     fn rows(&self) -> Vec<Row> {
         let p = super::style::palette();
         let (status_label, status_color, icon) = match self.status {
-            ToolStatus::Running => ("Running", p.peach, "·"),
-            ToolStatus::Ok => ("DONE", p.green, "✓"),
-            ToolStatus::Failed => ("Failed", p.red, "✕"),
-            ToolStatus::Cancelled => ("Stopped", p.peach, "○"),
+            ToolStatus::Running => ("Running", p.active, "·"),
+            ToolStatus::Ok => ("DONE", p.success, "✓"),
+            ToolStatus::Failed => ("Failed", p.failure, "✕"),
+            ToolStatus::Cancelled => ("Stopped", p.active, "○"),
         };
-        let header_style = CellStyle::new().fg(p.text).bg(self.bg).bold();
+        let header_style = CellStyle::new().fg(p.primary).bg(self.bg).bold();
         let status_style = CellStyle::new().fg(status_color).bg(self.bg);
-        let muted_style = CellStyle::new().fg(p.subtext0).bg(self.bg);
-        let gutter_style = CellStyle::new().fg(p.overlay0).bg(self.bg);
-        let rail_style = CellStyle::new().fg(p.yellow).bg(self.bg);
+        let muted_style = CellStyle::new().fg(p.secondary).bg(self.bg);
+        let gutter_style = CellStyle::new().fg(p.border).bg(self.bg);
+        let rail_style = CellStyle::new().fg(p.warning).bg(self.bg);
         let content_width = self.body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
         let tool_content_width = content_width.saturating_sub(utils::text_width(GUTTER));
 
@@ -359,7 +359,7 @@ impl ToolBlockView<'_> {
             rows.push(Row::padded(
                 vec![
                     Span::styled(ACTIVITY_RAIL, rail_style),
-                    Span::styled("   edit  ", CellStyle::new().fg(p.overlay0).bg(self.bg).bold()),
+                    Span::styled("   edit  ", CellStyle::new().fg(p.border).bg(self.bg).bold()),
                     Span::styled(summary, muted_style),
                 ],
                 self.width,
@@ -371,7 +371,7 @@ impl ToolBlockView<'_> {
             rows.push(Row::padded(
                 vec![
                     Span::styled(ACTIVITY_RAIL, rail_style),
-                    Span::styled("   diff  ", CellStyle::new().fg(p.overlay0).bg(self.bg).bold()),
+                    Span::styled("   diff  ", CellStyle::new().fg(p.border).bg(self.bg).bold()),
                     Span::styled(summary, muted_style),
                 ],
                 self.width,
@@ -432,8 +432,8 @@ impl ToolBlockView<'_> {
                     let line = super::path_display::transcript_line(line, self.cwd);
                     if let Some((path, number, content)) = search_result_parts(&line) {
                         let prefix = vec![
-                            Span::styled(path, CellStyle::new().fg(p.blue).bg(self.bg)),
-                            Span::styled(format!(":{number}:"), CellStyle::new().fg(p.yellow).bg(self.bg)),
+                            Span::styled(path, CellStyle::new().fg(p.link).bg(self.bg)),
+                            Span::styled(format!(":{number}:"), CellStyle::new().fg(p.warning).bg(self.bg)),
                         ];
                         let prefix = super::layout::truncate_spans(&prefix, tool_content_width, muted_style);
                         let prefix_width = super::layout::spans_width(&prefix);
@@ -447,7 +447,7 @@ impl ToolBlockView<'_> {
                             if index == 0 {
                                 spans.extend(prefix.clone());
                             }
-                            spans.push(Span::styled(part, CellStyle::new().fg(p.subtext0).bg(self.bg)));
+                            spans.push(Span::styled(part, CellStyle::new().fg(p.secondary).bg(self.bg)));
                             rows.push(Row::padded(
                                 super::layout::truncate_spans(&spans, self.body_width, muted_style),
                                 self.width,
@@ -514,9 +514,9 @@ fn push_plain_tool_line(
 ) {
     let p = super::style::palette();
     let content_style = if is_section_header(line) {
-        CellStyle::new().fg(p.overlay1).bg(bg).bold()
+        CellStyle::new().fg(p.secondary).bg(bg).bold()
     } else {
-        CellStyle::new().fg(p.subtext0).bg(bg)
+        CellStyle::new().fg(p.secondary).bg(bg)
     };
     for wrapped in super::layout::wrap_text_preserving_whitespace(line, content_width) {
         rows.push(Row::padded(
@@ -542,17 +542,17 @@ fn activity_summary_rows(
     summary: &ActivitySummary, group_start: bool, width: usize, body_width: usize, bg: Color,
 ) -> Vec<Row> {
     let p = super::style::palette();
-    let rail_style = CellStyle::new().fg(p.yellow).bg(bg);
+    let rail_style = CellStyle::new().fg(p.warning).bg(bg);
     let status_style = CellStyle::new()
         .fg(if summary.failed {
-            p.red
+            p.failure
         } else if summary.running || summary.cancelled {
-            p.peach
+            p.active
         } else {
-            p.green
+            p.success
         })
         .bg(bg);
-    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+    let muted_style = CellStyle::new().fg(p.secondary).bg(bg);
     let mut rows = Vec::new();
     if group_start {
         rows.push(Row::blank(width, CellStyle::new().bg(bg)));
@@ -647,10 +647,10 @@ impl MarkdownTable {
 
     fn render(&self, rail_style: CellStyle, bg: Color, width: usize, body_width: usize) -> Vec<Row> {
         let p = super::style::palette();
-        let text_style = CellStyle::new().fg(p.text).bg(bg);
-        let separator_style = CellStyle::new().fg(p.overlay0).bg(bg);
+        let text_style = CellStyle::new().fg(p.primary).bg(bg);
+        let separator_style = CellStyle::new().fg(p.border).bg(bg);
         let header_theme = MarkdownTableTheme {
-            cell_style: CellStyle::new().fg(p.text).bg(bg).bold().underlined(),
+            cell_style: CellStyle::new().fg(p.primary).bg(bg).bold().underlined(),
             separator_style,
             rail_style,
             bg,
@@ -676,7 +676,7 @@ impl MarkdownTable {
             rows.push(Row::padded(
                 vec![
                     Span::styled(ENTRY_RAIL, rail_style),
-                    Span::styled("(no rows)", CellStyle::new().fg(p.subtext0).bg(bg)),
+                    Span::styled("(no rows)", CellStyle::new().fg(p.secondary).bg(bg)),
                 ],
                 width,
                 CellStyle::new().bg(bg),
@@ -850,11 +850,11 @@ impl App {
         let theme = StartupBannerTheme {
             width,
             brand_style: CellStyle::new().fg(p.accent).bg(bg).bold(),
-            attention_style: CellStyle::new().fg(p.peach).bg(bg).bold(),
-            muted_style: CellStyle::new().fg(p.subtext0).bg(bg),
-            hint_style: CellStyle::new().fg(p.yellow).bg(bg).bold(),
-            rail_style: CellStyle::new().fg(p.overlay0).bg(bg),
-            meta_style: CellStyle::new().fg(p.overlay1).bg(bg),
+            attention_style: CellStyle::new().fg(p.active).bg(bg).bold(),
+            muted_style: CellStyle::new().fg(p.secondary).bg(bg),
+            hint_style: CellStyle::new().fg(p.warning).bg(bg).bold(),
+            rail_style: CellStyle::new().fg(p.border).bg(bg),
+            meta_style: CellStyle::new().fg(p.secondary).bg(bg),
         };
         let snapshot = self.self_knowledge_snapshot();
         let sections = snapshot.startup_sections();
@@ -1118,20 +1118,20 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
 
     match entry {
         Entry::User { text } => {
-            let rail_style = CellStyle::new().fg(p.blue).bg(bg).bold();
-            let label_style = CellStyle::new().fg(p.blue).bg(bg).bold();
-            let text_style = CellStyle::new().fg(p.subtext0).bg(bg);
+            let rail_style = CellStyle::new().fg(p.link).bg(bg).bold();
+            let label_style = CellStyle::new().fg(p.link).bg(bg).bold();
+            let text_style = CellStyle::new().fg(p.secondary).bg(bg);
             LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
                 .build(context.user_label, text)
         }
         Entry::Agent { text, .. } => {
-            let rail_style = CellStyle::new().fg(p.green).bg(bg).bold();
+            let rail_style = CellStyle::new().fg(p.success).bg(bg).bold();
             assistant_block_rows(text, rail_style, bg, width, railed_body_width, railed_technical_width)
         }
         Entry::Reasoning { text, streaming } => {
-            let rail_style = CellStyle::new().fg(p.mauve).bg(bg).bold();
-            let label_style = CellStyle::new().fg(p.overlay1).bg(bg);
-            let text_style = CellStyle::new().fg(p.subtext0).bg(bg).italic();
+            let rail_style = CellStyle::new().fg(p.reasoning).bg(bg).bold();
+            let label_style = CellStyle::new().fg(p.secondary).bg(bg);
+            let text_style = CellStyle::new().fg(p.secondary).bg(bg).italic();
             let label = if *streaming { "Thinking ·" } else { "Thinking ✓" };
             LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
                 .build_compact(label, text)
@@ -1168,9 +1168,9 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
             }
         }
         Entry::Status { text } => {
-            let rail_style = CellStyle::new().fg(p.overlay1).bg(bg);
-            let label_style = CellStyle::new().fg(p.overlay1).bg(bg);
-            let text_style = CellStyle::new().fg(p.subtext0).bg(bg);
+            let rail_style = CellStyle::new().fg(p.secondary).bg(bg);
+            let label_style = CellStyle::new().fg(p.secondary).bg(bg);
+            let text_style = CellStyle::new().fg(p.secondary).bg(bg);
             if text.contains('\n') {
                 LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
                     .build(status_label_for(text), text)
@@ -1180,10 +1180,10 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
             }
         }
         Entry::Error { text } => {
-            let error_bg = p.surface_dim;
-            let rail_style = CellStyle::new().fg(p.red).bg(error_bg).bold();
-            let label_style = CellStyle::new().fg(p.red).bg(error_bg).bold();
-            let text_style = CellStyle::new().fg(p.text).bg(error_bg);
+            let error_bg = p.surface_muted;
+            let rail_style = CellStyle::new().fg(p.failure).bg(error_bg).bold();
+            let label_style = CellStyle::new().fg(p.failure).bg(error_bg).bold();
+            let text_style = CellStyle::new().fg(p.primary).bg(error_bg);
             LabeledBlock::new(rail_style, label_style, text_style, error_bg, width, railed_body_width)
                 .build("⚠ Error", text)
         }
@@ -1195,7 +1195,7 @@ fn assistant_block_rows(
     text: &str, rail_style: CellStyle, bg: Color, width: usize, prose_width: usize, technical_width: usize,
 ) -> Vec<Row> {
     let p = super::style::palette();
-    let text_style = CellStyle::new().fg(p.text).bg(bg);
+    let text_style = CellStyle::new().fg(p.primary).bg(bg);
     let mut rows = vec![Row::blank(width, CellStyle::new().bg(bg))];
 
     match assistant_markdown_body(text) {
@@ -1259,7 +1259,7 @@ fn render_markdown_body(
     technical_width: usize,
 ) -> Vec<Row> {
     let p = super::style::palette();
-    let gutter_style = CellStyle::new().fg(p.overlay0).bg(bg);
+    let gutter_style = CellStyle::new().fg(p.border).bg(bg);
     let code_width = technical_width.saturating_sub(utils::text_width(GUTTER));
     let mut rows = Vec::new();
     let mut in_code_fence = false;

@@ -3,16 +3,16 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 width=80:
-│     FILES                                                           option 1/3    # [-]=   [-]=   [fg=#f1fc79 b]=FILES [-]=                                                            [fg=#6473b7]=option 1/3 [-]=  
-│     filter: type to filter                                                        # [-]=   [-]=   [fg=#3b4261]=filter: type to filter [-]=                                                     [-]=  
+│     FILES                                                           option 1/3    # [-]=   [-]=   [fg=#f1fc79 b]=FILES [-]=                                                            [fg=#abb4da]=option 1/3 [-]=  
+│     filter: type to filter                                                        # [-]=   [-]=   [fg=#abb4da]=filter: type to filter [-]=                                                     [-]=  
 │     ❯ src/日本語.rs                                                               # [-]=   [-]=   [fg=#ebfafa b]=❯ src/日本語.rs [-]=                                                            [-]=  
 │       src/テスト.rs                                                               # [-]=   [-]=   [fg=#ebfafa]=  src/テスト.rs [-]=                                                            [-]=  
 │       Cargo.toml                                                                  # [-]=   [-]=   [fg=#ebfafa]=  Cargo.toml [-]=                                                               [-]=  
-│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#3b4261]=Enter select · Esc close [-]=                                                   [-]=  
+│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=                                                   [-]=  
 width=40:
-│     FILES                   option 1/3    # [-]=   [-]=   [fg=#f1fc79 b]=FILES [-]=                    [fg=#6473b7]=option 1/3 [-]=  
-│     filter: type to filter                # [-]=   [-]=   [fg=#3b4261]=filter: type to filter [-]=             [-]=  
+│     FILES                   option 1/3    # [-]=   [-]=   [fg=#f1fc79 b]=FILES [-]=                    [fg=#abb4da]=option 1/3 [-]=  
+│     filter: type to filter                # [-]=   [-]=   [fg=#abb4da]=filter: type to filter [-]=             [-]=  
 │     ❯ src/日本語.rs                       # [-]=   [-]=   [fg=#ebfafa b]=❯ src/日本語.rs [-]=                    [-]=  
 │       src/テスト.rs                       # [-]=   [-]=   [fg=#ebfafa]=  src/テスト.rs [-]=                    [-]=  
 │       Cargo.toml                          # [-]=   [-]=   [fg=#ebfafa]=  Cargo.toml [-]=                       [-]=  
-│     Enter select · Esc close              # [-]=   [-]=   [fg=#3b4261]=Enter select · Esc close [-]=           [-]=
+│     Enter select · Esc close              # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=           [-]=

@@ -2,7 +2,7 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│   setup · opencode-go · add API key       # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=setup · opencode-go · add API key [bg=#292e42]=    [bg=#292e42]=  
+│   setup · opencode-go · add API key       # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=setup · opencode-go · add API key [bg=#212337]=    [bg=#212337]=  
 │   The credential stays hidden and is      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=The credential stays hidden and is [bg=#212337]=   [bg=#212337]=  
 │   written only after an explicit scope    # [bg=#212337]=   [fg=#ebfafa bg=#212337]=written only after an explicit scope [bg=#212337]=  
 │   choice.                                 # [bg=#212337]=   [fg=#ebfafa bg=#212337]=choice. [bg=#212337]=                              [bg=#212337]=  
@@ -12,4 +12,4 @@ expression: frame.render_styled()
 │     show setup instructions               # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  show setup instructions [bg=#212337]=            [bg=#212337]=  
 │     return to draft                       # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  return to draft [bg=#212337]=                    [bg=#212337]=  
 │     quit                                  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  quit [bg=#212337]=                               [bg=#212337]=  
-│   ↑/↓ choose · Enter confirm · Esc close  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=↑/↓ choose · Enter confirm · Esc close
+│   ↑/↓ choose · Enter confirm · Esc close  # [bg=#212337]=   [fg=#abb4da bg=#212337]=↑/↓ choose · Enter confirm · Esc close

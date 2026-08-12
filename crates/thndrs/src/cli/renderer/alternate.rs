@@ -528,7 +528,7 @@ impl AlternateViewport {
             let palette = super::style::palette();
             for (row_index, start, end) in ranges {
                 if (top..visible_end).contains(&row_index) {
-                    style_grapheme_range(&mut visible[row_index - top], start, end, palette.overlay0);
+                    style_grapheme_range(&mut visible[row_index - top], start, end, palette.border);
                 }
             }
         }
@@ -1033,7 +1033,7 @@ mod tests {
             logical.rows[session_row + 1]
                 .spans
                 .iter()
-                .any(|span| span.style.bg == super::super::style::palette().panel_bg),
+                .any(|span| span.style.bg == super::super::style::palette().input),
             "input row should retain the composer background"
         );
 
@@ -1224,7 +1224,7 @@ mod tests {
         );
 
         let frame = viewport.build_frame(&app, 14, 40);
-        let selection_style = super::super::style::palette().overlay0;
+        let selection_style = super::super::style::palette().border;
         assert!(frame.rows.iter().any(|row| {
             row.spans
                 .iter()
@@ -1276,7 +1276,7 @@ mod tests {
 
         assert_eq!(viewport.selected_text().as_deref(), Some(phrase));
         let frame = viewport.build_frame(&app, 80, 40);
-        let selection_bg = super::super::style::palette().overlay0;
+        let selection_bg = super::super::style::palette().border;
         let selected_spans = frame.rows[screen_row]
             .spans
             .iter()

@@ -2,7 +2,7 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│     thndrs / ready                                                                # [-]=   [fg=#3b4261]=   [fg=#37f499 b]=thndrs [fg=#6473b7 b]= / ready [-]=                                                             [-]=
+│     thndrs / ready                                                                # [-]=   [fg=#3b4261]=   [fg=#37f499 b]=thndrs [fg=#abb4da b]= / ready [-]=                                                             [-]=
 │     Ask for change, run a command, or inspect the repo.                           # [-]=   [fg=#abb4da]=  Ask for change, run a command, or inspect the repo. [-]=                        [-]=
 │                                                                                   # [-]=
 │     ATTENTION                                                                     # [-]=   [fg=#3b4261]=   [fg=#f7c67f b]=ATTENTION [-]=                                                                  [-]=

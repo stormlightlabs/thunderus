@@ -319,8 +319,8 @@ pub fn rows(
     diff: &UnifiedDiff, width: usize, body_width: usize, bg: Color, max_source_lines: Option<usize>,
 ) -> Vec<Row> {
     let p = super::style::palette();
-    let rail_style = CellStyle::new().fg(p.yellow).bg(bg);
-    let muted_style = CellStyle::new().fg(p.overlay0).bg(bg);
+    let rail_style = CellStyle::new().fg(p.warning).bg(bg);
+    let muted_style = CellStyle::new().fg(p.border).bg(bg);
     let mut rows = Vec::new();
     let mut remaining = max_source_lines.unwrap_or(usize::MAX);
     let total_source_lines = diff
@@ -341,10 +341,10 @@ pub fn rows(
             &[
                 Span::styled(ACTIVITY_RAIL, rail_style),
                 Span::styled("   ", CellStyle::new().bg(bg)),
-                Span::styled(file.path().to_string(), CellStyle::new().fg(p.text).bg(bg).bold()),
+                Span::styled(file.path().to_string(), CellStyle::new().fg(p.primary).bg(bg).bold()),
                 Span::styled(
                     format!("  +{additions} −{deletions}"),
-                    CellStyle::new().fg(p.overlay1).bg(bg),
+                    CellStyle::new().fg(p.secondary).bg(bg),
                 ),
             ],
             width,
@@ -356,7 +356,7 @@ pub fn rows(
                 &mut rows,
                 &[
                     Span::styled(ACTIVITY_RAIL, rail_style),
-                    Span::styled("   Binary files differ", CellStyle::new().fg(p.yellow).bg(bg)),
+                    Span::styled("   Binary files differ", CellStyle::new().fg(p.warning).bg(bg)),
                 ],
                 width,
                 bg,
@@ -381,7 +381,7 @@ pub fn rows(
                 &mut rows,
                 &[
                     Span::styled(ACTIVITY_RAIL, rail_style),
-                    Span::styled(format!("   {}", hunk.header), CellStyle::new().fg(p.blue).bg(bg)),
+                    Span::styled(format!("   {}", hunk.header), CellStyle::new().fg(p.link).bg(bg)),
                 ],
                 width,
                 bg,
@@ -428,7 +428,7 @@ pub fn rows(
 }
 
 fn push_clipped_row(rows: &mut Vec<Row>, spans: &[Span], width: usize, bg: Color) {
-    let style = CellStyle::new().fg(super::style::palette().overlay0).bg(bg);
+    let style = CellStyle::new().fg(super::style::palette().border).bg(bg);
     let content_width = padded_content_width(width);
     rows.push(Row::padded(
         super::layout::truncate_spans(spans, content_width, style),
@@ -449,10 +449,10 @@ fn render_source_line(
 ) {
     let p = super::style::palette();
     let (marker, marker_color, source_bg) = match line.kind {
-        DiffLineKind::Context => (' ', p.overlay0, bg),
-        DiffLineKind::Addition => ('+', p.green, p.surface0),
-        DiffLineKind::Deletion => ('-', p.red, p.surface0),
-        DiffLineKind::Marker => (' ', p.yellow, bg),
+        DiffLineKind::Context => (' ', p.border, bg),
+        DiffLineKind::Addition => ('+', p.success, p.surface),
+        DiffLineKind::Deletion => ('-', p.failure, p.surface),
+        DiffLineKind::Marker => (' ', p.warning, bg),
     };
     let old = line.old_line.map_or_else(String::new, |number| number.to_string());
     let new = line.new_line.map_or_else(String::new, |number| number.to_string());
@@ -463,13 +463,13 @@ fn render_source_line(
         .saturating_sub(utils::text_width(ACTIVITY_RAIL))
         .saturating_sub(utils::text_width(&gutter))
         .max(1);
-    let source_style = CellStyle::new().fg(p.subtext0).bg(source_bg);
+    let source_style = CellStyle::new().fg(p.secondary).bg(source_bg);
     let syntax = syntax
         .into_iter()
         .map(|span| {
             let mut style = span.style.with_bg(source_bg);
             if style.fg == Color::Reset {
-                style.fg = p.subtext0;
+                style.fg = p.secondary;
             }
             Span { text: span.text, style }
         })
@@ -481,7 +481,7 @@ fn render_source_line(
     {
         let line_gutter = if index == 0 { gutter.clone() } else { "↪ ".to_string() };
         let mut spans = vec![
-            Span::styled(ACTIVITY_RAIL, CellStyle::new().fg(p.yellow).bg(bg)),
+            Span::styled(ACTIVITY_RAIL, CellStyle::new().fg(p.warning).bg(bg)),
             Span::styled(line_gutter, CellStyle::new().fg(marker_color).bg(source_bg)),
         ];
         spans.extend(if wrapped.is_empty() { vec![Span::styled("", source_style)] } else { wrapped });
@@ -540,9 +540,11 @@ mod tests {
         assert!(text.contains("src/lib.rs  +2 −1"));
         assert!(text.contains("- 42    │ old_call();"));
         assert!(text.contains("+    42 │ new_call();"));
-        assert!(rendered.iter().flat_map(|row| &row.spans).any(|span| {
-            span.text.contains("new_call") && span.style.bg == super::super::style::palette().surface0
-        }));
+        assert!(
+            rendered.iter().flat_map(|row| &row.spans).any(|span| {
+                span.text.contains("new_call") && span.style.bg == super::super::style::palette().surface
+            })
+        );
     }
 
     #[test]

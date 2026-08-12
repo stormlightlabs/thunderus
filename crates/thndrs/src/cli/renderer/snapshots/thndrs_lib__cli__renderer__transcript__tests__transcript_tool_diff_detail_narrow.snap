@@ -6,7 +6,7 @@ expression: contents
 │   │ ✓ [DONE] run_shell  $ git diff    # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓ [DONE]  [fg=#ebfafa b]=run_shell [-]=   [fg=#abb4da]=$ git diff [-]=  
 │   │   8 lines · Esc close             # [-]=   [fg=#f1fc79]=│  [-]=   [fg=#abb4da]=8 lines · Esc close [-]=          [-]=  
 │   │    diff  src/lib.rs +2 -1         # [-]=   [fg=#f1fc79]=│  [fg=#3b4261 b]=   diff   [fg=#abb4da]=src/lib.rs +2 -1 [-]=      [-]=  
-│   │    src/lib.rs  +2 −1              # [-]=   [fg=#f1fc79]=│  [-]=    [fg=#ebfafa b]=src/lib.rs [fg=#6473b7]=  +2 −1 [-]=           [-]=  
+│   │    src/lib.rs  +2 −1              # [-]=   [fg=#f1fc79]=│  [-]=    [fg=#ebfafa b]=src/lib.rs [fg=#abb4da]=  +2 −1 [-]=           [-]=  
 │   │    @@ -41,2 +41,3 @@ fn rende…    # [-]=   [fg=#f1fc79]=│  [fg=#04d1f9]=   @@ -41,2 +41,3 @@ fn rende [fg=#3b4261]=… [-]=  
 │   │   41 41 │ let state = 1;          # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=  41 41 │  [fg=#b48ead]=let [fg=#c0c5ce]= state =  [fg=#d08770]=1 [fg=#c0c5ce]=; [-]=       [-]=  
 │   │ - 42    │ old_call();             # [-]=   [fg=#f1fc79]=│  [fg=#f16c75 bg=#212337]=- 42    │  [fg=#96b5b4 bg=#212337]=old_call [fg=#c0c5ce bg=#212337]=(); [-]=          [-]=  

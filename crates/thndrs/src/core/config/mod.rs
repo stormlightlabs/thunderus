@@ -69,7 +69,6 @@ impl Default for StatusLineConfig {
                 StatusSegment::AnchoredAway,
                 StatusSegment::Route,
                 StatusSegment::ContextRemaining,
-                StatusSegment::QueueCount,
             ],
         }
     }

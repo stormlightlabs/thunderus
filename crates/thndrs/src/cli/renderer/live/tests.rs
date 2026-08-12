@@ -149,7 +149,7 @@ fn frame_prompt_rows_adds_borderless_metadata_and_offsets_cursor() {
     assert_eq!(cursor, Some(CursorCoord::new(2, 12)));
     let content_column = rows[0].text().find("test-session").expect("session label");
     assert_eq!(rows[2].text().find('❯'), Some(content_column));
-    assert_eq!(static_status_row(&app, 80).text().find("Idle"), Some(content_column));
+    assert_eq!(static_status_row(&app, 80).text().find('✓'), Some(content_column));
     assert_eq!(
         app.render_banner_rows(80)[0].text().find("thndrs"),
         Some(content_column)
@@ -167,7 +167,7 @@ fn frame_prompt_rows_adds_borderless_metadata_and_offsets_cursor() {
         rows[2]
             .spans
             .iter()
-            .any(|span| span.style.bg == renderer::style::palette().panel_bg),
+            .any(|span| span.style.bg == renderer::style::palette().input),
         "the editable input surface should retain the composer background"
     );
     for row in [&rows[1], &rows[3]] {
@@ -177,7 +177,7 @@ fn frame_prompt_rows_adds_borderless_metadata_and_offsets_cursor() {
                 && row
                     .spans
                     .iter()
-                    .any(|span| span.style.bg == renderer::style::palette().panel_bg),
+                    .any(|span| span.style.bg == renderer::style::palette().input),
             "vertical composer padding should share the inset input background"
         );
     }
@@ -191,6 +191,58 @@ fn frame_prompt_rows_identifies_ephemeral_runs() {
     let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
 
     assert!(rows[0].text().contains("ephemeral"));
+}
+
+#[test]
+fn frame_prompt_rows_right_aligns_nonzero_queue_count_when_space_allows() {
+    let mut app = test_app();
+    app.session.id = "test-session".to_string();
+    app.composer.queue.push(
+        crate::app::QueueTarget::FollowUp,
+        "first".to_string(),
+        "test".to_string(),
+    );
+    app.composer.queue.push(
+        crate::app::QueueTarget::Steering,
+        "second".to_string(),
+        "test".to_string(),
+    );
+
+    let (body_rows, cursor) = prompt_rows_for(&app, 80);
+    let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
+    let header = rows[0].text();
+
+    assert!(header.contains("test-session"));
+    assert!(header.trim_end().ends_with("2 queued"));
+    assert!(!static_status_row(&app, 80).text().contains("queue"));
+
+    app.runtime.cli.status_line.right = vec![
+        crate::config::StatusSegment::Route,
+        crate::config::StatusSegment::QueueCount,
+    ];
+    let (rows, _) = frame_prompt_rows(&app, 80, prompt_rows_for(&app, 80).0, None);
+    assert!(!rows[0].text().contains("queued"));
+    assert!(static_status_row(&app, 80).text().contains("queue 2"));
+}
+
+#[test]
+fn frame_prompt_rows_hides_queue_count_at_zero_and_under_width_pressure() {
+    let mut app = test_app();
+    app.session.id = "test-session".to_string();
+
+    let (body_rows, cursor) = prompt_rows_for(&app, 80);
+    let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
+    assert!(!rows[0].text().contains("queued"));
+
+    app.composer.queue.push(
+        crate::app::QueueTarget::FollowUp,
+        "later".to_string(),
+        "test".to_string(),
+    );
+    let (body_rows, cursor) = prompt_rows_for(&app, 24);
+    let (rows, _) = frame_prompt_rows(&app, 24, body_rows, cursor);
+    assert!(rows[0].text().contains("test-session"));
+    assert!(!rows[0].text().contains("queued"));
 }
 
 #[test]
@@ -229,20 +281,21 @@ fn prompt_rows_submitted_shows_queue_icon() {
 }
 
 #[test]
-fn static_status_row_keeps_model_at_tiny_width() {
+fn static_status_row_keeps_state_at_tiny_width() {
     let app = test_app();
     let row = static_status_row(&app, 10);
     let text = row.text();
-    assert_eq!(text.trim(), "…del");
+    assert!(text.contains('✓'));
+    assert!(!text.contains("model"));
 }
 
 #[test]
 fn static_status_row_prioritizes_immediate_state() {
     let app = test_app();
     let text = static_status_row(&app, 80).text();
-    assert!(text.contains("Idle"));
+    assert!(text.contains("✓ Ready"));
     assert!(!text.contains("Editable"));
-    assert!(text.contains("queue 0"));
+    assert!(!text.contains("queue"));
     assert!(!text.contains("model:"));
     assert!(!text.contains("tok:"));
     assert!(!text.contains("quota"));

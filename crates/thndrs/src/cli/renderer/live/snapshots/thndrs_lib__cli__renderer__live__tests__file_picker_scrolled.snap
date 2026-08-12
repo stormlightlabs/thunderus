@@ -2,8 +2,8 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│     FILES                                                          option 6/15    # [-]=   [-]=   [fg=#f1fc79 b]=FILES [-]=                                                           [fg=#6473b7]=option 6/15 [-]=  
-│     filter: type to filter                                                        # [-]=   [-]=   [fg=#3b4261]=filter: type to filter [-]=                                                     [-]=  
+│     FILES                                                          option 6/15    # [-]=   [-]=   [fg=#f1fc79 b]=FILES [-]=                                                           [fg=#abb4da]=option 6/15 [-]=  
+│     filter: type to filter                                                        # [-]=   [-]=   [fg=#abb4da]=filter: type to filter [-]=                                                     [-]=  
 │       src/file_00.rs                                                              # [-]=   [-]=   [fg=#ebfafa]=  src/file_00.rs [-]=                                                           [-]=  
 │       src/file_01.rs                                                              # [-]=   [-]=   [fg=#ebfafa]=  src/file_01.rs [-]=                                                           [-]=  
 │       src/file_02.rs                                                              # [-]=   [-]=   [fg=#ebfafa]=  src/file_02.rs [-]=                                                           [-]=  
@@ -12,5 +12,5 @@ expression: frame.render_styled()
 │     ❯ src/file_05.rs                                                              # [-]=   [-]=   [fg=#ebfafa b]=❯ src/file_05.rs [-]=                                                           [-]=  
 │       src/file_06.rs                                                              # [-]=   [-]=   [fg=#ebfafa]=  src/file_06.rs [-]=                                                           [-]=  
 │       src/file_07.rs                                                              # [-]=   [-]=   [fg=#ebfafa]=  src/file_07.rs [-]=                                                           [-]=  
-│     … 7 rows below                                                                # [-]=   [-]=   [fg=#3b4261]=… 7 rows below [-]=                                                             [-]=  
-│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#3b4261]=Enter select · Esc close [-]=                                                   [-]=
+│     … 7 rows below                                                                # [-]=   [-]=   [fg=#abb4da]=… 7 rows below [-]=                                                             [-]=  
+│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=                                                   [-]=

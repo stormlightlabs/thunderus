@@ -84,89 +84,126 @@ pub struct Span {
     pub style: CellStyle,
 }
 
-/// Theme palette expressed in renderer-native colors.
+/// Semantic color roles shared by every renderer surface.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ThemeRole {
+    Primary,
+    Secondary,
+    Accent,
+    Active,
+    Success,
+    Warning,
+    Failure,
+    Selection,
+    Input,
+    Focus,
+    Surface,
+    SurfaceMuted,
+    Border,
+    Link,
+    Reasoning,
+    DiffAdded,
+    DiffRemoved,
+}
+
+/// Theme palette expressed as semantic renderer roles.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Palette {
     pub accent: Color,
-    pub panel_bg: Color,
-    pub surface0: Color,
-    pub surface1: Color,
-    pub surface_dim: Color,
-    pub overlay0: Color,
-    pub overlay1: Color,
-    pub text: Color,
-    pub subtext0: Color,
-    pub mauve: Color,
-    pub pink: Color,
-    pub green: Color,
-    pub yellow: Color,
-    pub red: Color,
-    pub blue: Color,
-    pub teal: Color,
-    pub peach: Color,
+    pub active: Color,
+    pub border: Color,
+    pub failure: Color,
+    pub focus: Color,
+    pub input: Color,
+    pub link: Color,
+    pub primary: Color,
+    pub reasoning: Color,
+    pub secondary: Color,
+    pub selection: Color,
+    pub success: Color,
+    pub surface: Color,
+    pub surface_muted: Color,
+    pub warning: Color,
 }
 
 static CURRENT_THEME: AtomicU8 = AtomicU8::new(0);
 
 pub const ICEBERG_DARK: Palette = Palette {
     accent: Color::Rgb { r: 132, g: 160, b: 198 },
-    panel_bg: Color::Rgb { r: 22, g: 24, b: 33 },
-    surface0: Color::Rgb { r: 30, g: 33, b: 50 },
-    surface1: Color::Rgb { r: 39, g: 44, b: 66 },
-    surface_dim: Color::Rgb { r: 15, g: 17, b: 23 },
-    overlay0: Color::Rgb { r: 68, g: 75, b: 113 },
-    overlay1: Color::Rgb { r: 107, g: 112, b: 137 },
-    text: Color::Rgb { r: 198, g: 200, b: 209 },
-    subtext0: Color::Rgb { r: 129, g: 133, b: 150 },
-    mauve: Color::Rgb { r: 160, g: 147, b: 199 },
-    pink: Color::Rgb { r: 242, g: 101, b: 181 },
-    green: Color::Rgb { r: 180, g: 190, b: 130 },
-    yellow: Color::Rgb { r: 226, g: 164, b: 120 },
-    red: Color::Rgb { r: 226, g: 120, b: 120 },
-    blue: Color::Rgb { r: 132, g: 160, b: 198 },
-    teal: Color::Rgb { r: 137, g: 184, b: 194 },
-    peach: Color::Rgb { r: 226, g: 164, b: 120 },
+    active: Color::Rgb { r: 226, g: 164, b: 120 },
+    border: Color::Rgb { r: 68, g: 75, b: 113 },
+    failure: Color::Rgb { r: 226, g: 120, b: 120 },
+    focus: Color::Rgb { r: 137, g: 184, b: 194 },
+    input: Color::Rgb { r: 22, g: 24, b: 33 },
+    link: Color::Rgb { r: 132, g: 160, b: 198 },
+    primary: Color::Rgb { r: 198, g: 200, b: 209 },
+    reasoning: Color::Rgb { r: 160, g: 147, b: 199 },
+    secondary: Color::Rgb { r: 129, g: 133, b: 150 },
+    selection: Color::Rgb { r: 39, g: 44, b: 66 },
+    success: Color::Rgb { r: 180, g: 190, b: 130 },
+    surface: Color::Rgb { r: 30, g: 33, b: 50 },
+    surface_muted: Color::Rgb { r: 15, g: 17, b: 23 },
+    warning: Color::Rgb { r: 226, g: 164, b: 120 },
 };
 
 pub const ELDRITCH_MINIMAL: Palette = Palette {
     accent: Color::Rgb { r: 55, g: 244, b: 153 },
-    panel_bg: Color::Rgb { r: 23, g: 25, b: 40 },
-    surface0: Color::Rgb { r: 33, g: 35, b: 55 },
-    surface1: Color::Rgb { r: 41, g: 46, b: 66 },
-    surface_dim: Color::Rgb { r: 23, g: 25, b: 40 },
-    overlay0: Color::Rgb { r: 59, g: 66, b: 97 },
-    overlay1: Color::Rgb { r: 100, g: 115, b: 183 },
-    text: Color::Rgb { r: 235, g: 250, b: 250 },
-    subtext0: Color::Rgb { r: 171, g: 180, b: 218 },
-    mauve: Color::Rgb { r: 164, g: 140, b: 242 },
-    pink: Color::Rgb { r: 242, g: 101, b: 181 },
-    green: Color::Rgb { r: 55, g: 244, b: 153 },
-    yellow: Color::Rgb { r: 241, g: 252, b: 121 },
-    red: Color::Rgb { r: 241, g: 108, b: 117 },
-    blue: Color::Rgb { r: 4, g: 209, b: 249 },
-    teal: Color::Rgb { r: 4, g: 209, b: 249 },
-    peach: Color::Rgb { r: 247, g: 198, b: 127 },
+    active: Color::Rgb { r: 247, g: 198, b: 127 },
+    border: Color::Rgb { r: 59, g: 66, b: 97 },
+    failure: Color::Rgb { r: 241, g: 108, b: 117 },
+    focus: Color::Rgb { r: 4, g: 209, b: 249 },
+    input: Color::Rgb { r: 23, g: 25, b: 40 },
+    link: Color::Rgb { r: 4, g: 209, b: 249 },
+    primary: Color::Rgb { r: 235, g: 250, b: 250 },
+    reasoning: Color::Rgb { r: 164, g: 140, b: 242 },
+    secondary: Color::Rgb { r: 171, g: 180, b: 218 },
+    selection: Color::Rgb { r: 41, g: 46, b: 66 },
+    success: Color::Rgb { r: 55, g: 244, b: 153 },
+    surface: Color::Rgb { r: 33, g: 35, b: 55 },
+    surface_muted: Color::Rgb { r: 23, g: 25, b: 40 },
+    warning: Color::Rgb { r: 241, g: 252, b: 121 },
 };
 
 pub const CATPPUCCIN_MOCHA: Palette = Palette {
     accent: Color::Rgb { r: 203, g: 166, b: 247 },
-    panel_bg: Color::Rgb { r: 30, g: 30, b: 46 },
-    surface0: Color::Rgb { r: 49, g: 50, b: 68 },
-    surface1: Color::Rgb { r: 69, g: 71, b: 90 },
-    surface_dim: Color::Rgb { r: 24, g: 24, b: 37 },
-    overlay0: Color::Rgb { r: 108, g: 112, b: 134 },
-    overlay1: Color::Rgb { r: 127, g: 132, b: 156 },
-    text: Color::Rgb { r: 205, g: 214, b: 244 },
-    subtext0: Color::Rgb { r: 166, g: 173, b: 200 },
-    mauve: Color::Rgb { r: 203, g: 166, b: 247 },
-    pink: Color::Rgb { r: 245, g: 194, b: 231 },
-    green: Color::Rgb { r: 166, g: 227, b: 161 },
-    yellow: Color::Rgb { r: 249, g: 226, b: 175 },
-    red: Color::Rgb { r: 243, g: 139, b: 168 },
-    blue: Color::Rgb { r: 137, g: 180, b: 250 },
-    teal: Color::Rgb { r: 148, g: 226, b: 213 },
-    peach: Color::Rgb { r: 250, g: 179, b: 135 },
+    active: Color::Rgb { r: 250, g: 179, b: 135 },
+    border: Color::Rgb { r: 108, g: 112, b: 134 },
+    failure: Color::Rgb { r: 243, g: 139, b: 168 },
+    focus: Color::Rgb { r: 148, g: 226, b: 213 },
+    input: Color::Rgb { r: 30, g: 30, b: 46 },
+    link: Color::Rgb { r: 137, g: 180, b: 250 },
+    primary: Color::Rgb { r: 205, g: 214, b: 244 },
+    reasoning: Color::Rgb { r: 203, g: 166, b: 247 },
+    secondary: Color::Rgb { r: 166, g: 173, b: 200 },
+    selection: Color::Rgb { r: 69, g: 71, b: 90 },
+    success: Color::Rgb { r: 166, g: 227, b: 161 },
+    surface: Color::Rgb { r: 49, g: 50, b: 68 },
+    surface_muted: Color::Rgb { r: 24, g: 24, b: 37 },
+    warning: Color::Rgb { r: 249, g: 226, b: 175 },
 };
+
+impl Palette {
+    /// Resolve a semantic role to the current theme's concrete color.
+    pub const fn color(self, role: ThemeRole) -> Color {
+        match role {
+            ThemeRole::Primary => self.primary,
+            ThemeRole::Secondary => self.secondary,
+            ThemeRole::Accent => self.accent,
+            ThemeRole::Active => self.active,
+            ThemeRole::Success | ThemeRole::DiffAdded => self.success,
+            ThemeRole::Warning => self.warning,
+            ThemeRole::Failure | ThemeRole::DiffRemoved => self.failure,
+            ThemeRole::Selection => self.selection,
+            ThemeRole::Input => self.input,
+            ThemeRole::Focus => self.focus,
+            ThemeRole::Surface => self.surface,
+            ThemeRole::SurfaceMuted => self.surface_muted,
+            ThemeRole::Border => self.border,
+            ThemeRole::Link => self.link,
+            ThemeRole::Reasoning => self.reasoning,
+        }
+    }
+}
 
 impl Theme {
     fn renderer_palette(self) -> Palette {
@@ -193,12 +230,12 @@ pub fn palette() -> Palette {
 pub fn status_color(label: &str) -> Color {
     let p = palette();
     match label {
-        "Ready" => p.green,
-        "Stopped" => p.teal,
-        "Failed" => p.red,
-        "Sending" | "Thinking" | "Responding" | "Working" | "Compacting" | "Stopping" => p.peach,
-        _ if label.starts_with("Running ") => p.peach,
-        _ => p.overlay0,
+        "Ready" => p.success,
+        "Stopped" => p.focus,
+        "Failed" => p.failure,
+        "Sending" | "Thinking" | "Responding" | "Working" | "Compacting" | "Stopping" => p.active,
+        _ if label.starts_with("Running ") => p.active,
+        _ => p.secondary,
     }
 }
 
@@ -208,6 +245,7 @@ pub fn status_icon(label: &str, tick: u64) -> &'static str {
         "Ready" => "✓",
         "Failed" => "✕",
         "Stopped" => "○",
+        "Waiting for permission" => "!",
         _ if label.starts_with("Running ") => spinner_frame(tick),
         _ => "·",
     }
@@ -374,6 +412,24 @@ mod tests {
     }
 
     #[test]
+    fn status_markers_have_stable_single_cell_geometry() {
+        use unicode_width::UnicodeWidthStr;
+
+        for label in [
+            "Ready",
+            "Sending",
+            "Responding",
+            "Running cargo test",
+            "Stopped",
+            "Failed",
+        ] {
+            assert_eq!(UnicodeWidthStr::width(status_icon(label, 0)), 1, "{label}");
+        }
+        assert!(status_icon("Ready", 0) != status_icon("Failed", 0));
+        assert!(status_icon("Stopped", 0) != status_icon("Sending", 0));
+    }
+
+    #[test]
     fn theme_selects_palette() {
         assert_eq!(Theme::IcebergDark.renderer_palette(), ICEBERG_DARK);
         assert_eq!(Theme::EldritchMinimal.renderer_palette(), ELDRITCH_MINIMAL);
@@ -382,12 +438,35 @@ mod tests {
 
     #[test]
     fn eldritch_minimal_uses_the_terminal_label_palette() {
-        assert_eq!(ELDRITCH_MINIMAL.teal, Color::Rgb { r: 4, g: 209, b: 249 });
-        assert_eq!(ELDRITCH_MINIMAL.green, Color::Rgb { r: 55, g: 244, b: 153 });
-        assert_eq!(ELDRITCH_MINIMAL.mauve, Color::Rgb { r: 164, g: 140, b: 242 });
-        assert_eq!(ELDRITCH_MINIMAL.pink, Color::Rgb { r: 242, g: 101, b: 181 });
-        assert_eq!(ELDRITCH_MINIMAL.yellow, Color::Rgb { r: 241, g: 252, b: 121 });
-        assert_eq!(ELDRITCH_MINIMAL.peach, Color::Rgb { r: 247, g: 198, b: 127 });
-        assert_eq!(ELDRITCH_MINIMAL.red, Color::Rgb { r: 241, g: 108, b: 117 });
+        assert_eq!(ELDRITCH_MINIMAL.focus, Color::Rgb { r: 4, g: 209, b: 249 });
+        assert_eq!(ELDRITCH_MINIMAL.success, Color::Rgb { r: 55, g: 244, b: 153 });
+        assert_eq!(ELDRITCH_MINIMAL.reasoning, Color::Rgb { r: 164, g: 140, b: 242 });
+        assert_eq!(ELDRITCH_MINIMAL.warning, Color::Rgb { r: 241, g: 252, b: 121 });
+        assert_eq!(ELDRITCH_MINIMAL.active, Color::Rgb { r: 247, g: 198, b: 127 });
+        assert_eq!(ELDRITCH_MINIMAL.failure, Color::Rgb { r: 241, g: 108, b: 117 });
+    }
+
+    #[test]
+    fn every_theme_owns_the_required_semantic_roles() {
+        let required = [
+            ThemeRole::Primary,
+            ThemeRole::Secondary,
+            ThemeRole::Accent,
+            ThemeRole::Active,
+            ThemeRole::Success,
+            ThemeRole::Warning,
+            ThemeRole::Failure,
+            ThemeRole::Selection,
+            ThemeRole::Input,
+            ThemeRole::Focus,
+        ];
+
+        for theme in [Theme::EldritchMinimal, Theme::IcebergDark, Theme::CatppuccinMocha] {
+            let palette = theme.renderer_palette();
+            assert!(required.into_iter().all(|role| palette.color(role) != Color::Reset));
+            assert_ne!(palette.primary, palette.selection);
+            assert_ne!(palette.primary, palette.input);
+            assert_ne!(palette.focus, palette.input);
+        }
     }
 }

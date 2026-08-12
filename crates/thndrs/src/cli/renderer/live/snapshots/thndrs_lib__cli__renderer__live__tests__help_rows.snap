@@ -2,8 +2,8 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│   help · focus: keyboard                                                          # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=help · focus: keyboard [bg=#292e42]=                                                       [bg=#292e42]=  
-│   ── Navigation ──                                                                # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=── Navigation ── [bg=#292e42]=                                                             [bg=#292e42]=  
+│   help · focus: keyboard                                                          # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=help · focus: keyboard [bg=#212337]=                                                       [bg=#212337]=  
+│   ── Navigation ──                                                                # [bg=#212337]=   [fg=#37f499 bg=#212337]=── Navigation ── [bg=#212337]=                                                             [bg=#212337]=  
 │   Ctrl+O          open output, diff, warning, or error detail                     # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+O          open output, diff, warning, or error detail [bg=#212337]=                  [bg=#212337]=  
 │   Enter           accept highlighted item                                         # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Enter           accept highlighted item [bg=#212337]=                                      [bg=#212337]=  
 │   Escape          close help, files, or commands                                  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Escape          close help, files, or commands [bg=#212337]=                               [bg=#212337]=  
@@ -16,5 +16,5 @@ expression: frame.render_styled()
 │   Ctrl+Shift+X    clear transcript selection                                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+Shift+X    clear transcript selection [bg=#212337]=                                   [bg=#212337]=  
 │   Ctrl+T          transpose characters                                            # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+T          transpose characters [bg=#212337]=                                         [bg=#212337]=  
 │   Shift+Tab       cycle reasoning effort                                          # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Shift+Tab       cycle reasoning effort [bg=#212337]=                                       [bg=#212337]=  
-│   … 17 rows below                                                                 # [bg=#212337]=   [fg=#3b4261 bg=#212337]=… 17 rows below [bg=#212337]=                                                              [bg=#212337]=  
-│   Up/Down scroll · Esc close                                                      # [bg=#212337]=   [fg=#3b4261 bg=#212337]=Up/Down scroll · Esc close [bg=#212337]=                                                   [bg=#212337]=
+│   … 17 rows below                                                                 # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 17 rows below [bg=#212337]=                                                              [bg=#212337]=  
+│   Up/Down scroll · Esc close                                                      # [bg=#212337]=   [fg=#abb4da bg=#212337]=Up/Down scroll · Esc close [bg=#212337]=                                                   [bg=#212337]=

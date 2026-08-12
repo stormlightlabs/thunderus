@@ -2,4 +2,4 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│     Context  context  AGENTS.md (scop…    # [-]=   [fg=#6473b7]=   [fg=#6473b7]=Context [-]=   [fg=#abb4da]=context  AGENTS.md (scop… [-]=
+│     Context  context  AGENTS.md (scop…    # [-]=   [fg=#abb4da]=   [fg=#abb4da]=Context [-]=   [fg=#abb4da]=context  AGENTS.md (scop… [-]=

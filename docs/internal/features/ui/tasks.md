@@ -33,32 +33,32 @@
 
 **Blocked by:** UI-1.
 
-- [ ] Align session identity, editable input, queue information, operational
+- [x] Align session identity, editable input, queue information, operational
       status, and footer metadata as one bottom region.
-- [ ] Keep the fill on editable input rows only; use spacing, alignment, and a
+- [x] Keep the fill on editable input rows only; use spacing, alignment, and a
       single state accent to connect terminal-background metadata.
-- [ ] Make one nearby status authoritative for ready, sending, streaming,
+- [x] Make one nearby status authoritative for ready, sending, streaming,
       running a tool, stopped, and failed states, removing duplicate notices.
-- [ ] Prioritize input and the current state at compact and cramped widths;
+- [x] Prioritize input and the current state at compact and cramped widths;
       shorten or hide model, mode, timing, and queue metadata as needed.
-- [ ] Preserve cursor placement, multiline editing, draft history, commands,
+- [x] Preserve cursor placement, multiline editing, draft history, commands,
       mentions, queues, permissions, cancellation, and accessory surfaces.
 
 ## UI-4: Unify activity and semantic styling
 
 **Blocked by:** UI-2 and UI-3.
 
-- [ ] Route renderer styling through named semantic roles for primary,
+- [x] Route renderer styling through named semantic roles for primary,
       secondary, accent, active, success, warning, failure, selection, input,
       and focus surfaces across every shipped theme.
-- [ ] Reuse the existing activity projection to group related tool work and
+- [x] Reuse the existing activity projection to group related tool work and
       keep running work visually active without adding transcript noise.
-- [ ] Compress settled reads, searches, edits, and checks into quiet summaries;
+- [x] Compress settled reads, searches, edits, and checks into quiet summaries;
       keep failures, cancellations, diffs, and verification evidence prominent
       or available through existing detail interaction.
-- [ ] Use fixed-width state markers and stable spinner geometry so live updates
+- [x] Use fixed-width state markers and stable spinner geometry so live updates
       do not shift surrounding content.
-- [ ] Verify that state remains legible without color and that no component
+- [x] Verify that state remains legible without color and that no component
       introduces an unowned accent, border, or background treatment.
 
 ## UI-5: Validate the complete experience

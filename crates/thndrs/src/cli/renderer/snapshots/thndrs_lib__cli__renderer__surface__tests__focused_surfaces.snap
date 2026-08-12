@@ -9,11 +9,11 @@ permission buffer:
   ❯ Reject  [reject once]
   Enter choose · Esc cancel
 styles:
-│   permission · Run cargo test · approval required…  # [bg=#212337]=   [fg=#f7c67f bg=#212337]=permission · Run cargo test · approval required…
-│   scope: local user · active tool only            # [bg=#212337]=   [fg=#f7c67f bg=#212337]=scope: local user · active tool only [bg=#212337]=         [bg=#212337]=  
+│   permission · Run cargo test · approval required…  # [bg=#212337]=   [fg=#f1fc79 bg=#212337]=permission · Run cargo test · approval required…
+│   scope: local user · active tool only            # [bg=#212337]=   [fg=#f1fc79 bg=#212337]=scope: local user · active tool only [bg=#212337]=         [bg=#212337]=  
 │     Allow once  [allow once]                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Allow once  [allow once] [bg=#212337]=                   [bg=#212337]=  
 │   ❯ Reject  [reject once]                         # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=❯ Reject  [reject once] [bg=#292e42]=                      [bg=#292e42]=  
-│   Enter choose · Esc cancel                       # [bg=#212337]=   [fg=#3b4261 bg=#212337]=Enter choose · Esc cancel [bg=#212337]=                    [bg=#212337]=  
+│   Enter choose · Esc cancel                       # [bg=#212337]=   [fg=#abb4da bg=#212337]=Enter choose · Esc cancel [bg=#212337]=                    [bg=#212337]=  
 command picker buffer:
     COMMANDS                        option 1/2
     filter: c
@@ -21,11 +21,11 @@ command picker buffer:
       config show  redacted config
     Enter select · Esc close
 styles:
-│     COMMANDS                        option 1/2    # [-]=   [-]=   [fg=#f1fc79 b]=COMMANDS [-]=                         [fg=#6473b7]=option 1/2 [-]=  
-│     filter: c                                     # [-]=   [-]=   [fg=#3b4261]=filter: c [-]=                                  [-]=  
+│     COMMANDS                        option 1/2    # [-]=   [-]=   [fg=#f1fc79 b]=COMMANDS [-]=                         [fg=#abb4da]=option 1/2 [-]=  
+│     filter: c                                     # [-]=   [-]=   [fg=#abb4da]=filter: c [-]=                                  [-]=  
 │     ❯ clear  clear transcript                     # [-]=   [-]=   [fg=#ebfafa b]=❯ clear  clear transcript [-]=                  [-]=  
 │       config show  redacted config                # [-]=   [-]=   [fg=#ebfafa]=  config show  redacted config [-]=             [-]=  
-│     Enter select · Esc close                      # [-]=   [-]=   [fg=#3b4261]=Enter select · Esc close [-]=                   [-]=  
+│     Enter select · Esc close                      # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=                   [-]=  
 file picker buffer:
     FILES                           option 2/2
     filter: src
@@ -33,11 +33,11 @@ file picker buffer:
     ❯ src/cli/renderer/surface.rs  focused UI
     Enter select · Esc close
 styles:
-│     FILES                           option 2/2    # [-]=   [-]=   [fg=#f1fc79 b]=FILES [-]=                            [fg=#6473b7]=option 2/2 [-]=  
-│     filter: src                                   # [-]=   [-]=   [fg=#3b4261]=filter: src [-]=                                [-]=  
+│     FILES                           option 2/2    # [-]=   [-]=   [fg=#f1fc79 b]=FILES [-]=                            [fg=#abb4da]=option 2/2 [-]=  
+│     filter: src                                   # [-]=   [-]=   [fg=#abb4da]=filter: src [-]=                                [-]=  
 │       src/main.rs  binary                         # [-]=   [-]=   [fg=#ebfafa]=  src/main.rs  binary [-]=                      [-]=  
 │     ❯ src/cli/renderer/surface.rs  focused UI     # [-]=   [-]=   [fg=#ebfafa b]=❯ src/cli/renderer/surface.rs  focused UI [-]=  [-]=  
-│     Enter select · Esc close                      # [-]=   [-]=   [fg=#3b4261]=Enter select · Esc close [-]=                   [-]=  
+│     Enter select · Esc close                      # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=                   [-]=  
 help buffer:
   help · focus: keyboard
   ── Navigation ──
@@ -45,11 +45,11 @@ help buffer:
   … 28 rows below
   Up/Down scroll · Esc close
 styles:
-│   help · focus: keyboard                          # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=help · focus: keyboard [bg=#292e42]=                       [bg=#292e42]=  
-│   ── Navigation ──                                # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=── Navigation ── [bg=#292e42]=                             [bg=#292e42]=  
+│   help · focus: keyboard                          # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=help · focus: keyboard [bg=#212337]=                       [bg=#212337]=  
+│   ── Navigation ──                                # [bg=#212337]=   [fg=#37f499 bg=#212337]=── Navigation ── [bg=#212337]=                             [bg=#212337]=  
 │   Ctrl+O          open output, diff, warning, or …  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+O          open output, diff, warning, or …
-│   … 28 rows below                                 # [bg=#212337]=   [fg=#3b4261 bg=#212337]=… 28 rows below [bg=#212337]=                              [bg=#212337]=  
-│   Up/Down scroll · Esc close                      # [bg=#212337]=   [fg=#3b4261 bg=#212337]=Up/Down scroll · Esc close [bg=#212337]=                   [bg=#212337]=  
+│   … 28 rows below                                 # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 28 rows below [bg=#212337]=                              [bg=#212337]=  
+│   Up/Down scroll · Esc close                      # [bg=#212337]=   [fg=#abb4da bg=#212337]=Up/Down scroll · Esc close [bg=#212337]=                   [bg=#212337]=  
 tool detail buffer:
   run_shell · failed · focus: output
   scroll: 1 · entry: 2
@@ -58,10 +58,10 @@ tool detail buffer:
   ↑/↓ scroll · Esc close
 styles:
 │   run_shell · failed · focus: output              # [bg=#212337]=   [fg=#f16c75 bg=#212337]=run_shell · failed · focus: output [bg=#212337]=           [bg=#212337]=  
-│   scroll: 1 · entry: 2                            # [bg=#212337]=   [fg=#3b4261 bg=#212337]=scroll: 1 · entry: 2 [bg=#212337]=                         [bg=#212337]=  
-│   … 1 rows above                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=… 1 rows above [bg=#212337]=                               [bg=#212337]=  
-│   … 2 rows below                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=… 2 rows below [bg=#212337]=                               [bg=#212337]=  
-│   ↑/↓ scroll · Esc close                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=↑/↓ scroll · Esc close [bg=#212337]=                       [bg=#212337]=  
+│   scroll: 1 · entry: 2                            # [bg=#212337]=   [fg=#abb4da bg=#212337]=scroll: 1 · entry: 2 [bg=#212337]=                         [bg=#212337]=  
+│   … 1 rows above                                  # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 1 rows above [bg=#212337]=                               [bg=#212337]=  
+│   … 2 rows below                                  # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 2 rows below [bg=#212337]=                               [bg=#212337]=  
+│   ↑/↓ scroll · Esc close                          # [bg=#212337]=   [fg=#abb4da bg=#212337]=↑/↓ scroll · Esc close [bg=#212337]=                       [bg=#212337]=  
 diff detail buffer:
   diff · +1 -1 · focus: output · src/lib.rs
   -old
@@ -69,21 +69,21 @@ diff detail buffer:
   … 2 rows above
   ↑/↓ scroll · Esc close
 styles:
-│   diff · +1 -1 · focus: output · src/lib.rs       # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=diff · +1 -1 · focus: output · src/lib.rs [bg=#292e42]=    [bg=#292e42]=  
+│   diff · +1 -1 · focus: output · src/lib.rs       # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=diff · +1 -1 · focus: output · src/lib.rs [bg=#212337]=    [bg=#212337]=  
 │   -old                                            # [bg=#212337]=   [fg=#f16c75 bg=#212337]=-old [bg=#212337]=                                         [bg=#212337]=  
 │   +new                                            # [bg=#212337]=   [fg=#37f499 bg=#212337]=+new [bg=#212337]=                                         [bg=#212337]=  
-│   … 2 rows above                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=… 2 rows above [bg=#212337]=                               [bg=#212337]=  
-│   ↑/↓ scroll · Esc close                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=↑/↓ scroll · Esc close [bg=#212337]=                       [bg=#212337]=  
+│   … 2 rows above                                  # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 2 rows above [bg=#212337]=                               [bg=#212337]=  
+│   ↑/↓ scroll · Esc close                          # [bg=#212337]=   [fg=#abb4da bg=#212337]=↑/↓ scroll · Esc close [bg=#212337]=                       [bg=#212337]=  
 transcript lens buffer:
   transcript · focus: history
   entry: 12
   scroll: 3
   ↑/↓ scroll · Esc close
 styles:
-│   transcript · focus: history                     # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=transcript · focus: history [bg=#292e42]=                  [bg=#292e42]=  
+│   transcript · focus: history                     # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=transcript · focus: history [bg=#212337]=                  [bg=#212337]=  
 │   entry: 12                                       # [bg=#212337]=   [fg=#ebfafa bg=#212337]=entry: 12 [bg=#212337]=                                    [bg=#212337]=  
 │   scroll: 3                                       # [bg=#212337]=   [fg=#ebfafa bg=#212337]=scroll: 3 [bg=#212337]=                                    [bg=#212337]=  
-│   ↑/↓ scroll · Esc close                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=↑/↓ scroll · Esc close [bg=#212337]=                       [bg=#212337]=  
+│   ↑/↓ scroll · Esc close                          # [bg=#212337]=   [fg=#abb4da bg=#212337]=↑/↓ scroll · Esc close [bg=#212337]=                       [bg=#212337]=  
 setup form buffer:
   setup · OpenCode Go · credential entry
   ! credential is required
@@ -91,11 +91,11 @@ setup form buffer:
   ❯ credential: [hidden]
   Enter submit · Esc cancel
 styles:
-│   setup · OpenCode Go · credential entry          # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=setup · OpenCode Go · credential entry [bg=#292e42]=       [bg=#292e42]=  
+│   setup · OpenCode Go · credential entry          # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=setup · OpenCode Go · credential entry [bg=#212337]=       [bg=#212337]=  
 │   ! credential is required                        # [bg=#212337]=   [fg=#f16c75 bg=#212337]=! credential is required [bg=#212337]=                     [bg=#212337]=  
 │   Input is hidden.                                # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Input is hidden. [bg=#212337]=                             [bg=#212337]=  
 │   ❯ credential: [hidden]                          # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=❯ credential: [hidden] [bg=#292e42]=                       [bg=#292e42]=  
-│   Enter submit · Esc cancel                       # [bg=#212337]=   [fg=#3b4261 bg=#212337]=Enter submit · Esc cancel [bg=#212337]=                    [bg=#212337]=  
+│   Enter submit · Esc cancel                       # [bg=#212337]=   [fg=#abb4da bg=#212337]=Enter submit · Esc cancel [bg=#212337]=                    [bg=#212337]=  
 table buffer:
   context · focus: row 2/2
   command                        status
@@ -103,8 +103,8 @@ table buffer:
   ❯ cargo clippy                    fix
   ↑/↓ inspect · Esc close
 styles:
-│   context · focus: row 2/2                        # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=context · focus: row 2/2 [bg=#292e42]=                     [bg=#292e42]=  
-│   command                        status           # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=command                        status        [bg=#292e42]=  
+│   context · focus: row 2/2                        # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=context · focus: row 2/2 [bg=#212337]=                     [bg=#212337]=  
+│   command                        status           # [bg=#212337]=   [fg=#37f499 bg=#212337]=command                        status        [bg=#212337]=  
 │     cargo test                       ok           # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  cargo test                       ok         
 │   ❯ cargo clippy                    fix           # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=❯ cargo clippy                    fix         
-│   ↑/↓ inspect · Esc close                         # [bg=#212337]=   [fg=#3b4261 bg=#212337]=↑/↓ inspect · Esc close [bg=#212337]=                      [bg=#212337]=
+│   ↑/↓ inspect · Esc close                         # [bg=#212337]=   [fg=#abb4da bg=#212337]=↑/↓ inspect · Esc close [bg=#212337]=                      [bg=#212337]=

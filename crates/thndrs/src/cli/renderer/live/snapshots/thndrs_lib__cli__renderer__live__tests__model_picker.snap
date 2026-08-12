@@ -2,8 +2,8 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│     MODELS                                                          option 2/2    # [-]=   [-]=   [fg=#f1fc79 b]=MODELS [-]=                                                           [fg=#6473b7]=option 2/2 [-]=  
-│     filter: type to filter                                                        # [-]=   [-]=   [fg=#3b4261]=filter: type to filter [-]=                                                     [-]=  
+│     MODELS                                                          option 2/2    # [-]=   [-]=   [fg=#f1fc79 b]=MODELS [-]=                                                           [fg=#abb4da]=option 2/2 [-]=  
+│     filter: type to filter                                                        # [-]=   [-]=   [fg=#abb4da]=filter: type to filter [-]=                                                     [-]=  
 │       opencode/big-pickle  Recommended route to Kimi K2.7-…                       # [-]=   [-]=   [fg=#ebfafa]=  opencode/big-pickle  Recommended route to Kimi K2.7-… [-]=                    [-]=  
 │     ❯ opencode/gpt-5.6-luna  Largest context window                               # [-]=   [-]=   [fg=#ebfafa b]=❯ opencode/gpt-5.6-luna  Largest context window [-]=                            [-]=  
-│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#3b4261]=Enter select · Esc close [-]=                                                   [-]=
+│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=                                                   [-]=

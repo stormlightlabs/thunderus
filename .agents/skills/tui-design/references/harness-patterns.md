@@ -118,6 +118,8 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 - Pin it to the bottom and grow it upward.
 - Fill only editable rows and intentional inset padding with `panel_bg`.
 - Keep mode, validation, queue, and disabled states inside or directly adjacent to the input surface.
+- Show nonzero transient counts near the control they affect, avoid duplicating
+  them across chrome, and hide them before primary state under width pressure.
 - Make placeholder text quieter than a draft.
 - Keep the cursor visible and clamped after wrapping, resize, completion, and multiline edits.
 - Preserve the draft until a successful action consumes it.
@@ -145,7 +147,8 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 
 - Show only state that changes the user's next action.
 - Prefer one calm line to several badges or counters.
-- Keep predictive context capacity visible by default between model/reasoning and queue count when it is known; hide it before primary state under width pressure.
+- Keep predictive context capacity visible when it is known; hide it before
+  primary state under width pressure.
 - Remove labels when position and value already explain the field.
 - Hide low-priority metadata before shortening primary content.
 

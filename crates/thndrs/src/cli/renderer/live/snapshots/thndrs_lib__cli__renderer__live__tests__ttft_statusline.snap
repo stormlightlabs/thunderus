@@ -3,10 +3,10 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 pending:
-│     Idle                                                         test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle [-]=                                                          [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=  
+│     ✓ Ready                                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                                 [fg=#abb4da]=test-model · auto [-]=   [-]=  
 measured:
-│     Idle                                                         test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle [-]=                                                          [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=  
+│     ✓ Ready                                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                                 [fg=#abb4da]=test-model · auto [-]=   [-]=  
 retained:
-│     Idle                                                         test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle [-]=                                                          [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=  
+│     ✓ Ready                                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                                 [fg=#abb4da]=test-model · auto [-]=   [-]=  
 narrow:
-│     Idle                                         test-model · auto · queue 0      # [-]=   [-]=   [fg=#04d1f9 b]=Idle [-]=                                          [fg=#6473b7]=test-model · auto · queue 0 [-]=   [-]=
+│     ✓ Ready                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                 [fg=#abb4da]=test-model · auto [-]=   [-]=

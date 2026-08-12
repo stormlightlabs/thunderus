@@ -32,15 +32,15 @@ const COMPOSER_MIN_CONTENT_WIDTH: usize = 8;
 /// Returns the rows and the cursor coordinate (relative to the first row).
 pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord>) {
     let p = super::style::palette();
-    let surface = p.panel_bg;
+    let surface = p.input;
     let prompt_state = app.prompt_state();
 
     let (prompt_color, icon) = match prompt_state {
-        PromptState::Editable => (p.yellow, "❯"),
-        PromptState::Submitted => (p.teal, "»"),
-        PromptState::Streaming | PromptState::RunningTool => (p.teal, "»"),
-        PromptState::Stopped => (p.teal, "○"),
-        PromptState::Errored => (p.red, "✕"),
+        PromptState::Editable => (p.focus, "❯"),
+        PromptState::Submitted => (p.active, "»"),
+        PromptState::Streaming | PromptState::RunningTool => (p.active, "»"),
+        PromptState::Stopped => (p.focus, "○"),
+        PromptState::Errored => (p.failure, "✕"),
     };
 
     let prefix_width = if app.composer.mode == Mode::Command { 4 } else { 3 };
@@ -66,7 +66,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let visual_rows = prompt_rows(input_text, body_width);
     let cursor = prompt_cursor(input_text, cursor_pos, body_width, cursor_indent);
 
-    let text_style = CellStyle::new().fg(p.text).bg(surface);
+    let text_style = CellStyle::new().fg(p.primary).bg(surface);
     let mention_style = CellStyle::new().fg(p.accent).bg(surface).bold();
 
     let mut rows = Vec::with_capacity(visual_rows.len());
@@ -124,9 +124,10 @@ pub fn frame_prompt_rows(
 
     let p = super::style::palette();
     let accent = match app.prompt_state() {
-        PromptState::Editable => p.yellow,
-        PromptState::Submitted | PromptState::Streaming | PromptState::RunningTool | PromptState::Stopped => p.teal,
-        PromptState::Errored => p.red,
+        PromptState::Editable => p.focus,
+        PromptState::Submitted | PromptState::Streaming | PromptState::RunningTool => p.active,
+        PromptState::Stopped => p.focus,
+        PromptState::Errored => p.failure,
     };
     let label_style = CellStyle::new().fg(accent).bold();
     let content_width = super::layout::content_width(width);
@@ -135,7 +136,27 @@ pub fn frame_prompt_rows(
     let session_budget = content_width.saturating_sub(LIVE_INSET).max(1);
     let label = utils::truncate_ellipsis(session, session_budget);
     let fixed = LIVE_INSET + utils::text_width(&label);
-    let top_spans = if fixed < content_width {
+    let queued_count = app.composer.queue.pending_count(crate::app::QueueTarget::Steering)
+        + app.composer.queue.pending_count(crate::app::QueueTarget::FollowUp);
+    let queued = format!("{queued_count} queued");
+    let queued_width = utils::text_width(&queued);
+    let queue_is_in_status = app
+        .runtime
+        .cli
+        .status_line
+        .left
+        .iter()
+        .chain(&app.runtime.cli.status_line.right)
+        .any(|segment| *segment == crate::config::StatusSegment::QueueCount);
+    let show_queued = queued_count > 0 && !queue_is_in_status && fixed + 1 + queued_width <= content_width;
+    let top_spans = if show_queued {
+        vec![
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new()),
+            Span::styled(label, label_style),
+            Span::styled(" ".repeat(content_width - fixed - queued_width), CellStyle::new()),
+            Span::styled(queued, CellStyle::new().fg(p.secondary)),
+        ]
+    } else if fixed < content_width {
         vec![
             Span::styled(" ".repeat(LIVE_INSET), CellStyle::new()),
             Span::styled(label, label_style),
@@ -148,7 +169,7 @@ pub fn frame_prompt_rows(
         ]
     };
 
-    let vertical_padding = || composer_input_row(Vec::new(), width, content_width, p.panel_bg);
+    let vertical_padding = || composer_input_row(Vec::new(), width, content_width, p.input);
     let mut framed = Vec::with_capacity(rows.len() + 3);
     framed.push(Row::padded(top_spans, width, CellStyle::new()));
     framed.push(vertical_padding());
@@ -195,8 +216,8 @@ pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
 
     let p = super::style::palette();
     let bg = Color::Reset;
-    let label_style = CellStyle::new().fg(p.peach).bg(bg).bold();
-    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+    let label_style = CellStyle::new().fg(p.active).bg(bg).bold();
+    let muted_style = CellStyle::new().fg(p.secondary).bg(bg);
     let inset = Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg));
     if followups == 0 {
         return Some(Row::padded(
@@ -236,18 +257,18 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
     };
 
     let p = super::style::palette();
-    let bg = p.surface0;
+    let bg = p.surface;
     let title_style = CellStyle::new().fg(p.accent).bg(bg).bold();
     let status_color = match status {
-        ToolStatus::Running => p.peach,
-        ToolStatus::Ok => p.green,
-        ToolStatus::Failed => p.red,
-        ToolStatus::Cancelled => p.peach,
+        ToolStatus::Running => p.active,
+        ToolStatus::Ok => p.success,
+        ToolStatus::Failed => p.failure,
+        ToolStatus::Cancelled => p.active,
     };
     let status_style = CellStyle::new().fg(status_color).bg(bg);
-    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
-    let body_style = CellStyle::new().fg(p.text).bg(bg);
-    let gutter_style = CellStyle::new().fg(p.overlay0).bg(bg);
+    let muted_style = CellStyle::new().fg(p.secondary).bg(bg);
+    let body_style = CellStyle::new().fg(p.primary).bg(bg);
+    let gutter_style = CellStyle::new().fg(p.border).bg(bg);
 
     let status_label = match status {
         ToolStatus::Running => "running",

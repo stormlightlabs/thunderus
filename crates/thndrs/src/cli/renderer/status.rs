@@ -4,7 +4,7 @@ use std::path::Path;
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, Entry, RunState, StatusToastKind, ToolStatus};
+use crate::app::{App, Entry, StatusToastKind, ToolStatus};
 use crate::config::StatusSegment;
 use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Span};
@@ -36,8 +36,8 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
     let background = CellStyle::new();
     if let Some(toast) = &app.runtime.status_toast {
         let color = match toast.kind {
-            StatusToastKind::Success => palette.green,
-            StatusToastKind::Error => palette.red,
+            StatusToastKind::Success => palette.success,
+            StatusToastKind::Error => palette.failure,
         };
         let body_width = super::layout::content_width(width);
         let inset = width.min(2);
@@ -52,11 +52,14 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
         );
     }
     if width < 8 {
-        let model = model_name(app);
+        let state = operational_state(app);
+        let available = width.saturating_sub(width.min(2));
         return Row::padded(
             vec![Span::styled(
-                utils::truncate_ellipsis_start(model, width),
-                CellStyle::new().fg(palette.overlay1),
+                utils::truncate_ellipsis(&state, available),
+                CellStyle::new()
+                    .fg(super::style::status_color(&app.status_label()))
+                    .bold(),
             )],
             width,
             background,
@@ -83,20 +86,14 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
         .saturating_sub(UnicodeWidthStr::width(left_text.as_str()))
         .saturating_sub(UnicodeWidthStr::width(right_text.as_str()));
     let urgent = left.first().is_some_and(|field| field.urgent);
-    let state_color = if urgent {
-        palette.red
-    } else if app.runtime.run_state == RunState::Working || app.compaction_in_flight() {
-        super::style::status_color(&app.status_label())
-    } else {
-        palette.teal
-    };
+    let state_color = if urgent { palette.failure } else { super::style::status_color(&app.status_label()) };
     let mut spans = vec![Span::styled(" ".repeat(inset), background)];
     if !left_text.is_empty() {
         spans.push(Span::styled(left_text, CellStyle::new().fg(state_color).bold()));
     }
     spans.push(Span::styled(" ".repeat(gap), background));
     if !right_text.is_empty() {
-        spans.push(Span::styled(right_text, CellStyle::new().fg(palette.overlay1)));
+        spans.push(Span::styled(right_text, CellStyle::new().fg(palette.secondary)));
     }
     spans.push(Span::styled(" ".repeat(inset), background));
     Row::padded(spans, width, background)
@@ -115,49 +112,8 @@ fn fields(app: &App, configured: &[StatusSegment], anchored: bool) -> Vec<Field>
 fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
     let (text, priority, min_width, truncation, urgent) = match segment {
         StatusSegment::RunState => {
-            let text =
-                if app.overlay.permission().is_some() {
-                    "Waiting for permission".to_string()
-                } else if app.compaction_in_flight() {
-                    let label = app.status_label();
-                    let icon = super::style::status_icon(
-                        &label,
-                        super::style::spinner_tick(app.runtime.ui_tick, app.runtime.cli.tick_rate_ms),
-                    );
-                    format!("{icon} {label}")
-                } else {
-                    match app.runtime.run_state {
-                    RunState::Stopping => "Cancelling".to_string(),
-                    RunState::Error(_) => "Failed".to_string(),
-                    RunState::Idle if app.transcript.entries.last().is_some_and(
-                        |entry| matches!(entry, Entry::Status { text } if text.eq_ignore_ascii_case("cancelled")),
-                    ) => "Stopped".to_string(),
-                    RunState::Idle => match app.transcript.entries.iter().rev().find(
-                        |entry| !matches!(entry, Entry::Status { .. }),
-                    ) {
-                        Some(Entry::Agent { streaming: false, .. })
-                        | Some(Entry::Tool { status: ToolStatus::Ok, .. }) => "Complete".to_string(),
-                        Some(Entry::Tool { name, status: ToolStatus::Failed, .. }) => {
-                            format!("Failed: tool {}", utils::truncate_ellipsis(name, 32))
-                        }
-                        Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "Stopped".to_string(),
-                        Some(Entry::Error { .. }) => "Failed".to_string(),
-                        _ => "Idle".to_string(),
-                    },
-                    RunState::Working => {
-                        let label = app.status_label();
-                        let icon = super::style::status_icon(
-                            &label,
-                            super::style::spinner_tick(
-                                app.runtime.ui_tick,
-                                app.runtime.cli.tick_rate_ms,
-                            ),
-                        );
-                        format!("{icon} {label}")
-                    }
-                }
-                };
-            let urgent = text.starts_with("Failed") || matches!(text.as_str(), "Waiting for permission" | "Cancelling");
+            let text = operational_state(app);
+            let urgent = text.contains("Failed") || text.contains("Waiting for permission");
             (text, 0, 4, Truncation::End, urgent)
         }
         StatusSegment::ActiveTool => {
@@ -210,7 +166,20 @@ fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
             )
         }
     };
-    Some(Field { text, priority, min_width, truncation, urgent, required: segment == StatusSegment::Route })
+    Some(Field { text, priority, min_width, truncation, urgent, required: segment == StatusSegment::RunState })
+}
+
+fn operational_state(app: &App) -> String {
+    let label = if app.overlay.permission().is_some() {
+        "Waiting for permission".to_string()
+    } else {
+        app.status_label()
+    };
+    let icon = super::style::status_icon(
+        &label,
+        super::style::spinner_tick(app.runtime.ui_tick, app.runtime.cli.tick_rate_ms),
+    );
+    format!("{icon} {label}")
 }
 
 fn active_model(app: &App) -> String {
@@ -357,6 +326,7 @@ fn display_name(path: &Path) -> &str {
 mod tests {
     use super::*;
     use crate::cli::Cli;
+    use crate::cli::app::RunState;
 
     #[test]
     fn status_is_one_row_at_normal_narrow_and_tiny_widths() {
@@ -369,6 +339,8 @@ mod tests {
             assert!(!row.text().trim().is_empty());
             if width == 28 {
                 assert!(row.text().contains("fake-agent"));
+            } else if width == 4 {
+                assert_eq!(row.text(), "  ✓…");
             }
         }
     }
@@ -384,12 +356,12 @@ mod tests {
         assert!(
             row.spans
                 .iter()
-                .any(|span| span.style.fg == super::super::style::palette().green)
+                .any(|span| span.style.fg == super::super::style::palette().success)
         );
     }
 
     #[test]
-    fn active_model_is_default_required_and_movable() {
+    fn active_model_is_default_and_movable() {
         let mut app = App::from_cli(&Cli::default());
         app.runtime.model = "opencode-go/glm-5.2".to_string();
         app.runtime.cli.reasoning_effort = crate::cli::ReasoningEffort::High;
@@ -406,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn active_model_survives_legacy_layouts_and_width_pressure() {
+    fn current_state_displaces_model_under_width_pressure() {
         let mut app = App::from_cli(&Cli::default());
         app.runtime.model = "opencode-go/glm-5.2".to_string();
         app.runtime
@@ -416,14 +388,16 @@ mod tests {
             .retain(|field| *field != StatusSegment::Route);
 
         assert!(status_row(&app, 80, false).text().contains("opencode-go/glm-5.2"));
-        assert!(status_row(&app, 12, false).text().contains("5.2"));
+        let cramped = status_row(&app, 12, false).text();
+        assert!(cramped.contains('✓'));
+        assert!(!cramped.contains("5.2"));
     }
 
     #[test]
     fn optional_authority_and_anchor_are_projected_semantically() {
         let mut app = App::from_cli(&Cli::default());
         let text = status_row(&app, 80, true).text();
-        assert!(text.contains("Idle"));
+        assert!(text.contains("✓ Ready"));
         assert!(text.contains("↑ away"));
         assert!(!text.contains("Editable"));
 
@@ -444,14 +418,14 @@ mod tests {
                 .all(|span| span.style.bg == crate::renderer::style::Color::Reset)
         );
         assert_eq!(row.text_width(), 80);
-        assert!(text.starts_with("    Idle"));
-        assert!(text.ends_with("queue 0    "));
+        assert!(text.starts_with("    ✓ Ready"));
+        assert!(text.ends_with("model unavailable · auto    "));
     }
 
     #[test]
     fn run_transitions_and_active_tool_are_projected() {
         let mut app = App::from_cli(&Cli::default());
-        assert!(status_row(&app, 80, false).text().contains("Idle"));
+        assert!(status_row(&app, 80, false).text().contains("✓ Ready"));
 
         app.runtime.run_state = RunState::Working;
         app.transcript.entries.push(Entry::Tool {
@@ -466,7 +440,7 @@ mod tests {
         assert!(!working.contains("tool search_text"));
 
         app.runtime.run_state = RunState::Stopping;
-        assert!(status_row(&app, 80, false).text().contains("Cancelling"));
+        assert!(status_row(&app, 80, false).text().contains("Stopping"));
         app.runtime.run_state = RunState::Error("provider detail".to_string());
         let failed = status_row(&app, 80, false).text();
         assert!(failed.contains("Failed"));
@@ -474,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_tool_status_names_the_operation_without_secret_context() {
+    fn failed_tool_status_is_authoritative_without_secret_context() {
         let mut app = App::from_cli(&Cli::default());
         app.transcript.entries.push(Entry::Tool {
             name: "run_shell".to_string(),
@@ -484,7 +458,7 @@ mod tests {
         });
 
         let text = status_row(&app, 80, false).text();
-        assert!(text.contains("Failed: tool run_shell"));
+        assert!(text.contains("✕ Failed"));
         assert!(!text.contains("secret-argument"));
         assert!(!text.contains("secret-output"));
     }
@@ -498,8 +472,8 @@ mod tests {
         let wide = status_row(&app, 100, false).text();
         let route = wide.find("fixture-model · auto").expect("model and reasoning");
         let context = wide.find("% ctx left").expect("context remaining");
-        let queue = wide.find("queue 0").expect("queue count");
-        assert!(route < context && context < queue);
+        assert!(route < context);
+        assert!(!wide.contains("queue"));
         assert!(!status_row(&app, 24, false).text().contains("ctx left"));
 
         let ledger = app.transcript.context_ledger.as_mut().expect("refreshed ledger");

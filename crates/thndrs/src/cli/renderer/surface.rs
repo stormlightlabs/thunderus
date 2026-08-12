@@ -35,19 +35,19 @@ impl SurfaceLine {
     }
 
     fn text(text: impl Into<String>) -> Self {
-        Self::new(text, ThemeRole::Text)
+        Self::new(text, ThemeRole::Primary)
     }
 
     fn muted(text: impl Into<String>) -> Self {
-        Self::new(text, ThemeRole::Muted)
+        Self::new(text, ThemeRole::Secondary)
     }
 
     fn selected(text: impl Into<String>) -> Self {
-        Self::new(text, ThemeRole::Selected)
+        Self::new(text, ThemeRole::Selection)
     }
 
     fn title(text: impl Into<String>) -> Self {
-        Self::new(text, ThemeRole::Selected)
+        Self::new(text, ThemeRole::Accent)
     }
 }
 
@@ -102,7 +102,7 @@ fn transcript_search_rows(
             body: Vec::new(),
             focus: None,
             hints: "Enter/↓ next · Shift+Enter/↑ previous · Esc cancel".to_string(),
-            border: ThemeRole::Selected,
+            border: ThemeRole::Focus,
         },
         width,
         height,
@@ -144,7 +144,7 @@ fn queue_rows(queue: &QueueView, width: usize, height: usize, theme: &SurfaceThe
             } else {
                 "e edit · Ctrl+↑/↓ reorder · t retarget · d delete · a after step · s send now · Esc close".to_string()
             },
-            border: ThemeRole::Selected,
+            border: ThemeRole::Focus,
         },
         width,
         height,
@@ -163,16 +163,16 @@ pub fn transcript_lens_rows(title: &str, body: &[String], width: usize, height: 
     rows.push(Row::padded(
         vec![Span::styled(
             utils::truncate_ellipsis(title, width),
-            CellStyle::new().fg(p.text).bold(),
+            CellStyle::new().fg(p.primary).bold(),
         )],
         width,
-        CellStyle::new().bg(p.surface0),
+        CellStyle::new().bg(p.surface),
     ));
     rows.extend(body.iter().take(height.saturating_sub(1)).map(|line| {
         Row::padded(
             vec![Span::plain(utils::truncate_ellipsis(line, width))],
             width,
-            CellStyle::new().bg(p.surface0),
+            CellStyle::new().bg(p.surface),
         )
     }));
     rows
@@ -213,7 +213,7 @@ fn picker_content(picker: &PickerView, width: usize) -> ViewContent {
         body,
         focus,
         hints: "Enter select · Esc close".to_string(),
-        border: ThemeRole::Selected,
+        border: ThemeRole::Focus,
     }
 }
 
@@ -225,7 +225,7 @@ fn quiet_picker_rows(picker: &PickerView, width: usize, height: usize) -> Vec<Ro
     let content = picker_content(picker, width);
     let mut header_spans = vec![
         Span::plain("  "),
-        Span::styled(content.title.to_uppercase(), CellStyle::new().fg(p.yellow).bold()),
+        Span::styled(content.title.to_uppercase(), CellStyle::new().fg(p.warning).bold()),
     ];
     let used = super::layout::spans_width(&header_spans);
     let status = content.status.strip_prefix("focus: ").unwrap_or(&content.status);
@@ -233,15 +233,15 @@ fn quiet_picker_rows(picker: &PickerView, width: usize, height: usize) -> Vec<Ro
     let body_width = super::layout::content_width(width);
     if used + status_width + 2 <= body_width {
         header_spans.push(Span::plain(" ".repeat(body_width - used - status_width)));
-        header_spans.push(Span::styled(status, CellStyle::new().fg(p.overlay1)));
+        header_spans.push(Span::styled(status, CellStyle::new().fg(p.secondary)));
     }
 
     let mut rows = vec![Row::padded(header_spans, width, CellStyle::new())];
     let body = layout_surface_body(&content, height.saturating_sub(1));
     for line in body {
         let text_style = match line.role {
-            ThemeRole::Selected => CellStyle::new().fg(p.text).bold(),
-            ThemeRole::Muted => CellStyle::new().fg(p.overlay0),
+            ThemeRole::Selection => CellStyle::new().fg(p.primary).bold(),
+            ThemeRole::Secondary => CellStyle::new().fg(p.secondary),
             role => theme_role_style(role),
         };
         rows.push(Row::padded(
@@ -260,7 +260,7 @@ fn help_rows(help: &HelpView, width: usize, height: usize, theme: &SurfaceThemeV
         .iter()
         .map(|binding| {
             if binding.description.is_empty() {
-                SurfaceLine::new(binding.key.clone(), ThemeRole::Selected)
+                SurfaceLine::new(binding.key.clone(), ThemeRole::Accent)
             } else {
                 SurfaceLine::text(format!("{:<16}{}", binding.key, binding.description))
             }
@@ -273,7 +273,7 @@ fn help_rows(help: &HelpView, width: usize, height: usize, theme: &SurfaceThemeV
             body,
             focus: Some(help.scroll),
             hints: "Up/Down scroll · Esc close".to_string(),
-            border: ThemeRole::Selected,
+            border: ThemeRole::Focus,
         },
         width,
         height,
@@ -329,9 +329,10 @@ fn tool_detail_rows(detail: &ToolDetailView, width: usize, height: usize, theme:
         body.insert(1, SurfaceLine::muted(format!("… {} rows above", detail.scroll)));
     }
     let border = match detail.status {
-        ToolStatus::Failed => ThemeRole::Error,
+        ToolStatus::Running => ThemeRole::Active,
+        ToolStatus::Ok => ThemeRole::Success,
+        ToolStatus::Failed => ThemeRole::Failure,
         ToolStatus::Cancelled => ThemeRole::Warning,
-        _ => ThemeRole::Selected,
     };
     render_bounded_view(
         &ViewContent {
@@ -378,7 +379,7 @@ fn diff_detail_rows(detail: &DiffDetailView, width: usize, height: usize, theme:
             body,
             focus: None,
             hints: "↑/↓ scroll · Esc close".to_string(),
-            border: ThemeRole::Selected,
+            border: ThemeRole::Focus,
         },
         width,
         height,
@@ -390,7 +391,7 @@ fn setup_form_rows(form: &SetupFormView, width: usize, height: usize, theme: &Su
     let mut body = form
         .validation_errors
         .iter()
-        .map(|error| SurfaceLine::new(format!("! {error}"), theme.error))
+        .map(|error| SurfaceLine::new(format!("! {error}"), theme.failure))
         .collect::<Vec<_>>();
     let detail_width = width.saturating_sub(4).max(1);
     body.extend(
@@ -435,7 +436,7 @@ fn setup_form_rows(form: &SetupFormView, width: usize, height: usize, theme: &Su
             } else {
                 format!("↑/↓ choose · Enter confirm · Esc {}", form.cancel_label)
             },
-            border: if form.attention { ThemeRole::Warning } else { ThemeRole::Selected },
+            border: if form.attention { ThemeRole::Warning } else { ThemeRole::Focus },
         },
         width,
         height,
@@ -453,7 +454,7 @@ fn table_rows(table: &TableView, width: usize, height: usize, theme: &SurfaceThe
                 body: table.narrow_fallback.iter().cloned().map(SurfaceLine::text).collect(),
                 focus: None,
                 hints: "Esc close".to_string(),
-                border: ThemeRole::Selected,
+                border: ThemeRole::Focus,
             },
             width,
             height,
@@ -480,7 +481,7 @@ fn table_rows(table: &TableView, width: usize, height: usize, theme: &SurfaceThe
             body,
             focus: table.selected_row.map(|row| row + 1),
             hints: "↑/↓ inspect · Esc close".to_string(),
-            border: ThemeRole::Selected,
+            border: ThemeRole::Focus,
         },
         width,
         height,
@@ -504,7 +505,7 @@ fn transcript_lens_surface_rows(
             ],
             focus: None,
             hints: "↑/↓ scroll · Esc close".to_string(),
-            border: ThemeRole::Selected,
+            border: ThemeRole::Focus,
         },
         width,
         height,
@@ -518,7 +519,7 @@ fn render_bounded_view(content: &ViewContent, width: usize, height: usize, theme
     }
 
     let palette = style::palette();
-    let background = palette.surface0;
+    let background = palette.surface;
     let header = format!("{} · {}", content.title, content.status);
     let max_body_height = height.saturating_sub(1);
     let body_rows = layout_surface_body(content, max_body_height);
@@ -613,7 +614,7 @@ fn render_lines(
         .iter()
         .take(height)
         .map(|line| {
-            let row_background = if line.role == theme.selected { p.surface1 } else { background };
+            let row_background = if line.role == theme.selection { p.selection } else { background };
             let row_style = theme_role_style(line.role).bg(row_background);
             Row::padded(
                 vec![Span::styled(utils::truncate_ellipsis(&line.text, width), row_style)],
@@ -697,13 +698,8 @@ fn query_label(query: &str) -> String {
 fn theme_role_style(role: ThemeRole) -> CellStyle {
     let p = style::palette();
     match role {
-        ThemeRole::Text => CellStyle::new().fg(p.text),
-        ThemeRole::Muted => CellStyle::new().fg(p.overlay0),
-        ThemeRole::Selected => CellStyle::new().fg(p.text).bold(),
-        ThemeRole::Warning => CellStyle::new().fg(p.peach),
-        ThemeRole::Error => CellStyle::new().fg(p.red),
-        ThemeRole::DiffAdded => CellStyle::new().fg(p.green),
-        ThemeRole::DiffRemoved => CellStyle::new().fg(p.red),
+        ThemeRole::Selection => CellStyle::new().fg(p.primary).bold(),
+        _ => CellStyle::new().fg(p.color(role)),
     }
 }
 
@@ -856,6 +852,25 @@ mod tests {
                 .all(|row| row.spans.iter().all(|span| span.style.bg == style::Color::Reset))
         );
         assert!(rows.iter().any(|row| row.text().contains("no matches")));
+    }
+
+    #[test]
+    fn selected_surface_rows_keep_text_distinct_from_the_selection_fill() {
+        let rows = render_lines(
+            &[SurfaceLine::selected("selected")],
+            20,
+            1,
+            &test_theme(),
+            style::palette().surface,
+        );
+        let selected = rows[0]
+            .spans
+            .iter()
+            .find(|span| span.text.contains("selected"))
+            .expect("selected row text");
+
+        assert_ne!(selected.style.fg, selected.style.bg);
+        assert!(selected.style.bold);
     }
 
     #[test]
@@ -1049,11 +1064,11 @@ mod tests {
 
     fn test_theme() -> SurfaceThemeView {
         SurfaceThemeView {
-            text: ThemeRole::Text,
-            muted: ThemeRole::Muted,
-            selected: ThemeRole::Selected,
+            primary: ThemeRole::Primary,
+            secondary: ThemeRole::Secondary,
+            selection: ThemeRole::Selection,
             warning: ThemeRole::Warning,
-            error: ThemeRole::Error,
+            failure: ThemeRole::Failure,
             diff_added: ThemeRole::DiffAdded,
             diff_removed: ThemeRole::DiffRemoved,
         }

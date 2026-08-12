@@ -16,24 +16,13 @@ use crate::app::{
 };
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::renderer::row::{CursorCoord, Row};
+pub use crate::renderer::style::ThemeRole;
 use crate::renderer::transcript::{
     ActivityImportance, ActivityKind, ActivityProjection, ActivitySummary, TranscriptRowContext, edit_path_from_args,
     summarize_tool_invocation,
 };
 use crate::tools::shell::redact_secrets;
 use crate::utils;
-
-/// A backend-neutral theme role.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ThemeRole {
-    Text,
-    Muted,
-    Selected,
-    Warning,
-    Error,
-    DiffAdded,
-    DiffRemoved,
-}
 
 /// A transcript row family.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1123,11 +1112,11 @@ impl<'a> SurfaceRenderInput<'a> {
 /// Semantic theme roles available to bounded surface adapters.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SurfaceThemeView {
-    pub text: ThemeRole,
-    pub muted: ThemeRole,
-    pub selected: ThemeRole,
+    pub primary: ThemeRole,
+    pub secondary: ThemeRole,
+    pub selection: ThemeRole,
     pub warning: ThemeRole,
-    pub error: ThemeRole,
+    pub failure: ThemeRole,
     pub diff_added: ThemeRole,
     pub diff_removed: ThemeRole,
 }
@@ -1141,11 +1130,11 @@ impl Default for SurfaceThemeView {
 impl SurfaceThemeView {
     pub fn new() -> Self {
         SurfaceThemeView {
-            text: ThemeRole::Text,
-            muted: ThemeRole::Muted,
-            selected: ThemeRole::Selected,
+            primary: ThemeRole::Primary,
+            secondary: ThemeRole::Secondary,
+            selection: ThemeRole::Selection,
             warning: ThemeRole::Warning,
-            error: ThemeRole::Error,
+            failure: ThemeRole::Failure,
             diff_added: ThemeRole::DiffAdded,
             diff_removed: ThemeRole::DiffRemoved,
         }
