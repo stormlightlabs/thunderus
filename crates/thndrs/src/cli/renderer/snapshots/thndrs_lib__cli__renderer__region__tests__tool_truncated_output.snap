@@ -1,7 +1,0 @@
----
-source: crates/thndrs/src/cli/renderer/region/tests.rs
-expression: contents
----
-│                                                                                   # [-]=                                                                                
-│   │ Activity                                                                      # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
-│   │ ✓ run_shell  $ ls  ▸                                                          # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=run_shell [-]=   [fg=#abb4da]=$ ls [fg=#3b4261]=  ▸ [-]=                                                       [-]=

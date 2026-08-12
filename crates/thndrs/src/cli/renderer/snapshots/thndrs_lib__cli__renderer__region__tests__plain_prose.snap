@@ -1,9 +1,0 @@
----
-source: crates/thndrs/src/cli/renderer/region/tests.rs
-expression: contents
----
-│                                                               # [-]=                                                            
-│   │ Agent                                                     # [-]=   [fg=#37f499 b]=│  [fg=#37f499 b]=Agent [-]=                                                  [-]=  
-│   │ This is a plain prose response without any code or        # [-]=   [fg=#37f499 b]=│  [fg=#ebfafa]=This is a plain prose response without any code or [-]=     [-]=  
-│   │ special formatting. It should wrap nicely across          # [-]=   [fg=#37f499 b]=│  [fg=#ebfafa]=special formatting. It should wrap nicely across [-]=       [-]=  
-│   │ multiple lines when the terminal is narrow enough.        # [-]=   [fg=#37f499 b]=│  [fg=#ebfafa]=multiple lines when the terminal is narrow enough. [-]=     [-]=

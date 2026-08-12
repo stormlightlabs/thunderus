@@ -68,7 +68,7 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
     let urgent = left.first().is_some_and(|field| field.urgent);
     let state_color = if urgent {
         palette.red
-    } else if app.runtime.run_state == RunState::Working {
+    } else if app.runtime.run_state == RunState::Working || app.compaction_in_flight() {
         super::style::status_color(&app.status_label())
     } else {
         palette.teal
@@ -102,7 +102,12 @@ fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
                 if app.overlay.permission().is_some() {
                     "Waiting for permission".to_string()
                 } else if app.compaction_in_flight() {
-                    "Compacting".to_string()
+                    let label = app.status_label();
+                    let icon = super::style::status_icon(
+                        &label,
+                        super::style::spinner_tick(app.runtime.ui_tick, app.runtime.cli.tick_rate_ms),
+                    );
+                    format!("{icon} {label}")
                 } else {
                     match app.runtime.run_state {
                     RunState::Stopping => "Cancelling".to_string(),

@@ -1,7 +1,0 @@
----
-source: crates/thndrs/src/cli/renderer/region/tests.rs
-expression: contents
----
-│                                                                                   # [-]=                                                                                
-│   │ Activity                                                                      # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
-│   │ ✓ search_text  pattern: fn main  ▸                                            # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=search_text [-]=   [fg=#abb4da]=pattern: fn main [fg=#3b4261]=  ▸ [-]=                                         [-]=

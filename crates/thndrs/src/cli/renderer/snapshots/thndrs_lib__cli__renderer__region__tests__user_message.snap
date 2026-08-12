@@ -1,8 +1,0 @@
----
-source: crates/thndrs/src/cli/renderer/region/tests.rs
-expression: contents
----
-│                                                                                   # [-]=                                                                                
-│   │ User                                                                          # [-]=   [fg=#04d1f9 b]=│  [fg=#04d1f9 b]=User [-]=                                                                       [-]=  
-│   │ Hello, can you help me with this?                                             # [-]=   [fg=#04d1f9 b]=│  [fg=#abb4da i]=Hello, can you help me with this? [-]=                                          [-]=  
-│                                                                                   # [-]=

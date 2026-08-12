@@ -1,9 +1,0 @@
----
-source: crates/thndrs/src/cli/renderer/region/tests.rs
-expression: contents
----
-│                                                                                   # [-]=                                                                                
-│   │ Activity                                                                      # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
-│   │ ✓ replace_range  path: src/main.rs  ▸                                         # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=replace_range [-]=   [fg=#abb4da]=path: src/main.rs [fg=#3b4261]=  ▸ [-]=                                      [-]=  
-│   │    edit  replace_range src/main.rs [ok]                                       # [-]=   [fg=#f1fc79]=│  [fg=#3b4261 b]=   edit   [fg=#abb4da]=replace_range src/main.rs [ok] [-]=                                    [-]=  
-│   │    diff  src/main.rs +1 -1                                                    # [-]=   [fg=#f1fc79]=│  [fg=#3b4261 b]=   diff   [fg=#abb4da]=src/main.rs +1 -1 [-]=                                                 [-]=

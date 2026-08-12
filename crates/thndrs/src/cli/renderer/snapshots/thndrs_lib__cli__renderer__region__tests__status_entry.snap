@@ -1,7 +1,0 @@
----
-source: crates/thndrs/src/cli/renderer/region/tests.rs
-expression: contents
----
-│                                                                                   # [-]=                                                                                
-│   │ Context                                                                       # [-]=   [fg=#6473b7]=│  [fg=#6473b7 b]=Context [-]=                                                                    [-]=  
-│   │ context AGENTS.md (scope: .)                                                  # [-]=   [fg=#6473b7]=│  [fg=#ebfafa]=context AGENTS.md (scope: .) [-]=                                               [-]=

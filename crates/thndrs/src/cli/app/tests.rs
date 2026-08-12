@@ -797,6 +797,18 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
         Some(Msg::Agent(AgentEvent::Started))
     );
     assert!(app.compaction_in_flight());
+    assert_eq!(app.status_label(), "Compacting");
+
+    let mut rendered_status = String::new();
+    for (label, width) in [("normal", 80), ("narrow", 40)] {
+        let row = crate::renderer::live::static_status_row(&app, width);
+        let frame = crate::renderer::row::Frame { rows: vec![row], width, cursor: None, cursor_visible: true };
+        rendered_status.push_str(&format!("{label} ({width}):\n"));
+        rendered_status.push_str(&frame.render_styled());
+        rendered_status.push('\n');
+    }
+    insta::assert_snapshot!("compaction_statusline", rendered_status);
+
     assert!(
         app.transcript
             .entries

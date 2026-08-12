@@ -1483,6 +1483,9 @@ impl App {
 
     /// Derive the precise, user-facing state shown by interactive surfaces.
     pub fn status_label(&self) -> String {
+        if self.compaction_in_flight() {
+            return "Compacting".to_string();
+        }
         match self.runtime.run_state {
             RunState::Working if self.runtime.provider_retry.is_some() => {
                 self.runtime.provider_retry.clone().unwrap_or_default()

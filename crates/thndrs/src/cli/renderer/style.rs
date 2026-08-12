@@ -196,7 +196,7 @@ pub fn status_color(label: &str) -> Color {
         "Ready" => p.green,
         "Stopped" => p.teal,
         "Failed" => p.red,
-        "Sending" | "Thinking" | "Responding" | "Working" | "Stopping" => p.peach,
+        "Sending" | "Thinking" | "Responding" | "Working" | "Compacting" | "Stopping" => p.peach,
         _ if label.starts_with("Running ") => p.peach,
         _ => p.overlay0,
     }
@@ -204,7 +204,7 @@ pub fn status_color(label: &str) -> Color {
 
 pub fn status_icon(label: &str, tick: u64) -> &'static str {
     match label {
-        "Sending" | "Thinking" | "Responding" | "Working" | "Stopping" => spinner_frame(tick),
+        "Sending" | "Thinking" | "Responding" | "Working" | "Compacting" | "Stopping" => spinner_frame(tick),
         "Ready" => "✓",
         "Failed" => "✕",
         "Stopped" => "○",

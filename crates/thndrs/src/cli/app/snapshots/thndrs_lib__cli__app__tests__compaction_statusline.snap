@@ -1,0 +1,8 @@
+---
+source: crates/thndrs/src/cli/app/tests.rs
+expression: rendered_status
+---
+normal (80):
+│     ⠋ Compacting                        opencode/big-pickle · auto · queue 0      # [-]=   [-]=   [fg=#f7c67f b]=⠋ Compacting [-]=                         [fg=#6473b7]=opencode/big-pickle · auto · queue 0 [-]=   [-]=  
+narrow (40):
+│     ⠋ Co… opencode/big-pickle · auto      # [-]=   [-]=   [fg=#f7c67f b]=⠋ Co… [-]=  [fg=#6473b7]=opencode/big-pickle · auto [-]=   [-]=
