@@ -186,6 +186,16 @@ fn mouse_wheel_routes_to_the_detail_overlay_before_the_transcript() {
 }
 
 #[test]
+fn left_mouse_drag_routes_to_transcript_selection_with_coordinates() {
+    let app = fresh_app();
+
+    assert_eq!(
+        translate_input(&app, TerminalInput::Mouse(MouseInput::LeftDrag { column: 17, row: 9 })),
+        vec![Action::UpdateTranscriptSelection { column: 17, row: 9 }]
+    );
+}
+
+#[test]
 fn q_appends_to_input_and_does_not_quit() {
     let mut app = fresh_app();
     let follow = update(

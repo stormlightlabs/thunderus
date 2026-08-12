@@ -42,7 +42,7 @@ pub fn sanitize_terminal_text(text: &str) -> String {
                 Some(']' | 'P' | 'X' | '^' | '_') => {
                     index = control_string_end(&chars, index + 2).unwrap_or(index + 2);
                 }
-                Some(_) => index += 2,
+                Some(_) => index = escape_end(&chars, index + 1),
                 None => index += 1,
             },
             '\u{9b}' => index = csi_end(&chars, index + 1).unwrap_or(index + 1),
@@ -61,6 +61,14 @@ pub fn sanitize_terminal_text(text: &str) -> String {
         }
     }
     clean
+}
+
+fn escape_end(chars: &[char], start: usize) -> usize {
+    let mut index = start;
+    while chars.get(index).is_some_and(|ch| (' '..='/').contains(ch)) {
+        index += 1;
+    }
+    if chars.get(index).is_some_and(|ch| ('0'..='~').contains(ch)) { index + 1 } else { start + 1 }
 }
 
 fn csi_end(chars: &[char], start: usize) -> Option<usize> {
@@ -187,6 +195,7 @@ mod tests {
     #[test]
     fn strips_ansi_colors_and_terminal_hyperlinks() {
         assert_eq!(sanitize_terminal_text("\u{1b}[31mfailed\u{1b}[0m"), "failed");
+        assert_eq!(sanitize_terminal_text("-old\u{1b}(B\u{1b}[m"), "-old");
         assert_eq!(
             sanitize_terminal_text("\u{1b}]8;;https://example.com\u{1b}\\label\u{1b}]8;;\u{1b}\\"),
             "label"

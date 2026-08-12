@@ -894,11 +894,12 @@ fn tool_output_strips_ansi_control_sequences() {
         name: "run_shell".to_string(),
         arguments: r#"{"argv":["cargo","test"]}"#.to_string(),
         status: ToolStatus::Failed,
-        output: vec!["\u{1b}[31mtests failed\u{1b}[0m".to_string()],
+        output: vec!["\u{1b}[31mtests failed\u{1b}(B\u{1b}[m".to_string()],
     };
     let rendered = render_entry_styled(&entry, 80);
 
     assert!(rendered.contains("tests failed"), "{rendered}");
+    assert!(!rendered.contains('B'), "{rendered:?}");
     assert!(!rendered.contains('\u{1b}'), "{rendered:?}");
 }
 

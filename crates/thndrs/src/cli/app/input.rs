@@ -97,6 +97,9 @@ pub enum Action {
     ExtendTranscriptSelectionDown,
     CopyTranscriptSelection,
     ClearTranscriptSelection,
+    BeginTranscriptSelection { column: u16, row: u16 },
+    UpdateTranscriptSelection { column: u16, row: u16 },
+    EndTranscriptSelection { column: u16, row: u16 },
     SearchNext,
     SearchPrevious,
     QueueEdit,
@@ -319,6 +322,15 @@ pub fn translate_input_with_keymap(app: &App, input: TerminalInput, keymap: &Key
                 .collect()
         }
         TerminalInput::Paste(text) => vec![Action::InsertText(text)],
+        TerminalInput::Mouse(MouseInput::LeftDown { column, row }) => {
+            vec![Action::BeginTranscriptSelection { column, row }]
+        }
+        TerminalInput::Mouse(MouseInput::LeftDrag { column, row }) => {
+            vec![Action::UpdateTranscriptSelection { column, row }]
+        }
+        TerminalInput::Mouse(MouseInput::LeftUp { column, row }) => {
+            vec![Action::EndTranscriptSelection { column, row }]
+        }
         TerminalInput::Mouse(mouse) => match (input_focus(app), mouse) {
             (InputFocus::Prompt | InputFocus::Command, MouseInput::ScrollUp) => {
                 vec![Action::ScrollTranscriptUp]
@@ -328,7 +340,7 @@ pub fn translate_input_with_keymap(app: &App, input: TerminalInput, keymap: &Key
             }
             (_, MouseInput::ScrollUp) => vec![Action::ScrollOverlayUp],
             (_, MouseInput::ScrollDown) => vec![Action::ScrollOverlayDown],
-            (_, MouseInput::Other) => Vec::new(),
+            (_, _) => Vec::new(),
         },
         TerminalInput::Resize { width, height } => vec![Action::Resize { width, height }],
         TerminalInput::FocusGained => vec![Action::FocusGained],
@@ -745,7 +757,10 @@ pub fn handle_action(app: &mut App, action: Action) -> Option<Msg> {
         | Action::ExtendTranscriptSelectionUp
         | Action::ExtendTranscriptSelectionDown
         | Action::CopyTranscriptSelection
-        | Action::ClearTranscriptSelection => None,
+        | Action::ClearTranscriptSelection
+        | Action::BeginTranscriptSelection { .. }
+        | Action::UpdateTranscriptSelection { .. }
+        | Action::EndTranscriptSelection { .. } => None,
         action => {
             app.runtime.ctrl_d_pending = None;
             if app.overlay.permission().is_some() {

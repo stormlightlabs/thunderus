@@ -38,7 +38,8 @@ Read [references/harness-patterns.md](references/harness-patterns.md) for the vi
 - Preserve drafts across recoverable errors, blocked submission, picker dismissal, and navigation.
 - Route keys to the focused modal or picker before composer, active operation, and global actions.
 - Give focus and selection a text, shape, or position cue in addition to color.
-- Keep keyboard operation complete. Treat mouse support as optional and preserve terminal text selection when capture is off.
+- Keep keyboard operation complete. With mouse capture enabled, app-owned selection must hit-test semantic text at grapheme boundaries and exclude padding and unrelated chrome.
+- Make app-owned selection read like native text selection: a contiguous neutral fill, precise first and last lines, and no decorative underline. Preserve terminal-native selection when capture is off.
 - Define Enter, Escape, Tab, arrows, page keys, cancellation, paste, resize, and focus restoration for every changed surface.
 - Keep the active choice visible while scrolling and resizing.
 - When a surface gains or loses focus, update its input routing, scrolling, and redraw ownership together.

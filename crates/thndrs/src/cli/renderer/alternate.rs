@@ -25,11 +25,13 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color as RatatuiColor, Modifier, Style};
 use ratatui::text::{Line, Span as RatatuiSpan};
 use ratatui::widgets::{Clear, Paragraph};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{Action, App, Entry, PromptAccessory, PromptState};
 
 use super::row::{Frame, Row};
-use super::style::{CellStyle, Color};
+use super::style::{CellStyle, Color, Span};
 use super::view::{
     LiveView, RendererView, SemanticUiView, TranscriptProjectionKey, TranscriptView, project_transcript_entry,
     transcript_projection_key,
@@ -171,6 +173,24 @@ pub enum TranscriptPosition {
     Entry { entry_index: usize, row_in_entry: usize },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TranscriptPoint {
+    position: TranscriptPosition,
+    grapheme: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TranscriptSelection {
+    Rows {
+        anchor: TranscriptPosition,
+        head: TranscriptPosition,
+    },
+    Text {
+        anchor: TranscriptPoint,
+        head: TranscriptPoint,
+    },
+}
+
 /// Transcript navigation mode.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ViewportState {
@@ -190,10 +210,13 @@ pub struct AlternateViewport {
     transcript_cache: TranscriptProjectionCache,
     last_positions: Vec<TranscriptPosition>,
     last_rows: Vec<Row>,
-    selection: Option<(TranscriptPosition, TranscriptPosition)>,
+    selection: Option<TranscriptSelection>,
+    mouse_anchor: Option<TranscriptPoint>,
     anchor_excerpt: Option<String>,
     last_top: usize,
     last_page_rows: usize,
+    last_content_top: usize,
+    last_visible_rows: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -293,7 +316,19 @@ impl AlternateViewport {
             Action::TranscriptFollowTail => self.follow_tail(),
             Action::ExtendTranscriptSelectionUp => self.extend_selection(-1),
             Action::ExtendTranscriptSelectionDown => self.extend_selection(1),
-            Action::ClearTranscriptSelection => self.selection = None,
+            Action::ClearTranscriptSelection => {
+                self.selection = None;
+                self.mouse_anchor = None;
+            }
+            Action::BeginTranscriptSelection { column, row } => {
+                self.begin_mouse_selection(usize::from(*column), usize::from(*row));
+            }
+            Action::UpdateTranscriptSelection { column, row } => {
+                self.update_mouse_selection(usize::from(*column), usize::from(*row));
+            }
+            Action::EndTranscriptSelection { column, row } => {
+                self.end_mouse_selection(usize::from(*column), usize::from(*row));
+            }
             Action::CopyTranscriptSelection => return false,
             _ => return false,
         }
@@ -339,14 +374,10 @@ impl AlternateViewport {
 
     /// Return the selected visual transcript rows as Unicode text.
     pub fn selected_text(&self) -> Option<String> {
-        let (anchor, head) = self.selection?;
-        let anchor = self.last_positions.iter().position(|position| *position == anchor)?;
-        let head = self.last_positions.iter().position(|position| *position == head)?;
-        let (start, end) = if anchor <= head { (anchor, head) } else { (head, anchor) };
-        let text = self.last_rows[start..=end]
-            .iter()
-            .map(|row| row.spans.iter().map(|span| span.text.as_str()).collect::<String>())
-            .map(|line| line.trim_end().to_string())
+        let ranges = selection_ranges(self.selection?, &self.last_positions, &self.last_rows)?;
+        let text = ranges
+            .into_iter()
+            .map(|(row, start, end)| row_graphemes(&self.last_rows[row])[start..end].concat())
             .collect::<Vec<_>>()
             .join("\n");
         (!text.is_empty()).then_some(text)
@@ -357,9 +388,10 @@ impl AlternateViewport {
             return;
         }
         let initial = self.last_top.min(self.last_positions.len() - 1);
-        let (anchor, head) = self
-            .selection
-            .unwrap_or((self.last_positions[initial], self.last_positions[initial]));
+        let (anchor, head) = match self.selection {
+            Some(TranscriptSelection::Rows { anchor, head }) => (anchor, head),
+            _ => (self.last_positions[initial], self.last_positions[initial]),
+        };
         let head_index = self
             .last_positions
             .iter()
@@ -369,8 +401,59 @@ impl AlternateViewport {
             .saturating_add_signed(direction)
             .min(self.last_positions.len() - 1);
         let next_position = self.last_positions[next];
-        self.selection = Some((anchor, next_position));
+        self.selection = Some(TranscriptSelection::Rows { anchor, head: next_position });
+        self.mouse_anchor = None;
         self.state = ViewportState::Anchored(next_position);
+    }
+
+    fn begin_mouse_selection(&mut self, column: usize, row: usize) {
+        self.selection = None;
+        self.mouse_anchor = self.mouse_point(column, row, false);
+    }
+
+    fn update_mouse_selection(&mut self, column: usize, row: usize) {
+        let Some(anchor) = self.mouse_anchor else {
+            return;
+        };
+        if let Some(head) = self.mouse_point(column, row, true) {
+            self.selection = Some(TranscriptSelection::Text { anchor, head });
+        }
+    }
+
+    fn end_mouse_selection(&mut self, column: usize, row: usize) {
+        if self.selection.is_some() {
+            self.update_mouse_selection(column, row);
+        }
+        self.mouse_anchor = None;
+    }
+
+    fn mouse_point(&self, column: usize, row: usize, clamp: bool) -> Option<TranscriptPoint> {
+        if self.last_visible_rows == 0 {
+            return None;
+        }
+        let first_screen_row = self.last_content_top;
+        let last_screen_row = first_screen_row + self.last_visible_rows - 1;
+        if !clamp && !(first_screen_row..=last_screen_row).contains(&row) {
+            return None;
+        }
+        let screen_row = row.clamp(first_screen_row, last_screen_row);
+        let row_index = self.last_top + screen_row - first_screen_row;
+        let row = self.last_rows.get(row_index)?;
+        let graphemes = row_graphemes(row);
+        let last_grapheme = graphemes.len().checked_sub(1)?;
+        let text_width = UnicodeWidthStr::width(graphemes.concat().as_str());
+        if !clamp && column >= text_width {
+            return None;
+        }
+        let mut display_column = 0;
+        let grapheme = graphemes
+            .iter()
+            .position(|grapheme| {
+                display_column += UnicodeWidthStr::width(grapheme.as_str()).max(1);
+                column < display_column
+            })
+            .unwrap_or(last_grapheme);
+        Some(TranscriptPoint { position: self.last_positions[row_index], grapheme })
     }
 
     /// Build one complete terminal-sized logical frame.
@@ -430,6 +513,8 @@ impl AlternateViewport {
         let mut frame = Frame::new(width);
         let visible_end = top.saturating_add(transcript_height).min(rows.len());
         let mut visible = rows[top.min(rows.len())..visible_end].to_vec();
+        self.last_visible_rows = visible.len();
+        self.last_content_top = transcript_height.saturating_sub(visible.len());
         if let Some(search_row) = search_row
             && (top..visible_end).contains(&search_row)
         {
@@ -437,20 +522,13 @@ impl AlternateViewport {
                 span.style = span.style.underlined();
             }
         }
-        if let Some((anchor, head)) = self.selection
-            && let (Some(anchor), Some(head)) = (
-                self.last_positions.iter().position(|position| *position == anchor),
-                self.last_positions.iter().position(|position| *position == head),
-            )
+        if let Some(selection) = self.selection
+            && let Some(ranges) = selection_ranges(selection, &self.last_positions, &self.last_rows)
         {
-            let (selection_start, selection_end) = if anchor <= head { (anchor, head) } else { (head, anchor) };
             let palette = super::style::palette();
-            for (offset, row) in visible.iter_mut().enumerate() {
-                let index = top + offset;
-                if (selection_start..=selection_end).contains(&index) {
-                    for span in &mut row.spans {
-                        span.style = span.style.with_bg(palette.surface1);
-                    }
+            for (row_index, start, end) in ranges {
+                if (top..visible_end).contains(&row_index) {
+                    style_grapheme_range(&mut visible[row_index - top], start, end, palette.overlay0);
                 }
             }
         }
@@ -607,6 +685,69 @@ fn row_excerpt(row: &Row) -> String {
         .collect::<String>()
         .trim()
         .to_string()
+}
+
+fn row_graphemes(row: &Row) -> Vec<String> {
+    let text = row.spans.iter().map(|span| span.text.as_str()).collect::<String>();
+    UnicodeSegmentation::graphemes(text.trim_end(), true)
+        .map(str::to_string)
+        .collect()
+}
+
+fn selection_ranges(
+    selection: TranscriptSelection, positions: &[TranscriptPosition], rows: &[Row],
+) -> Option<Vec<(usize, usize, usize)>> {
+    let (start_row, start_grapheme, end_row, end_grapheme) = match selection {
+        TranscriptSelection::Rows { anchor, head } => {
+            let anchor = positions.iter().position(|position| *position == anchor)?;
+            let head = positions.iter().position(|position| *position == head)?;
+            let (start, end) = if anchor <= head { (anchor, head) } else { (head, anchor) };
+            (start, 0, end, row_graphemes(&rows[end]).len())
+        }
+        TranscriptSelection::Text { anchor, head } => {
+            let anchor_row = positions.iter().position(|position| *position == anchor.position)?;
+            let head_row = positions.iter().position(|position| *position == head.position)?;
+            if (anchor_row, anchor.grapheme) <= (head_row, head.grapheme) {
+                (anchor_row, anchor.grapheme, head_row, head.grapheme + 1)
+            } else {
+                (head_row, head.grapheme, anchor_row, anchor.grapheme + 1)
+            }
+        }
+    };
+
+    Some(
+        (start_row..=end_row)
+            .map(|row| {
+                let length = row_graphemes(&rows[row]).len();
+                let start = if row == start_row { start_grapheme.min(length) } else { 0 };
+                let end = if row == end_row { end_grapheme.min(length) } else { length };
+                (row, start, end.max(start))
+            })
+            .collect(),
+    )
+}
+
+fn style_grapheme_range(row: &mut Row, start: usize, end: usize, selection_bg: Color) {
+    if start >= end {
+        return;
+    }
+    let mut grapheme_index = 0;
+    let mut styled = Vec::<Span>::new();
+    for span in &row.spans {
+        for grapheme in UnicodeSegmentation::graphemes(span.text.as_str(), true) {
+            let style =
+                if (start..end).contains(&grapheme_index) { span.style.with_bg(selection_bg) } else { span.style };
+            if let Some(previous) = styled.last_mut()
+                && previous.style == style
+            {
+                previous.text.push_str(grapheme);
+            } else {
+                styled.push(Span::styled(grapheme, style));
+            }
+            grapheme_index += 1;
+        }
+    }
+    row.spans = styled;
 }
 
 fn transcript_search_row(app: &App, rows: &[Row], positions: &[TranscriptPosition]) -> Option<usize> {
@@ -1080,6 +1221,77 @@ mod tests {
         assert!(
             selected.contains("second"),
             "selection should cross into the next transcript block"
+        );
+
+        let frame = viewport.build_frame(&app, 14, 40);
+        let selection_style = super::super::style::palette().overlay0;
+        assert!(frame.rows.iter().any(|row| {
+            row.spans
+                .iter()
+                .any(|span| span.style.bg == selection_style && !span.style.underlined)
+        }));
+        assert!(
+            frame
+                .rows
+                .iter()
+                .filter(|row| { row.spans.iter().any(|span| span.style.bg == selection_style) })
+                .any(|row| row.spans.iter().any(|span| span.style.bg != selection_style))
+        );
+    }
+
+    #[test]
+    fn mouse_drag_selects_exact_unicode_text_with_native_style() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session.writer = None;
+        app.overlay.close();
+        app.transcript.entries =
+            vec![Entry::Agent { text: "before 🦀 native after".to_string(), streaming: false }].into();
+        let mut viewport = AlternateViewport::default();
+        viewport.build_frame(&app, 80, 40);
+
+        let phrase = "🦀 native";
+        let row_index = viewport
+            .last_rows
+            .iter()
+            .position(|row| row.text().contains(phrase))
+            .expect("phrase row");
+        let row_text = viewport.last_rows[row_index].text();
+        let phrase_byte = row_text.find(phrase).expect("phrase column");
+        let start_column = UnicodeWidthStr::width(&row_text[..phrase_byte]);
+        let end_column = start_column + UnicodeWidthStr::width(phrase) - 1;
+        let screen_row = viewport.last_content_top + row_index - viewport.last_top;
+
+        viewport.handle_navigation(
+            &app,
+            &Action::BeginTranscriptSelection { column: end_column as u16, row: screen_row as u16 },
+        );
+        viewport.handle_navigation(
+            &app,
+            &Action::UpdateTranscriptSelection { column: start_column as u16, row: screen_row as u16 },
+        );
+        viewport.handle_navigation(
+            &app,
+            &Action::EndTranscriptSelection { column: start_column as u16, row: screen_row as u16 },
+        );
+
+        assert_eq!(viewport.selected_text().as_deref(), Some(phrase));
+        let frame = viewport.build_frame(&app, 80, 40);
+        let selection_bg = super::super::style::palette().overlay0;
+        let selected_spans = frame.rows[screen_row]
+            .spans
+            .iter()
+            .filter(|span| span.style.bg == selection_bg)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected_spans.iter().map(|span| span.text.as_str()).collect::<String>(),
+            phrase
+        );
+        assert!(selected_spans.iter().all(|span| !span.style.underlined));
+        assert!(
+            frame.rows[screen_row]
+                .spans
+                .iter()
+                .any(|span| span.style.bg != selection_bg)
         );
     }
 
