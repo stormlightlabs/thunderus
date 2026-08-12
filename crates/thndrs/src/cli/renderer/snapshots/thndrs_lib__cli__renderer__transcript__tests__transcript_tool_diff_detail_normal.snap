@@ -3,7 +3,6 @@ source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
 │                                                                                   # [-]=                                                                                
-│     Activity                                                                      # [-]=   [fg=#f1fc79]=   [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
 │   │ ✓ [DONE] run_shell  $ git diff  8 lines · Esc close                           # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓ [DONE]  [fg=#ebfafa b]=run_shell [-]=   [fg=#abb4da]=$ git diff [fg=#abb4da]=  8 lines · Esc close [-]=                        [-]=  
 │   │    diff  src/lib.rs +2 -1                                                     # [-]=   [fg=#f1fc79]=│  [fg=#3b4261 b]=   diff   [fg=#abb4da]=src/lib.rs +2 -1 [-]=                                                  [-]=  
 │   │    src/lib.rs  +2 −1                                                          # [-]=   [fg=#f1fc79]=│  [-]=    [fg=#ebfafa b]=src/lib.rs [fg=#6473b7]=  +2 −1 [-]=                                                       [-]=  

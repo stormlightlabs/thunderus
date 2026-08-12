@@ -27,10 +27,10 @@ pub const ENTRY_RAIL: &str = "  ";
 /// Stable rail shared by consecutive tool activity rows.
 pub const ACTIVITY_RAIL: &str = "│ ";
 
-/// Progressive-disclosure treatment for a routine exploration tool entry.
+/// Progressive-disclosure treatment for a semantic activity entry.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum ActivityProjection {
-    /// Render the tool normally because it is not routine exploration activity.
+    /// Render the tool normally when no semantic projection is available.
     #[default]
     Regular,
     /// The entry is represented by the summary attached to the first entry in its group.
@@ -41,14 +41,36 @@ pub enum ActivityProjection {
     DisclosedTool,
 }
 
-/// Counts and lifecycle state displayed by one coalesced exploration activity row.
+/// Semantic family displayed by an activity row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActivityKind {
+    Explore,
+    Command,
+    Edit,
+    Test,
+}
+
+/// Visual priority of an activity in the durable timeline.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActivityImportance {
+    Routine,
+    Significant,
+}
+
+/// Semantic state displayed by one activity row.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActivitySummary {
+    pub kind: ActivityKind,
+    pub importance: ActivityImportance,
     pub calls: usize,
     pub reads: usize,
     pub searches: usize,
     pub running: bool,
-    pub latest: String,
+    pub failed: bool,
+    pub cancelled: bool,
+    pub label: String,
+    pub marker: String,
+    pub details: Vec<String>,
     pub detail_target: bool,
     pub detail_open: bool,
 }
@@ -267,19 +289,16 @@ impl ToolBlockView<'_> {
 
         let base_name = self.name.split('#').next().unwrap_or(self.name);
         let args_summary = summarize_tool_invocation(base_name, self.args, self.cwd);
-        let content = super::tool_output::project(base_name, self.args, self.output);
+        let output = self
+            .output
+            .iter()
+            .map(|line| super::tool_output::sanitize_terminal_text(line))
+            .collect::<Vec<_>>();
+        let content = super::tool_output::project(base_name, self.args, &output);
 
         let mut rows = Vec::new();
         if self.group_start {
             rows.push(Row::blank(self.width, CellStyle::new().bg(self.bg)));
-            rows.push(Row::padded(
-                vec![
-                    Span::styled(ENTRY_RAIL, rail_style),
-                    Span::styled("Activity", CellStyle::new().fg(p.yellow).bg(self.bg).bold()),
-                ],
-                self.width,
-                CellStyle::new().bg(self.bg),
-            ));
         }
 
         let mut header_spans = vec![
@@ -306,11 +325,11 @@ impl ToolBlockView<'_> {
                 header_spans = Vec::new();
             }
         }
-        let output_details = (!self.output.is_empty() && (self.detail_target || self.detail_open)).then(|| {
+        let output_details = (!output.is_empty() && (self.detail_target || self.detail_open)).then(|| {
             if self.detail_open {
-                format!("{} lines · Esc close", self.output.len())
+                format!("{} lines · Esc close", output.len())
             } else {
-                format!("{} lines · Ctrl+O details", self.output.len())
+                format!("{} lines · Ctrl+O details", output.len())
             }
         });
         let details_in_header = output_details.as_ref().is_some_and(|details| {
@@ -335,7 +354,7 @@ impl ToolBlockView<'_> {
             ));
         }
 
-        if let Some(summary) = edit_summary_line(self.name, self.output, self.status, self.cwd) {
+        if let Some(summary) = edit_summary_line(self.name, self.args, &output, self.status, self.cwd) {
             rows.push(Row::padded(
                 vec![
                     Span::styled(ACTIVITY_RAIL, rail_style),
@@ -372,13 +391,13 @@ impl ToolBlockView<'_> {
         }
 
         let preview_start = if self.detail_open {
-            self.detail_scroll.min(self.output.len())
+            self.detail_scroll.min(output.len())
         } else if self.status == ToolStatus::Running {
-            self.output.len().saturating_sub(MAX_TOOL_OUTPUT_LINES)
+            output.len().saturating_sub(MAX_TOOL_OUTPUT_LINES)
         } else {
             0
         };
-        let preview = &self.output[preview_start..];
+        let preview = &output[preview_start..];
 
         match content {
             super::tool_output::ContentKind::Code { language } => {
@@ -464,14 +483,14 @@ impl ToolBlockView<'_> {
             super::tool_output::ContentKind::Diff(_) => unreachable!("diff content returned above"),
         }
 
-        if !self.detail_open && self.output.len() > MAX_TOOL_OUTPUT_LINES {
+        if !self.detail_open && output.len() > MAX_TOOL_OUTPUT_LINES {
             rows.push(Row::padded(
                 vec![
                     Span::styled(ACTIVITY_RAIL, rail_style),
                     Span::styled(
                         format!(
                             "     … ({} lines stored, {} {} shown here){}",
-                            self.output.len(),
+                            output.len(),
                             MAX_TOOL_OUTPUT_LINES,
                             if self.status == ToolStatus::Running { "latest" } else { "first" },
                             if self.detail_target { " · Ctrl+O details" } else { "" }
@@ -524,49 +543,23 @@ fn activity_summary_rows(
     let p = super::style::palette();
     let rail_style = CellStyle::new().fg(p.yellow).bg(bg);
     let status_style = CellStyle::new()
-        .fg(if summary.running { p.peach } else { p.green })
+        .fg(if summary.failed {
+            p.red
+        } else if summary.running || summary.cancelled {
+            p.peach
+        } else {
+            p.green
+        })
         .bg(bg);
     let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
     let mut rows = Vec::new();
     if group_start {
         rows.push(Row::blank(width, CellStyle::new().bg(bg)));
-        rows.push(Row::padded(
-            vec![
-                Span::styled(ENTRY_RAIL, rail_style),
-                Span::styled("Activity", CellStyle::new().fg(p.yellow).bg(bg).bold()),
-            ],
-            width,
-            CellStyle::new().bg(bg),
-        ));
     }
 
-    let mut details = vec![format!(
-        "{} {}",
-        summary.calls,
-        if summary.calls == 1 { "call" } else { "calls" }
-    )];
-    if summary.reads > 0 {
-        details.push(format!(
-            "{} {}",
-            summary.reads,
-            if summary.reads == 1 { "read" } else { "reads" }
-        ));
-    }
-    if summary.searches > 0 {
-        details.push(format!(
-            "{} {}",
-            summary.searches,
-            if summary.searches == 1 { "search" } else { "searches" }
-        ));
-    }
-    if summary.calls == 1 && !summary.latest.is_empty() {
-        details.push(summary.latest.clone());
-    }
-    let status = format!(
-        "{} {}",
-        if summary.running { "·" } else { "✓" },
-        if summary.running { "Exploring" } else { "Explored" }
-    );
+    let marker = format!("{} ", summary.marker);
+    let label_width = body_width.saturating_sub(utils::text_width(ACTIVITY_RAIL) + utils::text_width(&marker));
+    let status = format!("{marker}{}", utils::truncate_ellipsis(&summary.label, label_width));
     let available = body_width.saturating_sub(utils::text_width(ACTIVITY_RAIL) + utils::text_width(&status));
     let disclosure = if summary.detail_open {
         Some("Esc close")
@@ -576,13 +569,23 @@ fn activity_summary_rows(
         None
     };
     let full_details = disclosure.map_or_else(
-        || format!(" · {}", details.join(" · ")),
-        |hint| format!(" · {} · {hint}", details.join(" · ")),
+        || match summary.details.is_empty() {
+            true => String::new(),
+            false => format!(" · {}", summary.details.join(" · ")),
+        },
+        |hint| match summary.details.is_empty() {
+            true => format!(" · {hint}"),
+            false => format!(" · {} · {hint}", summary.details.join(" · ")),
+        },
     );
     let details = if utils::text_width(&full_details) <= available {
         full_details
     } else if let Some(hint) = disclosure {
-        let compact = format!(" · {} calls · {hint}", summary.calls);
+        let compact = if summary.calls > 1 {
+            format!(" · {} calls · {hint}", summary.calls)
+        } else {
+            format!(" · {hint}")
+        };
         if utils::text_width(&compact) <= available {
             compact
         } else {
@@ -594,7 +597,14 @@ fn activity_summary_rows(
     rows.push(Row::padded(
         vec![
             Span::styled(ACTIVITY_RAIL, rail_style),
-            Span::styled(status, status_style),
+            Span::styled(
+                status,
+                if summary.importance == ActivityImportance::Significant {
+                    status_style.bold()
+                } else {
+                    status_style
+                },
+            ),
             Span::styled(details, muted_style),
         ],
         width,
@@ -1093,7 +1103,7 @@ fn push_wrapped_banner_text(
     }
 }
 
-fn edit_summary_line(name: &str, output: &[String], status: ToolStatus, cwd: &Path) -> Option<String> {
+fn edit_summary_line(name: &str, args: &str, output: &[String], status: ToolStatus, cwd: &Path) -> Option<String> {
     let operation = name.split('#').next().unwrap_or(name);
     let is_edit_tool = matches!(operation, "create_file" | "replace_range" | "write_patch");
     if !is_edit_tool
@@ -1103,12 +1113,27 @@ fn edit_summary_line(name: &str, output: &[String], status: ToolStatus, cwd: &Pa
     {
         return None;
     }
-    let path = output
-        .iter()
-        .find_map(|line| path_like_suffix(line))
+    let path = edit_path_from_args(args)
+        .or_else(|| output.iter().find_map(|line| path_like_suffix(line)))
         .map(|path| super::path_display::transcript_line(&path, cwd))
-        .unwrap_or_else(|| "(path unavailable)".to_string());
+        .unwrap_or_else(|| "files changed".to_string());
     Some(format!("{operation} {path} [{}]", status.label()))
+}
+
+pub(crate) fn edit_path_from_args(args: &str) -> Option<String> {
+    let value = serde_json::from_str::<serde_json::Value>(args).ok()?;
+    value
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            value
+                .get("patches")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|patches| patches.first())
+                .and_then(|patch| patch.get("path"))
+                .and_then(serde_json::Value::as_str)
+        })
+        .map(str::to_string)
 }
 
 fn diff_summary_line(diff: &super::diff::UnifiedDiff) -> Option<String> {

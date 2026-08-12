@@ -309,7 +309,8 @@ fn tool_detail_rows(detail: &ToolDetailView, width: usize, height: usize, theme:
     let output_rows = detail
         .output
         .iter()
-        .flat_map(|line| super::layout::wrap_text(line, width.saturating_sub(2).max(1)))
+        .map(|line| super::tool_output::sanitize_terminal_text(line))
+        .flat_map(|line| super::layout::wrap_text(&line, width.saturating_sub(2).max(1)))
         .collect::<Vec<_>>();
     let mut body = if output_rows.is_empty() {
         vec![SurfaceLine::muted("no output")]
@@ -762,6 +763,24 @@ mod tests {
                 .all(|row| row.spans.iter().all(|span| span.style.bg == style::Color::Reset))
         );
         assert!(rows.iter().all(|row| row.width == 32));
+    }
+
+    #[test]
+    fn tool_detail_strips_terminal_controls_before_rendering() {
+        let surface = FocusedSurfaceView::ToolDetail(ToolDetailView {
+            entry_index: 0,
+            title: "run_shell".to_string(),
+            status: ToolStatus::Failed,
+            scroll: 0,
+            output: vec!["\u{1b}[31mfailed\u{1b}[0m \u{1b}]8;;https://example.com\u{7}link".to_string()],
+        });
+
+        let rows =
+            render_surface(&SurfaceRenderInput { surface: &surface, theme: &test_theme(), width: 40, height: 8 });
+        let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
+
+        assert!(text.contains("failed link"), "{text}");
+        assert!(!text.contains('\u{1b}'), "{text:?}");
     }
 
     #[test]

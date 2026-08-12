@@ -961,7 +961,7 @@ mod tests {
         });
         let mut cache = TranscriptProjectionCache::default();
         let first = cache.project(&app, 80);
-        assert!(first.rows.iter().any(|row| row.text().contains("1 call")));
+        assert!(first.rows.iter().any(|row| row.text().contains("1 search")));
 
         app.transcript.entries.push(Entry::Tool {
             name: "search_text".to_string(),
@@ -970,7 +970,7 @@ mod tests {
             output: vec!["second".to_string()],
         });
         let grown = cache.project(&app, 80);
-        assert!(grown.rows.iter().any(|row| row.text().contains("2 calls")));
+        assert!(grown.rows.iter().any(|row| row.text().contains("2 searches")));
         assert!(!grown.rows.iter().any(|row| row.text().contains("find_files")));
         assert!(!grown.rows.iter().any(|row| row.text().contains("search_text")));
     }

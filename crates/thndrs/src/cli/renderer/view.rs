@@ -17,7 +17,8 @@ use crate::app::{
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::transcript::{
-    ActivityProjection, ActivitySummary, TranscriptRowContext, summarize_tool_invocation,
+    ActivityImportance, ActivityKind, ActivityProjection, ActivitySummary, TranscriptRowContext, edit_path_from_args,
+    summarize_tool_invocation,
 };
 use crate::tools::shell::redact_secrets;
 use crate::utils;
@@ -179,7 +180,10 @@ impl From<&App> for FocusedSurfaceView {
                 title: name.clone(),
                 status: *status,
                 scroll: detail.scroll,
-                output: output.clone(),
+                output: output
+                    .iter()
+                    .map(|line| super::tool_output::sanitize_terminal_text(line))
+                    .collect(),
             });
         }
         match app.overlay.accessory() {
@@ -346,7 +350,7 @@ pub fn transcript_projection_key(app: &App, entry_index: usize) -> TranscriptPro
         .is_some_and(|entry| matches!(entry, Entry::Tool { .. }));
     let detail_target_index = crate::app::next_detail_target(app);
     let open_detail = app.overlay.detail();
-    let activity = exploration_projection(
+    let activity = activity_projection(
         app,
         entry_index,
         detail_target_index,
@@ -415,12 +419,29 @@ impl TranscriptView {
     }
 }
 
-fn exploration_projection(
+fn activity_projection(
     app: &App, entry_index: usize, detail_target: Option<usize>, open_detail: Option<usize>,
 ) -> ActivityProjection {
     let entries = &app.transcript.entries;
-    if !entries.get(entry_index).is_some_and(is_routine_exploration) {
+    let Some(Entry::Tool { name, arguments, status, output }) = entries.get(entry_index) else {
         return ActivityProjection::Regular;
+    };
+
+    if !is_routine_exploration(&entries[entry_index]) {
+        let base_name = name.split('#').next().unwrap_or(name);
+        let detail_open = open_detail == Some(entry_index);
+        return ActivityProjection::Summary {
+            summary: single_activity_summary(
+                app,
+                base_name,
+                arguments,
+                *status,
+                output,
+                detail_target == Some(entry_index),
+                detail_open,
+            ),
+            show_tool: detail_open || matches!(status, ToolStatus::Failed | ToolStatus::Cancelled),
+        };
     }
 
     let group_start = entry_index == 0 || !is_routine_exploration(&entries[entry_index - 1]);
@@ -438,6 +459,7 @@ fn exploration_projection(
     let mut searches = 0;
     let mut running = false;
     let mut latest = String::new();
+    let mut latest_name = "";
     for entry in &entries[entry_index..=end] {
         let Entry::Tool { name, arguments, status, .. } = entry else {
             continue;
@@ -450,19 +472,236 @@ fn exploration_projection(
         }
         running |= *status == ToolStatus::Running;
         latest = summarize_tool_invocation(base_name, arguments, &app.runtime.cwd);
+        latest_name = base_name;
+    }
+    let label = if running { exploration_label(latest_name, &latest) } else { "Explored".to_string() };
+    let mut details = Vec::new();
+    if reads > 0 {
+        details.push(format!("{reads} {}", if reads == 1 { "read" } else { "reads" }));
+    }
+    if searches > 0 {
+        details.push(format!(
+            "{searches} {}",
+            if searches == 1 { "search" } else { "searches" }
+        ));
     }
     ActivityProjection::Summary {
         summary: ActivitySummary {
+            kind: ActivityKind::Explore,
+            importance: ActivityImportance::Routine,
             calls: end - entry_index + 1,
             reads,
             searches,
             running,
-            latest,
+            failed: false,
+            cancelled: false,
+            label,
+            marker: activity_marker(app, *if running { &ToolStatus::Running } else { &ToolStatus::Ok }),
+            details,
             detail_target: detail_target.is_some_and(|index| (entry_index..=end).contains(&index)),
             detail_open: disclosed,
         },
         show_tool: disclosed,
     }
+}
+
+fn single_activity_summary(
+    app: &App, name: &str, arguments: &str, status: ToolStatus, output: &[String], detail_target: bool,
+    detail_open: bool,
+) -> ActivitySummary {
+    let command = (name == "run_shell").then(|| shell_command(arguments)).flatten();
+    let verification = command.as_deref().and_then(verification_command);
+    let kind = if is_edit_tool(name) {
+        ActivityKind::Edit
+    } else if verification.is_some() {
+        ActivityKind::Test
+    } else if is_routine_tool(name) {
+        ActivityKind::Explore
+    } else {
+        ActivityKind::Command
+    };
+    let target = match kind {
+        ActivityKind::Edit => edit_path_from_args(arguments)
+            .map(|path| super::path_display::transcript_line(&path, &app.runtime.cwd))
+            .unwrap_or_else(|| "files".to_string()),
+        ActivityKind::Test | ActivityKind::Command => command
+            .unwrap_or_else(|| summarize_tool_invocation(name, arguments, &app.runtime.cwd))
+            .trim_start_matches("$ ")
+            .to_string(),
+        ActivityKind::Explore => summarize_tool_invocation(name, arguments, &app.runtime.cwd),
+    };
+    let target = if target.is_empty() { name.to_string() } else { target };
+    let label = activity_label(kind, status, &target, verification);
+    let mut details = Vec::new();
+    if kind == ActivityKind::Edit
+        && let Some(diff) = super::tool_output::projected_diff(name, output)
+    {
+        let (_, added, removed) = diff.summary();
+        if added > 0 || removed > 0 {
+            details.push(format!("+{added} −{removed}"));
+        }
+    }
+    if kind == ActivityKind::Test
+        && status == ToolStatus::Ok
+        && let Some(count) = passed_test_count(output)
+    {
+        details.push(format!("{count} passed"));
+    }
+    ActivitySummary {
+        kind,
+        importance: ActivityImportance::Significant,
+        calls: 1,
+        reads: usize::from(kind == ActivityKind::Explore && matches!(name, "read_file_range" | "read_url" | "sawk")),
+        searches: usize::from(
+            kind == ActivityKind::Explore && !matches!(name, "read_file_range" | "read_url" | "sawk"),
+        ),
+        running: status == ToolStatus::Running,
+        failed: status == ToolStatus::Failed,
+        cancelled: status == ToolStatus::Cancelled,
+        label,
+        marker: activity_marker(app, status),
+        details,
+        detail_target,
+        detail_open,
+    }
+}
+
+fn activity_marker(app: &App, status: ToolStatus) -> String {
+    match status {
+        ToolStatus::Running => super::style::spinner_frame(super::style::spinner_tick(
+            app.runtime.ui_tick,
+            app.runtime.cli.tick_rate_ms,
+        ))
+        .to_string(),
+        ToolStatus::Ok => "✓".to_string(),
+        ToolStatus::Failed => "✕".to_string(),
+        ToolStatus::Cancelled => "○".to_string(),
+    }
+}
+
+fn exploration_label(name: &str, target: &str) -> String {
+    let target = target.split_once(": ").map_or(target, |(_, value)| value);
+    let verb = if matches!(
+        name,
+        "find_files" | "list_searchable_files" | "search_text" | "web_search"
+    ) {
+        "Searching"
+    } else {
+        "Exploring"
+    };
+    if target.is_empty() { verb.to_string() } else { format!("{verb} {target}") }
+}
+
+#[derive(Clone, Copy)]
+enum VerificationCommand {
+    Test,
+    Check,
+    Build,
+}
+
+fn verification_command(command: &str) -> Option<VerificationCommand> {
+    let words = command.split_whitespace().collect::<Vec<_>>();
+    match words.as_slice() {
+        ["cargo", "test" | "nextest", ..] | ["npm" | "pnpm", "test", ..] | ["pytest", ..] | ["go", "test", ..] => {
+            Some(VerificationCommand::Test)
+        }
+        ["cargo", "check", ..] => Some(VerificationCommand::Check),
+        ["cargo", "build", ..] => Some(VerificationCommand::Build),
+        _ => None,
+    }
+}
+
+fn activity_label(
+    kind: ActivityKind, status: ToolStatus, target: &str, verification: Option<VerificationCommand>,
+) -> String {
+    let failed = status == ToolStatus::Failed;
+    let running = status == ToolStatus::Running;
+    let cancelled = status == ToolStatus::Cancelled;
+    match kind {
+        ActivityKind::Explore => {
+            if failed {
+                "Exploration failed".to_string()
+            } else if cancelled {
+                "Exploration cancelled".to_string()
+            } else {
+                exploration_label("", target)
+            }
+        }
+        ActivityKind::Edit => match (failed, running, cancelled) {
+            (true, _, _) => format!("Edit failed {target}"),
+            (_, true, _) => format!("Editing {target}"),
+            (_, _, true) => format!("Edit cancelled {target}"),
+            _ => format!("Edited {target}"),
+        },
+        ActivityKind::Test => {
+            let (active, passed, failed_label) = match verification.unwrap_or(VerificationCommand::Test) {
+                VerificationCommand::Test => ("Testing", "Tests passed", "Tests failed"),
+                VerificationCommand::Check => ("Checking", "Checks passed", "Checks failed"),
+                VerificationCommand::Build => ("Building", "Build passed", "Build failed"),
+            };
+            if failed {
+                failed_label.to_string()
+            } else if running {
+                format!("{active} {target}")
+            } else if cancelled {
+                match verification.unwrap_or(VerificationCommand::Test) {
+                    VerificationCommand::Test => "Tests cancelled",
+                    VerificationCommand::Check => "Checks cancelled",
+                    VerificationCommand::Build => "Build cancelled",
+                }
+                .to_string()
+            } else {
+                passed.to_string()
+            }
+        }
+        ActivityKind::Command => match (failed, running, cancelled) {
+            (true, _, _) => format!("Command failed {target}"),
+            (_, true, _) => format!("Running {target}"),
+            (_, _, true) => format!("Command cancelled {target}"),
+            _ => format!("Ran {target}"),
+        },
+    }
+}
+
+fn shell_command(arguments: &str) -> Option<String> {
+    let value = serde_json::from_str::<serde_json::Value>(arguments).ok()?;
+    if let Some(argv) = value.get("argv").and_then(serde_json::Value::as_array) {
+        let command = argv
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<Vec<_>>()
+            .join(" ");
+        return (!command.is_empty()).then_some(command);
+    }
+    value
+        .get("program")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+fn passed_test_count(output: &[String]) -> Option<usize> {
+    let mut total = None;
+    for count in output.iter().filter_map(|line| {
+        let clean = super::tool_output::sanitize_terminal_text(line);
+        let words = clean.split(|ch: char| !ch.is_ascii_alphanumeric()).collect::<Vec<_>>();
+        words
+            .windows(2)
+            .find_map(|pair| (pair[1] == "passed").then(|| pair[0].parse::<usize>().ok()).flatten())
+    }) {
+        total = Some(total.unwrap_or(0usize).checked_add(count)?);
+    }
+    total
+}
+
+fn is_edit_tool(name: &str) -> bool {
+    matches!(name, "create_file" | "replace_range" | "write_patch")
+}
+
+fn is_routine_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "find_files" | "list_searchable_files" | "search_text" | "read_file_range" | "sawk" | "web_search" | "read_url"
+    )
 }
 
 fn same_exploration_group(entries: &[Entry], left: usize, right: usize) -> bool {
@@ -541,7 +780,7 @@ impl From<&Entry> for TranscriptRowView {
             Entry::Error { text } => TranscriptRowKind::Error.build_row(true, text.clone()),
             Entry::Tool { name, arguments, status, output } => {
                 let diff = DiffSummaryView::build(name, output);
-                let edit = EditSummaryView::build(name, output, *status);
+                let edit = EditSummaryView::build(name, arguments, output, *status);
                 let kind = if diff.is_some() {
                     TranscriptRowKind::Diff
                 } else if edit.is_some() {
@@ -617,7 +856,7 @@ pub struct EditSummaryView {
 }
 
 impl EditSummaryView {
-    fn build(name: &str, output: &[String], status: ToolStatus) -> Option<EditSummaryView> {
+    fn build(name: &str, arguments: &str, output: &[String], status: ToolStatus) -> Option<EditSummaryView> {
         let is_write_tool = ["create_file", "replace_range", "write_patch"]
             .iter()
             .any(|tool| name.starts_with(tool));
@@ -629,12 +868,14 @@ impl EditSummaryView {
             return None;
         }
         Some(EditSummaryView {
-            path: output.iter().find_map(|line| {
-                line.rsplit_once(": ").map(|(_, path)| path.to_string()).or_else(|| {
-                    line.split_whitespace()
-                        .last()
-                        .filter(|part| part.contains('/'))
-                        .map(str::to_string)
+            path: super::transcript::edit_path_from_args(arguments).or_else(|| {
+                output.iter().find_map(|line| {
+                    line.rsplit_once(": ").map(|(_, path)| path.to_string()).or_else(|| {
+                        line.split_whitespace()
+                            .last()
+                            .filter(|part| part.contains('/'))
+                            .map(str::to_string)
+                    })
                 })
             }),
             operation: name.split('#').next().map(str::to_string),

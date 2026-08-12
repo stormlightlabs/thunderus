@@ -3,7 +3,6 @@ source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
 │                                                                                   # [-]=                                                                                
-│     Activity                                                                      # [-]=   [fg=#f1fc79]=   [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
 │   │ ✕ [Failed] run_shell  $ cargo build  5 lines · Ctrl+O details                 # [-]=   [fg=#f1fc79]=│  [fg=#f16c75]=✕ [Failed]  [fg=#ebfafa b]=run_shell [-]=   [fg=#abb4da]=$ cargo build [fg=#abb4da]=  5 lines · Ctrl+O details [-]=              [-]=  
 │   │    · error[E0308]: mismatched types                                           # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   ·  [fg=#abb4da]=error[E0308]: mismatched types [-]=                                        [-]=  
 │   │    ·   --> src/main.rs:5:14                                                   # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   ·  [fg=#abb4da]=  --> src/main.rs:5:14 [-]=                                                [-]=  

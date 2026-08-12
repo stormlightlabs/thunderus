@@ -3,7 +3,6 @@ source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
 │                                                                                   # [-]=                                                                                
-│     Activity                                                                      # [-]=   [fg=#f1fc79]=   [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
 │   │ ✕ [Failed] run_shell  $ cargo test  6 lines · Ctrl+O details                  # [-]=   [fg=#f1fc79]=│  [fg=#f16c75]=✕ [Failed]  [fg=#ebfafa b]=run_shell [-]=   [fg=#abb4da]=$ cargo test [fg=#abb4da]=  6 lines · Ctrl+O details [-]=               [-]=  
 │   │    ·    Compiling thndrs v0.1.0                                               # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   ·  [fg=#abb4da]=   Compiling thndrs v0.1.0 [-]=                                            [-]=  
 │   │    · error[E0277]: the trait bound `X: Y` is not satisfied                    # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   ·  [fg=#abb4da]=error[E0277]: the trait bound `X: Y` is not satisfied [-]=                 [-]=  

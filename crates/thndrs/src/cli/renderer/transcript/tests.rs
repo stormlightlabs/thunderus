@@ -145,8 +145,7 @@ fn user_message_has_balanced_vertical_padding() {
 }
 
 #[test]
-fn user_and_activity_labels_share_the_same_rail_column() {
-    let user = Entry::User { text: "hello".to_string() };
+fn tool_rows_keep_the_activity_rail_without_a_heading() {
     let tool = Entry::Tool {
         name: "search_text".to_string(),
         arguments: r#"{"pattern":"hello"}"#.to_string(),
@@ -154,18 +153,14 @@ fn user_and_activity_labels_share_the_same_rail_column() {
         output: vec!["src/lib.rs:1:hello".to_string()],
     };
 
-    let user_rows = ctx(80).rows_for_entry(&user);
     let tool_rows = ctx(80).rows_for_entry(&tool);
-    let user_label = user_rows
+    let tool_label = tool_rows
         .iter()
-        .find(|row| row.text().contains("User"))
-        .expect("user label row");
-    let activity_label = tool_rows
-        .iter()
-        .find(|row| row.text().contains("Activity"))
-        .expect("activity label row");
+        .find(|row| row.text().contains("search_text"))
+        .expect("tool row");
 
-    assert_eq!(user_label.text().find("User"), activity_label.text().find("Activity"));
+    assert!(tool_label.text().trim_start().starts_with("│ "));
+    assert!(!tool_rows.iter().any(|row| row.text().contains("Activity")));
 }
 
 #[test]
@@ -877,6 +872,34 @@ fn edit_tool_rows_include_visible_edit_summary() {
         rendered.contains("edit") && rendered.contains("replace_range src/lib.rs [ok]"),
         "edit tools should include a compact edit summary:\n{rendered}"
     );
+}
+
+#[test]
+fn write_patch_summary_reads_path_from_nested_arguments() {
+    let entry = Entry::Tool {
+        name: "write_patch".to_string(),
+        arguments: r#"{"patches":[{"op":"edit","path":"src/lib.rs"}]}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["patch applied".to_string()],
+    };
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(rendered.contains("write_patch src/lib.rs [ok]"), "{rendered}");
+    assert!(!rendered.contains("path unavailable"), "{rendered}");
+}
+
+#[test]
+fn tool_output_strips_ansi_control_sequences() {
+    let entry = Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"argv":["cargo","test"]}"#.to_string(),
+        status: ToolStatus::Failed,
+        output: vec!["\u{1b}[31mtests failed\u{1b}[0m".to_string()],
+    };
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(rendered.contains("tests failed"), "{rendered}");
+    assert!(!rendered.contains('\u{1b}'), "{rendered:?}");
 }
 
 #[test]

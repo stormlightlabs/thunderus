@@ -266,8 +266,8 @@ fn build_view_running_tool_is_live_only() {
         view.transcript
             .live_rows
             .iter()
-            .any(|row| row.text().contains("running tests")),
-        "live_rows should contain the tool output"
+            .any(|row| row.text().contains("Testing cargo test")),
+        "live_rows should contain the semantic current operation"
     );
     assert!(
         !view
@@ -280,7 +280,7 @@ fn build_view_running_tool_is_live_only() {
 }
 
 #[test]
-fn consecutive_tools_share_one_activity_heading() {
+fn activity_timeline_has_no_standalone_heading() {
     let mut app = test_app();
     for name in ["find_files", "search_text"] {
         app.transcript.entries.push(Entry::Tool {
@@ -299,7 +299,10 @@ fn consecutive_tools_share_one_activity_heading() {
         .filter(|row| row.text().contains("Activity"))
         .count();
 
-    assert_eq!(activity_headings, 1, "consecutive tools should form one activity group");
+    assert_eq!(
+        activity_headings, 0,
+        "activity rows should not repeat a standalone heading"
+    );
 }
 
 #[test]
@@ -326,10 +329,7 @@ fn routine_exploration_collapses_into_one_activity_summary() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(
-        rendered.contains("✓ Explored · 3 calls · 1 read · 2 searches"),
-        "{rendered}"
-    );
+    assert!(rendered.contains("✓ Explored · 1 read · 2 searches"), "{rendered}");
     assert!(rendered.contains("Ctrl+O details"), "{rendered}");
     assert!(!rendered.contains("find_files"), "{rendered}");
     assert!(!rendered.contains("read_file_range"), "{rendered}");
@@ -388,10 +388,7 @@ fn activity_detail_discloses_individual_exploration_calls() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(
-        rendered.contains("✓ Explored · 2 calls · 2 searches · Esc close"),
-        "{rendered}"
-    );
+    assert!(rendered.contains("✓ Explored · 2 searches · Esc close"), "{rendered}");
     assert!(rendered.contains("find_files"), "{rendered}");
     assert!(rendered.contains("search_text"), "{rendered}");
     assert!(rendered.contains("search_text output"), "{rendered}");
@@ -422,10 +419,27 @@ fn running_exploration_updates_one_live_summary_row() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(live.contains("· Exploring · 2 calls · 1 read · 1 search"), "{live}");
+    assert!(
+        ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+            .iter()
+            .any(|marker| live.contains(&format!("{marker} Searching Activity"))),
+        "{live}"
+    );
+    assert!(live.contains("Searching Activity · 1 read · 1 search"), "{live}");
     assert!(!live.contains("read_file_range"), "{live}");
     assert!(!live.contains("search_text"), "{live}");
     assert!(!live.contains("streaming match"), "{live}");
+
+    app.runtime.ui_tick = app.runtime.ui_tick.saturating_add(8);
+    let animated = RendererView::build(&app, 80, 24)
+        .transcript
+        .live_rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(animated.contains("Searching Activity"), "{animated}");
+    assert_ne!(animated, live, "the running marker should animate");
 }
 
 #[test]
@@ -446,9 +460,150 @@ fn failed_exploration_remains_expanded() {
         .collect::<Vec<_>>()
         .join("\n");
 
+    assert!(rendered.contains("Exploration failed"), "{rendered}");
     assert!(rendered.contains("search_text"), "{rendered}");
     assert!(rendered.contains("permission denied"), "{rendered}");
     assert!(!rendered.contains("Explored"), "{rendered}");
+}
+
+#[test]
+fn significant_activities_use_semantic_timeline_rows() {
+    let mut app = test_app();
+    for entry in [
+        Entry::Tool {
+            name: "write_patch".to_string(),
+            arguments: r#"{"patches":[{"op":"edit","path":"src/lib.rs"}]}"#.to_string(),
+            status: ToolStatus::Ok,
+            output: vec![
+                "--- a/src/lib.rs".to_string(),
+                "+++ b/src/lib.rs".to_string(),
+                "@@ -1 +1 @@".to_string(),
+                "-old".to_string(),
+                "+new".to_string(),
+            ],
+        },
+        Entry::Tool {
+            name: "run_shell".to_string(),
+            arguments: r#"{"argv":["cargo","test","renderer"]}"#.to_string(),
+            status: ToolStatus::Ok,
+            output: vec![
+                "test result: ok. 12 passed; 0 failed".to_string(),
+                "test result: ok. 0 passed; 0 failed".to_string(),
+            ],
+        },
+    ] {
+        app.transcript.entries.push(entry);
+    }
+
+    let rendered = RendererView::build(&app, 80, 24)
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("Edited src/lib.rs · +1 −1"), "{rendered}");
+    assert!(rendered.contains("Tests passed · 12 passed"), "{rendered}");
+    assert!(!rendered.contains("write_patch"), "{rendered}");
+    assert!(!rendered.contains("run_shell"), "{rendered}");
+}
+
+#[test]
+fn cancelled_activities_never_look_successful() {
+    let mut app = test_app();
+    for entry in [
+        Entry::Tool {
+            name: "search_text".to_string(),
+            arguments: r#"{"pattern":"needle"}"#.to_string(),
+            status: ToolStatus::Cancelled,
+            output: vec!["search stopped".to_string()],
+        },
+        Entry::Tool {
+            name: "write_patch".to_string(),
+            arguments: r#"{"patches":[{"path":"src/lib.rs"}]}"#.to_string(),
+            status: ToolStatus::Cancelled,
+            output: vec!["edit stopped".to_string()],
+        },
+        Entry::Tool {
+            name: "run_shell".to_string(),
+            arguments: r#"{"argv":["cargo","test"]}"#.to_string(),
+            status: ToolStatus::Cancelled,
+            output: vec!["tests stopped".to_string()],
+        },
+        Entry::Tool {
+            name: "run_shell".to_string(),
+            arguments: r#"{"argv":["git","diff"]}"#.to_string(),
+            status: ToolStatus::Cancelled,
+            output: vec!["command stopped".to_string()],
+        },
+    ] {
+        app.transcript.entries.push(entry);
+    }
+
+    let rendered = RendererView::build(&app, 80, 24)
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for label in [
+        "Exploration cancelled",
+        "Edit cancelled src/lib.rs",
+        "Tests cancelled",
+        "Command cancelled git diff",
+    ] {
+        assert!(rendered.contains(label), "missing {label}:\n{rendered}");
+    }
+    assert!(!rendered.contains("Tests passed"), "{rendered}");
+    assert!(!rendered.contains("Edited src/lib.rs"), "{rendered}");
+}
+
+#[test]
+fn semantic_write_patch_summary_uses_nested_argument_path() {
+    let entry = Entry::Tool {
+        name: "write_patch".to_string(),
+        arguments: r#"{"patches":[{"path":"src/lib.rs"}]}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: Vec::new(),
+    };
+
+    let row = super::TranscriptRowView::from(&entry);
+
+    assert_eq!(row.edit.and_then(|edit| edit.path), Some("src/lib.rs".to_string()));
+}
+
+#[test]
+fn failed_tests_stay_loud_and_commands_stay_compact_when_narrow() {
+    let mut app = test_app();
+    app.transcript.entries.push(Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"argv":["cargo","test","renderer"]}"#.to_string(),
+        status: ToolStatus::Failed,
+        output: vec!["test result: FAILED. 1 passed; 1 failed".to_string()],
+    });
+    app.transcript.entries.push(Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"argv":["git","diff","--check"]}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: Vec::new(),
+    });
+
+    let view = RendererView::build(&app, 40, 24);
+    let rendered = view
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("Tests failed"), "{rendered}");
+    assert!(rendered.contains("test result: FAILED"), "{rendered}");
+    assert!(rendered.contains("Ran git diff --check"), "{rendered}");
+    assert!(view.transcript.rows.iter().all(|row| row.text_width() == 40));
 }
 
 #[test]
@@ -559,8 +714,11 @@ fn build_view_streaming_with_tool_has_live_tail_and_running_status() {
         "running tool should appear in live tail"
     );
     assert!(
-        view.live.live_tail.iter().any(|r| r.text().contains("run_shell")),
-        "live tail should contain the tool name"
+        view.live
+            .live_tail
+            .iter()
+            .any(|r| r.text().contains("Testing cargo test")),
+        "live tail should describe the active operation"
     );
 }
 
@@ -833,8 +991,8 @@ fn build_view_handles_large_transcript_with_running_tool_and_inline_detail() {
         view.live
             .live_tail
             .iter()
-            .any(|row| row.text().contains("running output line")),
-        "running tool output should stay live"
+            .any(|row| row.text().contains("Testing cargo test renderer")),
+        "running tool should stay live as a compact semantic row"
     );
     assert!(
         view.transcript
@@ -890,9 +1048,9 @@ fn ctrl_o_affordance_only_appears_on_latest_eligible_tool() {
     assert_eq!(transcript.matches("Ctrl+O details").count(), 1, "{transcript}");
     let latest = transcript
         .lines()
-        .find(|line| line.contains("read_file"))
-        .expect("latest tool row");
-    assert!(latest.contains("Ctrl+O details"), "{latest}");
+        .find(|line| line.contains("Ctrl+O details"))
+        .expect("latest activity summary row");
+    assert!(latest.contains("Ran read_file"), "{latest}");
 }
 
 #[test]
@@ -1163,7 +1321,7 @@ fn semantic_focused_surface_represents_tool_detail() {
         name: "run_shell".to_string(),
         arguments: "{}".to_string(),
         status: ToolStatus::Ok,
-        output: vec!["one".to_string(), "two".to_string()],
+        output: vec!["\u{1b}[31mone\u{1b}[0m".to_string(), "two".to_string()],
     });
     app.overlay.show_detail(0);
     app.overlay.detail_mut().expect("detail overlay").scroll = 1;
