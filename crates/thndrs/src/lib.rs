@@ -177,6 +177,75 @@ impl Drop for GitStatusWatcher {
     }
 }
 
+/// Coalesces background updates while allowing interaction-driven frames through immediately.
+#[derive(Debug)]
+struct PresentationScheduler {
+    frame_interval: Duration,
+    dirty: bool,
+    full_repaint: bool,
+    present_immediately: bool,
+    last_presented: Option<Instant>,
+    deadline: Option<Instant>,
+}
+
+impl PresentationScheduler {
+    fn new(frame_interval: Duration) -> Self {
+        Self {
+            frame_interval,
+            dirty: false,
+            full_repaint: false,
+            present_immediately: false,
+            last_presented: None,
+            deadline: None,
+        }
+    }
+
+    fn request_immediate(&mut self) {
+        self.dirty = true;
+        self.present_immediately = true;
+        self.deadline = None;
+    }
+
+    fn request_throttled(&mut self, now: Instant) {
+        self.dirty = true;
+        if self.present_immediately {
+            return;
+        }
+
+        let deadline = self
+            .last_presented
+            .and_then(|last_presented| last_presented.checked_add(self.frame_interval))
+            .unwrap_or(now)
+            .max(now);
+        self.deadline = Some(self.deadline.map_or(deadline, |scheduled| scheduled.min(deadline)));
+    }
+
+    fn request_full_repaint(&mut self) {
+        self.full_repaint = true;
+        self.request_immediate();
+    }
+
+    fn next_deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+
+    fn should_present(&self, now: Instant) -> bool {
+        self.dirty && (self.present_immediately || self.deadline.is_some_and(|deadline| now >= deadline))
+    }
+
+    fn full_repaint_required(&self) -> bool {
+        self.full_repaint
+    }
+
+    fn mark_presented(&mut self, now: Instant) {
+        self.dirty = false;
+        self.full_repaint = false;
+        self.present_immediately = false;
+        self.last_presented = Some(now);
+        self.deadline = None;
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Observability {
     session_log_path: PathBuf,
@@ -1657,7 +1726,7 @@ fn run_inline(tick: Duration, cli: &Cli, initial_session: InitialSession<'_>) ->
 }
 
 trait InteractiveSurface {
-    fn draw(&mut self, app: &mut App) -> io::Result<()>;
+    fn draw(&mut self, app: &mut App, full_repaint: bool) -> io::Result<()>;
     fn resize(&mut self, width: u16, height: u16) -> io::Result<()>;
     fn clear(&mut self) -> io::Result<()>;
     fn suspend(&mut self) -> io::Result<()>;
@@ -1677,7 +1746,10 @@ impl<W: io::Write> RatatuiSurface<W> {
 }
 
 impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
-    fn draw(&mut self, app: &mut App) -> io::Result<()> {
+    fn draw(&mut self, app: &mut App, full_repaint: bool) -> io::Result<()> {
+        if full_repaint {
+            self.terminal.clear()?;
+        }
         let projection_started = Instant::now();
         renderer::style::set_theme(app.runtime.theme);
         let area = self.terminal.size()?;
@@ -1713,11 +1785,7 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
             .args(["-TSTP", &std::process::id().to_string()])
             .status()?;
         self.terminal_session.resume()?;
-        if status.success() {
-            self.terminal.clear()
-        } else {
-            Err(io::Error::other("failed to suspend process"))
-        }
+        if status.success() { Ok(()) } else { Err(io::Error::other("failed to suspend process")) }
     }
 
     fn handle_navigation(&mut self, app: &mut App, action: &Action) -> bool {
@@ -1801,73 +1869,81 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
 
     let mut agent: Option<AgentSlot> = None;
     let git_watcher = GitStatusWatcher::spawn(workspace_root);
-    surface.draw(&mut app)?;
-    let mut render_dirty = false;
+    let mut presenter = PresentationScheduler::new(tick);
+    presenter.request_immediate();
+    present_if_due(surface, &mut app, &mut presenter, Instant::now())?;
+    let mut next_tick = Instant::now() + tick;
 
     loop {
-        let deadline = Instant::now() + tick;
-        while Instant::now() < deadline {
-            render_dirty |= drain_agent_events(&mut app, &mut agent, surface, &observability)?;
-            render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, surface)?;
-            flush_steering(&mut app, &agent);
-            if render_dirty {
-                surface.draw(&mut app)?;
-                render_dirty = false;
-            }
-
-            if app.runtime.quit {
-                tracing::info!("quitting thndrs");
-                append_daily_log(&observability, &app.session.id, "session_end", "reason=quit");
-                return Ok(());
-            }
-
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if !event::poll(remaining)? {
-                break;
-            }
-            let Some(terminal_input) = TerminalInput::from_event(event::read()?) else {
-                continue;
-            };
-            let actions = translate_input(&app, terminal_input);
-            for action in actions {
-                if surface.handle_navigation(&mut app, &action) {
-                    surface.draw(&mut app)?;
-                    continue;
-                }
-                match action {
-                    Action::Resize { width, height } => {
-                        surface.resize(width, height)?;
-                        surface.draw(&mut app)?;
-                    }
-                    action => {
-                        handle_msg(&mut app, Msg::Action(action), surface, &mut agent)?;
-                        surface.draw(&mut app)?;
-                    }
-                }
-            }
-
-            flush_steering(&mut app, &agent);
-
-            if app.runtime.quit {
-                tracing::info!("quitting thndrs");
-                append_daily_log(&observability, &app.session.id, "session_end", "reason=quit");
-                return Ok(());
-            }
+        let now = Instant::now();
+        if drain_agent_events(&mut app, &mut agent, surface, &observability)? {
+            presenter.request_throttled(now);
         }
-        let run_state_before_tick = app.runtime.run_state.clone();
-        handle_msg(&mut app, Msg::Tick, surface, &mut agent)?;
-        render_dirty |= tick_requires_render(&run_state_before_tick, &app);
-        render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, surface)?;
-        if render_dirty {
-            surface.draw(&mut app)?;
-            render_dirty = false;
+        if drain_git_status_watcher(&mut app, &git_watcher, surface)? {
+            presenter.request_throttled(now);
         }
+        flush_steering(&mut app, &agent);
+
+        if now >= next_tick {
+            let run_state_before_tick = app.runtime.run_state.clone();
+            handle_msg(&mut app, Msg::Tick, surface, &mut agent)?;
+            if tick_requires_render(&run_state_before_tick, &app) {
+                presenter.request_throttled(now);
+            }
+            next_tick = now + tick;
+        }
+
+        present_if_due(surface, &mut app, &mut presenter, now)?;
         if app.runtime.quit {
             tracing::info!("quitting thndrs");
             append_daily_log(&observability, &app.session.id, "session_end", "reason=quit");
             return Ok(());
         }
+
+        let wait_deadline = presenter
+            .next_deadline()
+            .map_or(next_tick, |deadline| deadline.min(next_tick));
+        if !event::poll(wait_deadline.saturating_duration_since(Instant::now()))? {
+            continue;
+        }
+        let Some(terminal_input) = TerminalInput::from_event(event::read()?) else {
+            continue;
+        };
+        let actions = translate_input(&app, terminal_input);
+        for action in actions {
+            if surface.handle_navigation(&mut app, &action) {
+                presenter.request_immediate();
+                continue;
+            }
+            match action {
+                Action::Resize { width, height } => {
+                    surface.resize(width, height)?;
+                    // Ratatui's resize operation clears the viewport for the next draw.
+                    presenter.request_immediate();
+                }
+                Action::Suspend => {
+                    handle_msg(&mut app, Msg::Action(Action::Suspend), surface, &mut agent)?;
+                    presenter.request_full_repaint();
+                }
+                action => {
+                    handle_msg(&mut app, Msg::Action(action), surface, &mut agent)?;
+                    presenter.request_immediate();
+                }
+            }
+        }
+        flush_steering(&mut app, &agent);
+        present_if_due(surface, &mut app, &mut presenter, Instant::now())?;
     }
+}
+
+fn present_if_due<S: InteractiveSurface>(
+    surface: &mut S, app: &mut App, presenter: &mut PresentationScheduler, now: Instant,
+) -> io::Result<()> {
+    if presenter.should_present(now) {
+        surface.draw(app, presenter.full_repaint_required())?;
+        presenter.mark_presented(Instant::now());
+    }
+    Ok(())
 }
 
 fn tick_requires_render(previous_state: &RunState, app: &App) -> bool {
@@ -2302,12 +2378,16 @@ mod tests {
     #[derive(Default)]
     struct TestSurface {
         clears: usize,
+        draws: usize,
+        full_repaints: usize,
         suspends: usize,
         size: (u16, u16),
     }
 
     impl InteractiveSurface for TestSurface {
-        fn draw(&mut self, _app: &mut App) -> io::Result<()> {
+        fn draw(&mut self, _app: &mut App, full_repaint: bool) -> io::Result<()> {
+            self.draws += 1;
+            self.full_repaints += usize::from(full_repaint);
             Ok(())
         }
 
@@ -2329,6 +2409,127 @@ mod tests {
         fn handle_navigation(&mut self, _app: &mut App, _action: &Action) -> bool {
             false
         }
+    }
+
+    fn presented_scheduler(now: Instant, frame_interval: Duration) -> PresentationScheduler {
+        let mut scheduler = PresentationScheduler::new(frame_interval);
+        scheduler.request_immediate();
+        scheduler.mark_presented(now);
+        scheduler
+    }
+
+    #[test]
+    fn scheduler_presents_background_update_when_the_frame_interval_has_elapsed() {
+        let start = Instant::now();
+        let interval = Duration::from_millis(100);
+        let now = start + interval;
+        let mut scheduler = presented_scheduler(start, interval);
+
+        scheduler.request_throttled(now);
+
+        assert!(scheduler.should_present(now));
+        assert_eq!(scheduler.next_deadline(), Some(now));
+    }
+
+    #[test]
+    fn scheduler_coalesces_background_updates_at_the_earliest_legal_deadline() {
+        let start = Instant::now();
+        let interval = Duration::from_millis(100);
+        let deadline = start + interval;
+        let mut scheduler = presented_scheduler(start, interval);
+
+        scheduler.request_throttled(start + Duration::from_millis(10));
+        scheduler.request_throttled(start + Duration::from_millis(40));
+
+        assert_eq!(scheduler.next_deadline(), Some(deadline));
+        assert!(!scheduler.should_present(start + Duration::from_millis(99)));
+        assert!(scheduler.should_present(deadline));
+    }
+
+    #[test]
+    fn scheduler_repeated_background_requests_do_not_delay_a_scheduled_frame() {
+        let start = Instant::now();
+        let interval = Duration::from_millis(100);
+        let mut scheduler = presented_scheduler(start, interval);
+        scheduler.request_throttled(start + Duration::from_millis(10));
+        let first_deadline = scheduler.next_deadline();
+
+        scheduler.request_throttled(start + Duration::from_millis(90));
+
+        assert_eq!(scheduler.next_deadline(), first_deadline);
+    }
+
+    #[test]
+    fn scheduler_immediate_request_bypasses_background_throttling() {
+        let start = Instant::now();
+        let interval = Duration::from_millis(100);
+        let now = start + Duration::from_millis(10);
+        let mut scheduler = presented_scheduler(start, interval);
+        scheduler.request_throttled(now);
+
+        scheduler.request_immediate();
+
+        assert!(scheduler.should_present(now));
+        assert_eq!(scheduler.next_deadline(), None);
+    }
+
+    #[test]
+    fn scheduler_full_repaint_stays_sticky_until_a_frame_is_presented() {
+        let now = Instant::now();
+        let mut scheduler = PresentationScheduler::new(Duration::from_millis(100));
+
+        scheduler.request_full_repaint();
+        scheduler.request_throttled(now);
+
+        assert!(scheduler.full_repaint_required());
+        scheduler.mark_presented(now);
+        assert!(!scheduler.full_repaint_required());
+    }
+
+    #[test]
+    fn scheduler_presenting_clears_dirty_and_deadline_state() {
+        let start = Instant::now();
+        let interval = Duration::from_millis(100);
+        let deadline = start + interval;
+        let mut scheduler = presented_scheduler(start, interval);
+        scheduler.request_throttled(start + Duration::from_millis(10));
+
+        scheduler.mark_presented(deadline);
+
+        assert!(!scheduler.should_present(deadline));
+        assert_eq!(scheduler.next_deadline(), None);
+    }
+
+    #[test]
+    fn scheduler_background_update_after_a_frame_schedules_the_next_frame() {
+        let start = Instant::now();
+        let interval = Duration::from_millis(100);
+        let first_frame = start + interval;
+        let mut scheduler = presented_scheduler(start, interval);
+        scheduler.request_throttled(start + Duration::from_millis(10));
+        scheduler.mark_presented(first_frame);
+
+        scheduler.request_throttled(first_frame + Duration::from_millis(20));
+
+        assert_eq!(scheduler.next_deadline(), Some(first_frame + interval));
+    }
+
+    #[test]
+    fn presentation_boundary_draws_coalesced_full_repaint_once() {
+        let now = Instant::now();
+        let mut scheduler = PresentationScheduler::new(Duration::from_millis(100));
+        scheduler.request_throttled(now);
+        scheduler.request_full_repaint();
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session.writer = None;
+        let mut surface = TestSurface::default();
+
+        present_if_due(&mut surface, &mut app, &mut scheduler, now).expect("present frame");
+        present_if_due(&mut surface, &mut app, &mut scheduler, now).expect("skip clean frame");
+
+        assert_eq!(surface.draws, 1);
+        assert_eq!(surface.full_repaints, 1);
     }
 
     #[test]
