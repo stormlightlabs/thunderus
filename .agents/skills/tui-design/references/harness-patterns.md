@@ -145,6 +145,7 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 
 - Show only state that changes the user's next action.
 - Prefer one calm line to several badges or counters.
+- Keep predictive context capacity visible by default between model/reasoning and queue count when it is known; hide it before primary state under width pressure.
 - Remove labels when position and value already explain the field.
 - Hide low-priority metadata before shortening primary content.
 

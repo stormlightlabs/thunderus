@@ -39,7 +39,8 @@ use thndrs_agent::context::{ContextItem, ContextLedger, RangeSummary};
 pub use collection::{CollectionReport, collect_if_due, collect_now, reclaimable_bytes};
 pub use contracts::{
     AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,
-    ContextLifecycleAudit, ContextSourceMeta, McpToolSessionMeta, SessionConfigFile, SessionConfigMeta,
+    ContextLifecycleAudit, ContextSnapshot, ContextSnapshotState, ContextSourceMeta, McpToolSessionMeta,
+    SessionConfigFile, SessionConfigMeta,
 };
 pub use export::{SessionExport, export_session};
 pub use inventory::{
@@ -127,6 +128,14 @@ pub enum SessionRecord {
         time: String,
         turn_id: String,
         ledger: ContextLedgerMeta,
+    },
+    /// Versioned context projection tied to one provider request attempt.
+    #[serde(rename = "context_snapshot")]
+    ContextSnapshot {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        snapshot: Box<ContextSnapshot>,
     },
     /// A user pin action for a context item.
     #[serde(rename = "context_pin")]
@@ -449,6 +458,7 @@ impl SessionRecord {
             | SessionRecord::SessionFork { seq, .. }
             | SessionRecord::Context { seq, .. }
             | SessionRecord::ContextLedger { seq, .. }
+            | SessionRecord::ContextSnapshot { seq, .. }
             | SessionRecord::ContextPin { seq, .. }
             | SessionRecord::ContextDrop { seq, .. }
             | SessionRecord::ContextRecovery { seq, .. }
@@ -624,6 +634,7 @@ impl SessionRecord {
             | SessionRecord::SessionFork { seq: s, .. }
             | SessionRecord::Context { seq: s, .. }
             | SessionRecord::ContextLedger { seq: s, .. }
+            | SessionRecord::ContextSnapshot { seq: s, .. }
             | SessionRecord::ContextPin { seq: s, .. }
             | SessionRecord::ContextDrop { seq: s, .. }
             | SessionRecord::ContextRecovery { seq: s, .. }
@@ -1135,6 +1146,16 @@ impl SessionWriter {
             time: datetime::now_iso8601(),
             turn_id: turn_id.to_string(),
             ledger: ContextLedgerMeta::from(ledger),
+        })
+    }
+
+    /// Append a versioned context snapshot for one request attempt.
+    pub fn append_context_snapshot(&mut self, snapshot: ContextSnapshot) -> std::io::Result<()> {
+        self.append(SessionRecord::ContextSnapshot {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: datetime::now_iso8601(),
+            snapshot: Box::new(snapshot),
         })
     }
 

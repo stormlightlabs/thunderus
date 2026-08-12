@@ -147,6 +147,10 @@ fn resumed_startup_restores_the_session_without_creating_a_scratch_file() {
     assert_eq!(app.runtime.session_tokens_in, 7);
     assert_eq!(app.runtime.session_tokens_out, 11);
     assert_eq!(app.session.turn_count, 1);
+    assert!(
+        app.transcript.context_ledger.is_some(),
+        "resume refreshes the context projection"
+    );
     assert_eq!(app.session.writer.as_ref().expect("session writer").path(), saved_path);
     assert_eq!(session::list_session_files(&sessions_dir), vec![saved_path]);
     assert!(
@@ -827,6 +831,19 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
             .entries
             .iter()
             .any(|entry| matches!(entry, Entry::User { text } if text == "long conversation"))
+    );
+    assert!(
+        app.transcript
+            .context_ledger
+            .as_ref()
+            .expect("compaction refreshes context")
+            .projection()
+            .categories
+            .iter()
+            .any(
+                |total| total.category == thndrs_agent::context::ContextCategory::Summaries
+                    && total.available_items > 0
+            )
     );
 }
 
@@ -3161,6 +3178,7 @@ fn at_token_opens_file_picker_and_accepts_mention() {
 #[test]
 fn model_metadata_event_updates_model_picker_items() {
     let mut app = fresh_app();
+    app.refresh_context_ledger(None);
     handle_agent_event(
         &mut app,
         AgentEvent::ModelMetadataLoaded(vec![(
@@ -3176,6 +3194,101 @@ fn model_metadata_event_updates_model_picker_items() {
     assert_eq!(
         picker.matches[0].detail,
         "provider · ctx 1M · out 32k · tools · reasoning"
+    );
+
+    accept_model_suggestion(&mut app);
+    assert_eq!(
+        app.transcript
+            .context_ledger
+            .as_ref()
+            .expect("model selection refreshes context")
+            .budget
+            .limits
+            .model,
+        "opencode/test"
+    );
+}
+
+#[test]
+fn completed_response_refreshes_the_next_request_projection() {
+    let mut app = fresh_app();
+    let before = app.refresh_context_ledger(Some("request")).projection().used;
+
+    handle_agent_event(
+        &mut app,
+        AgentEvent::AssistantDelta("a response that becomes conversation context".repeat(20)),
+    );
+    handle_agent_event(&mut app, AgentEvent::Finished);
+
+    let after = app
+        .transcript
+        .context_ledger
+        .as_ref()
+        .expect("completion refreshes context")
+        .projection()
+        .used;
+    assert!(after > before);
+}
+
+#[test]
+fn request_attempts_append_distinct_context_snapshot_lifecycle_records() {
+    let dir = tempfile::tempdir().expect("create session directory");
+    let mut app = fresh_app();
+    app.session.id = "snapshot-session".to_string();
+    app.session.writer = Some(
+        session::SessionWriter::create(
+            dir.path(),
+            &app.session.id,
+            &app.runtime.cwd.display().to_string(),
+            "snapshot lifecycle",
+            "opencode",
+            &app.runtime.model,
+            "none",
+            "0.1.0",
+            None,
+        )
+        .expect("create session writer"),
+    );
+    app.refresh_context_ledger(Some("inspect the request"));
+
+    let accounting = |attempt| {
+        thndrs_agent::ProviderRequestAccounting::from_serialized_request(
+            "turn_1",
+            "turn_1:request:1",
+            attempt,
+            "opencode",
+            "big-pickle",
+            br#"{"messages":[]}"#,
+            Vec::new(),
+        )
+    };
+    handle_agent_event(&mut app, AgentEvent::RequestStarted(Box::new(accounting(1))));
+    handle_agent_event(
+        &mut app,
+        AgentEvent::Retrying { attempt: 2, max_attempts: 3, delay_ms: 0, error: "provider unavailable".to_string() },
+    );
+    handle_agent_event(&mut app, AgentEvent::RequestStarted(Box::new(accounting(2))));
+    handle_agent_event(&mut app, AgentEvent::RequestAccounting(Box::new(accounting(2))));
+
+    let path = app.session.writer.take().expect("session writer").path().to_path_buf();
+    let snapshots = session::SessionReader::read_records(&path)
+        .into_iter()
+        .filter_map(|record| match record {
+            session::SessionRecord::ContextSnapshot { snapshot, .. } => Some(*snapshot),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        snapshots
+            .iter()
+            .map(|snapshot| (snapshot.attempt, snapshot.state))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, session::ContextSnapshotState::Dispatched),
+            (1, session::ContextSnapshotState::Failed),
+            (2, session::ContextSnapshotState::Dispatched),
+            (2, session::ContextSnapshotState::Completed),
+        ]
     );
 }
 

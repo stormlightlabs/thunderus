@@ -119,38 +119,38 @@
 
 ## CONTEXT-1: Expand the live context surface
 
-- [ ] Build the surface from the current `ContextLedger`. UI code must not
+- [x] Build the surface from the current `ContextLedger`. UI code must not
       recalculate accounting or read raw provider payloads.
-- [ ] Show projected input used and available, percentage remaining, target and
+- [x] Show projected input used and available, percentage remaining, target and
       auto-compaction thresholds, estimate provenance, and model-limit source
       and confidence.
-- [ ] Show selected and available totals for Harness, Instructions, Skills,
+- [x] Show selected and available totals for Harness, Instructions, Skills,
       Pinned, Conversation, Summaries, and Tool results.
-- [ ] Show selected, omitted, recoverable, and protected counts. Include
+- [x] Show selected, omitted, recoverable, and protected counts. Include
       diagnostics for incomplete data and fallback limits.
-- [ ] Limit `/context all` to 64 items. In `/context item <id>`, show origin,
+- [x] Limit `/context all` to 64 items. In `/context item <id>`, show origin,
       lifecycle, inclusion or omission reason, estimate, artifact handle,
       protection, and recovery details.
-- [ ] Distinguish the next-request projection from historical snapshots.
-- [ ] Test wide, narrow, empty, unknown-limit, and over-threshold states.
+- [x] Distinguish the next-request projection from historical snapshots.
+- [x] Test wide, narrow, empty, unknown-limit, and over-threshold states.
 
 ## CONTEXT-2: Persist a snapshot for every provider request
 
 **Blocked by:** CONTEXT-1.
 
-- [ ] Extend the ledger session record with a versioned `ContextSnapshot`
+- [x] Extend the ledger session record with a versioned `ContextSnapshot`
       instead of adding a parallel event store.
-- [ ] Before dispatch, identify the snapshot by session, request, turn, attempt,
+- [x] Before dispatch, identify the snapshot by session, request, turn, attempt,
       model, and route.
-- [ ] Record limit provenance, budget thresholds, candidate and selected counts,
+- [x] Record limit provenance, budget thresholds, candidate and selected counts,
       category totals, projected usage, transformations, and diagnostics.
-- [ ] After completion, attach provider usage and its measurement provenance
+- [x] After completion, attach provider usage and its measurement provenance
       when the provider reports it.
-- [ ] Store aggregates and stable item references or deltas. Do not copy item
+- [x] Store aggregates and stable item references or deltas. Do not copy item
       bodies into each snapshot.
-- [ ] Record interrupted and failed attempts and keep retries distinct across
+- [x] Record interrupted and failed attempts and keep retries distinct across
       resume.
-- [ ] Serialize missing measurements as unknown, not zero.
+- [x] Serialize missing measurements as unknown, not zero.
 
 ## CONTEXT-3: Compare request context
 
@@ -186,13 +186,13 @@
 
 **Blocked by:** CONTEXT-1.
 
-- [ ] Add a configurable `context-remaining` segment. Omit it from the sparse
-      default and render a plain value such as `ctx 73% left` when enabled.
-- [ ] Calculate the value from the refreshed projection used by `/context`.
-- [ ] Hide the segment when the value is unknown or space is tight. Do not show
+- [x] Add a configurable `context-remaining` segment. Include it in the sparse
+      default and render a plain value such as `73% ctx left` when known.
+- [x] Calculate the value from the refreshed projection used by `/context`.
+- [x] Hide the segment when the value is unknown or space is tight. Do not show
       a gauge or raw token total.
-- [ ] Warn temporarily when the target or auto-compaction threshold is crossed.
-- [ ] Test updates after dispatch, completion, compaction, model changes, and
+- [x] Warn temporarily when the target or auto-compaction threshold is crossed.
+- [x] Test updates after dispatch, completion, compaction, model changes, and
       resume.
 
 ## CONTEXT-6: Keep context, usage, and capacity distinct

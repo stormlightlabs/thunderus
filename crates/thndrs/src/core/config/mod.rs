@@ -50,6 +50,7 @@ pub enum StatusSegment {
     QueueCount,
     AnchoredAway,
     ActiveChildren,
+    ContextRemaining,
 }
 
 /// Ordered status-line fields shown on either side of the terminal.
@@ -67,6 +68,7 @@ impl Default for StatusLineConfig {
             right: vec![
                 StatusSegment::AnchoredAway,
                 StatusSegment::Route,
+                StatusSegment::ContextRemaining,
                 StatusSegment::QueueCount,
             ],
         }
@@ -537,6 +539,7 @@ fn status_segment_label(segment: StatusSegment) -> &'static str {
         StatusSegment::QueueCount => "queue-count",
         StatusSegment::AnchoredAway => "anchored-away",
         StatusSegment::ActiveChildren => "active-children",
+        StatusSegment::ContextRemaining => "context-remaining",
     }
 }
 

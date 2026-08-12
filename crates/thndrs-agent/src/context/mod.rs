@@ -19,9 +19,9 @@ pub use compaction::{
     preflight_auto_compaction, prepare_manual_compaction, prepare_range_compression, validate_range_summary,
 };
 pub use control::{
-    ContextBudget, ContextCounts, ContextDiagnostic, ContextItem, ContextItemKind, ContextLedger, ContextVisibility,
-    DiagnosticSeverity, LiveModelMetadata, ModelContextLimits, ModelLimitConfidence, ModelLimitOverride,
-    ModelLimitSource,
+    ContextBudget, ContextCategory, ContextCategoryTotal, ContextCounts, ContextDiagnostic, ContextItem,
+    ContextItemKind, ContextLedger, ContextProjection, ContextVisibility, DiagnosticSeverity, LiveModelMetadata,
+    ModelContextLimits, ModelLimitConfidence, ModelLimitOverride, ModelLimitSource,
 };
 pub use control::{
     estimate_tokens, item_id_for_path, item_id_for_session_range, render_ledger_summary, render_model_dashboard,

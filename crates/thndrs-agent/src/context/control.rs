@@ -600,6 +600,168 @@ impl ContextLedger {
     pub fn find(&self, id: &str) -> Option<&ContextItem> {
         self.items.iter().find(|item| item.id == id)
     }
+
+    /// Build the stable, content-free projection consumed by inspection and
+    /// status surfaces.
+    pub fn projection(&self) -> ContextProjection {
+        let mut categories = ContextCategory::ALL.map(|category| ContextCategoryTotal {
+            category,
+            available_items: 0,
+            selected_items: 0,
+            available_tokens: 0,
+            selected_tokens: 0,
+        });
+        let mut selected = 0;
+        let mut omitted = 0;
+        let mut recoverable = 0;
+        let mut protected = 0;
+        for item in &self.items {
+            let total = &mut categories[item.kind.category_index()];
+            total.available_items += 1;
+            total.available_tokens = total.available_tokens.saturating_add(item.token_estimate as u64);
+            if item.visibility.is_rendered() {
+                selected += 1;
+                total.selected_items += 1;
+                total.selected_tokens = total.selected_tokens.saturating_add(item.token_estimate as u64);
+            } else {
+                omitted += 1;
+            }
+            if item.artifact_handle.is_some() || !item.visibility.is_rendered() {
+                recoverable += 1;
+            }
+            if item.lifecycle.is_protected() {
+                protected += 1;
+            }
+        }
+        let remaining_percent = (self.budget.available_input > 0).then(|| {
+            self.budget
+                .available_input
+                .saturating_sub(self.budget.used)
+                .saturating_mul(100)
+                / self.budget.available_input
+        });
+        ContextProjection {
+            used: self.budget.used,
+            available_input: self.budget.available_input,
+            remaining_percent,
+            target: self.budget.target,
+            auto_compaction_threshold: self.budget.auto_compaction_threshold,
+            estimate_provenance: "conservative utf8 bytes / 3 + item overhead".to_string(),
+            limit_source: self.budget.limits.source,
+            limit_confidence: self.budget.limits.confidence,
+            categories,
+            selected,
+            omitted,
+            recoverable,
+            protected,
+        }
+    }
+}
+
+impl ContextItemKind {
+    fn category_index(&self) -> usize {
+        match self {
+            Self::Harness => 0,
+            Self::ProjectInstruction => 1,
+            Self::Skill => 2,
+            Self::PinnedFile => 3,
+            Self::Transcript => 4,
+            Self::Summary => 5,
+            Self::ToolArchive => 6,
+        }
+    }
+}
+
+/// User-facing aggregation categories for a context projection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextCategory {
+    /// Harness prompt and tool schema context.
+    Harness,
+    /// Project instruction files.
+    Instructions,
+    /// Activated skill instructions.
+    Skills,
+    /// User-pinned context.
+    Pinned,
+    /// Conversation transcript.
+    Conversation,
+    /// Compaction summaries.
+    Summaries,
+    /// Archived or recoverable tool results.
+    ToolResults,
+}
+
+impl ContextCategory {
+    /// Categories in stable display order.
+    pub const ALL: [Self; 7] = [
+        Self::Harness,
+        Self::Instructions,
+        Self::Skills,
+        Self::Pinned,
+        Self::Conversation,
+        Self::Summaries,
+        Self::ToolResults,
+    ];
+
+    /// Human-readable category label.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Harness => "Harness",
+            Self::Instructions => "Instructions",
+            Self::Skills => "Skills",
+            Self::Pinned => "Pinned",
+            Self::Conversation => "Conversation",
+            Self::Summaries => "Summaries",
+            Self::ToolResults => "Tool results",
+        }
+    }
+}
+
+/// Selected and candidate totals for one context category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextCategoryTotal {
+    /// Category represented by this total.
+    pub category: ContextCategory,
+    /// Candidate items in the category.
+    pub available_items: usize,
+    /// Rendered items in the category.
+    pub selected_items: usize,
+    /// Estimated tokens across all candidates.
+    pub available_tokens: u64,
+    /// Estimated tokens across rendered candidates.
+    pub selected_tokens: u64,
+}
+
+/// Stable projection of context pressure and selection state.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextProjection {
+    /// Estimated rendered input tokens.
+    pub used: u64,
+    /// Input tokens available after reservations.
+    pub available_input: u64,
+    /// Percentage of available input not projected for use.
+    pub remaining_percent: Option<u64>,
+    /// Normal selection target.
+    pub target: u64,
+    /// Automatic compaction threshold.
+    pub auto_compaction_threshold: u64,
+    /// Estimator name and policy.
+    pub estimate_provenance: String,
+    /// Source of the resolved model limit.
+    pub limit_source: ModelLimitSource,
+    /// Confidence in the resolved model limit.
+    pub limit_confidence: ModelLimitConfidence,
+    /// Stable per-category totals.
+    pub categories: [ContextCategoryTotal; 7],
+    /// Number of rendered items.
+    pub selected: usize,
+    /// Number of omitted items.
+    pub omitted: usize,
+    /// Number of items with a recovery path.
+    pub recoverable: usize,
+    /// Number of protected items.
+    pub protected: usize,
 }
 
 /// Visibility counts for a [`ContextLedger`].
@@ -784,4 +946,90 @@ fn compact_token_count(tokens: u64) -> String {
 fn element(out: &mut String, indent: usize, name: &str, value: &str) {
     let pad = " ".repeat(indent);
     out.push_str(&format!("{pad}<{name}>{value}</{name}>\n"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn limits() -> ModelContextLimits {
+        ModelContextLimits {
+            provider: "fixture".to_string(),
+            model: "fixture-model".to_string(),
+            context_window: 1_200,
+            max_completion_tokens: 100,
+            recommended_completion_tokens: 100,
+            source: ModelLimitSource::LiveMetadata,
+            confidence: ModelLimitConfidence::Exact,
+        }
+    }
+
+    fn item(index: usize, kind: ContextItemKind, visibility: ContextVisibility) -> ContextItem {
+        ContextItem {
+            id: format!("ctx_{index}"),
+            kind,
+            label: format!("item {index}"),
+            source_path: None,
+            scope: ".".to_string(),
+            content_hash: None,
+            artifact_handle: (index == 1).then(|| "artifact:1".to_string()),
+            byte_count: 30,
+            content: None,
+            token_estimate: 10,
+            visibility,
+            reason_code: "fixture".to_string(),
+            reason: "fixture selection".to_string(),
+            lifecycle: ContextLifecycle::default(),
+        }
+    }
+
+    #[test]
+    fn projection_aggregates_every_category_and_selection_state() {
+        let kinds = [
+            ContextItemKind::Harness,
+            ContextItemKind::ProjectInstruction,
+            ContextItemKind::Skill,
+            ContextItemKind::PinnedFile,
+            ContextItemKind::Transcript,
+            ContextItemKind::Summary,
+            ContextItemKind::ToolArchive,
+        ];
+        let items = kinds
+            .into_iter()
+            .enumerate()
+            .map(|(index, kind)| {
+                item(
+                    index,
+                    kind,
+                    if index < 2 { ContextVisibility::Visible } else { ContextVisibility::Archived },
+                )
+            })
+            .collect::<Vec<_>>();
+        let ledger =
+            ContextLedger { budget: ContextBudget::from_limits(limits(), &items), items, diagnostics: Vec::new() };
+
+        let projection = ledger.projection();
+        assert_eq!(projection.selected, 2);
+        assert_eq!(projection.omitted, 5);
+        assert_eq!(projection.recoverable, 6);
+        assert_eq!(
+            projection.remaining_percent,
+            Some((projection.available_input - projection.used) * 100 / projection.available_input)
+        );
+        assert!(projection.categories.iter().all(|total| total.available_items == 1));
+        assert_eq!(projection.categories[0].selected_tokens, 10);
+        assert_eq!(projection.categories[6].selected_tokens, 0);
+        assert_eq!(projection.limit_source, ModelLimitSource::LiveMetadata);
+    }
+
+    #[test]
+    fn projection_preserves_unknown_capacity_instead_of_reporting_zero_percent() {
+        let mut budget = ContextBudget::from_limits(limits(), &[]);
+        budget.available_input = 0;
+        budget.target = 0;
+        budget.auto_compaction_threshold = 0;
+        let ledger = ContextLedger { items: Vec::new(), budget, diagnostics: Vec::new() };
+
+        assert_eq!(ledger.projection().remaining_percent, None);
+    }
 }

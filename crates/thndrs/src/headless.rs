@@ -209,23 +209,25 @@ impl<'a> JsonEvent<'a> {
                 )
                 .into(),
             },
-            app::AgentEvent::RequestAccounting(accounting) => Self::RequestAccounting {
-                turn_id: &accounting.turn_id,
-                request_id: &accounting.request_id,
-                attempt: accounting.attempt,
-                provider: &accounting.provider,
-                model: &accounting.model,
-                serialized_bytes: accounting.serialized_bytes.value,
-                estimated_input_tokens: accounting.estimated_input_tokens.value,
-                provider_input_tokens: accounting
-                    .provider_usage
-                    .as_ref()
-                    .and_then(|usage| usage.components.input_tokens),
-                provider_output_tokens: accounting
-                    .provider_usage
-                    .as_ref()
-                    .and_then(|usage| usage.components.output_tokens),
-            },
+            app::AgentEvent::RequestAccounting(accounting) | app::AgentEvent::RequestStarted(accounting) => {
+                Self::RequestAccounting {
+                    turn_id: &accounting.turn_id,
+                    request_id: &accounting.request_id,
+                    attempt: accounting.attempt,
+                    provider: &accounting.provider,
+                    model: &accounting.model,
+                    serialized_bytes: accounting.serialized_bytes.value,
+                    estimated_input_tokens: accounting.estimated_input_tokens.value,
+                    provider_input_tokens: accounting
+                        .provider_usage
+                        .as_ref()
+                        .and_then(|usage| usage.components.input_tokens),
+                    provider_output_tokens: accounting
+                        .provider_usage
+                        .as_ref()
+                        .and_then(|usage| usage.components.output_tokens),
+                }
+            }
             app::AgentEvent::AssistantDelta(text) => Self::AssistantDelta { text },
             app::AgentEvent::ReasoningDelta(text) => Self::ReasoningDelta { text },
             app::AgentEvent::ToolStarted { id, name, arguments } => Self::ToolStarted { id, name, arguments },
@@ -589,7 +591,11 @@ fn write_event<Stdout: Write, Stderr: Write>(
             write_text_event(stdout, stderr, event, wrote_text, ends_with_newline)
         }
         HeadlessOutput::JsonLines => {
-            write_jsonl_event(stdout, event, ephemeral).and_then(|()| write_diagnostic(stderr, event))
+            if matches!(event, app::AgentEvent::RequestStarted(_)) {
+                write_diagnostic(stderr, event)
+            } else {
+                write_jsonl_event(stdout, event, ephemeral).and_then(|()| write_diagnostic(stderr, event))
+            }
         }
     }
 }
@@ -641,6 +647,7 @@ fn write_diagnostic<Stderr: Write>(stderr: &mut Stderr, event: &app::AgentEvent)
                 usage.compact_status().unwrap_or_else(|| "update".to_string())
             )
         }
+        app::AgentEvent::RequestStarted(_) => Ok(()),
         app::AgentEvent::RequestAccounting(accounting) => {
             writeln!(
                 stderr,

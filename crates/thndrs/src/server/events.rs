@@ -174,6 +174,7 @@ pub fn map_agent_event(event: &AgentEvent) -> Vec<SessionUpdateIntent> {
                 output_tokens: usage.components.output_tokens.unwrap_or(0),
             }]
         }
+        AgentEvent::RequestStarted(_) => vec![],
         AgentEvent::ToolStarted { id, name, arguments } => {
             let kind = classify_tool(name);
             vec![SessionUpdateIntent::ToolStarted {

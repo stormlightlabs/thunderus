@@ -1145,27 +1145,78 @@ impl App {
             .last_compaction_review
             .map(|a| a.label())
             .unwrap_or("none");
-        let counts = ledger.counts();
+        let projection = ledger.projection();
+        let remaining = projection
+            .remaining_percent
+            .map_or_else(|| "unknown".to_string(), |value| format!("{value}%"));
         let mut rows = vec![
             context_table_row(
-                "budget",
-                &format!("{} / {}", ledger.budget.used, ledger.budget.target),
+                "next request",
+                &format!("{} / {}", projection.used, projection.available_input),
+                &remaining,
+                "projected input",
+            ),
+            context_table_row(
+                "thresholds",
+                &format!(
+                    "target {} / compact {}",
+                    projection.target, projection.auto_compaction_threshold
+                ),
                 "tokens",
-                "target",
+                &projection.estimate_provenance,
             ),
             context_table_row(
-                "source",
-                ledger.budget.limits.source.label(),
-                ledger.budget.limits.confidence.label(),
-                "limits",
+                "model limits",
+                projection.limit_source.label(),
+                projection.limit_confidence.label(),
+                "source / confidence",
             ),
             context_table_row(
-                "compaction",
-                &format!("{} / {}", self.effective_compaction_policy().mode.label(), review),
-                &counts.visible.to_string(),
-                "review",
+                "items",
+                &format!("selected {} / omitted {}", projection.selected, projection.omitted),
+                &format!("recoverable {}", projection.recoverable),
+                &format!("protected {}", projection.protected),
             ),
         ];
+        if let Some(accounting) = &self.session.last_request_accounting {
+            let provider_input = accounting
+                .provider_usage
+                .as_ref()
+                .and_then(|usage| usage.inclusive_input_tokens.value)
+                .map_or_else(|| "unknown".to_string(), |value| value.to_string());
+            let estimate = accounting
+                .estimated_input_tokens
+                .value
+                .map_or_else(|| "unknown".to_string(), |value| value.to_string());
+            rows.push(context_table_row(
+                "last request",
+                &format!("provider {provider_input}"),
+                &format!("estimate {estimate}"),
+                "historical measurement",
+            ));
+        }
+        rows.extend(projection.categories.iter().map(|total| {
+            context_table_row(
+                total.category.label(),
+                &format!("{} / {}", total.selected_tokens, total.available_tokens),
+                &format!("{} / {} items", total.selected_items, total.available_items),
+                "selected / available",
+            )
+        }));
+        rows.push(context_table_row(
+            "compaction",
+            &format!("{} / {}", self.effective_compaction_policy().mode.label(), review),
+            "state",
+            "review",
+        ));
+        rows.extend(ledger.diagnostics.iter().map(|diagnostic| {
+            context_table_row(
+                "diagnostic",
+                &diagnostic.code,
+                diagnostic.severity.label(),
+                &diagnostic.message,
+            )
+        }));
         rows.extend(
             ledger
                 .items
@@ -1210,11 +1261,18 @@ impl App {
         );
 
         let mut narrow_fallback = vec![
-            format!("budget {} / {} tokens", ledger.budget.used, ledger.budget.target),
+            format!(
+                "next request {} / {} tokens, {} remaining",
+                projection.used, projection.available_input, remaining
+            ),
+            format!(
+                "target {} compact {} estimate {}",
+                projection.target, projection.auto_compaction_threshold, projection.estimate_provenance
+            ),
             format!(
                 "limits {} ({})",
-                ledger.budget.limits.source.label(),
-                ledger.budget.limits.confidence.label()
+                projection.limit_source.label(),
+                projection.limit_confidence.label()
             ),
             format!(
                 "compaction {} review {}",
@@ -1222,15 +1280,29 @@ impl App {
                 review
             ),
             format!(
-                "items {} visible {} pinned {} dropped {} archived {} blocked {}",
-                ledger.items.len(),
-                counts.visible,
-                counts.pinned,
-                counts.dropped,
-                counts.archived,
-                counts.blocked
+                "items selected {} omitted {} recoverable {} protected {}",
+                projection.selected, projection.omitted, projection.recoverable, projection.protected
             ),
         ];
+        if let Some(accounting) = &self.session.last_request_accounting {
+            let provider_input = accounting
+                .provider_usage
+                .as_ref()
+                .and_then(|usage| usage.inclusive_input_tokens.value)
+                .map_or_else(|| "unknown".to_string(), |value| value.to_string());
+            narrow_fallback.push(format!("last request provider {provider_input} tokens (historical)"));
+        }
+        narrow_fallback.extend(projection.categories.iter().map(|total| {
+            format!(
+                "{} {} / {} tokens ({} / {} items)",
+                total.category.label(),
+                total.selected_tokens,
+                total.available_tokens,
+                total.selected_items,
+                total.available_items
+            )
+        }));
+        narrow_fallback.extend(ledger.diagnostics.iter().map(|diagnostic| diagnostic.summary()));
         narrow_fallback.extend(ledger.items.iter().take(CONTEXT_INSPECTION_MAX_ITEMS).map(|item| {
             let details = crate::context::export::export_item(item);
             format!(

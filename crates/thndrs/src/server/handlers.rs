@@ -522,6 +522,7 @@ impl PersistedTurn {
                     },
                 );
             }
+            AgentEvent::RequestStarted(_) => {}
             AgentEvent::ToolStarted { id, name, arguments } => {
                 state.append_record(
                     session_id,
@@ -1661,6 +1662,7 @@ fn record_time(record: &SessionRecord) -> Option<String> {
         | SessionRecord::SessionFork { time, .. }
         | SessionRecord::Context { time, .. }
         | SessionRecord::ContextLedger { time, .. }
+        | SessionRecord::ContextSnapshot { time, .. }
         | SessionRecord::ContextPin { time, .. }
         | SessionRecord::ContextDrop { time, .. }
         | SessionRecord::ContextRecovery { time, .. }

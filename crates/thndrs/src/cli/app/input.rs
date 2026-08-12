@@ -1706,6 +1706,7 @@ pub fn accept_model_suggestion(app: &mut App) {
     app.runtime.cli.model = model.clone();
     app.composer.input.clear();
     app.runtime.codex_usage = None;
+    app.refresh_context_ledger(None);
     match config::write_project_model(&app.runtime.cwd, &model) {
         Ok(path) => {
             let display = config::project_config_path_display(&path, &app.runtime.cwd);

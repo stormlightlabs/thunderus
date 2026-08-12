@@ -4,6 +4,36 @@ use super::*;
 use crate::artifacts;
 use crate::mcp;
 
+fn persist_active_context_snapshot(app: &mut App, state: session::ContextSnapshotState) {
+    let Some(accounting) = app.session.active_request_accounting.take() else { return };
+    persist_context_snapshot(app, &accounting, state);
+}
+
+fn persist_context_snapshot(
+    app: &mut App, accounting: &thndrs_agent::ProviderRequestAccounting, state: session::ContextSnapshotState,
+) {
+    let Some(ledger) = app.transcript.context_ledger.as_ref() else { return };
+    let snapshot = session::ContextSnapshot {
+        snapshot_version: 1,
+        session_id: app.session.id.clone(),
+        request_id: accounting.request_id.clone(),
+        turn_id: accounting.turn_id.clone(),
+        attempt: accounting.attempt,
+        provider: accounting.provider.clone(),
+        model: accounting.model.clone(),
+        route: format!("{}/{}", accounting.provider, accounting.model),
+        state,
+        ledger: session::ContextLedgerMeta::from(ledger),
+        serialized_bytes: Some(accounting.serialized_bytes.value),
+        estimated_input_tokens: accounting.estimated_input_tokens.value,
+        transformations: accounting.reduction_receipts(),
+        provider_usage: accounting.provider_usage.clone(),
+    };
+    if let Some(writer) = app.session.writer.as_mut() {
+        let _ = writer.append_context_snapshot(snapshot);
+    }
+}
+
 /// Process an [`AgentEvent`] and mutate `app` accordingly.
 pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
     match event {
@@ -34,7 +64,14 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             app.runtime.codex_usage = Some(usage);
             None
         }
+        AgentEvent::RequestStarted(accounting) => {
+            app.session.active_request_accounting = Some(accounting.as_ref().clone());
+            persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Dispatched);
+            None
+        }
         AgentEvent::RequestAccounting(accounting) => {
+            persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Completed);
+            app.session.active_request_accounting = None;
             app.session.last_request_accounting = Some(accounting.as_ref().clone());
             if let Some(usage) = &accounting.provider_usage {
                 if let Some(input_tokens) = usage.components.input_tokens {
@@ -141,6 +178,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Retrying { attempt, max_attempts, delay_ms, error } => {
+            persist_active_context_snapshot(app, session::ContextSnapshotState::Failed);
             discard_retry_output(app);
             app.runtime.run_state = RunState::Working;
             app.runtime.provider_retry = Some(provider_retry_status(attempt, max_attempts, delay_ms, &error));
@@ -200,14 +238,19 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             match context::finish_manual_compaction(app) {
                 None => persist_final_response(app),
                 Some(None) => {}
-                Some(Some(restart)) => return Some(restart),
+                Some(Some(restart)) => {
+                    app.refresh_context_ledger(None);
+                    return Some(restart);
+                }
             }
+            app.refresh_context_ledger(None);
             let id = app.composer.queue.pending_id(QueueTarget::FollowUp)?;
             let next = app.composer.queue.settle(id, QueueSettlement::Sent);
             super::input::audit_queue_transition(app, id, "sent");
             next.and_then(|next| submit_user_turn(app, next))
         }
         AgentEvent::Failed(msg) => {
+            persist_active_context_snapshot(app, session::ContextSnapshotState::Failed);
             app.runtime.provider_retry = None;
             app.runtime.stopping_deadline = None;
             let manual_compaction = context::restore_failed_manual_compaction(app);
@@ -228,9 +271,11 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             open_credential_recovery_after_rejection(app);
             persist_last_entry(app);
             app.refresh_git_status();
+            app.refresh_context_ledger(None);
             None
         }
         AgentEvent::Cancelled => {
+            persist_active_context_snapshot(app, session::ContextSnapshotState::Interrupted);
             app.runtime.provider_retry = None;
             app.runtime.stopping_deadline = None;
             context::restore_failed_manual_compaction(app);
@@ -257,6 +302,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             }
             persist_last_entry(app);
             app.refresh_git_status();
+            app.refresh_context_ledger(None);
             None
         }
     }

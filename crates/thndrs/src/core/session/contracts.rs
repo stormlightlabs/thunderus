@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::context::ContextSource;
 use thndrs_agent::context::{
-    ContextItem, ContextItemKind, ContextLedger, ContextLifecycle, ContextLifecycleAction, ContextVisibility,
+    ContextItem, ContextItemKind, ContextLedger, ContextLifecycle, ContextLifecycleAction, ContextProjection,
+    ContextVisibility, ModelLimitConfidence, ModelLimitSource,
 };
+use thndrs_agent::{ContextReductionReceipt, ProviderUsage};
 
 /// Metadata for a loaded context source, without its model-visible content.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -110,6 +112,15 @@ pub struct ContextLedgerMeta {
     pub auto_compaction_threshold: u64,
     /// Estimated tokens of rendered items.
     pub used: u64,
+    /// Provenance of the resolved model limit.
+    #[serde(default = "default_limit_source")]
+    pub limit_source: ModelLimitSource,
+    /// Confidence in the resolved model limit.
+    #[serde(default = "default_limit_confidence")]
+    pub limit_confidence: ModelLimitConfidence,
+    /// Stable aggregate projection consumed by inspection surfaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projection: Option<ContextProjection>,
     /// Content-free diagnostic summaries emitted by context selection.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<ContextDiagnosticMeta>,
@@ -123,6 +134,9 @@ impl From<&ContextLedger> for ContextLedgerMeta {
             target: ledger.budget.target,
             auto_compaction_threshold: ledger.budget.auto_compaction_threshold,
             used: ledger.budget.used,
+            limit_source: ledger.budget.limits.source,
+            limit_confidence: ledger.budget.limits.confidence,
+            projection: Some(ledger.projection()),
             diagnostics: ledger
                 .diagnostics
                 .iter()
@@ -134,6 +148,65 @@ impl From<&ContextLedger> for ContextLedgerMeta {
                 .collect(),
         }
     }
+}
+
+fn default_limit_source() -> ModelLimitSource {
+    ModelLimitSource::Fallback
+}
+
+fn default_limit_confidence() -> ModelLimitConfidence {
+    ModelLimitConfidence::Conservative
+}
+
+/// Lifecycle state of a request-bound context snapshot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextSnapshotState {
+    /// Request was serialized and handed to the provider adapter.
+    Dispatched,
+    /// Provider completed the request and returned usage when available.
+    Completed,
+    /// Request attempt ended with an error.
+    Failed,
+    /// Request attempt was cancelled before completion.
+    Interrupted,
+}
+
+/// Versioned, content-free context snapshot for one provider request attempt.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextSnapshot {
+    /// Snapshot schema version.
+    pub snapshot_version: u32,
+    /// Session that owns the request.
+    pub session_id: String,
+    /// Stable request identity shared by lifecycle updates.
+    pub request_id: String,
+    /// Turn that initiated the request.
+    pub turn_id: String,
+    /// One-based provider attempt number.
+    pub attempt: u32,
+    /// Provider adapter label.
+    pub provider: String,
+    /// Model selected for this attempt.
+    pub model: String,
+    /// Human-readable provider/model route.
+    pub route: String,
+    /// Lifecycle state represented by this append-only record.
+    pub state: ContextSnapshotState,
+    /// Content-free context candidates, aggregates, limits, and diagnostics.
+    pub ledger: ContextLedgerMeta,
+    /// Exact request bytes, unavailable before serialization completes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serialized_bytes: Option<u64>,
+    /// Estimated input tokens; missing measurements remain unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_input_tokens: Option<u64>,
+    /// Reduction receipts applied or evaluated for this request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transformations: Vec<ContextReductionReceipt>,
+    /// Provider-reported usage and normalization provenance after completion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_usage: Option<ProviderUsage>,
 }
 
 /// Content-free audit record for an explicit lifecycle transition.

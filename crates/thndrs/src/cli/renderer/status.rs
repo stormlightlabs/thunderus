@@ -169,6 +169,24 @@ fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
         StatusSegment::AnchoredAway if anchored => ("↑ away".to_string(), 2, 6, Truncation::None, false),
         StatusSegment::AnchoredAway => return None,
         StatusSegment::ActiveChildren => ("children 0".to_string(), 5, 10, Truncation::None, false),
+        StatusSegment::ContextRemaining => {
+            let projection = app.transcript.context_ledger.as_ref()?.projection();
+            let remaining = projection.remaining_percent?;
+            let warning = if projection.used > projection.auto_compaction_threshold {
+                " · compact"
+            } else if projection.used > projection.target {
+                " · target"
+            } else {
+                ""
+            };
+            (
+                format!("{remaining}% ctx left{warning}"),
+                5,
+                12,
+                Truncation::None,
+                !warning.is_empty(),
+            )
+        }
     };
     Some(Field { text, priority, min_width, truncation, urgent, required: segment == StatusSegment::Route })
 }
@@ -432,5 +450,40 @@ mod tests {
         assert!(text.contains("Failed: tool run_shell"));
         assert!(!text.contains("secret-argument"));
         assert!(!text.contains("secret-output"));
+    }
+
+    #[test]
+    fn context_remaining_is_default_live_ordered_and_removed_under_width_pressure() {
+        let mut app = App::from_cli(&Cli::default());
+        app.runtime.model = "fixture-model".to_string();
+        app.refresh_context_ledger(None);
+
+        let wide = status_row(&app, 100, false).text();
+        let route = wide.find("fixture-model · auto").expect("model and reasoning");
+        let context = wide.find("% ctx left").expect("context remaining");
+        let queue = wide.find("queue 0").expect("queue count");
+        assert!(route < context && context < queue);
+        assert!(!status_row(&app, 24, false).text().contains("ctx left"));
+
+        let ledger = app.transcript.context_ledger.as_mut().expect("refreshed ledger");
+        ledger.budget.used = ledger.budget.target.saturating_add(1);
+        assert!(status_row(&app, 100, false).text().contains("· target"));
+        let ledger = app.transcript.context_ledger.as_mut().expect("refreshed ledger");
+        ledger.budget.used = ledger.budget.auto_compaction_threshold.saturating_add(1);
+        assert!(status_row(&app, 100, false).text().contains("· compact"));
+    }
+
+    #[test]
+    fn context_remaining_hides_unknown_capacity() {
+        let mut app = App::from_cli(&Cli::default());
+        app.refresh_context_ledger(None);
+        app.transcript
+            .context_ledger
+            .as_mut()
+            .expect("refreshed ledger")
+            .budget
+            .available_input = 0;
+
+        assert!(!status_row(&app, 100, false).text().contains("ctx left"));
     }
 }

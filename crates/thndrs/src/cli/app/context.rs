@@ -754,6 +754,15 @@ impl App {
                         }
                     }
                 }
+                session::SessionRecord::ContextSnapshot { snapshot, .. } => {
+                    for item in &snapshot.ledger.items {
+                        if item.lifecycle != agent_context::ContextLifecycle::default() {
+                            self.transcript
+                                .context_lifecycles
+                                .insert(item.id.clone(), item.lifecycle.clone());
+                        }
+                    }
+                }
                 session::SessionRecord::ContextPin { item, .. } => {
                     if item.lifecycle != agent_context::ContextLifecycle::default() {
                         self.transcript
@@ -1119,6 +1128,7 @@ pub fn apply_compaction(
             pending.recovery_handle
         ),
     });
+    app.refresh_context_ledger(None);
     if is_automatic {
         if let Some(turn) = original_user_turn {
             return Some(super::input::submit_internal_turn(app, turn));
@@ -1189,7 +1199,7 @@ pub fn run_doctor_slash(app: &mut App) {
 pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
     let Some((action, reference)) = command.split_once(' ') else {
         return match command {
-            "show" => {
+            "show" | "all" => {
                 app.open_context_surface();
                 None
             }
@@ -1238,7 +1248,7 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
             }
             _ => {
                 app.transcript.entries.push(Entry::Error {
-                    text: "usage: /context [show|pin|drop|recover|verify|release|review|export]".to_string(),
+                    text: "usage: /context [show|all|item|pin|drop|recover|verify|release|review|export]".to_string(),
                 });
                 None
             }
@@ -1246,6 +1256,7 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
     };
 
     let result = match action {
+        "item" => return show_context_item(app, reference.trim()),
         "pin" => app.pin_context_reference(reference.trim()),
         "drop" if reference.trim() == "--reset" => app.reset_context_drops(),
         "drop" => app.drop_context_reference(reference.trim()),
@@ -1254,7 +1265,7 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
         "review" => return handle_context_review(app, reference.trim()),
         "verify" | "verification" => return handle_context_verification(app, reference.trim()),
         "export" => return handle_context_export(app, reference.trim()),
-        _ => Err("usage: /context [show|pin|drop|recover|verify|release|review|export]".to_string()),
+        _ => Err("usage: /context [show|all|item|pin|drop|recover|verify|release|review|export]".to_string()),
     };
     match result {
         Ok(()) => {
@@ -1265,6 +1276,39 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
         }
         Err(error) => app.transcript.entries.push(Entry::Error { text: error }),
     }
+    None
+}
+
+fn show_context_item(app: &mut App, id: &str) -> Option<Msg> {
+    let ledger = app.refresh_context_ledger(None);
+    let Some(item) = ledger.find(id) else {
+        app.transcript
+            .entries
+            .push(Entry::Error { text: format!("unknown context item `{id}`") });
+        return None;
+    };
+    let details = crate::context::export::export_item(item);
+    let origin = item
+        .source_path
+        .as_ref()
+        .map_or_else(|| item.scope.clone(), |path| path.display().to_string());
+    app.transcript.entries.push(Entry::Status {
+        text: format!(
+            "context item {}: origin {} ({}) · lifecycle {} · visibility {} ({}) · estimate {} tokens ({}) · artifact {} · protected {} · recovery {}",
+            item.id,
+            item.kind.label(),
+            origin,
+            details.lifecycle.label(),
+            item.visibility.label(),
+            item.reason,
+            item.token_estimate,
+            "conservative utf8 bytes / 3 + item overhead",
+            item.artifact_handle.as_deref().unwrap_or("none"),
+            if details.protected { "yes" } else { "no" },
+            if details.recovery_available { "available" } else { "unavailable" },
+        ),
+    });
+    app.composer.input.clear();
     None
 }
 

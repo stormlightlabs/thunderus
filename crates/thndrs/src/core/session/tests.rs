@@ -561,6 +561,45 @@ fn context_ledger_record_round_trips_without_content() {
 }
 
 #[test]
+fn context_snapshot_lifecycle_round_trips_without_payload_content_or_false_zeroes() {
+    let ledger = context_ledger("api_key=supersecretvalue");
+    let snapshot = ContextSnapshot {
+        snapshot_version: 1,
+        session_id: "session-1".to_string(),
+        request_id: "turn_1:request:1".to_string(),
+        turn_id: "turn_1".to_string(),
+        attempt: 2,
+        provider: "anthropic".to_string(),
+        model: "model".to_string(),
+        route: "anthropic/model".to_string(),
+        state: ContextSnapshotState::Failed,
+        ledger: ContextLedgerMeta::from(&ledger),
+        serialized_bytes: Some(128),
+        estimated_input_tokens: None,
+        transformations: Vec::new(),
+        provider_usage: None,
+    };
+    let record = SessionRecord::ContextSnapshot {
+        schema_version: 1,
+        seq: 3,
+        time: "2026-07-10T12:00:00Z".to_string(),
+        snapshot: Box::new(snapshot),
+    };
+
+    let json = record.to_json().expect("serialize context snapshot");
+    assert_eq!(
+        record,
+        SessionRecord::from_json(&json).expect("deserialize context snapshot")
+    );
+    assert!(json.contains("\"type\":\"context_snapshot\""));
+    assert!(json.contains("\"state\":\"failed\""));
+    assert!(json.contains("\"attempt\":2"));
+    assert!(!json.contains("estimated_input_tokens"));
+    assert!(!json.contains("provider_usage"));
+    assert!(!json.contains("supersecretvalue"));
+}
+
+#[test]
 fn context_action_records_round_trip_without_content() {
     let item = context_item("password=supersecretvalue");
     let actions = [

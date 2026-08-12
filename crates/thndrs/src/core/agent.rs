@@ -1175,6 +1175,34 @@ where
         .provider
         .serialized_request_body(request.model, request.messages, &provider_request)
         .map_err(ProviderAttemptError::Request)?;
+    let mut accounting = ProviderRequestAccounting::from_serialized_request(
+        request.turn_id,
+        format!("{}:request:{iteration}", request.turn_id),
+        attempt,
+        request.provider.name(),
+        request.model,
+        &serialized_body,
+        request.context.to_vec(),
+    )
+    .with_reduction_receipts(request.reduction_receipts.to_vec())
+    .with_model_projection(
+        request
+            .messages
+            .iter()
+            .map(|message| ModelProjectionMessage {
+                role: message.role.clone(),
+                content: match &message.content {
+                    crate::providers::ProviderMessageContent::Text(content) => content.clone(),
+                    crate::providers::ProviderMessageContent::Blocks(blocks) => {
+                        serde_json::to_string(blocks).unwrap_or_else(|_| String::from("[unserializable blocks]"))
+                    }
+                },
+            })
+            .collect(),
+    );
+    if send(tx, AgentEvent::RequestStarted(Box::new(accounting.clone())), cancel).is_none() {
+        return Err(ProviderAttemptError::Stream("cancelled".to_string()));
+    }
     match request
         .provider
         .send_streaming_request(request.model, request.messages, &provider_request)
@@ -1221,32 +1249,6 @@ where
                             )
                         }
                     });
-                    let mut accounting = ProviderRequestAccounting::from_serialized_request(
-                        request.turn_id,
-                        format!("{}:request:{iteration}", request.turn_id),
-                        attempt,
-                        request.provider.name(),
-                        request.model,
-                        &serialized_body,
-                        request.context.to_vec(),
-                    )
-                    .with_reduction_receipts(request.reduction_receipts.to_vec());
-                    accounting = accounting.with_model_projection(
-                        request
-                            .messages
-                            .iter()
-                            .map(|message| ModelProjectionMessage {
-                                role: message.role.clone(),
-                                content: match &message.content {
-                                    crate::providers::ProviderMessageContent::Text(content) => content.clone(),
-                                    crate::providers::ProviderMessageContent::Blocks(blocks) => {
-                                        serde_json::to_string(blocks)
-                                            .unwrap_or_else(|_| String::from("[unserializable blocks]"))
-                                    }
-                                },
-                            })
-                            .collect(),
-                    );
                     accounting.provider_usage = provider_usage;
                     if send(tx, AgentEvent::RequestAccounting(Box::new(accounting)), cancel).is_none() {
                         return Err(ProviderAttemptError::Stream("cancelled".to_string()));

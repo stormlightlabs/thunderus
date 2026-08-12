@@ -1305,6 +1305,7 @@ fn write_acp_event<W: io::Write>(writer: &mut W, event: app::AgentEvent) -> io::
             "quota: {}",
             usage.compact_status().unwrap_or_else(|| "update".to_string())
         )?,
+        app::AgentEvent::RequestStarted(_) => {}
         app::AgentEvent::RequestAccounting(accounting) => {
             let input = accounting
                 .provider_usage
@@ -2003,9 +2004,6 @@ fn spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>, request: EffectRequ
 
     if let Some(ref mut writer) = app.session.writer {
         let turn_id = format!("turn_{}", app.session.turn_count);
-        if let Some(ledger) = &bundle.context_ledger {
-            let _ = writer.append_context_ledger(&turn_id, ledger);
-        }
         let metadata = session::PromptMetadata::from_bundle(&bundle);
         let _ = writer.append_prompt_metadata(&turn_id, &metadata);
     }

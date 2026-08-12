@@ -221,7 +221,7 @@ fn context_surface_is_bounded_and_does_not_render_source_content() {
     let source = app.runtime.cwd.join("AGENTS.md");
     std::fs::write(&source, "api_key=source-secret-that-must-not-be-rendered\n").expect("write instructions");
     app.transcript.context_sources = vec![crate::context::load_agents_md(&app.runtime.cwd).expect("load instructions")];
-    app.composer.input = PromptInput::from("/context");
+    app.composer.input = PromptInput::from("/context all");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
@@ -234,9 +234,31 @@ fn context_surface_is_bounded_and_does_not_render_source_content() {
         .map(|cell| cell.text.as_str())
         .collect::<Vec<_>>()
         .join(" ");
-    assert!(text.contains("budget"));
+    assert!(text.contains("next request"));
+    assert!(text.contains("projected input"));
     assert!(!text.contains("source-secret-that-must-not-be-rendered"));
     assert!(table.rows.len() <= 67, "context table must stay bounded");
+
+    let item_id = app
+        .transcript
+        .context_ledger
+        .as_ref()
+        .and_then(|ledger| ledger.items.first())
+        .map(|item| item.id.clone())
+        .expect("context item");
+    app.overlay.close();
+    app.composer.input = PromptInput::from(format!("/context item {item_id}"));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(
+        app.transcript.entries.last(),
+        Some(Entry::Status { text })
+            if text.contains("origin")
+                && text.contains("lifecycle")
+                && text.contains("estimate")
+                && text.contains("artifact")
+                && text.contains("protected")
+                && text.contains("recovery")
+    ));
 }
 
 #[test]

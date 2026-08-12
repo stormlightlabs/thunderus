@@ -507,6 +507,8 @@ pub enum AgentEvent {
     CodexUsage(codex::CodexUsageStatus),
     /// One successful provider request with exact size and optional usage.
     RequestAccounting(Box<ProviderRequestAccounting>),
+    /// One serialized provider request immediately before dispatch.
+    RequestStarted(Box<ProviderRequestAccounting>),
     AssistantDelta(String),
     ReasoningDelta(String),
     ToolStarted {
@@ -630,6 +632,8 @@ pub struct SessionState {
     pub turn_count: u64,
     /// Most recent completed provider request accounting.
     pub last_request_accounting: Option<ProviderRequestAccounting>,
+    /// Serialized request attempt awaiting a terminal accounting event.
+    pub active_request_accounting: Option<ProviderRequestAccounting>,
     /// Non-fatal config diagnostics captured for this session.
     pub config_diagnostics: Vec<String>,
     /// MCP config files captured by the session audit.
@@ -1168,6 +1172,7 @@ impl App {
                 input_history_store,
                 turn_count: 0,
                 last_request_accounting: None,
+                active_request_accounting: None,
                 config_diagnostics: value.config_diagnostics.clone(),
                 mcp_config_files,
                 mcp_config_diagnostics,
@@ -1318,6 +1323,7 @@ impl App {
         self.transcript
             .entries
             .push(Entry::Status { text: format!("resumed session: {id}") });
+        self.refresh_context_ledger(None);
         self.schedule_session_collection();
         Ok(())
     }
