@@ -3231,6 +3231,59 @@ fn completed_response_refreshes_the_next_request_projection() {
 }
 
 #[test]
+fn request_start_updates_live_context_usage() {
+    let mut app = fresh_app();
+    let before = app.refresh_context_ledger(Some("request")).projection();
+    let accounting = thndrs_agent::ProviderRequestAccounting::from_serialized_request(
+        "turn_1",
+        "turn_1:request:1",
+        1,
+        "opencode",
+        "big-pickle",
+        &vec![b'x'; 120_000],
+        Vec::new(),
+    );
+    let expected_used = accounting.estimated_input_tokens.value.expect("request estimate");
+
+    handle_agent_event(&mut app, AgentEvent::RequestStarted(Box::new(accounting)));
+
+    let after = app
+        .transcript
+        .context_ledger
+        .as_ref()
+        .expect("request keeps live context projection")
+        .projection();
+    assert_eq!(after.used, expected_used);
+    assert_ne!(after.remaining_percent, before.remaining_percent);
+}
+
+#[test]
+fn request_start_returns_status_to_sending_after_a_tool() {
+    let mut app = fresh_app();
+    app.runtime.run_state = RunState::Working;
+    app.transcript.entries.push(Entry::Tool {
+        name: "read_file_range".to_string(),
+        arguments: "{}".to_string(),
+        status: ToolStatus::Ok,
+        output: Vec::new(),
+    });
+    assert_eq!(app.status_label(), "Working");
+    let accounting = thndrs_agent::ProviderRequestAccounting::from_serialized_request(
+        "turn_1",
+        "turn_1:request:2",
+        1,
+        "opencode",
+        "big-pickle",
+        br#"{"messages":[]}"#,
+        Vec::new(),
+    );
+
+    handle_agent_event(&mut app, AgentEvent::RequestStarted(Box::new(accounting)));
+
+    assert_eq!(app.status_label(), "Sending");
+}
+
+#[test]
 fn request_attempts_append_distinct_context_snapshot_lifecycle_records() {
     let dir = tempfile::tempdir().expect("create session directory");
     let mut app = fresh_app();

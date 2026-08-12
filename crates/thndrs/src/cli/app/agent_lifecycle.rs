@@ -9,6 +9,19 @@ fn persist_active_context_snapshot(app: &mut App, state: session::ContextSnapsho
     persist_context_snapshot(app, &accounting, state);
 }
 
+fn update_context_usage(app: &mut App, accounting: &thndrs_agent::ProviderRequestAccounting) {
+    let used = accounting
+        .provider_usage
+        .as_ref()
+        .and_then(|usage| usage.components.input_tokens)
+        .or(accounting.estimated_input_tokens.value);
+    if let Some(used) = used
+        && let Some(ledger) = app.transcript.context_ledger.as_mut()
+    {
+        ledger.budget.used = used;
+    }
+}
+
 fn persist_context_snapshot(
     app: &mut App, accounting: &thndrs_agent::ProviderRequestAccounting, state: session::ContextSnapshotState,
 ) {
@@ -65,11 +78,14 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::RequestStarted(accounting) => {
+            app.runtime.provider_retry = None;
             app.session.active_request_accounting = Some(accounting.as_ref().clone());
+            update_context_usage(app, &accounting);
             persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Dispatched);
             None
         }
         AgentEvent::RequestAccounting(accounting) => {
+            update_context_usage(app, &accounting);
             persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Completed);
             app.session.active_request_accounting = None;
             app.session.last_request_accounting = Some(accounting.as_ref().clone());

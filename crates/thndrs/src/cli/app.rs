@@ -1493,6 +1493,7 @@ impl App {
                 Some(Entry::Tool { name, arguments, status: ToolStatus::Running, .. }) => {
                     running_tool_status(name, arguments)
                 }
+                _ if self.session.active_request_accounting.is_some() => "Sending".to_string(),
                 Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "Stopped".to_string(),
                 Some(Entry::User { .. }) | None => "Sending".to_string(),
                 _ => "Working".to_string(),
