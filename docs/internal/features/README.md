@@ -11,6 +11,7 @@ features/<feature-name>/{plan,tasks}.md
 
 - [Runtime surfaces](runtime-surfaces/plan.md)
 - [MCP](mcp/plan.md)
+- [Lifecycle hooks](hooks/plan.md)
 - [Skills](skills/plan.md)
 - [Providers](providers/plan.md)
 - [Session context](session-context/plan.md)
