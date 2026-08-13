@@ -19,6 +19,12 @@
   anchored summaries, a retained recent turn-aligned tail, and configurable
   mode, review policy, threshold, and tail size.
 
+### Changed
+
+- Refined the TUI with responsive content rails, a quieter conversation
+  hierarchy, a unified composer and status area, grouped tool activity, and
+  semantic colors across the built-in themes.
+
 ## v0.1.0
 
 This release introduces `thndrs` as experimental pre-1.0 software. Its CLI,
