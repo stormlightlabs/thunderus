@@ -88,6 +88,35 @@ use crate::{config, fuzzy, internals, prompt, session, skills, tools, utils};
 
 /// Cancel an ACP permission request from an application adapter without UI input.
 pub use agent_lifecycle::cancel_pending_permission;
+
+fn append_loaded_skill(app: &mut App, loaded: &skills::LoadedSkill, include_content: bool) {
+    for diagnostic in &loaded.diagnostics {
+        app.transcript.entries.push(Entry::Error { text: diagnostic.summary() });
+    }
+    let text = format!(
+        "# Skill: {}\n\n_Source: {}_\n\n{}",
+        loaded.activation.name,
+        loaded.activation.path.display(),
+        loaded.markdown
+    );
+    let token_estimate = agent_context::estimate_tokens(text.len());
+    let available_input = app.refresh_context_ledger(None).budget.available_input;
+    let context_percent = if available_input == 0 {
+        None
+    } else {
+        Some(((token_estimate as u64).saturating_mul(100) / available_input).min(100) as u8)
+    };
+    app.transcript.entries.push(Entry::Skill {
+        name: loaded.activation.name.clone(),
+        path: loaded.activation.path.display().to_string(),
+        content: if include_content { text } else { String::new() },
+        token_estimate,
+        context_percent,
+    });
+    if let Some(ref mut writer) = app.session.writer {
+        let _ = writer.append_skill_activation(&loaded.activation);
+    }
+}
 /// Submit a user turn from an application adapter without synthesizing key input.
 pub use input::submit_user_turn;
 
@@ -448,6 +477,7 @@ fn transcript_search_text(entry: &Entry) -> String {
         | Entry::Reasoning { text, .. }
         | Entry::Status { text }
         | Entry::Error { text } => text.clone(),
+        Entry::Skill { name, path, content, .. } => format!("{name} {path} {content}"),
         Entry::Tool { name, arguments, status, .. } => {
             // Compact transcript search deliberately excludes hidden tool output.
             format!("{name} {arguments} {status:?}")
@@ -483,6 +513,14 @@ pub enum Entry {
     Agent { text: String, streaming: bool },
     /// Reasoning/thinking text, kept separate from final assistant text.
     Reasoning { text: String, streaming: bool },
+    /// Explicitly activated skill instructions with a compact UI projection.
+    Skill {
+        name: String,
+        path: String,
+        content: String,
+        token_estimate: usize,
+        context_percent: Option<u8>,
+    },
     /// A tool call block.
     Tool {
         name: String,

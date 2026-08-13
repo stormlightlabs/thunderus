@@ -1376,6 +1376,7 @@ fn render_compaction_source(entries: &[Entry]) -> String {
         .map(|entry| match entry {
             Entry::User { text } => format!("user: {text}"),
             Entry::Agent { text, .. } => format!("assistant: {text}"),
+            Entry::Skill { content, .. } => format!("assistant: {content}"),
             Entry::Reasoning { text, .. } => format!("reasoning: {text}"),
             Entry::Tool { name, arguments, output, .. } => {
                 format!("tool {name} {arguments}: {}", output.join("\n"))
@@ -1422,7 +1423,11 @@ fn compaction_cut(entries: &[Entry], maximum_end: usize, keep_recent_tokens: u64
 }
 
 fn is_model_context_entry(entry: &Entry) -> bool {
-    !matches!(entry, Entry::Status { .. } | Entry::Error { .. })
+    match entry {
+        Entry::Status { .. } | Entry::Error { .. } => false,
+        Entry::Skill { content, .. } => !content.is_empty(),
+        _ => true,
+    }
 }
 
 fn context_entry_count(entries: &[Entry]) -> u64 {
@@ -1710,6 +1715,7 @@ fn transcript_candidate_label(entry: &Entry) -> String {
     match entry {
         Entry::User { .. } => "user".to_string(),
         Entry::Agent { .. } => "assistant".to_string(),
+        Entry::Skill { name, .. } => format!("skill:{name}"),
         Entry::Reasoning { .. } => "reasoning".to_string(),
         Entry::Tool { name, .. } => format!("tool:{name}"),
         Entry::Status { .. } => "status".to_string(),
@@ -1721,6 +1727,7 @@ fn render_compaction_entry(entry: &Entry) -> String {
     match entry {
         Entry::User { text } => format!("user: {text}"),
         Entry::Agent { text, .. } => format!("assistant: {text}"),
+        Entry::Skill { content, .. } => format!("assistant: {content}"),
         Entry::Reasoning { text, .. } => format!("reasoning: {text}"),
         Entry::Tool { name, arguments, output, .. } => format!("tool {name} {arguments}: {}", output.join("\n")),
         Entry::Status { text } => format!("status: {text}"),
@@ -1734,6 +1741,9 @@ fn transcript_protection(entry: &Entry) -> agent_context::ContextProtection {
     let mut reasons = Vec::new();
     match entry {
         Entry::User { .. } => reasons.push(Reason::ExplicitConstraint),
+        Entry::Skill { content, .. } if !content.is_empty() => {
+            reasons.push(Reason::ExplicitConstraint);
+        }
         Entry::Error { .. } => reasons.push(Reason::FailureEvidence),
         Entry::Tool { name, status, .. } => {
             if matches!(status, ToolStatus::Failed | ToolStatus::Cancelled) {
@@ -1743,7 +1753,7 @@ fn transcript_protection(entry: &Entry) -> agent_context::ContextProtection {
                 reasons.push(Reason::UnverifiedWriteEdit);
             }
         }
-        Entry::Agent { .. } | Entry::Reasoning { .. } | Entry::Status { .. } => {}
+        Entry::Agent { .. } | Entry::Skill { .. } | Entry::Reasoning { .. } | Entry::Status { .. } => {}
     }
     agent_context::ContextProtection::from_reasons(reasons)
 }
@@ -1775,6 +1785,7 @@ fn transcript_candidate_bytes(entry: &Entry) -> usize {
         | Entry::Reasoning { text, .. }
         | Entry::Status { text }
         | Entry::Error { text } => text.len(),
+        Entry::Skill { content, .. } => content.len(),
         Entry::Tool { name, arguments, output, .. } => {
             name.len() + arguments.len() + output.iter().map(String::len).sum::<usize>()
         }
@@ -1882,5 +1893,22 @@ mod compaction_cut_tests {
         assert_eq!(context_entry_count(&entries), 2);
         assert_eq!(raw_index_after_context_entries(&entries, 1), 1);
         assert_eq!(raw_index_after_context_entries(&entries, 2), 3);
+    }
+
+    #[test]
+    fn activated_skill_instructions_are_protected_but_read_notices_are_not() {
+        let skill = |content: &str| Entry::Skill {
+            name: "review".to_string(),
+            path: "/skills/review/SKILL.md".to_string(),
+            content: content.to_string(),
+            token_estimate: 42,
+            context_percent: Some(1),
+        };
+
+        assert!(
+            transcript_protection(&skill("review carefully"))
+                .contains(agent_context::ContextProtectionReason::ExplicitConstraint)
+        );
+        assert!(!transcript_protection(&skill("")).is_protected());
     }
 }

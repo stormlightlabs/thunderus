@@ -30,6 +30,7 @@ pub enum TranscriptRowKind {
     User,
     Assistant,
     Reasoning,
+    Skill,
     Tool,
     Edit,
     Diff,
@@ -764,6 +765,10 @@ impl From<&Entry> for TranscriptRowView {
             Entry::User { text } => TranscriptRowKind::User.build_row(true, text.clone()),
             Entry::Agent { text, streaming } => TranscriptRowKind::Assistant.build_row(!streaming, text.clone()),
             Entry::Reasoning { text, streaming } => TranscriptRowKind::Reasoning.build_row(!streaming, text.clone()),
+            Entry::Skill { name, path, token_estimate, context_percent, .. } => TranscriptRowKind::Skill.build_row(
+                true,
+                skill_activation_summary(name, path, *token_estimate, *context_percent),
+            ),
             Entry::Status { text } if text == "cancelled" => TranscriptRowKind::Cancelled.build_row(true, text.clone()),
             Entry::Status { text } => TranscriptRowKind::Status.build_row(true, text.clone()),
             Entry::Error { text } => TranscriptRowKind::Error.build_row(true, text.clone()),
@@ -803,6 +808,30 @@ impl From<&Entry> for TranscriptRowView {
             }
         }
     }
+}
+
+pub(super) fn skill_activation_summary(
+    name: &str, path: &str, token_estimate: usize, context_percent: Option<u8>,
+) -> String {
+    let context = match context_percent {
+        Some(0) => "<1% context".to_string(),
+        Some(percent) => format!("{percent}% context"),
+        None => "context unknown".to_string(),
+    };
+    format!(
+        "{name} · ~{} tokens · {context} · {path}",
+        compact_count(token_estimate)
+    )
+}
+
+fn compact_count(count: usize) -> String {
+    if count < 1_000 {
+        return count.to_string();
+    }
+    if count < 10_000 {
+        return format!("{:.1}k", count as f64 / 1_000.0);
+    }
+    format!("{}k", count.div_ceil(1_000))
 }
 
 impl From<TranscriptBlock<'_>> for TranscriptRowView {

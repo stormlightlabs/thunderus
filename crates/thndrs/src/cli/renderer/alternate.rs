@@ -37,6 +37,8 @@ use super::view::{
     transcript_projection_key,
 };
 
+const MOUSE_WHEEL_ROWS: usize = 3;
+
 /// Owns terminal modes for one alternate-screen application session.
 ///
 /// Cleanup is best-effort in `Drop`, so normal return, errors, and unwinding all
@@ -308,8 +310,12 @@ impl AlternateViewport {
             return false;
         }
         match action {
+            Action::ScrollTranscriptWheelUp => self.scroll_up(MOUSE_WHEEL_ROWS),
+            Action::ScrollTranscriptWheelDown => self.scroll_down(MOUSE_WHEEL_ROWS),
             Action::ScrollTranscriptUp => self.line_up(),
             Action::ScrollTranscriptDown => self.line_down(),
+            Action::ScrollTranscriptPageUp => self.page_up(),
+            Action::ScrollTranscriptPageDown => self.page_down(),
             Action::ScrollTranscriptHalfUp => self.half_page_up(),
             Action::ScrollTranscriptHalfDown => self.half_page_down(),
             Action::TranscriptTop => self.top(),
@@ -1327,10 +1333,13 @@ mod tests {
 
         let mut viewport = AlternateViewport::default();
         viewport.build_frame(&app, 80, 12);
-        let action = Action::ScrollTranscriptUp;
+        let initial_top = viewport.last_top;
+        let action = Action::ScrollTranscriptWheelUp;
 
         assert!(viewport.handle_navigation(&app, &action));
+        viewport.build_frame(&app, 80, 12);
         assert!(matches!(viewport.state(), ViewportState::Anchored(_)));
+        assert_eq!(viewport.last_top, initial_top.saturating_sub(MOUSE_WHEEL_ROWS));
         assert_eq!(app.composer.input.as_str(), "current draft");
         assert_eq!(app.composer.history_cursor, None);
     }

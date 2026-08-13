@@ -634,10 +634,14 @@ fn skills_command_opens_picker_and_renders_selected_skill_markdown() {
 
     assert_eq!(app.overlay.accessory(), PromptAccessory::None);
     assert!(app.overlay.picker().is_none());
+    assert!(app.composer.input.is_empty());
     assert!(app.transcript.entries.iter().any(|entry| matches!(
         entry,
-        Entry::Agent { text, streaming: false }
-            if text.contains("# Skill: example-skill") && text.contains("# Example Skill")
+        Entry::Skill { name, content, token_estimate, context_percent: Some(_), .. }
+            if name == "example-skill"
+                && content.contains("# Skill: example-skill")
+                && content.contains("# Example Skill")
+                && *token_estimate > 0
     )));
 }
 
@@ -661,6 +665,6 @@ fn skills_command_surfaces_activation_reference_diagnostics() {
     )));
     assert!(app.transcript.entries.iter().any(|entry| matches!(
         entry,
-        Entry::Agent { text, streaming: false } if text.contains("# Example Skill")
+        Entry::Skill { content, .. } if content.contains("# Example Skill")
     )));
 }

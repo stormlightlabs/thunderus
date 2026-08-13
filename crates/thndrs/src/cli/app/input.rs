@@ -87,8 +87,12 @@ pub enum Action {
     PageNext,
     ScrollOverlayUp,
     ScrollOverlayDown,
+    ScrollTranscriptWheelUp,
+    ScrollTranscriptWheelDown,
     ScrollTranscriptUp,
     ScrollTranscriptDown,
+    ScrollTranscriptPageUp,
+    ScrollTranscriptPageDown,
     ScrollTranscriptHalfUp,
     ScrollTranscriptHalfDown,
     TranscriptTop,
@@ -333,10 +337,10 @@ pub fn translate_input_with_keymap(app: &App, input: TerminalInput, keymap: &Key
         }
         TerminalInput::Mouse(mouse) => match (input_focus(app), mouse) {
             (InputFocus::Prompt | InputFocus::Command, MouseInput::ScrollUp) => {
-                vec![Action::ScrollTranscriptUp]
+                vec![Action::ScrollTranscriptWheelUp]
             }
             (InputFocus::Prompt | InputFocus::Command, MouseInput::ScrollDown) => {
-                vec![Action::ScrollTranscriptDown]
+                vec![Action::ScrollTranscriptWheelDown]
             }
             (_, MouseInput::ScrollUp) => vec![Action::ScrollOverlayUp],
             (_, MouseInput::ScrollDown) => vec![Action::ScrollOverlayDown],
@@ -403,8 +407,8 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
             (KeyCode::PageDown, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
                 return Some(Action::ScrollTranscriptHalfDown);
             }
-            (KeyCode::PageUp, _) => return Some(Action::ScrollTranscriptUp),
-            (KeyCode::PageDown, _) => return Some(Action::ScrollTranscriptDown),
+            (KeyCode::PageUp, _) => return Some(Action::ScrollTranscriptPageUp),
+            (KeyCode::PageDown, _) => return Some(Action::ScrollTranscriptPageDown),
             (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::ALT) => {
                 return Some(Action::ScrollTranscriptUp);
             }
@@ -748,8 +752,12 @@ pub fn handle_action(app: &mut App, action: Action) -> Option<Msg> {
         | Action::Suspend
         | Action::FocusGained
         | Action::FocusLost
+        | Action::ScrollTranscriptWheelUp
+        | Action::ScrollTranscriptWheelDown
         | Action::ScrollTranscriptUp
         | Action::ScrollTranscriptDown
+        | Action::ScrollTranscriptPageUp
+        | Action::ScrollTranscriptPageDown
         | Action::ScrollTranscriptHalfUp
         | Action::ScrollTranscriptHalfDown
         | Action::TranscriptTop
@@ -1833,22 +1841,10 @@ pub fn accept_skill_suggestion(app: &mut App) {
         return;
     };
 
+    app.composer.input.clear();
+
     match skills::load_skill(&skill) {
-        Ok(loaded) => {
-            for diagnostic in &loaded.diagnostics {
-                app.transcript.entries.push(Entry::Error { text: diagnostic.summary() });
-            }
-            let text = format!(
-                "# Skill: {}\n\n_Source: {}_\n\n{}",
-                loaded.activation.name,
-                loaded.activation.path.display(),
-                loaded.markdown
-            );
-            app.transcript.entries.push(Entry::Agent { text, streaming: false });
-            if let Some(ref mut writer) = app.session.writer {
-                let _ = writer.append_skill_activation(&loaded.activation);
-            }
-        }
+        Ok(loaded) => append_loaded_skill(app, &loaded, true),
         Err(diagnostic) => app.transcript.entries.push(Entry::Error { text: diagnostic.summary() }),
     }
     close_prompt_accessory(app);

@@ -2562,7 +2562,7 @@ fn skill_activation_record_defaults_rendered_metadata_for_old_sessions() {
     let restored = SessionRecord::from_json(json).expect("deserialize old skill activation");
 
     assert!(matches!(
-        restored,
+        &restored,
         SessionRecord::SkillActivated {
             content_hash: 4242,
             byte_count: 128,
@@ -2570,6 +2570,13 @@ fn skill_activation_record_defaults_rendered_metadata_for_old_sessions() {
             rendered_byte_count: 0,
             ..
         }
+    ));
+
+    let entry = restored.to_entry().expect("skill activation should replay");
+    assert!(matches!(
+        entry,
+        Entry::Skill { name, content, token_estimate, context_percent: None, .. }
+            if name == "example-skill" && content.is_empty() && token_estimate > 0
     ));
 }
 

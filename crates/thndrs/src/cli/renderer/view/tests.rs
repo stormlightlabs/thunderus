@@ -1139,6 +1139,13 @@ fn semantic_view_maps_transcript_row_kinds_and_tool_states() {
     app.transcript
         .entries
         .push(Entry::Reasoning { text: "thinking".to_string(), streaming: true });
+    app.transcript.entries.push(Entry::Skill {
+        name: "writing".to_string(),
+        path: "/skills/writing/SKILL.md".to_string(),
+        content: "instructions".to_string(),
+        token_estimate: 842,
+        context_percent: Some(1),
+    });
     app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
         arguments: r#"{"program":"cargo test"}"#.to_string(),
@@ -1156,9 +1163,11 @@ fn semantic_view_maps_transcript_row_kinds_and_tool_states() {
     assert_eq!(rows[1].kind, TranscriptRowKind::Assistant);
     assert_eq!(rows[2].kind, TranscriptRowKind::Reasoning);
     assert!(!rows[2].stable, "streaming reasoning should be semantic-live");
-    assert_eq!(rows[3].kind, TranscriptRowKind::Tool);
-    assert_eq!(rows[3].tool.as_ref().map(|tool| tool.status), Some(ToolStatus::Failed));
-    assert_eq!(rows[4].kind, TranscriptRowKind::Cancelled);
+    assert_eq!(rows[3].kind, TranscriptRowKind::Skill);
+    assert!(rows[3].primary.contains("~842 tokens · 1% context"));
+    assert_eq!(rows[4].kind, TranscriptRowKind::Tool);
+    assert_eq!(rows[4].tool.as_ref().map(|tool| tool.status), Some(ToolStatus::Failed));
+    assert_eq!(rows[5].kind, TranscriptRowKind::Cancelled);
 }
 
 #[test]

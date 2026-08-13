@@ -55,6 +55,25 @@ fn ordinary_transcript_rows_use_terminal_default_background() {
     }
 }
 
+#[test]
+fn skill_activation_is_a_compact_estimate_instead_of_instruction_body() {
+    let entry = Entry::Skill {
+        name: "writing".to_string(),
+        path: "/skills/writing/SKILL.md".to_string(),
+        content: "INTERNAL INSTRUCTIONS THAT SHOULD NOT BE RENDERED".to_string(),
+        token_estimate: 842,
+        context_percent: Some(0),
+    };
+
+    let rows = ctx(100).rows_for_entry(&entry);
+    let text = rows.iter().map(|row| row.text()).collect::<String>();
+
+    assert_eq!(rows.len(), 1);
+    assert!(text.contains("◆ Skill"));
+    assert!(text.contains("writing · ~842 tokens · <1% context"));
+    assert!(!text.contains("INTERNAL INSTRUCTIONS"));
+}
+
 fn assert_snapshot(name: &str, contents: &str) {
     insta::with_settings!({snapshot_path => "../snapshots"}, {
         insta::assert_snapshot!(name, contents);

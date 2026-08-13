@@ -32,6 +32,7 @@ pub mod templates;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use crate::app::Entry;
@@ -402,6 +403,9 @@ pub fn lower_to_provider_messages(bundle: &PromptBundle) -> Vec<ProviderMessage>
             Entry::User { text } => messages.push(ProviderMessage::user(text)),
             Entry::Agent { text, streaming: false, .. } => messages.push(ProviderMessage::assistant(text)),
             Entry::Reasoning { text, streaming: false, .. } => messages.push(ProviderMessage::assistant(text)),
+            Entry::Skill { content, .. } if !content.is_empty() => {
+                messages.push(ProviderMessage::assistant(content));
+            }
             Entry::Tool { name, output, status, .. } if *status != ToolStatus::Running => {
                 // Session transcript entries currently retain their bounded
                 // display lines for compatibility. Lower them through the
@@ -437,24 +441,29 @@ pub fn render_tool_catalog(bundle: &PromptBundle) -> serde_json::Value {
 
 /// Project the model-visible transcript tail from the full UI transcript.
 ///
-/// Only finalized `User`, `Assistant`, `Reasoning`, and `Tool` entries reach the model.
+/// Only finalized model-visible entries reach the model. Activated skills stay
+/// available for the session even after they move beyond the ordinary tail.
 fn project_transcript_tail(transcript: &[Entry]) -> Vec<Entry> {
-    transcript
-        .iter()
-        .rev()
-        .take(20)
-        .filter(|e| match e {
-            Entry::User { .. } => true,
-            Entry::Agent { streaming: false, .. } => true,
-            Entry::Reasoning { streaming: false, .. } => true,
-            Entry::Tool { status, .. } => *status != ToolStatus::Running,
+    let tail_start = transcript.len().saturating_sub(20);
+    let mut selected = Vec::new();
+    let mut selected_skills = HashSet::new();
+
+    for (index, entry) in transcript.iter().enumerate().rev() {
+        let include = match entry {
+            Entry::Skill { path, content, .. } => !content.is_empty() && selected_skills.insert(path.as_str()),
+            Entry::User { .. } => index >= tail_start,
+            Entry::Agent { streaming: false, .. } => index >= tail_start,
+            Entry::Reasoning { streaming: false, .. } => index >= tail_start,
+            Entry::Tool { status, .. } => index >= tail_start && *status != ToolStatus::Running,
             _ => false,
-        })
-        .cloned()
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect()
+        };
+        if include {
+            selected.push(entry.clone());
+        }
+    }
+
+    selected.reverse();
+    selected
 }
 
 fn cdata(text: &str) -> String {

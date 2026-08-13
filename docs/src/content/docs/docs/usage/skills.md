@@ -3,14 +3,15 @@ title: "Skills"
 ---
 
 `thndrs` can discover Agent Skills and expose their metadata to the model.
-Skills are reusable instruction packages for specific workflows. They are not
-loaded wholesale on startup.
+
+[Skills](https://agentskills.io/home) are reusable instruction packages for
+specific workflows. They are not loaded wholesale on startup.
 
 ## Discovery
 
-A skill is a directory with a required `SKILL.md` file. `thndrs` discovers
-skills from configured skill directories and project-local skill locations when
-they are available.
+A skill is a directory with a required `SKILL.md` file. `thndrs` discovers skills
+from configured skill directories and project-local skill locations when they are
+available.
 
 Built-in discovery checks these project directories:
 
@@ -27,19 +28,18 @@ compatibility locations for existing local skill packages. When more than one
 skill has the same name, the first matching skill in discovery-root order is
 used. Inspect the selected and ignored paths with `thndrs skills doctor`.
 
-At discovery time, only compact metadata is used:
+At discovery time, only this set of compact metadata is used:
 
-- name;
-- description;
-- source label;
-- path;
+- name
+- description
+- source label
+- path
 - optional license, compatibility, metadata, allowed-tools, and references
-  fields;
-- discovery diagnostics for malformed skill files.
+  fields
+- discovery diagnostics for malformed skill files
 
-The full `SKILL.md` body and any referenced files are not part of the startup
-inventory. They should be loaded only when the skill is relevant to the current
-task.
+The full `SKILL.md` body and any referenced files are not part of the startup inventory.
+They should be loaded only when the skill is relevant to the current task.
 
 ## Prompt Exposure
 
@@ -51,6 +51,28 @@ Discovered skills appear in two places:
 The regular prompt also includes available skill metadata so the assistant can
 decide when a skill might apply. This follows progressive disclosure: route from
 small metadata first, then read the skill instructions when the task needs them.
+
+## Activate or Read a Skill
+
+A skill can become visible in the transcript in two ways:
+
+- **User activation:** Run `/skills`, browse or filter the loaded skills, select
+  one, and press Enter. thndrs loads its instructions and declared references
+  into the current model context.
+- **Agent read during a run:** After the agent successfully reads the `SKILL.md`
+  of a discovered skill with `read_file_range`, thndrs adds the same compact
+  notice/transcript message.
+
+The transcript will show you the skill name, the full skill package's estimated
+token cost, its estimated share of the currently available context, and the source
+path. This includes declared references, so an agent that reads only part of a skill
+may use less context than the notice estimates. The estimates are guidance,
+not a reservation, and can change as the context working set changes.
+
+Activation records are stored in session metadata. When you restore a session, thndrs
+shows the record but does not silently reload instruction text that is no longer available.
+
+Activate or read the skill again if its instructions are needed in the restored session.
 
 ## Skill Shape
 
@@ -106,7 +128,7 @@ compactly so users can fix local skill packages without turning broken metadata
 into prompt noise. Duplicate names are expected when compatibility roots overlap;
 they are resolved silently and listed by `thndrs skills doctor`.
 
-## Related Docs
+## Further Reading
 
 - [Project Context](/docs/usage/project-context/)
 - [Prompt Assembly](/docs/concepts/prompt-assembly/)

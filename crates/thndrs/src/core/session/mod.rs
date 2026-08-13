@@ -602,9 +602,13 @@ impl SessionRecord {
                 let id = process_id.map_or_else(String::new, |id| format!(" [{id}]"));
                 Some(Entry::Status { text: format!("shell{id} {process_status}: {command} ({elapsed_ms}ms)") })
             }
-            SessionRecord::SkillActivated { name, path, .. } => {
-                Some(Entry::Status { text: format!("skill activated: {name} ({path})") })
-            }
+            SessionRecord::SkillActivated { name, path, rendered_byte_count, .. } => Some(Entry::Skill {
+                name: name.clone(),
+                path: path.clone(),
+                content: String::new(),
+                token_estimate: thndrs_agent::context::estimate_tokens(*rendered_byte_count),
+                context_percent: None,
+            }),
             SessionRecord::AcpPermissionRequest { tool_call_id, title, .. } => {
                 Some(Entry::Status { text: format!("acp permission requested: {title} ({tool_call_id})") })
             }

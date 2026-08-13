@@ -2260,6 +2260,102 @@ fn tool_started_creates_running_tool_entry() {
 }
 
 #[test]
+fn reading_a_discovered_skill_announces_it_during_the_run_once() {
+    let dir = tempfile::tempdir().expect("create workspace");
+    let skill_dir = dir.path().join(".agents/skills/review");
+    std::fs::create_dir_all(&skill_dir).expect("create skill directory");
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: review\ndescription: Reviews changes.\n---\n\n# Review\n\nInspect the diff.\n",
+    )
+    .expect("write skill");
+
+    let mut app = fresh_app();
+    app.runtime.cwd = dir.path().to_path_buf();
+    app.transcript.skills = skills::discover(dir.path(), &[]).skills;
+    let arguments = r#"{"path":".agents/skills/review/SKILL.md","start_line":1,"end_line":20}"#.to_string();
+
+    for id in ["first", "second"] {
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::ToolStarted {
+                id: id.to_string(),
+                name: "read_file_range".to_string(),
+                arguments: arguments.clone(),
+            }),
+        );
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::ToolFinished {
+                id: id.to_string(),
+                output: vec!["# Review".to_string()],
+                status: ToolStatus::Ok,
+                write_result: None,
+                shell_result: None,
+            }),
+        );
+    }
+
+    let notices = app
+        .transcript
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            Entry::Skill { name, content, token_estimate, .. } => Some((name, content, token_estimate)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].0, "review");
+    assert!(
+        notices[0].1.is_empty(),
+        "tool output supplies the skill content to the model"
+    );
+    assert!(*notices[0].2 > 0);
+}
+
+#[test]
+fn failed_skill_read_does_not_announce_the_skill() {
+    let dir = tempfile::tempdir().expect("create workspace");
+    let skill_dir = dir.path().join(".agents/skills/review");
+    std::fs::create_dir_all(&skill_dir).expect("create skill directory");
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: review\ndescription: Reviews changes.\n---\n\n# Review\n",
+    )
+    .expect("write skill");
+
+    let mut app = fresh_app();
+    app.runtime.cwd = dir.path().to_path_buf();
+    app.transcript.skills = skills::discover(dir.path(), &[]).skills;
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolStarted {
+            id: "failed".to_string(),
+            name: "read_file_range".to_string(),
+            arguments: r#"{"path":".agents/skills/review/SKILL.md"}"#.to_string(),
+        }),
+    );
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolFinished {
+            id: "failed".to_string(),
+            output: vec!["permission denied".to_string()],
+            status: ToolStatus::Failed,
+            write_result: None,
+            shell_result: None,
+        }),
+    );
+
+    assert!(
+        !app.transcript
+            .entries
+            .iter()
+            .any(|entry| matches!(entry, Entry::Skill { .. }))
+    );
+}
+
+#[test]
 fn tool_finished_sets_output_and_status() {
     let mut app = fresh_app();
     update(

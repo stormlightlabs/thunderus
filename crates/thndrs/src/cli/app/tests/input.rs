@@ -155,7 +155,14 @@ fn custom_keymap_and_terminal_actions_are_deterministic() {
     );
     assert_eq!(
         translate_input(&app, TerminalInput::Mouse(MouseInput::ScrollUp),),
-        vec![Action::ScrollTranscriptUp]
+        vec![Action::ScrollTranscriptWheelUp]
+    );
+    assert_eq!(
+        translate_input(
+            &app,
+            TerminalInput::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)),
+        ),
+        vec![Action::ScrollTranscriptPageUp]
     );
 }
 

@@ -12,6 +12,8 @@ use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Color, Span};
 use crate::{renderer, utils};
 
+use super::view::skill_activation_summary;
+
 /// Maximum tool output lines rendered before a truncation marker is shown.
 const MAX_TOOL_OUTPUT_LINES: usize = 6;
 
@@ -1135,6 +1137,14 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
             let label = if *streaming { "Thinking ·" } else { "Thinking ✓" };
             LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
                 .build_compact(label, text)
+        }
+        Entry::Skill { name, path, token_estimate, context_percent, .. } => {
+            let rail_style = CellStyle::new().fg(p.reasoning).bg(bg).bold();
+            let label_style = CellStyle::new().fg(p.reasoning).bg(bg).bold();
+            let text_style = CellStyle::new().fg(p.secondary).bg(bg);
+            let summary = skill_activation_summary(name, path, *token_estimate, *context_percent);
+            LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
+                .build_compact("◆ Skill", &summary)
         }
         Entry::Tool { name, arguments, status, output } => {
             let tool_rows = |group_start| {

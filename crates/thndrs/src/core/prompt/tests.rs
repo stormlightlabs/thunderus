@@ -430,6 +430,25 @@ fn lower_to_provider_excludes_status_entries() {
 }
 
 #[test]
+fn lower_to_provider_keeps_activated_skill_instructions() {
+    let mut bundle = test_bundle();
+    bundle.transcript_tail = vec![Entry::Skill {
+        name: "writing".to_string(),
+        path: "/skills/writing/SKILL.md".to_string(),
+        content: "follow these writing instructions".to_string(),
+        token_estimate: 42,
+        context_percent: Some(1),
+    }];
+
+    let messages = lower_to_provider_messages(&bundle);
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.as_text() == "follow these writing instructions")
+    );
+}
+
+#[test]
 fn project_transcript_tail_excludes_status_and_errors() {
     let transcript = vec![
         Entry::User { text: "hello".to_string() },
@@ -450,6 +469,24 @@ fn project_transcript_tail_excludes_status_and_errors() {
             .all(|e| !matches!(e, Entry::Status { .. } | Entry::Error { .. }))
     );
     assert_eq!(tail.len(), 3);
+}
+
+#[test]
+fn project_transcript_tail_keeps_activated_skills_beyond_the_ordinary_tail() {
+    let mut transcript = vec![Entry::Skill {
+        name: "writing".to_string(),
+        path: "/skills/writing/SKILL.md".to_string(),
+        content: "follow these writing instructions".to_string(),
+        token_estimate: 42,
+        context_percent: Some(1),
+    }];
+    transcript.extend((0..21).map(|index| Entry::User { text: format!("message {index}") }));
+
+    let tail = project_transcript_tail(&transcript);
+
+    assert_eq!(tail.len(), 21);
+    assert!(matches!(tail.first(), Some(Entry::Skill { .. })));
+    assert!(matches!(tail.get(1), Some(Entry::User { text }) if text == "message 1"));
 }
 
 #[test]

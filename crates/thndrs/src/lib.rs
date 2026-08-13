@@ -842,6 +842,9 @@ fn run_session_show<W: io::Write>(dir: &Path, session_id: &str, writer: &mut W) 
         match entry {
             app::Entry::User { text } => writeln!(writer, "user: {text}")?,
             app::Entry::Agent { text, .. } => writeln!(writer, "assistant: {text}")?,
+            app::Entry::Skill { name, path, token_estimate, .. } => {
+                writeln!(writer, "skill {name}: ~{token_estimate} tokens · {path}")?;
+            }
             app::Entry::Reasoning { text, .. } => writeln!(writer, "reasoning: {text}")?,
             app::Entry::Tool { name, status, output, .. } => {
                 writeln!(writer, "tool {name} {:?}: {}", status, output.join("\n"))?;

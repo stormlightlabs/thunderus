@@ -162,6 +162,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                     return None;
                 }
             }
+            record_successful_skill_read(app, &id, status);
 
             if let Some(result) = write_result
                 && let Some(ref mut writer) = app.session.writer
@@ -576,6 +577,50 @@ fn record_tool_started(app: &mut App, id: &str, name: &str, arguments: &str) {
         let turn_id = format!("turn_{}", app.session.turn_count);
         let _ = writer.append_tool_started(&turn_id, id, name, arguments);
     }
+}
+
+fn record_skill_read(app: &mut App, tool_name: &str, arguments: &str) {
+    if tool_name.split_once('#').map_or(tool_name, |(name, _)| name) != "read_file_range" {
+        return;
+    }
+    let Some(path) = serde_json::from_str::<serde_json::Value>(arguments)
+        .ok()
+        .and_then(|value| value.get("path")?.as_str().map(PathBuf::from))
+    else {
+        return;
+    };
+    let path = if path.is_absolute() { path } else { app.runtime.cwd.join(path) };
+    let Ok(path) = path.canonicalize() else { return };
+    let Some(skill) = app
+        .transcript
+        .skills
+        .iter()
+        .find(|skill| skill.path.canonicalize().is_ok_and(|skill_path| skill_path == path))
+        .cloned()
+    else {
+        return;
+    };
+    if app.transcript.entries.iter().any(
+        |entry| matches!(entry, Entry::Skill { path: active_path, .. } if Path::new(active_path).canonicalize().is_ok_and(|active_path| active_path == path)),
+    ) {
+        return;
+    }
+    match skills::load_skill(&skill) {
+        Ok(loaded) => append_loaded_skill(app, &loaded, false),
+        Err(diagnostic) => app.transcript.entries.push(Entry::Error { text: diagnostic.summary() }),
+    }
+}
+
+fn record_successful_skill_read(app: &mut App, call_id: &str, status: ToolStatus) {
+    if status != ToolStatus::Ok {
+        return;
+    }
+    let Some(Entry::Tool { name, arguments, .. }) = app.transcript.entries.tool_entry(call_id) else {
+        return;
+    };
+    let name = name.clone();
+    let arguments = arguments.clone();
+    record_skill_read(app, &name, &arguments);
 }
 
 /// Persist the identified tool block with its bounded artifact metadata.
