@@ -323,8 +323,7 @@ impl RunHandle {
         } else {
             self.messages.clone()
         };
-        let mut tool_budget =
-            thndrs_agent::ToolIterationBudget::new(self.config.max_tool_iterations, tools::MAX_TOOL_CONTINUATIONS);
+        let mut tool_budget = thndrs_agent::ToolIterationBudget::unbounded(self.config.max_tool_iterations);
         let mut wrote_file = false;
         let mut continuation = ProviderContinuation::default();
         let mut pending_reduction_receipts = Vec::new();
@@ -357,9 +356,8 @@ impl RunHandle {
                     if send(
                         tx,
                         AgentEvent::Status(format!(
-                            "tool budget: auto-continue {}/{} after {} batches",
+                            "tool budget: auto-continue {} after {} batches",
                             tool_budget.continuations_used(),
-                            tools::MAX_TOOL_CONTINUATIONS,
                             tool_budget.total_batches()
                         )),
                         cancel,
@@ -369,25 +367,9 @@ impl RunHandle {
                         return;
                     }
                 }
-                thndrs_agent::ToolBudgetDecision::Exhausted {
-                    segment_iterations,
-                    total_batches,
-                    continuations_used,
-                } => {
-                    tracing::error!(
-                        segment_iterations,
-                        total_batches,
-                        continuations_used,
-                        "tool-call budget exhausted"
-                    );
-                    let _ = send(
-                        tx,
-                        AgentEvent::Failed(format!(
-                            "tool-call budget exhausted ({total_batches} tool batches, {continuations_used} auto-continuations, {segment_iterations} in current segment)"
-                        )),
-                        cancel,
-                    );
-                    return;
+                thndrs_agent::ToolBudgetDecision::Exhausted { .. } => {
+                    // Invariant: unbounded budgets never return `Exhausted`.
+                    unreachable!("the primary agent uses an unbounded continuation budget");
                 }
             }
 

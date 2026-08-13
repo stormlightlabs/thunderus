@@ -51,9 +51,6 @@ use crate::search::SearchConfig;
 /// keeps requesting tools without converging on a final answer).
 pub const MAX_TOOL_ITERATIONS: usize = 8;
 
-/// Maximum number of automatic tool-budget continuations per user turn.
-pub const MAX_TOOL_CONTINUATIONS: usize = 7;
-
 /// Default maximum number of results from a search or list operation.
 pub const MAX_RESULTS: usize = 100;
 /// Maximum stdout/stderr bytes captured from a subprocess.
@@ -861,53 +858,36 @@ mod tests {
     }
 
     #[test]
-    fn tool_budget_exhausts_after_seven_auto_continuations() {
-        let mut budget = ToolIterationBudget::new(2, 7);
-        for _ in 0..7 {
+    fn tool_budget_continues_after_many_segments() {
+        let mut budget = ToolIterationBudget::unbounded(2);
+        for continuation in 1..=12 {
             budget.record_tool_batch();
             budget.record_tool_batch();
             assert_eq!(
                 budget.before_provider_request(),
                 ToolBudgetDecision::ContinueAfterBudgetMessage
             );
+            assert_eq!(budget.continuations_used(), continuation);
         }
-
-        budget.record_tool_batch();
-        budget.record_tool_batch();
-        assert_eq!(
-            budget.before_provider_request(),
-            ToolBudgetDecision::Exhausted { segment_iterations: 2, total_batches: 16, continuations_used: 7 }
-        );
     }
 
     #[test]
-    fn tool_budget_exhausts_at_exactly_64_batches_not_32() {
-        let mut budget = ToolIterationBudget::new(MAX_TOOL_ITERATIONS, MAX_TOOL_CONTINUATIONS);
+    fn tool_budget_continues_beyond_64_batches() {
+        let mut budget = ToolIterationBudget::unbounded(MAX_TOOL_ITERATIONS);
 
-        for batch in 0..64 {
-            assert!(!matches!(
-                budget.before_provider_request(),
-                ToolBudgetDecision::Exhausted { .. }
-            ));
+        for batch in 0..72 {
+            assert_eq!(budget.before_provider_request(), ToolBudgetDecision::Continue);
             budget.record_tool_batch();
 
-            if batch == 31 {
-                assert_eq!(budget.total_batches(), 32);
+            if (batch + 1) % MAX_TOOL_ITERATIONS == 0 {
                 assert_eq!(
                     budget.before_provider_request(),
                     ToolBudgetDecision::ContinueAfterBudgetMessage
                 );
-                assert_eq!(budget.continuations_used(), 4);
             }
         }
 
-        assert_eq!(
-            budget.before_provider_request(),
-            ToolBudgetDecision::Exhausted {
-                segment_iterations: MAX_TOOL_ITERATIONS,
-                total_batches: 64,
-                continuations_used: MAX_TOOL_CONTINUATIONS,
-            }
-        );
+        assert_eq!(budget.total_batches(), 72);
+        assert_eq!(budget.continuations_used(), 9);
     }
 }
