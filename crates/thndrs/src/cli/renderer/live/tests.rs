@@ -106,13 +106,21 @@ fn prompt_rows_wraps_long_text() {
 }
 
 #[test]
-fn prompt_rows_wrap_at_visible_content_width() {
+fn prompt_rows_reserve_even_horizontal_input_padding() {
     let mut app = test_app();
-    app.composer.input.set_text(&"x".repeat(11));
+    app.composer.input.set_text(&"x".repeat(9));
     let (rows, cursor) = prompt_rows_for(&app, 20);
 
     assert_eq!(rows.len(), 1);
-    assert_eq!(cursor, Some(CursorCoord::new(0, 18)));
+    assert_eq!(cursor, Some(CursorCoord::new(0, 16)));
+    let input = renderer::style::palette().input;
+    let right_surface_padding = rows[0]
+        .spans
+        .iter()
+        .rev()
+        .find(|span| span.style.bg == input)
+        .expect("input surface padding");
+    assert_eq!(right_surface_padding.text, "  ");
 
     app.composer.input.insert_char('x');
     let (rows, cursor) = prompt_rows_for(&app, 20);

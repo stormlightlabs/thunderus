@@ -6,6 +6,8 @@
 
 use std::path::Path;
 
+use markdown::mdast::Node;
+
 use crate::app::{App, Entry, ToolStatus};
 use crate::internals::StartupSection;
 use crate::renderer::row::Row;
@@ -1265,29 +1267,15 @@ fn assistant_block_rows(
     let text_style = CellStyle::new().fg(p.primary).bg(bg);
     let mut rows = vec![Row::blank(width, CellStyle::new().bg(bg))];
 
-    match assistant_markdown_body(text) {
-        Some(markdown) => rows.extend(render_markdown_body(
-            markdown,
-            rail_style,
-            text_style,
-            bg,
-            width,
-            prose_width,
-            technical_width,
-        )),
-        None => {
-            for line in super::layout::wrap_text(text, prose_width) {
-                match line.is_empty() {
-                    true => rows.push(Row::blank(width, CellStyle::new().bg(bg))),
-                    false => rows.push(Row::padded(
-                        vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(line, text_style)],
-                        width,
-                        CellStyle::new().bg(bg),
-                    )),
-                }
-            }
-        }
-    }
+    rows.extend(render_markdown_body(
+        assistant_markdown_body(text),
+        rail_style,
+        text_style,
+        bg,
+        width,
+        prose_width,
+        technical_width,
+    ));
 
     if rows.len() == 1 {
         rows.push(Row::blank(width, CellStyle::new().bg(bg)));
@@ -1295,9 +1283,9 @@ fn assistant_block_rows(
     rows
 }
 
-/// Extract Markdown from an outer provider wrapper or ordinary fenced Markdown.
-fn assistant_markdown_body(text: &str) -> Option<&str> {
-    strip_outer_markdown_fence(text).or_else(|| text.contains("```").then_some(text))
+/// Extract Markdown from an optional outer provider wrapper.
+fn assistant_markdown_body(text: &str) -> &str {
+    strip_outer_markdown_fence(text).unwrap_or(text)
 }
 
 /// Strip a complete or streaming outer Markdown fence without confusing its
@@ -1383,6 +1371,15 @@ fn render_markdown_body(
                 }
             }
             if table.is_valid() {
+                flush_plain_markdown_lines(
+                    &mut rows,
+                    &mut pending_plain,
+                    rail_style,
+                    text_style,
+                    bg,
+                    width,
+                    prose_width,
+                );
                 rows.extend(table.render(rail_style, bg, width, technical_width));
                 continue;
             }
@@ -1439,17 +1436,258 @@ fn flush_plain_markdown_lines(
     rows: &mut Vec<Row>, pending: &mut Vec<String>, rail_style: CellStyle, text_style: CellStyle, bg: Color,
     width: usize, body_width: usize,
 ) {
-    for line in pending.drain(..) {
-        if line.is_empty() {
+    if pending.is_empty() {
+        return;
+    }
+
+    let trailing_blank = pending.last().is_some_and(String::is_empty);
+    let source = std::mem::take(pending).join("\n");
+    match markdown::to_mdast(&source, &markdown::ParseOptions::default()) {
+        Ok(Node::Root(root)) => {
+            render_markdown_blocks(rows, &root.children, rail_style, text_style, bg, width, body_width)
+        }
+        _ => push_plain_markdown_fallback(rows, &source, rail_style, text_style, bg, width, body_width),
+    }
+    if trailing_blank
+        && rows
+            .last()
+            .is_some_and(|row| row.spans.iter().any(|span| !span.text.trim().is_empty()))
+    {
+        rows.push(Row::blank(width, CellStyle::new().bg(bg)));
+    }
+}
+
+fn render_markdown_blocks(
+    rows: &mut Vec<Row>, nodes: &[Node], rail_style: CellStyle, text_style: CellStyle, bg: Color, width: usize,
+    body_width: usize,
+) {
+    for (index, node) in nodes.iter().enumerate() {
+        if index > 0
+            && rows
+                .last()
+                .is_some_and(|row| !row.spans.iter().all(|span| span.text.trim().is_empty()))
+        {
             rows.push(Row::blank(width, CellStyle::new().bg(bg)));
-        } else {
-            for wrapped in super::layout::wrap_text(&line, body_width) {
-                rows.push(Row::padded(
-                    vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(wrapped, text_style)],
-                    width,
-                    CellStyle::new().bg(bg),
-                ));
+        }
+        render_markdown_block(rows, node, rail_style, text_style, bg, width, body_width);
+    }
+}
+
+fn render_markdown_block(
+    rows: &mut Vec<Row>, node: &Node, rail_style: CellStyle, text_style: CellStyle, bg: Color, width: usize,
+    body_width: usize,
+) {
+    let p = super::style::palette();
+    match node {
+        Node::Paragraph(paragraph) => push_markdown_spans(
+            rows,
+            markdown_inline_spans(&paragraph.children, text_style),
+            Vec::new(),
+            rail_style,
+            bg,
+            width,
+            body_width,
+        ),
+        Node::Heading(heading) => push_markdown_spans(
+            rows,
+            markdown_inline_spans(&heading.children, text_style.fg(p.accent).bold()),
+            Vec::new(),
+            rail_style,
+            bg,
+            width,
+            body_width,
+        ),
+        Node::Blockquote(quote) => {
+            let quote_style = text_style.fg(p.secondary).italic();
+            let content = quote.children.iter().map(Node::to_string).collect::<Vec<_>>().join(" ");
+            push_markdown_spans(
+                rows,
+                vec![Span::styled(content, quote_style)],
+                vec![Span::styled("│ ", CellStyle::new().fg(p.border).bg(bg))],
+                rail_style,
+                bg,
+                width,
+                body_width,
+            );
+        }
+        Node::List(list) => render_markdown_list(rows, list, rail_style, text_style, bg, width, body_width, 0),
+        Node::Code(code) => {
+            let highlighted = super::highlight::highlight_lines(&code.value, code.lang.as_deref());
+            let gutter_style = CellStyle::new().fg(p.border).bg(bg);
+            let code_width = body_width.saturating_sub(utils::text_width(GUTTER));
+            push_highlighted_code_rows(rows, highlighted, rail_style, gutter_style, bg, width, code_width);
+        }
+        Node::ThematicBreak(_) => {
+            let rule_width = body_width.min(24);
+            push_markdown_spans(
+                rows,
+                vec![Span::styled(
+                    "─".repeat(rule_width),
+                    CellStyle::new().fg(p.border).bg(bg),
+                )],
+                Vec::new(),
+                rail_style,
+                bg,
+                width,
+                body_width,
+            );
+        }
+        _ if node.children().is_some() => {
+            if let Some(children) = node.children() {
+                render_markdown_blocks(rows, children, rail_style, text_style, bg, width, body_width);
             }
+        }
+        _ => {
+            let text = node.to_string();
+            if !text.is_empty() {
+                push_markdown_spans(
+                    rows,
+                    vec![Span::styled(text, text_style)],
+                    Vec::new(),
+                    rail_style,
+                    bg,
+                    width,
+                    body_width,
+                );
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_markdown_list(
+    rows: &mut Vec<Row>, list: &markdown::mdast::List, rail_style: CellStyle, text_style: CellStyle, bg: Color,
+    width: usize, body_width: usize, depth: usize,
+) {
+    let start = list.start.unwrap_or(1);
+    for (index, child) in list.children.iter().enumerate() {
+        let Node::ListItem(item) = child else { continue };
+        let marker = match item.checked {
+            Some(true) => "[x] ".to_string(),
+            Some(false) => "[ ] ".to_string(),
+            None if list.ordered => format!("{}. ", start + index as u32),
+            None => "• ".to_string(),
+        };
+        let indent = "  ".repeat(depth);
+        let prefix = vec![Span::styled(
+            format!("{indent}{marker}"),
+            text_style.fg(super::style::palette().accent),
+        )];
+        let mut rendered_primary = false;
+        for item_child in &item.children {
+            match item_child {
+                Node::Paragraph(paragraph) if !rendered_primary => {
+                    push_markdown_spans(
+                        rows,
+                        markdown_inline_spans(&paragraph.children, text_style),
+                        prefix.clone(),
+                        rail_style,
+                        bg,
+                        width,
+                        body_width,
+                    );
+                    rendered_primary = true;
+                }
+                Node::List(nested) => {
+                    render_markdown_list(rows, nested, rail_style, text_style, bg, width, body_width, depth + 1);
+                }
+                other => render_markdown_block(rows, other, rail_style, text_style, bg, width, body_width),
+            }
+        }
+        if !rendered_primary {
+            push_markdown_spans(rows, Vec::new(), prefix, rail_style, bg, width, body_width);
+        }
+    }
+}
+
+fn markdown_inline_spans(nodes: &[Node], style: CellStyle) -> Vec<Span> {
+    let p = super::style::palette();
+    let mut spans = Vec::new();
+    for node in nodes {
+        match node {
+            Node::Text(text) => spans.push(Span::styled(text.value.clone(), style)),
+            Node::Strong(strong) => spans.extend(markdown_inline_spans(&strong.children, style.bold())),
+            Node::Emphasis(emphasis) => spans.extend(markdown_inline_spans(&emphasis.children, style.italic())),
+            Node::Delete(delete) => {
+                spans.extend(markdown_inline_spans(&delete.children, style.fg(p.secondary)));
+            }
+            Node::InlineCode(code) => spans.push(Span::styled(
+                code.value.clone(),
+                CellStyle::new().fg(p.accent).bg(p.surface_muted),
+            )),
+            Node::Link(link) => {
+                spans.extend(markdown_inline_spans(&link.children, style.fg(p.link).underlined()));
+            }
+            Node::LinkReference(link) => {
+                spans.extend(markdown_inline_spans(&link.children, style.fg(p.link).underlined()));
+            }
+            Node::Image(image) => spans.push(Span::styled(image.alt.clone(), style.fg(p.link).italic())),
+            Node::ImageReference(image) => spans.push(Span::styled(image.alt.clone(), style.fg(p.link).italic())),
+            Node::Break(_) => spans.push(Span::styled("\n", style)),
+            Node::InlineMath(math) => spans.push(Span::styled(math.value.clone(), style.italic())),
+            Node::Html(html) => spans.push(Span::styled(html.value.clone(), style)),
+            _ if node.children().is_some() => {
+                if let Some(children) = node.children() {
+                    spans.extend(markdown_inline_spans(children, style));
+                }
+            }
+            _ => {
+                let text = node.to_string();
+                if !text.is_empty() {
+                    spans.push(Span::styled(text, style));
+                }
+            }
+        }
+    }
+    spans
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn push_markdown_spans(
+    rows: &mut Vec<Row>, spans: Vec<Span>, prefix: Vec<Span>, rail_style: CellStyle, bg: Color, width: usize,
+    body_width: usize,
+) {
+    let prefix_width = super::layout::spans_width(&prefix);
+    let content_width = body_width.saturating_sub(prefix_width).max(1);
+    let wrapped_rows = match spans.as_slice() {
+        [span] if !span.text.contains('\n') => super::layout::wrap_text(&span.text, content_width)
+            .into_iter()
+            .map(|text| vec![Span::styled(text, span.style)])
+            .collect(),
+        _ => super::layout::wrap_spans(&spans, content_width),
+    };
+    for (index, mut wrapped) in wrapped_rows.into_iter().enumerate() {
+        if index > 0 {
+            while wrapped.first().is_some_and(|span| span.text.trim().is_empty()) {
+                wrapped.remove(0);
+            }
+            if let Some(first) = wrapped.first_mut() {
+                first.text = first.text.trim_start().to_string();
+            }
+        }
+        let mut row_spans = vec![Span::styled(ENTRY_RAIL, rail_style)];
+        if index == 0 {
+            row_spans.extend(prefix.clone());
+        } else if prefix_width > 0 {
+            row_spans.push(Span::styled(" ".repeat(prefix_width), CellStyle::new().bg(bg)));
+        }
+        row_spans.extend(wrapped);
+        rows.push(Row::padded(row_spans, width, CellStyle::new().bg(bg)));
+    }
+}
+
+fn push_plain_markdown_fallback(
+    rows: &mut Vec<Row>, source: &str, rail_style: CellStyle, text_style: CellStyle, bg: Color, width: usize,
+    body_width: usize,
+) {
+    for line in super::layout::wrap_text(source, body_width) {
+        match line.is_empty() {
+            true => rows.push(Row::blank(width, CellStyle::new().bg(bg))),
+            false => rows.push(Row::padded(
+                vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(line, text_style)],
+                width,
+                CellStyle::new().bg(bg),
+            )),
         }
     }
 }

@@ -226,6 +226,49 @@ fn snapshot_assistant_text_narrow() {
 }
 
 #[test]
+fn assistant_markdown_formats_block_and_inline_elements() {
+    let entry = Entry::Agent {
+        text: "## Result\n\nUse **bold**, *emphasis*, `code`, and [docs](https://example.com).\n\n- first\n- second\n\n> quoted"
+            .to_string(),
+        streaming: false,
+    };
+    let rows = ctx(80).rows_for_entry(&entry);
+    let rendered = rows.iter().map(|row| row.text()).collect::<Vec<_>>().join("\n");
+
+    assert!(
+        !rendered.contains("## Result"),
+        "heading marker should be removed:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("**bold**"),
+        "emphasis markers should be removed:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("[docs]("),
+        "link syntax should be removed:\n{rendered}"
+    );
+    assert!(rendered.contains("• first") && rendered.contains("• second"));
+    assert!(
+        rows.iter()
+            .any(|row| row.spans.iter().any(|span| span.text == "bold" && span.style.bold))
+    );
+    assert!(rows.iter().any(|row| {
+        row.spans
+            .iter()
+            .any(|span| span.text == "emphasis" && span.style.italic)
+    }));
+    assert!(rows.iter().any(|row| {
+        row.spans
+            .iter()
+            .any(|span| span.text == "docs" && span.style.underlined)
+    }));
+    assert!(
+        rendered.contains("│ quoted"),
+        "block quotes should retain a visual rail:\n{rendered}"
+    );
+}
+
+#[test]
 fn snapshot_assistant_code_fence_normal() {
     let entry = Entry::Agent {
         text: "````md\nHere is the code:\n\n```rs\nfn main() {\n    println!(\"hello\");\n}\n```\n````".to_string(),
