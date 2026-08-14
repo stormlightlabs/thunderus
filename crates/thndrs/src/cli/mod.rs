@@ -233,6 +233,10 @@ pub enum Command {
     Run(commands::run::RunCommand),
     /// Review one change target with read-only tools and structured findings.
     Review(commands::review::ReviewCommand),
+    /// Inspect persisted context snapshots for the latest local session.
+    Context(commands::context::ContextCommand),
+    /// Report persisted provider usage for the latest local session.
+    Usage(commands::context::UsageCommand),
     /// Inspect local append-only session history.
     #[command(alias = "sessions")]
     Session {
@@ -1208,10 +1212,18 @@ mod tests {
             Some(Command::Session {
                 command: commands::session::SessionCommand::Inspect {
                     session_id: "session-1".to_string(),
+                    json: false,
                     format: commands::session::SessionDataFormat::Json,
                 }
             })
         );
+
+        let inspect_json =
+            Cli::try_parse_from(["thndrs", "session", "inspect", "session-1", "--json"]).expect("parse inspect json");
+        assert!(matches!(
+            inspect_json.command,
+            Some(Command::Session { command: commands::session::SessionCommand::Inspect { json: true, .. } })
+        ));
 
         let export =
             Cli::try_parse_from(["thndrs", "sessions", "export", "session-1", "--format", "jsonl"]).expect("parse");
@@ -1294,5 +1306,24 @@ mod tests {
                 command: commands::debug::DebugCommand::SessionLog { session_id: "session-1".to_string(), lines: 10 }
             })
         );
+    }
+
+    #[test]
+    fn context_commands_parse() {
+        let context = Cli::try_parse_from(["thndrs", "context", "changes", "--json", "--session", "session-1"])
+            .expect("parse context changes");
+        assert!(matches!(
+            context.command,
+            Some(Command::Context(commands::context::ContextCommand {
+                json: true,
+                session: Some(session),
+                command: Some(commands::context::ContextSubcommand::Changes {
+                    from_request_id: None,
+                    to_request_id: None,
+                }),
+            })) if session == "session-1"
+        ));
+
+        assert!(Cli::try_parse_from(["thndrs", "context", "--include-content"]).is_err());
     }
 }

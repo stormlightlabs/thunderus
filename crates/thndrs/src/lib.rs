@@ -74,6 +74,7 @@ use app::{
 };
 use cli::{
     Cli, Command, MIN_TICK_RATE_MS, commands,
+    commands::context::{ContextCommand, ContextSubcommand, UsageCommand},
     commands::debug::DebugCommand,
     commands::mcp::McpCommand,
     commands::session::{SessionCommand, SessionDataFormat, SessionReportFormat},
@@ -321,6 +322,8 @@ fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
         Command::Skills { command } => commands::skills::run(cli, command),
         Command::Run(command) => headless::run_command(cli, command),
         Command::Review(command) => review::run_command(cli, command),
+        Command::Context(command) => run_context_command(cli, command),
+        Command::Usage(command) => run_usage_command(cli, command),
         Command::Session { command } => run_session_command(cli, command),
         Command::Debug { command } => run_debug_command(cli, command),
     }
@@ -353,6 +356,123 @@ fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()> {
     }
 }
 
+fn run_context_command(cli: &Cli, command: &ContextCommand) -> io::Result<()> {
+    let (path, session_id) = resolve_context_session(cli, command.session.as_deref())?;
+    let records = session::SessionReader::read_validated_records(&path, &session_id)?;
+    let export = session::PersistedContextExport::from_records(&session_id, &records)?;
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+
+    match &command.command {
+        Some(ContextSubcommand::Changes { from_request_id, to_request_id }) => {
+            let selectors = match (from_request_id.as_deref(), to_request_id.as_deref()) {
+                (None, None) => Vec::new(),
+                (Some(from), Some(to)) => vec![from, to],
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "context changes requires both request ids or neither",
+                    ));
+                }
+            };
+            if command.json {
+                if !selectors.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "JSON changes currently supports the latest two request attempts only",
+                    ));
+                }
+                let diff = export.diffs.last().ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "context changes requires at least two recorded request snapshots",
+                    )
+                })?;
+                serde_json::to_writer_pretty(
+                    &mut writer,
+                    &serde_json::json!({
+                        "schema_version": export.schema_version,
+                        "policy_version": export.policy_version,
+                        "session_id": export.session_id,
+                        "redaction": export.redaction,
+                        "diff": diff,
+                    }),
+                )
+                .map_err(io::Error::other)?;
+                writeln!(writer)
+            } else {
+                let history = session::ContextHistory::from_records(&records);
+                writeln!(
+                    writer,
+                    "{}",
+                    history.render_changes(&selectors).map_err(io::Error::other)?
+                )
+            }
+        }
+        None if command.json => writeln!(writer, "{}", export.to_json()?),
+        None => {
+            let history = session::ContextHistory::from_records(&records);
+            writeln!(writer, "session  {session_id}")?;
+            writeln!(writer, "{}", history.render_request(None).map_err(io::Error::other)?)
+        }
+    }
+}
+
+fn run_usage_command(cli: &Cli, command: &UsageCommand) -> io::Result<()> {
+    let (path, session_id) = resolve_context_session(cli, command.session.as_deref())?;
+    let records = session::SessionReader::read_validated_records(&path, &session_id)?;
+    let export = session::PersistedContextExport::from_records(&session_id, &records)?;
+    let summary = session::SessionReader::read_summary(&path);
+    let requests = export.request_accounting.len();
+    let provider_measured = export
+        .request_accounting
+        .iter()
+        .filter(|record| record.accounting.provider_usage.is_some())
+        .count();
+    let value = serde_json::json!({
+        "schema_version": export.schema_version,
+        "policy_version": export.policy_version,
+        "session_id": session_id,
+        "usage": {
+            "input_tokens": summary.input_tokens,
+            "output_tokens": summary.output_tokens,
+            "requests": requests,
+            "provider_measured_requests": provider_measured,
+        },
+        "measurement_provenance": export.measurement_provenance,
+    });
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    if command.json {
+        serde_json::to_writer_pretty(&mut writer, &value).map_err(io::Error::other)?;
+        writeln!(writer)
+    } else {
+        writeln!(writer, "usage · {session_id}")?;
+        writeln!(writer, "input   {}", summary.input_tokens)?;
+        writeln!(writer, "output  {}", summary.output_tokens)?;
+        writeln!(writer, "requests  {requests} · provider measured {provider_measured}")
+    }
+}
+
+fn resolve_context_session(cli: &Cli, query: Option<&str>) -> io::Result<(PathBuf, String)> {
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let dir = cli
+        .session_dir
+        .clone()
+        .unwrap_or_else(|| session::sessions_dir(&workspace));
+    let path = match query {
+        Some(query) => session::resolve_session_file(&dir, query).map_err(io::Error::other)?,
+        None => session::latest_session_file(&dir)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no sessions found"))?,
+    };
+    let session_id = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "session path has no valid id"))?
+        .to_string();
+    Ok((path, session_id))
+}
+
 fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
     let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let dir = cli
@@ -381,7 +501,9 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
         SessionCommand::Resume { .. } => Err(io::Error::other("session resume must start an interactive session")),
         SessionCommand::Fork { session_id, turn_id } => run_session_fork(&dir, session_id, turn_id, &mut stdout),
         SessionCommand::Rename { session_id, name } => run_session_rename(&dir, session_id, name, &mut stdout),
-        SessionCommand::Inspect { session_id, format } => run_session_inspect(&dir, session_id, *format, &mut stdout),
+        SessionCommand::Inspect { session_id, format, .. } => {
+            run_session_inspect(&dir, session_id, *format, &mut stdout)
+        }
         SessionCommand::Export { session_id, format } => run_session_export(&dir, session_id, *format, &mut stdout),
         SessionCommand::Prune { older_than, keep_count, dry_run, format } => run_session_prune(
             cli,
@@ -884,6 +1006,8 @@ fn run_session_inspect<W: io::Write>(
     let path = session::resolve_session_file(dir, session_id).map_err(io::Error::other)?;
     let id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or(session_id);
     let summary = session::SessionReader::read_summary(&path);
+    let semantic_records = session::SessionReader::read_validated_records(&path, id)?;
+    let context = session::PersistedContextExport::from_records(id, &semantic_records)?;
     let records = session::SessionReader::read_redacted_records(&path);
     let projection = serde_json::json!({
         "schema_version": session::SCHEMA_VERSION,
@@ -894,6 +1018,7 @@ fn run_session_inspect<W: io::Write>(
             "model": summary.model,
             "usage": { "input_tokens": summary.input_tokens, "output_tokens": summary.output_tokens },
         },
+        "context": context,
         "records": records,
     });
     serde_json::to_writer_pretty(&mut *writer, &projection).map_err(io::Error::other)?;

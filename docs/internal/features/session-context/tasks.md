@@ -225,15 +225,15 @@
 
 **Blocked by:** CONTEXT-3 and CONTEXT-7.
 
-- [ ] Extend the versioned context export with snapshots, diffs, request
+- [x] Extend the versioned context export with snapshots, diffs, request
       accounting, transformations, diagnostics, and measurement provenance.
-- [ ] Add `thndrs context`, `thndrs context --json`, `thndrs context changes`,
+- [x] Add `thndrs context`, `thndrs context --json`, `thndrs context changes`,
       `thndrs usage --json`, and `thndrs session inspect <id> --json`.
-- [ ] Generate TUI, CLI, Markdown, JSON, and session JSONL output from the
+- [x] Generate TUI, CLI, Markdown, JSON, and session JSONL output from the
       persisted semantic records instead of reconstructing provider requests.
-- [ ] Serialize schema and policy versions, stable IDs, lineage, redaction
+- [x] Serialize schema and policy versions, stable IDs, lineage, redaction
       state, artifact limits, and deterministic ordering.
-- [ ] Export metadata when content was not retained. Reject unsupported capture
+- [x] Export metadata when content was not retained. Reject unsupported capture
       options and requests over the configured size limit.
 
 ## CONTEXT-9: Define opt-in retained request content

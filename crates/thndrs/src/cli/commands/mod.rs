@@ -3,6 +3,7 @@
 pub mod acp;
 pub mod auth;
 pub mod config;
+pub mod context;
 pub mod debug;
 pub mod doctor;
 pub mod mcp;

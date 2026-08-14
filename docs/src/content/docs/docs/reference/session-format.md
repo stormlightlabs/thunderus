@@ -62,6 +62,12 @@ and handles. It does not duplicate full `AGENTS.md` text or raw context bodies.
 A rejected compaction writes `compaction_review` but no `compaction` record. A
 successful compaction does not remove the covered records.
 
+`thndrs context --json` and the `context` field from `thndrs session inspect
+<id> --json` derive a `context-history-v1` view from these records. The view is
+deterministically ordered and carries its policy version, lineage, redaction
+state, and export limits. It includes metadata when source content was not
+retained; it does not recreate provider request bodies.
+
 ## Tool and side-effect records
 
 - `tool_started`: turn, call id, name, arguments, and optional MCP identity.

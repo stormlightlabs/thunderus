@@ -128,6 +128,16 @@ the server. Provider-facing names are namespaced as `mcp__{server}__{tool}`.
 
 ### Session History & Management
 
+- `thndrs context [--session <id>]`: inspect the latest terminal request in
+  the newest session, or in the selected session.
+- `thndrs context --json [--session <id>]`: print the bounded, metadata-only
+  context history with snapshots, diffs, accounting, transformations,
+  diagnostics, and measurement provenance.
+- `thndrs context changes [<from-request> <to-request>] [--session <id>]`:
+  compare two terminal request attempts. Without request ids, compare the
+  latest two.
+- `thndrs usage [--json] [--session <id>]`: report persisted provider usage for
+  the newest or selected session.
 - `thndrs sessions list`: scan live, archived, and trashed sessions newest first
   with identity, activity, usage, storage, lock, corruption, and lineage state.
 - `thndrs sessions latest`: print the newest local session.
@@ -139,7 +149,7 @@ the server. Provider-facing names are namespaced as `mcp__{server}__{tool}`.
   replayable settled turn and record its lineage.
 - `thndrs sessions rename <id> <name>`: change the display title without
   changing session identity.
-- `thndrs sessions inspect <id> --format json`: print the stable redacted JSON
+- `thndrs sessions inspect <id> --json`: print the stable redacted JSON
   projection.
 - `thndrs sessions export <id> --format <json|jsonl|markdown|html>`: export a
   redacted record stream or bounded review copy.

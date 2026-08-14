@@ -35,6 +35,30 @@ consumption. Missing measurements are shown as unknown. If a provider's input
 total includes cached tokens but has no cache breakdown, fresh input also
 remains unknown.
 
+## Inspect persisted context history
+
+The top-level commands read semantic records from the newest session by
+default. Select another session with its exact id or a unique prefix:
+
+```sh
+thndrs context
+thndrs context --session <id>
+thndrs context changes
+thndrs context changes <from-request> <to-request>
+thndrs usage
+thndrs usage --json --session <id>
+```
+
+Use `thndrs context --json` for a versioned context history containing request
+snapshots, adjacent diffs, accounting, transformations, diagnostics, and
+measurement provenance. The export carries its schema, policy, lineage,
+redaction state, and size limits. It contains metadata and stable ids, not
+retired request bodies or artifact bodies.
+
+These commands do not reconstruct provider requests or replay session actions.
+They reject histories and encoded exports that exceed their configured bounds.
+Content-capture options are not available for this metadata-only export.
+
 ## What can enter the working set
 
 The `kind` column identifies what each item represents:
@@ -175,6 +199,10 @@ include their provenance.
 Artifact bodies are omitted unless `--artifacts` is present. Included bodies
 and text fields are truncated and redacted. Raw provider payloads are never
 exported.
+
+This slash command exports the active model-visible projection. To inspect
+request snapshots already recorded in a session, use `thndrs context --json`
+instead.
 
 ## Shortening tool output
 

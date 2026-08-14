@@ -9,6 +9,7 @@
 
 mod collection;
 mod context_changes;
+mod context_export;
 mod contracts;
 mod export;
 mod inventory;
@@ -41,6 +42,10 @@ pub use collection::{
     CollectionReport, collect_if_due, collect_now, reclaimable_bytes, reclaimable_bytes_from_inventory,
 };
 pub use context_changes::{ContextChangeError, ContextHistory};
+pub use context_export::{
+    CONTEXT_EXPORT_MAX_BYTES, CONTEXT_EXPORT_MAX_RECORDS, CONTEXT_EXPORT_POLICY_VERSION, CONTEXT_EXPORT_SCHEMA_VERSION,
+    ContextSnapshotDiff, PersistedContextExport,
+};
 pub use contracts::{
     AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,
     ContextLifecycleAudit, ContextSnapshot, ContextSnapshotState, ContextSourceMeta, McpToolSessionMeta,

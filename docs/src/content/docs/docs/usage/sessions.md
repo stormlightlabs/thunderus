@@ -85,13 +85,14 @@ thndrs sessions rename session-20260710 "OAuth cleanup"
 Inspection and export are read-only and never replay recorded actions:
 
 ```sh
-thndrs sessions inspect session-20260710 --format json
+thndrs session inspect session-20260710 --json
 thndrs sessions export session-20260710 --format jsonl > session.jsonl
 thndrs sessions export session-20260710 --format markdown > session.md
 thndrs sessions export session-20260710 --format html > session.html
 ```
 
-`inspect` produces a stable renderer-independent projection. `export` supports:
+`inspect` produces a stable renderer-independent projection, including the
+versioned metadata-only context history. `export` supports:
 
 - `jsonl`: redacted valid records in append-only sequence order;
 - `json`: one JSON document;
@@ -105,7 +106,7 @@ payloads, unrecorded live state, and full file bodies are not reconstructed.
 
 Use `/context export` for the model-visible context projection of the active
 session rather than the complete session record. See
-[Context](/docs/usage/context/#export-the-current-projection).
+[Context](/docs/usage/context/#exporting-the-current-projection).
 
 ## Archive and pin
 

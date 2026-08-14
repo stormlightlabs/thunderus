@@ -39,6 +39,9 @@ pub enum SessionCommand {
     Inspect {
         /// Exact id or unique id prefix, without the `.jsonl` suffix.
         session_id: String,
+        /// Emit the stable JSON projection.
+        #[arg(long)]
+        json: bool,
         /// Output format.
         #[arg(long, value_enum, default_value_t = SessionDataFormat::Json)]
         format: SessionDataFormat,
