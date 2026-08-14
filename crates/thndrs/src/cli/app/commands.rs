@@ -29,7 +29,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("name", "name the current session"),
     ("session", "show a local session summary"),
     ("status", "inspect runtime status and telemetry"),
-    ("tokens", "show current session token totals"),
+    ("usage", "show provider consumption and account capacity"),
     ("debug log", "read the current session log"),
     ("auth status", "show credential sources"),
     ("config path", "show config paths"),
@@ -60,10 +60,8 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     if command == "history" {
         return run_history_command(app);
     }
-    if command == "tokens" {
-        app.transcript
-            .entries
-            .push(Entry::Status { text: app.token_accounting_status() });
+    if command == "usage" {
+        app.transcript.entries.push(Entry::Status { text: app.usage_status() });
         app.composer.input.clear();
         return None;
     }
@@ -325,7 +323,7 @@ pub fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
     }
     let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg" | "bg cancel")
         || command.starts_with("bg cancel ")
-        || matches!(command, "history" | "tokens" | "debug log")
+        || matches!(command, "history" | "usage" | "debug log")
         || matches!(command, "context" | "context show" | "doctor")
         || command.starts_with("context export ")
         || command.starts_with("session ")

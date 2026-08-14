@@ -201,7 +201,7 @@ impl<'a> JsonEvent<'a> {
             }
             app::AgentEvent::CodexUsage(usage) => Self::Status {
                 message: format!(
-                    "quota {}",
+                    "account capacity {}",
                     usage.compact_status().unwrap_or_else(|| "update".to_string())
                 )
                 .into(),
@@ -612,7 +612,7 @@ fn write_diagnostic<Stderr: Write>(stderr: &mut Stderr, event: &app::AgentEvent)
         app::AgentEvent::CodexUsage(usage) => {
             writeln!(
                 stderr,
-                "thndrs run: quota {}",
+                "thndrs run: account capacity {}",
                 usage.compact_status().unwrap_or_else(|| "update".to_string())
             )
         }

@@ -103,22 +103,22 @@ pub struct CodexCredits {
     pub balance: Option<u64>,
 }
 
-/// Application-owned quota state parsed from undocumented ChatGPT Codex headers.
+/// Application-owned account-capacity state parsed from undocumented ChatGPT Codex headers.
 ///
 /// The parser deliberately accepts each field independently. Missing or malformed
 /// headers simply leave that field unavailable rather than affecting a request.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CodexUsageStatus {
-    /// Short-window quota.
+    /// Short-window capacity.
     pub primary: CodexUsageWindow,
-    /// Long-window quota.
+    /// Long-window capacity.
     pub secondary: CodexUsageWindow,
     /// Credit availability.
     pub credits: CodexCredits,
 }
 
 impl CodexUsageStatus {
-    /// Parse known ChatGPT Codex quota headers without exposing wire data to the agent crate.
+    /// Parse known ChatGPT Codex capacity headers without exposing wire data to the agent crate.
     pub fn from_response_headers(headers: &HeaderMap) -> Option<Self> {
         let status = Self {
             primary: usage_window_from_headers(headers, "primary"),
@@ -132,12 +132,12 @@ impl CodexUsageStatus {
         (!status.is_empty()).then_some(status)
     }
 
-    /// Render the compact quota segment for the TUI status row.
+    /// Render the compact capacity segment for the TUI status row.
     pub fn compact_status(&self) -> Option<String> {
         self.compact_status_at(SystemTime::now())
     }
 
-    /// Render the compact quota segment at a fixed time.
+    /// Render the compact capacity segment at a fixed time.
     pub fn compact_status_at(&self, now: SystemTime) -> Option<String> {
         let mut parts = Vec::new();
         if let Some(window) = format_usage_window("p", &self.primary, now) {

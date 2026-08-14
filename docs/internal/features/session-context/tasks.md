@@ -197,15 +197,15 @@
 
 ## CONTEXT-6: Keep context, usage, and capacity distinct
 
-- [ ] Use `/context` only for one request's projected pressure against its model
+- [x] Use `/context` only for one request's projected pressure against its model
       limit.
-- [ ] In `/usage`, show measured request and session input, output, reasoning,
+- [x] In `/usage`, show measured request and session input, output, reasoning,
       cache read, cache write, request count, and cost when reported.
-- [ ] Label provider account capacity and refresh state separately from context
+- [x] Label provider account capacity and refresh state separately from context
       pressure and cumulative consumption.
-- [ ] Include estimate and measurement provenance in summaries, details,
+- [x] Include estimate and measurement provenance in summaries, details,
       exports, and comparisons.
-- [ ] When cache data is absent, leave fresh input unknown instead of deriving it
+- [x] When cache data is absent, leave fresh input unknown instead of deriving it
       from the provider's total.
 
 ## CONTEXT-7: Inspect one provider request

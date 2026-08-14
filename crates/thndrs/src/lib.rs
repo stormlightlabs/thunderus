@@ -1482,7 +1482,7 @@ fn write_acp_event<W: io::Write>(writer: &mut W, event: app::AgentEvent) -> io::
         }
         app::AgentEvent::CodexUsage(usage) => writeln!(
             writer,
-            "quota: {}",
+            "account capacity: {}",
             usage.compact_status().unwrap_or_else(|| "update".to_string())
         )?,
         app::AgentEvent::RequestStarted(_) => {}

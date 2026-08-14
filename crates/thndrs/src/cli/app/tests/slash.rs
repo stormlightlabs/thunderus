@@ -236,6 +236,7 @@ fn context_surface_is_bounded_and_does_not_render_source_content() {
         .join(" ");
     assert!(text.contains("next request"));
     assert!(text.contains("projected input"));
+    assert!(!text.contains("last request"));
     assert!(!text.contains("source-secret-that-must-not-be-rendered"));
     assert!(table.rows.len() <= 67, "context table must stay bounded");
 
@@ -262,7 +263,7 @@ fn context_surface_is_bounded_and_does_not_render_source_content() {
 }
 
 #[test]
-fn tokens_command_exposes_estimate_provider_components_and_error() {
+fn usage_command_separates_measured_consumption_and_capacity() {
     let mut app = fresh_app();
     let mut accounting = thndrs_agent::ProviderRequestAccounting::from_serialized_request(
         "turn_1",
@@ -284,7 +285,14 @@ fn tokens_command_exposes_estimate_provider_components_and_error() {
         .normalize("fixture", thndrs_agent::ProviderUsageRule::AnthropicMessages),
     );
     app.session.last_request_accounting = Some(accounting);
-    app.composer.input = PromptInput::from("/tokens");
+    app.runtime.session_usage.record(
+        app.session
+            .last_request_accounting
+            .as_ref()
+            .and_then(|accounting| accounting.provider_usage.as_ref())
+            .map(|usage| &usage.components),
+    );
+    app.composer.input = PromptInput::from("/usage");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
@@ -293,15 +301,46 @@ fn tokens_command_exposes_estimate_provider_components_and_error() {
         .entries
         .iter()
         .find_map(|entry| match entry {
-            Entry::Status { text } if text.starts_with("tokens\n") => Some(text.as_str()),
+            Entry::Status { text } if text.starts_with("usage\n") => Some(text.as_str()),
             _ => None,
         })
-        .expect("token inspection output");
-    assert!(output.contains("estimated/"));
-    assert!(output.contains("100 input / 7 output"));
-    assert!(output.contains("cache: 4 read / 2 create"));
-    assert!(output.contains("normalized input: 106"));
-    assert!(output.contains("estimate error:"));
+        .expect("usage inspection output");
+    assert!(output.contains("request consumption (provider-reported by fixture)"));
+    assert!(output.contains("input 100 · fresh 100 · output 7 · reasoning unknown"));
+    assert!(output.contains("cache read 4 · cache write 2"));
+    assert!(output.contains("normalized input: 106 (derived anthropic_input_plus_cache_components/"));
+    assert!(output.contains("session consumption: requests 1"));
+    assert!(output.contains("session measurement provenance: provider-reported where known"));
+    assert!(output.contains("request cost: unknown"));
+    assert!(output.contains("account capacity: unavailable"));
+    assert!(output.contains("capacity refresh: no provider observation"));
+}
+
+#[test]
+fn usage_command_leaves_fresh_input_unknown_without_openai_cache_data() {
+    let mut app = fresh_app();
+    let mut accounting = thndrs_agent::ProviderRequestAccounting::from_serialized_request(
+        "turn_1",
+        "turn_1:request:1",
+        1,
+        "fixture",
+        "fixture-model",
+        b"request",
+        Vec::new(),
+    );
+    accounting.provider_usage = Some(
+        thndrs_agent::ProviderUsageComponents::new(100, 7)
+            .normalize("fixture", thndrs_agent::ProviderUsageRule::OpenAiResponses),
+    );
+    app.session.last_request_accounting = Some(accounting);
+    app.composer.input = PromptInput::from("/usage");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    let Some(Entry::Status { text }) = app.transcript.entries.last() else {
+        panic!("usage command should append a status entry");
+    };
+    assert!(text.contains("input 100 · fresh unknown"));
 }
 
 #[test]

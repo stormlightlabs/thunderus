@@ -150,6 +150,8 @@ pub struct ContextExport {
 pub struct ExportBudget {
     /// Estimated rendered tokens.
     pub used: u64,
+    /// Estimator provenance shared by projected token values.
+    pub estimate_provenance: String,
     /// Selection target.
     pub target: u64,
     /// Available input budget.
@@ -168,6 +170,7 @@ impl ContextExport {
         session_id: impl Into<String>, ledger: &ContextLedger, accounting: Option<ProviderRequestAccounting>,
         artifacts: Vec<ExportArtifact>, diagnostics: Vec<String>,
     ) -> Self {
+        let projection = ledger.projection();
         let model_projection = accounting
             .as_ref()
             .map(|accounting| accounting.model_projection.iter().map(redact_projection).collect())
@@ -183,6 +186,7 @@ impl ContextExport {
             accounting,
             budget: ExportBudget {
                 used: ledger.budget.used,
+                estimate_provenance: projection.estimate_provenance,
                 target: ledger.budget.target,
                 available_input: ledger.budget.available_input,
                 auto_compaction_threshold: ledger.budget.auto_compaction_threshold,
@@ -215,11 +219,12 @@ impl ContextExport {
         );
         let _ = writeln!(
             output,
-            "\n## Budget\n\n- Used: {} estimated tokens\n- Target: {} estimated tokens\n- Available input: {} estimated tokens\n- Auto-compaction threshold: {} estimated tokens\n- Limits: {} ({})",
+            "\n## Budget\n\n- Used: {} estimated tokens\n- Target: {} estimated tokens\n- Available input: {} estimated tokens\n- Auto-compaction threshold: {} estimated tokens\n- Estimate provenance: {}\n- Limits: {} ({})",
             self.budget.used,
             self.budget.target,
             self.budget.available_input,
             self.budget.auto_compaction_threshold,
+            self.budget.estimate_provenance,
             self.budget.limits_source,
             self.budget.limits_confidence
         );
@@ -241,14 +246,15 @@ impl ContextExport {
             if let Some(usage) = &accounting.provider_usage {
                 let _ = writeln!(
                     output,
-                    "- Provider input/output: {} / {}\n- Cache read/create: {} / {}\n- Reasoning: {}\n- Inclusive input: {} ({})",
+                    "- Provider-reported input/output: {} / {}\n- Provider-reported cache read/create: {} / {}\n- Provider-reported reasoning: {}\n- Inclusive input: {} (derived {}/{})",
                     display_optional(usage.components.input_tokens),
                     display_optional(usage.components.output_tokens),
                     display_optional(usage.components.cache_read_input_tokens),
                     display_optional(usage.components.cache_creation_input_tokens),
                     display_optional(usage.components.reasoning_tokens),
                     display_optional(usage.inclusive_input_tokens.value),
-                    usage.rule.label()
+                    usage.rule.label(),
+                    thndrs_agent::USAGE_NORMALIZATION_VERSION
                 );
                 if let (Some(estimate), Some(provider)) = (
                     accounting.estimated_input_tokens.value,
@@ -606,6 +612,9 @@ mod tests {
         assert!(json.contains("verified_by"));
         assert!(json.contains("state_identical_evidence"));
         assert!(markdown.contains("Inclusive input: 106"));
+        assert!(markdown.contains("Estimate provenance: conservative utf8 bytes / 3 + item overhead"));
+        assert!(markdown.contains("Provider-reported input/output"));
+        assert!(markdown.contains("derived anthropic_input_plus_cache_components/provider-inclusive-input-v1"));
         assert!(markdown.contains("1 total (0 shadow, 1 applied, 0 baseline fallback)"));
         assert!(markdown.contains("Recovery"));
         assert!(markdown.contains("Lifecycle"));

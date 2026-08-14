@@ -14,7 +14,7 @@ groups selected and available context into Harness, Instructions, Skills,
 Pinned, Conversation, Summaries, and Tool results. It also counts selected,
 omitted, recoverable, and protected items.
 
-- `/context` shows the summary and changes since the last request.
+- `/context` shows the next request summary.
 - `/context all` lists up to 64 current items.
 - `/context changes` compares adjacent requests or two chosen requests.
 - `/context item <id>` shows an item's origin, lifecycle, inclusion or omission

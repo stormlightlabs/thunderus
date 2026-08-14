@@ -1,12 +1,13 @@
 ---
 title: "Context"
-description: "Inspect and control the model-visible working set for a thndrs session."
+description: "Inspect and control what the model can see in a thndrs session."
 ---
 
-`thndrs` builds a fresh context working set for every provider request. The
-working set is a projection of session evidence, not the session itself. Older
-records can leave the projection because of selection, compaction, or an
-explicit context action while remaining in the append-only session log.
+Before every provider request, `thndrs` builds the context that the model can
+see. This working set is a projection of session evidence, not the session
+itself. Selection, compaction, or an explicit context action can remove older
+records from the projection while preserving them in the append-only session
+log.
 
 Open the context overlay in the TUI with:
 
@@ -16,38 +17,50 @@ Open the context overlay in the TUI with:
 /context all
 ```
 
-The overlay reports the current budget and each candidate's id, kind,
-visibility, lifecycle, selection reason, token estimate, protection state, and
-recovery availability. `/doctor` prints a shorter health report covering
-sources, discovery diagnostics, pins, drops, model-limit provenance, budget,
-and compaction review state.
+The overlay shows the projected budget and each candidate's id, kind, visibility,
+lifecycle, selection reason, token estimate, protection state, and recovery availability.
+
+For a shorter health report, use `/doctor`. It covers sources, discovery diagnostics,
+pins, drops, model-limit provenance, the projected budget, and compaction review state.
+
+## Context pressure and measured usage
+
+`/context` estimates how much of the selected model's input limit the next
+request will use. `/usage` reports provider-measured consumption for the latest
+request and the session: input, output, reasoning, cache reads, cache writes,
+request count, and cost when available.
+
+Provider account capacity and its latest refresh state appear separately from
+consumption. Missing measurements are shown as unknown. If a provider's input
+total includes cached tokens but has no cache breakdown, fresh input also
+remains unknown.
 
 ## What can enter the working set
 
-The context ledger tracks:
+The `kind` column identifies what each item represents:
 
-- harness prompt fragments and tool schemas;
-- the current user turn and recent settled transcript entries;
-- applicable root and nested `AGENTS.md` instructions;
-- activated skills and discovered skill metadata;
-- task-local pinned files or evidence;
-- the latest approved compaction summary;
-- archived tool or transcript evidence with a recovery handle.
+- `harness`: system prompt fragments, environment metadata, and tool schemas
+- `project_instruction`: root or nested `AGENTS.md` instructions
+- `pinned_file`: a task-local pinned file, file range, tool result, or note
+- `skill`: activated skill instructions or discovered skill metadata
+- `transcript`: user, assistant, reasoning, or settled tool entries
+- `summary`: an approved compaction summary for older transcript entries
+- `tool_archive`: recoverable archived tool output or transcript content
 
 Harness context and the current user turn are protected from ordinary budget
-eviction. Pins are considered before ordinary transcript history. Applicable
+eviction. Pins take priority over ordinary transcript history. Applicable
 project instructions and activated skills precede the recent transcript tail.
-When the request is under pressure, older transcript entries leave the
-projection first.
+Under pressure, older transcript entries leave the projection first.
 
-A context item's visibility describes the current request:
+Kind describes the content. Visibility describes whether the item enters the
+current request:
 
-- `visible` and `pinned` items are rendered for the model;
-- `candidate` items were discovered but are not applicable or selected;
-- `summary_only` items are represented by an approved summary;
-- `archived` items are outside the active projection but may be recoverable;
-- `dropped` items were explicitly excluded;
-- `blocked` items could not fit as a single bounded item.
+- `visible` and `pinned` items are rendered for the model
+- `candidate` items were discovered but are not applicable or selected
+- `summary_only` items are represented by an approved summary
+- `archived` items are outside the active projection but may be recoverable
+- `dropped` items were explicitly excluded
+- `blocked` items could not fit as a single bounded item
 
 Visibility is separate from lifecycle. An item may be active, duplicate,
 superseded, summarized, or archived across requests. Lifecycle records explain
@@ -75,8 +88,9 @@ set:
 /context pin <id>
 ```
 
-Pins are session context, not a permanent project configuration mechanism. A
-pin is rendered until it is dropped or the session ends.
+Pins last for the session. Use project instructions or configuration for
+permanent context. A pin remains visible until it is dropped or the session
+ends.
 
 Drop an item when it is irrelevant to the current task:
 
@@ -100,9 +114,9 @@ a running process.
 
 ## Protected evidence and verification
 
-Some items carry protection reasons such as a current constraint, pending
-permission, failure evidence, recovery metadata, or an unverified write. A
-direct release is explicit:
+Some items are protected because they contain a current constraint, pending
+permission, failure evidence, recovery metadata, or an unverified write.
+Release protection directly with:
 
 ```text
 /context release <id>
@@ -124,9 +138,13 @@ protection.
 
 ## Compaction
 
-`/compact` asks the selected model to summarize a closed prefix of the
-conversation. A validated, approved summary replaces that prefix only in later
-model projections. The source records remain in the session.
+`/compact` asks the selected model to summarize an older part of the
+conversation. Once validated and approved, `thndrs` uses the summary instead of
+those messages in later requests. The original records remain in the session.
+
+Compaction is best effort because the model writes the summary. Validation can
+catch structural problems, but it cannot guarantee that the summary preserves
+every important detail from the original conversation.
 
 When review is required, resolve it with:
 
@@ -139,7 +157,7 @@ When review is required, resolve it with:
 See [Context Compaction](/docs/concepts/context-compaction/) for automatic mode,
 summary validation, and retained-tail behavior.
 
-## Export the current projection
+## Exporting the current projection
 
 Export the selected context as versioned JSON or Markdown:
 
@@ -150,27 +168,28 @@ Export the selected context as versioned JSON or Markdown:
 ```
 
 Relative paths resolve from the workspace. The export includes the budget,
-ordered item metadata, bounded model projection, request accounting when
-available, reduction receipts, and diagnostics. Artifact bodies are omitted
-unless `--artifacts` is present. Included bodies and text fields are bounded and
-redacted; raw provider payloads are never exported.
+ordered item metadata, bounded model projection, available request accounting,
+reduction receipts, and diagnostics. Token estimates and provider measurements
+include their provenance.
 
-## Deterministic projection reduction
+Artifact bodies are omitted unless `--artifacts` is present. Included bodies
+and text fields are truncated and redacted. Raw provider payloads are never
+exported.
 
-Compaction is model-generated and operates on conversation ranges. Projection
-reducers are local, deterministic transformations of bounded tool evidence.
-They can clean terminal controls and progress redraws, normalize blank runs,
-collapse consecutive repeated lines, suppress state-identical evidence, project
-structured command results, or omit oversized failed-tool arguments after
-recovery evidence has been persisted.
+## Shortening tool output
 
-Reducers are independent and disabled for application by default. Shadow
-measurement is enabled by default, so inspection can report what a reducer
-would have changed without altering the request. Applied and shadow decisions
-are recorded as reduction receipts.
+`thndrs` can shorten tool output before sending it back to the model. It can
+remove terminal formatting and repeated progress updates, condense blank or
+repeated lines, skip evidence when the underlying state has not changed, and
+leave out oversized failed-tool arguments after saving recovery details.
 
-See [Configuration](/docs/reference/configuration/#context-reduction) for the
-switches.
+The cleanup rules produce the same result for the same tool output.
+
+By default, `thndrs` only measures what each rule would change and sends the
+original output. Session records show which rules were measured or applied.
+
+You can enable these rules individually. See [Configuration](/docs/reference/configuration/#context-reduction)
+for the specific settings.
 
 ## Related documentation
 

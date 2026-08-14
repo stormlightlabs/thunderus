@@ -1425,23 +1425,6 @@ impl App {
                 &format!("protected {}", projection.protected),
             ),
         ];
-        if let Some(accounting) = &self.session.last_request_accounting {
-            let provider_input = accounting
-                .provider_usage
-                .as_ref()
-                .and_then(|usage| usage.inclusive_input_tokens.value)
-                .map_or_else(|| "unknown".to_string(), |value| value.to_string());
-            let estimate = accounting
-                .estimated_input_tokens
-                .value
-                .map_or_else(|| "unknown".to_string(), |value| value.to_string());
-            rows.push(context_table_row(
-                "last request",
-                &format!("provider {provider_input}"),
-                &format!("estimate {estimate}"),
-                "historical measurement",
-            ));
-        }
         rows.extend(projection.categories.iter().map(|total| {
             context_table_row(
                 total.category.label(),
@@ -1531,14 +1514,6 @@ impl App {
                 projection.selected, projection.omitted, projection.recoverable, projection.protected
             ),
         ];
-        if let Some(accounting) = &self.session.last_request_accounting {
-            let provider_input = accounting
-                .provider_usage
-                .as_ref()
-                .and_then(|usage| usage.inclusive_input_tokens.value)
-                .map_or_else(|| "unknown".to_string(), |value| value.to_string());
-            narrow_fallback.push(format!("last request provider {provider_input} tokens (historical)"));
-        }
         narrow_fallback.extend(projection.categories.iter().map(|total| {
             format!(
                 "{} {} / {} tokens ({} / {} items)",

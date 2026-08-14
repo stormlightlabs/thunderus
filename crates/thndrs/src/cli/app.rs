@@ -543,7 +543,7 @@ pub enum AgentEvent {
         input_tokens: u64,
         output_tokens: u64,
     },
-    /// Application-owned ChatGPT Codex quota headers observed on a response.
+    /// Application-owned ChatGPT Codex capacity headers observed on a response.
     CodexUsage(codex::CodexUsageStatus),
     /// One successful provider request with exact size and optional usage.
     RequestAccounting(Box<ProviderRequestAccounting>),
@@ -1131,6 +1131,7 @@ pub struct RuntimeState {
     pub git_status: Option<GitStatusSummary>,
     pub session_tokens_in: u64,
     pub session_tokens_out: u64,
+    pub session_usage: SessionUsage,
     pub codex_usage: Option<codex::CodexUsageStatus>,
     pub ttft: TurnTtftState,
     pub ui_tick: u64,
@@ -1139,6 +1140,57 @@ pub struct RuntimeState {
     pub stopping_timed_out: bool,
     pub process_registry: ProcessRegistry,
     pub quit: bool,
+}
+
+/// Measured provider consumption accumulated for the active session.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SessionUsage {
+    /// Completed provider requests represented in these totals.
+    pub request_count: u64,
+    /// Provider-reported input tokens, when reported for every request.
+    pub input_tokens: Option<u64>,
+    /// Provider-reported output tokens, when reported for every request.
+    pub output_tokens: Option<u64>,
+    /// Provider-reported reasoning tokens, when reported for every request.
+    pub reasoning_tokens: Option<u64>,
+    /// Provider-reported cache-read tokens, when reported for every request.
+    pub cache_read_input_tokens: Option<u64>,
+    /// Provider-reported cache-write tokens, when reported for every request.
+    pub cache_creation_input_tokens: Option<u64>,
+}
+
+impl SessionUsage {
+    /// Add one completed request without treating missing components as zero.
+    pub fn record(&mut self, usage: Option<&thndrs_agent::ProviderUsageComponents>) {
+        let previous_requests = self.request_count;
+        self.request_count = self.request_count.saturating_add(1);
+        let component = usage.cloned().unwrap_or_default();
+        merge_usage_total(&mut self.input_tokens, component.input_tokens, previous_requests);
+        merge_usage_total(&mut self.output_tokens, component.output_tokens, previous_requests);
+        merge_usage_total(
+            &mut self.reasoning_tokens,
+            component.reasoning_tokens,
+            previous_requests,
+        );
+        merge_usage_total(
+            &mut self.cache_read_input_tokens,
+            component.cache_read_input_tokens,
+            previous_requests,
+        );
+        merge_usage_total(
+            &mut self.cache_creation_input_tokens,
+            component.cache_creation_input_tokens,
+            previous_requests,
+        );
+    }
+}
+
+fn merge_usage_total(total: &mut Option<u64>, value: Option<u64>, previous_requests: u64) {
+    *total = match (*total, value, previous_requests) {
+        (_, None, _) | (None, _, 1..) => None,
+        (Some(total), Some(value), _) => Some(total.saturating_add(value)),
+        (None, Some(value), 0) => Some(value),
+    };
 }
 
 /// The full application state used to draw the screen.
@@ -1289,6 +1341,7 @@ impl App {
                 git_status: git::collect(&workspace_root),
                 session_tokens_in: 0,
                 session_tokens_out: 0,
+                session_usage: SessionUsage::default(),
                 codex_usage: None,
                 ttft: TurnTtftState::default(),
                 ui_tick: 0,
@@ -1385,6 +1438,27 @@ impl App {
         });
         self.runtime.session_tokens_in = summary.input_tokens;
         self.runtime.session_tokens_out = summary.output_tokens;
+        self.runtime.session_usage = SessionUsage::default();
+        let has_request_accounting = records
+            .iter()
+            .any(|record| matches!(record, session::SessionRecord::RequestAccounting { .. }));
+        for record in &records {
+            match record {
+                session::SessionRecord::RequestAccounting { accounting, .. } => self
+                    .runtime
+                    .session_usage
+                    .record(accounting.provider_usage.as_ref().map(|usage| &usage.components)),
+                session::SessionRecord::Usage { input_tokens, output_tokens, .. } if !has_request_accounting => {
+                    self.runtime
+                        .session_usage
+                        .record(Some(&thndrs_agent::ProviderUsageComponents::new(
+                            *input_tokens,
+                            *output_tokens,
+                        )));
+                }
+                _ => {}
+            }
+        }
         self.session.turn_count = turn_count;
         self.composer.last_input = None;
         self.transcript.pending_manual_compaction = None;
@@ -1460,64 +1534,41 @@ impl App {
         }
     }
 
-    /// Render the bounded `/tokens` inspection projection.
-    pub fn token_accounting_status(&self) -> String {
+    /// Render measured provider consumption separately from account capacity.
+    pub fn usage_status(&self) -> String {
         let Some(accounting) = &self.session.last_request_accounting else {
             return format!(
-                "tokens\nsession totals: in {} out {}\nrequest accounting: unavailable",
-                self.runtime.session_tokens_in, self.runtime.session_tokens_out
+                "usage\nrequest consumption: input unknown · fresh unknown · output unknown · reasoning unknown · cache read unknown · cache write unknown\nrequest measurement provenance: unknown\nrequest cost: unknown\n{}\n{}",
+                session_usage_line(&self.runtime.session_usage),
+                account_capacity_line(self.runtime.codex_usage.as_ref())
             );
-        };
-        let estimate = accounting
-            .estimated_input_tokens
-            .value
-            .map_or_else(|| "unknown".to_string(), |value| value.to_string());
-        let estimate_source = match &accounting.estimated_input_tokens.provenance {
-            thndrs_agent::MeasurementProvenance::Estimated { version, .. } => format!("estimated/{version}"),
-            _ => "unknown".to_string(),
         };
         let Some(usage) = accounting.provider_usage.as_ref() else {
             return format!(
-                "tokens\nrequest: {} attempt {}\nlocal: {} bytes, {} tokens ({})\nprovider: unknown\nshadow receipts: {}\napplied receipts: {}\nbaseline fallback receipts: {}",
+                "usage\nrequest: {} attempt {}\nrequest consumption: input unknown · fresh unknown · output unknown · reasoning unknown · cache read unknown · cache write unknown\nrequest measurement provenance: unknown (provider did not report usage)\nrequest cost: unknown\n{}\n{}",
                 accounting.request_id,
                 accounting.attempt,
-                accounting.serialized_bytes.value,
-                estimate,
-                estimate_source,
-                accounting.shadow_receipts.len(),
-                accounting.applied_receipts.len(),
-                accounting.fallback_receipts.len()
+                session_usage_line(&self.runtime.session_usage),
+                account_capacity_line(self.runtime.codex_usage.as_ref())
             );
         };
-        let inclusive = usage
-            .inclusive_input_tokens
-            .value
-            .map_or_else(|| "unknown".to_string(), |value| value.to_string());
-        let estimate_error = match (
-            accounting.estimated_input_tokens.value,
-            usage.inclusive_input_tokens.value,
-        ) {
-            (Some(estimated), Some(provider)) => (provider as i128 - estimated as i128).to_string(),
-            _ => "unknown".to_string(),
-        };
+        let fresh_input = fresh_input_tokens(usage);
         format!(
-            "tokens\nrequest: {} attempt {}\nlocal: {} bytes, {} tokens ({})\nprovider {} reported: {} input / {} output\ncache: {} read / {} create\nnormalized input: {} ({})\nestimate error: {} tokens\nshadow receipts: {}\napplied receipts: {}\nbaseline fallback receipts: {}",
+            "usage\nrequest: {} attempt {}\nrequest consumption (provider-reported by {}): input {} · fresh {} · output {} · reasoning {} · cache read {} · cache write {}\nnormalized input: {} (derived {}/{})\nrequest cost: unknown\n{}\n{}",
             accounting.request_id,
             accounting.attempt,
-            accounting.serialized_bytes.value,
-            estimate,
-            estimate_source,
             usage.provider,
             display_token(usage.components.input_tokens),
+            display_token(fresh_input),
             display_token(usage.components.output_tokens),
+            display_token(usage.components.reasoning_tokens),
             display_token(usage.components.cache_read_input_tokens),
             display_token(usage.components.cache_creation_input_tokens),
-            inclusive,
+            display_token(usage.inclusive_input_tokens.value),
             usage.rule.label(),
-            estimate_error,
-            accounting.shadow_receipts.len(),
-            accounting.applied_receipts.len(),
-            accounting.fallback_receipts.len()
+            thndrs_agent::USAGE_NORMALIZATION_VERSION,
+            session_usage_line(&self.runtime.session_usage),
+            account_capacity_line(self.runtime.codex_usage.as_ref())
         )
     }
 
@@ -1605,7 +1656,7 @@ impl App {
 
     /// Render secondary runtime telemetry for the `/status` inspection command.
     pub fn runtime_status(&self) -> String {
-        let quota = self
+        let account_capacity = self
             .runtime
             .codex_usage
             .as_ref()
@@ -1617,14 +1668,12 @@ impl App {
             .as_ref()
             .map_or_else(|| "unavailable".to_string(), GitStatusSummary::display);
         format!(
-            "state: {}\nmodel: {}\nreasoning: {}\nsearch: {}\nsession tokens: {} in / {} out\nquota: {}\ngit: {}\nworkspace: {}",
+            "state: {}\nmodel: {}\nreasoning: {}\nsearch: {}\naccount capacity: {}\ngit: {}\nworkspace: {}",
             self.status_label(),
             codex::display_model_id(&self.runtime.model),
             self.runtime.cli.reasoning_effort.label(),
             self.runtime.websearch.label(),
-            self.runtime.session_tokens_in,
-            self.runtime.session_tokens_out,
-            quota,
+            account_capacity,
             git,
             self.runtime.cwd.display()
         )
@@ -1812,6 +1861,40 @@ fn running_tool_status(name: &str, arguments: &str) -> String {
 
 fn display_token(value: Option<u64>) -> String {
     value.map_or_else(|| "unknown".to_string(), |value| value.to_string())
+}
+
+fn fresh_input_tokens(usage: &thndrs_agent::ProviderUsage) -> Option<u64> {
+    let input = usage.components.input_tokens?;
+    match usage.rule {
+        thndrs_agent::ProviderUsageRule::AnthropicMessages => Some(input),
+        thndrs_agent::ProviderUsageRule::OpenAiChat | thndrs_agent::ProviderUsageRule::OpenAiResponses => usage
+            .components
+            .cache_read_input_tokens
+            .map(|cached| input.saturating_sub(cached)),
+    }
+}
+
+fn session_usage_line(usage: &SessionUsage) -> String {
+    format!(
+        "session consumption: requests {} · input {} · output {} · reasoning {} · cache read {} · cache write {}\nsession measurement provenance: provider-reported where known; unknown otherwise\nsession cost: unknown",
+        usage.request_count,
+        display_token(usage.input_tokens),
+        display_token(usage.output_tokens),
+        display_token(usage.reasoning_tokens),
+        display_token(usage.cache_read_input_tokens),
+        display_token(usage.cache_creation_input_tokens),
+    )
+}
+
+fn account_capacity_line(usage: Option<&codex::CodexUsageStatus>) -> String {
+    usage.and_then(codex::CodexUsageStatus::compact_status).map_or_else(
+        || "account capacity: unavailable\ncapacity refresh: no provider observation".to_string(),
+        |status| {
+            format!(
+                "account capacity (provider-reported): {status}\ncapacity refresh: observed in latest provider response"
+            )
+        },
+    )
 }
 
 /// Apply one message without performing terminal, process, or agent I/O.

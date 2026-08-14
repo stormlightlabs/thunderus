@@ -87,6 +87,12 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::Usage { input_tokens, output_tokens } => {
             app.runtime.session_tokens_in = app.runtime.session_tokens_in.saturating_add(input_tokens);
             app.runtime.session_tokens_out = app.runtime.session_tokens_out.saturating_add(output_tokens);
+            app.runtime
+                .session_usage
+                .record(Some(&thndrs_agent::ProviderUsageComponents::new(
+                    input_tokens,
+                    output_tokens,
+                )));
             if let Some(ref mut writer) = app.session.writer {
                 let _ = writer.append_usage(input_tokens, output_tokens);
             }
@@ -108,6 +114,9 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Completed);
             app.session.active_request_accounting = None;
             app.session.last_request_accounting = Some(accounting.as_ref().clone());
+            app.runtime
+                .session_usage
+                .record(accounting.provider_usage.as_ref().map(|usage| &usage.components));
             if let Some(usage) = &accounting.provider_usage {
                 if let Some(input_tokens) = usage.components.input_tokens {
                     app.runtime.session_tokens_in = app.runtime.session_tokens_in.saturating_add(input_tokens);

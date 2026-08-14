@@ -74,19 +74,18 @@ fn session_commands_are_suggested() {
     let app = fresh_app();
     let suggestions = command_suggestions_for_app(&app);
 
-    for command in ["history", "resume", "name", "session", "status", "tokens", "debug log"] {
+    for command in ["history", "resume", "name", "session", "status", "usage", "debug log"] {
         assert!(
             suggestions.iter().any(|suggestion| suggestion.name == command),
             "missing {command}"
         );
     }
+    assert!(!suggestions.iter().any(|suggestion| suggestion.name == "tokens"));
 }
 
 #[test]
 fn status_command_shows_secondary_telemetry() {
     let mut app = fresh_app();
-    app.runtime.session_tokens_in = 12;
-    app.runtime.session_tokens_out = 7;
     app.composer.input = PromptInput::from("/status");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -95,8 +94,8 @@ fn status_command_shows_secondary_telemetry() {
         panic!("status command should append a status entry");
     };
     assert!(text.contains("state: Ready"));
-    assert!(text.contains("session tokens: 12 in / 7 out"));
-    assert!(text.contains("quota:"));
+    assert!(!text.contains("session tokens:"));
+    assert!(text.contains("account capacity:"));
     assert!(text.contains("workspace:"));
 }
 
@@ -187,6 +186,10 @@ fn resume_restores_transcript_and_usage_without_live_run_state() {
     );
     assert_eq!(app.runtime.session_tokens_in, 7);
     assert_eq!(app.runtime.session_tokens_out, 11);
+    assert_eq!(app.runtime.session_usage.request_count, 1);
+    assert_eq!(app.runtime.session_usage.input_tokens, Some(7));
+    assert_eq!(app.runtime.session_usage.output_tokens, Some(11));
+    assert_eq!(app.runtime.session_usage.cache_read_input_tokens, None);
     assert_eq!(app.session.turn_count, 1);
     assert!(
         app.transcript

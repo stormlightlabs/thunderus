@@ -249,7 +249,7 @@ pub enum ContextReductionMode {
 }
 
 impl ContextReductionMode {
-    /// Stable label used by `/tokens`, exports, and model dashboards.
+    /// Stable label used by `/usage`, exports, and model dashboards.
     pub const fn label(self) -> &'static str {
         match self {
             Self::Shadow => "shadow",

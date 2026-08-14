@@ -493,6 +493,10 @@ fn usage_event_accumulates_session_tokens() {
     );
     assert_eq!(app.runtime.session_tokens_in, 17);
     assert_eq!(app.runtime.session_tokens_out, 10);
+    assert_eq!(app.runtime.session_usage.request_count, 2);
+    assert_eq!(app.runtime.session_usage.input_tokens, Some(17));
+    assert_eq!(app.runtime.session_usage.output_tokens, Some(10));
+    assert_eq!(app.runtime.session_usage.cache_read_input_tokens, None);
 }
 
 #[test]
