@@ -45,6 +45,7 @@ thndrs context
 thndrs context --session <id>
 thndrs context changes
 thndrs context changes <from-request> <to-request>
+thndrs context telemetry
 thndrs usage
 thndrs usage --json --session <id>
 ```
@@ -52,12 +53,25 @@ thndrs usage --json --session <id>
 Use `thndrs context --json` for a versioned context history containing request
 snapshots, adjacent diffs, accounting, transformations, diagnostics, and
 measurement provenance. The export carries its schema, policy, lineage,
-redaction state, and size limits. It contains metadata and stable ids, not
-retired request bodies or artifact bodies.
+redaction state, and size limits. By default, it contains metadata and stable
+ids, not retained request content or artifact bodies.
 
 These commands do not reconstruct provider requests or replay session actions.
 They reject histories and encoded exports that exceed their configured bounds.
-Content-capture options are not available for this metadata-only export.
+
+Start a run with `--capture-context-content` to retain sanitized, bounded
+provider-neutral request content and artifact bodies for that run. The durable
+policy records local-owner access, redaction, 30-day retention, session-linked
+deletion, and per-item size limits. If sanitization or limit enforcement fails,
+capture stops without writing that content. Raw provider payloads are never
+retained.
+
+`thndrs context telemetry` derives bounded, provider-neutral OpenTelemetry
+observations from persisted snapshots, diffs, accounting, and transformations.
+It includes timings, token measurements and provenance, tool counts, errors,
+and reduction before-and-after values. Content follows the run's capture policy.
+Export errors cannot affect an agent request because telemetry is generated
+afterward from the session log.
 
 ## What can enter the working set
 
@@ -196,9 +210,9 @@ ordered item metadata, bounded model projection, available request accounting,
 reduction receipts, and diagnostics. Token estimates and provider measurements
 include their provenance.
 
-Artifact bodies are omitted unless `--artifacts` is present. Included bodies
-and text fields are truncated and redacted. Raw provider payloads are never
-exported.
+Artifact bodies are omitted unless `--artifacts` is present and the run started
+with `--capture-context-content`. Included bodies and text fields are bounded
+and redacted. Raw provider payloads are never exported.
 
 This slash command exports the active model-visible projection. To inspect
 request snapshots already recorded in a session, use `thndrs context --json`

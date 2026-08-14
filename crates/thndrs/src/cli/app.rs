@@ -748,6 +748,8 @@ pub enum Msg {
 pub struct SessionState {
     /// Persistence policy selected for the current run.
     pub run_persistence: RunPersistence,
+    /// Durable policy governing request and artifact content capture.
+    pub context_capture_policy: session::ContextCapturePolicy,
     /// Stable session identity used by records and prompt history.
     pub id: String,
     /// Root lineage identity used for stable context item ids across forks.
@@ -1342,6 +1344,11 @@ impl App {
             }
         });
 
+        let requested_capture_policy = if value.capture_context_content {
+            session::ContextCapturePolicy::retained_content()
+        } else {
+            session::ContextCapturePolicy::metadata_only()
+        };
         let mut session_writer = (!run_persistence.is_ephemeral() && session_startup == SessionStartup::New)
             .then(|| {
                 session::SessionWriter::create(
@@ -1359,6 +1366,16 @@ impl App {
             })
             .flatten();
 
+        let context_capture_policy = if let Some(writer) = session_writer.as_mut() {
+            if writer.append_context_capture_policy(&requested_capture_policy).is_ok() {
+                requested_capture_policy
+            } else {
+                session::ContextCapturePolicy::metadata_only()
+            }
+        } else {
+            session::ContextCapturePolicy::metadata_only()
+        };
+
         if let Some(ref mut writer) = session_writer.as_mut()
             && !context_sources.is_empty()
         {
@@ -1368,6 +1385,7 @@ impl App {
         let mut app = App {
             session: SessionState {
                 run_persistence,
+                context_capture_policy,
                 context_id_namespace: session_id.clone(),
                 id: session_id,
                 writer: session_writer,
@@ -1518,12 +1536,40 @@ impl App {
                 _ => None,
             })
             .unwrap_or_else(|| id.clone());
+        let requested_capture_policy = if self.runtime.cli.capture_context_content {
+            session::ContextCapturePolicy::retained_content()
+        } else {
+            session::ContextCapturePolicy::metadata_only()
+        };
+        self.session.context_capture_policy = if self
+            .session
+            .writer
+            .as_mut()
+            .is_some_and(|writer| writer.append_context_capture_policy(&requested_capture_policy).is_ok())
+        {
+            requested_capture_policy
+        } else {
+            session::ContextCapturePolicy::metadata_only()
+        };
         self.transcript.entries = transcript;
         self.restore_context_state(&records);
         self.session.last_request_accounting = records.iter().rev().find_map(|record| match record {
             session::SessionRecord::RequestAccounting { accounting, .. } => Some(accounting.as_ref().clone()),
             _ => None,
         });
+        if self.session.context_capture_policy.permits_content()
+            && let Some(accounting) = self.session.last_request_accounting.as_mut()
+            && let Some(capture) = records.iter().rev().find_map(|record| match record {
+                session::SessionRecord::RequestContentCaptured { capture, .. }
+                    if capture.request_id == accounting.request_id && capture.attempt == accounting.attempt =>
+                {
+                    Some(capture)
+                }
+                _ => None,
+            })
+        {
+            accounting.model_projection = capture.messages.clone();
+        }
         self.runtime.session_tokens_in = summary.input_tokens;
         self.runtime.session_tokens_out = summary.output_tokens;
         self.runtime.session_usage = SessionUsage::default();

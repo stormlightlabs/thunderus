@@ -17,6 +17,9 @@ title: "CLI Reference"
   artifact bodies, or session and daily logs. Resume and session naming are not
   available in this mode; shared settings and prompt history keep their normal
   policies.
+- `--capture-context-content`: retain sanitized, bounded provider-neutral
+  request content and artifact bodies for this run. Metadata-only capture is the
+  default. This option cannot be combined with `--ephemeral`.
 
 ## Commands
 
@@ -130,12 +133,14 @@ the server. Provider-facing names are namespaced as `mcp__{server}__{tool}`.
 
 - `thndrs context [--session <id>]`: inspect the latest terminal request in
   the newest session, or in the selected session.
-- `thndrs context --json [--session <id>]`: print the bounded, metadata-only
-  context history with snapshots, diffs, accounting, transformations,
-  diagnostics, and measurement provenance.
+- `thndrs context --json [--session <id>]`: print bounded context history with
+  snapshots, diffs, accounting, transformations, diagnostics, capture policy,
+  and measurement provenance. Content appears only for opted-in runs.
 - `thndrs context changes [<from-request> <to-request>] [--session <id>]`:
   compare two terminal request attempts. Without request ids, compare the
   latest two.
+- `thndrs context telemetry [--session <id>]`: derive bounded provider-neutral
+  OpenTelemetry observations from persisted context records.
 - `thndrs usage [--json] [--session <id>]`: report persisted provider usage for
   the newest or selected session.
 - `thndrs sessions list`: scan live, archived, and trashed sessions newest first

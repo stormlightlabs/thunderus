@@ -108,5 +108,7 @@ secrets redacted, then exits without calling the provider.
 
 When history reuse is unavailable, `thndrs` includes active size-capped project
 instructions and records hash and truncation metadata. Request-bound
-`context_snapshot` records and `/context export` provide content-free accounting
-and a bounded redacted view of the selected projection.
+By default, `context_snapshot` records and `/context export` provide content-free
+accounting and a bounded redacted view of the selected projection. A run started
+with `--capture-context-content` may also retain its sanitized, provider-neutral
+projection under the recorded capture policy.

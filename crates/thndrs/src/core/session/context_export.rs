@@ -8,7 +8,8 @@ use serde_json::Value;
 use thndrs_agent::ProviderRequestAccounting;
 
 use super::{
-    CompactionAudit, ContextSnapshot, ContextSnapshotState, SCHEMA_VERSION, SessionLineageEntry, SessionRecord,
+    CapturedRequestContent, CompactionAudit, ContextCapturePolicy, ContextSnapshot, ContextSnapshotState,
+    SCHEMA_VERSION, SessionLineageEntry, SessionRecord,
 };
 
 /// Schema version shared by persisted context inspection surfaces.
@@ -28,11 +29,14 @@ pub struct PersistedContextExport {
     pub session_schema_version: u32,
     pub session_id: String,
     pub lineage: Vec<SessionLineageEntry>,
+    pub capture_policy: ContextCapturePolicy,
     pub redaction: ContextExportRedaction,
     pub limits: ContextExportLimits,
     pub snapshots: Vec<ContextSnapshotRecord>,
     pub diffs: Vec<ContextSnapshotDiff>,
     pub request_accounting: Vec<RequestAccountingRecord>,
+    pub request_content: Vec<CapturedRequestContent>,
+    pub artifact_content: Vec<CapturedArtifactContent>,
     pub transformations: Vec<ContextTransformationRecord>,
     pub diagnostics: Vec<ContextDiagnosticRecord>,
     pub measurement_provenance: Vec<MeasurementProvenanceRecord>,
@@ -83,6 +87,14 @@ pub struct RequestAccountingRecord {
     pub accounting: ProviderRequestAccounting,
 }
 
+/// Sanitized, bounded tool evidence exposed only under an opted-in policy.
+#[derive(Clone, Debug, Serialize)]
+pub struct CapturedArtifactContent {
+    pub turn_id: String,
+    pub call_id: String,
+    pub output: Vec<String>,
+}
+
 /// A persisted reduction, compaction, or lifecycle transformation.
 #[derive(Clone, Debug, Serialize)]
 pub struct ContextTransformationRecord {
@@ -124,13 +136,35 @@ impl PersistedContextExport {
         let mut ordered = records.iter().collect::<Vec<_>>();
         ordered.sort_by_key(|record| record.seq());
         let mut lineage = Vec::new();
+        let capture_policy = ordered
+            .iter()
+            .rev()
+            .find_map(|record| match record {
+                SessionRecord::ContextCapturePolicy { policy, .. } => Some(policy.clone()),
+                _ => None,
+            })
+            .filter(ContextCapturePolicy::permits_content)
+            .unwrap_or_default();
+        let content_permitted = capture_policy.permits_content();
         let mut snapshots = Vec::new();
         let mut request_accounting = Vec::new();
+        let mut request_content = Vec::new();
+        let mut artifact_content = Vec::new();
         let mut transformations = Vec::new();
 
         for record in ordered {
             match record {
                 SessionRecord::SessionFork { lineage: value, .. } => lineage = value.clone(),
+                SessionRecord::RequestContentCaptured { capture, .. } if content_permitted => {
+                    request_content.push(capture.clone());
+                }
+                SessionRecord::ToolFinished { turn_id, call_id, output, .. } if content_permitted => {
+                    artifact_content.push(CapturedArtifactContent {
+                        turn_id: turn_id.clone(),
+                        call_id: call_id.clone(),
+                        output: output.clone(),
+                    });
+                }
                 SessionRecord::ContextSnapshot { seq, time, snapshot, .. } => snapshots.push(ContextSnapshotRecord {
                     seq: *seq,
                     time: time.clone(),
@@ -211,19 +245,22 @@ impl PersistedContextExport {
             session_schema_version: SCHEMA_VERSION,
             session_id: session_id.to_string(),
             lineage,
+            capture_policy,
             redaction: ContextExportRedaction {
                 applied: true,
-                request_content_retained: false,
-                artifact_bodies_retained: false,
+                request_content_retained: content_permitted,
+                artifact_bodies_retained: content_permitted,
             },
             limits: ContextExportLimits {
                 max_records: CONTEXT_EXPORT_MAX_RECORDS,
                 max_output_bytes: CONTEXT_EXPORT_MAX_BYTES,
-                artifact_bodies: 0,
+                artifact_bodies: artifact_content.len(),
             },
             snapshots,
             diffs,
             request_accounting,
+            request_content,
+            artifact_content,
             transformations,
             diagnostics,
             measurement_provenance,
@@ -417,6 +454,38 @@ mod tests {
         let error = PersistedContextExport::from_records("session-1", &records).expect_err("record bound");
 
         assert!(error.to_string().contains("record limit"));
+    }
+
+    #[test]
+    fn persisted_export_includes_normalized_content_only_when_opted_in() {
+        let records = vec![
+            SessionRecord::ContextCapturePolicy {
+                schema_version: SCHEMA_VERSION,
+                seq: 1,
+                time: String::new(),
+                policy: ContextCapturePolicy::retained_content(),
+            },
+            SessionRecord::RequestContentCaptured {
+                schema_version: SCHEMA_VERSION,
+                seq: 2,
+                time: String::new(),
+                capture: CapturedRequestContent {
+                    request_id: "request".into(),
+                    turn_id: "turn".into(),
+                    attempt: 1,
+                    messages: vec![thndrs_agent::ModelProjectionMessage {
+                        role: "user".into(),
+                        content: "normalized content".into(),
+                    }],
+                },
+            },
+        ];
+
+        let export = PersistedContextExport::from_records("session-1", &records).expect("build export");
+
+        assert!(export.redaction.request_content_retained);
+        assert_eq!(export.request_content.len(), 1);
+        assert!(export.to_json().unwrap().contains("normalized content"));
     }
 
     fn snapshot_record(seq: u64, request_id: &str, used: u64) -> SessionRecord {

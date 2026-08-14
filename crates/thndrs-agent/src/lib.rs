@@ -14,10 +14,10 @@ pub mod replay;
 pub mod run;
 
 pub use accounting::{
-    ByteMeasurement, ContextItemSnapshot, ContextReductionMode, ContextReductionReceipt, MeasurementProvenance,
-    ModelProjectionMessage, ProviderRequestAccounting, ProviderUsage, ProviderUsageComponents, ProviderUsageRule,
-    TOKEN_ESTIMATOR_VERSION, TokenMeasurement, USAGE_NORMALIZATION_VERSION, estimate_serialized_tokens,
-    snapshot_context,
+    ByteMeasurement, ContextItemSnapshot, ContextReductionMode, ContextReductionReceipt, MODEL_PROJECTION_MAX_BYTES,
+    MeasurementProvenance, ModelProjectionMessage, ProviderRequestAccounting, ProviderUsage, ProviderUsageComponents,
+    ProviderUsageRule, TOKEN_ESTIMATOR_VERSION, TokenMeasurement, USAGE_NORMALIZATION_VERSION,
+    estimate_serialized_tokens, snapshot_context,
 };
 pub use adapters::{ToolExecutionHook, ToolPermissionHook};
 pub use budget::{ToolBudgetDecision, ToolIterationBudget};

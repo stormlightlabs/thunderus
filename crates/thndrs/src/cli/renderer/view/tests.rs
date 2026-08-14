@@ -28,6 +28,7 @@ fn test_app() -> App {
         skill_dirs: Vec::new(),
         session_dir: None,
         ephemeral: false,
+        capture_context_content: false,
         config_diagnostics: Vec::new(),
         config_layers: Vec::new(),
         config_origins: std::collections::BTreeMap::new(),

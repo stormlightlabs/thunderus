@@ -7,6 +7,7 @@
 //! Each [`SessionRecord`] is one append-only JSONL line tagged with
 //! `schema_version`, a monotonic `seq`, `time`, and `type`.
 
+mod capture;
 mod collection;
 mod context_changes;
 mod context_export;
@@ -16,6 +17,7 @@ mod inventory;
 mod lifecycle;
 mod retention;
 mod storage;
+mod telemetry;
 #[cfg(test)]
 mod tests;
 
@@ -38,6 +40,10 @@ use crate::{datetime, internals, tools};
 use thndrs_agent::ProviderRequestAccounting;
 use thndrs_agent::context::{ContextItem, ContextLedger, RangeSummary};
 
+pub use capture::{
+    CAPTURE_RETENTION_DAYS, CONTEXT_CAPTURE_POLICY_VERSION, CapturedRequestContent, ContextCaptureMode,
+    ContextCapturePolicy, MAX_CAPTURED_REQUEST_BYTES,
+};
 pub use collection::{
     CollectionReport, collect_if_due, collect_now, reclaimable_bytes, reclaimable_bytes_from_inventory,
 };
@@ -64,6 +70,9 @@ pub use retention::apply_prune_cancellable_with_progress;
 pub use retention::{
     PruneCandidate, PruneFailure, PruneOverrides, PruneReason, PruneReport, SessionRetentionPolicy, apply_prune,
     apply_prune_cancellable, select_prune_candidates,
+};
+pub use telemetry::{
+    CONTEXT_TELEMETRY_MAX_OBSERVATIONS, CONTEXT_TELEMETRY_SCHEMA_VERSION, ContextTelemetryExport, TelemetryObservation,
 };
 
 /// Current JSONL schema version.
@@ -121,6 +130,22 @@ pub enum SessionRecord {
         parent_session_id: String,
         parent_turn_id: String,
         lineage: Vec<SessionLineageEntry>,
+    },
+    /// Content capture rules selected at session creation.
+    #[serde(rename = "context_capture_policy")]
+    ContextCapturePolicy {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        policy: ContextCapturePolicy,
+    },
+    /// Sanitized provider-neutral request content captured under the session policy.
+    #[serde(rename = "request_content_captured")]
+    RequestContentCaptured {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        capture: CapturedRequestContent,
     },
     /// Loaded context source metadata (AGENTS.md etc.).
     #[serde(rename = "context")]
@@ -466,6 +491,8 @@ impl SessionRecord {
         match self {
             SessionRecord::SessionMeta { seq, .. }
             | SessionRecord::SessionFork { seq, .. }
+            | SessionRecord::ContextCapturePolicy { seq, .. }
+            | SessionRecord::RequestContentCaptured { seq, .. }
             | SessionRecord::Context { seq, .. }
             | SessionRecord::ContextLedger { seq, .. }
             | SessionRecord::ContextSnapshot { seq, .. }
@@ -646,6 +673,8 @@ impl SessionRecord {
         match self {
             SessionRecord::SessionMeta { seq: s, .. }
             | SessionRecord::SessionFork { seq: s, .. }
+            | SessionRecord::ContextCapturePolicy { seq: s, .. }
+            | SessionRecord::RequestContentCaptured { seq: s, .. }
             | SessionRecord::Context { seq: s, .. }
             | SessionRecord::ContextLedger { seq: s, .. }
             | SessionRecord::ContextSnapshot { seq: s, .. }
@@ -1174,6 +1203,26 @@ impl SessionWriter {
             seq: 0,
             time: datetime::now_iso8601(),
             snapshot: Box::new(snapshot),
+        })
+    }
+
+    /// Append the durable capture policy used by this session.
+    pub fn append_context_capture_policy(&mut self, policy: &ContextCapturePolicy) -> std::io::Result<()> {
+        self.append(SessionRecord::ContextCapturePolicy {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: datetime::now_iso8601(),
+            policy: policy.clone(),
+        })
+    }
+
+    /// Append sanitized normalized request content after policy validation.
+    pub fn append_captured_request(&mut self, capture: CapturedRequestContent) -> std::io::Result<()> {
+        self.append(SessionRecord::RequestContentCaptured {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: datetime::now_iso8601(),
+            capture,
         })
     }
 

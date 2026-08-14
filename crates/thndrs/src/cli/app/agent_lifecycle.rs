@@ -23,6 +23,35 @@ fn update_context_usage(app: &mut App, accounting: &thndrs_agent::ProviderReques
     }
 }
 
+fn disable_context_content_capture(app: &mut App, reason: &str) {
+    let policy = session::ContextCapturePolicy::metadata_only();
+    if let Some(writer) = app.session.writer.as_mut() {
+        let _ = writer.append_context_capture_policy(&policy);
+    }
+    app.session.context_capture_policy = policy;
+    app.session.config_diagnostics.push(reason.to_string());
+}
+
+fn capture_request_content(app: &mut App, accounting: &thndrs_agent::ProviderRequestAccounting) {
+    match app.session.context_capture_policy.capture_request(accounting) {
+        Ok(Some(capture)) => {
+            if let Some(writer) = app.session.writer.as_mut()
+                && writer.append_captured_request(capture).is_err()
+            {
+                disable_context_content_capture(
+                    app,
+                    "context content capture stopped because the session write failed",
+                );
+            }
+        }
+        Ok(None) => {}
+        Err(_) => disable_context_content_capture(
+            app,
+            "context content capture stopped because sanitization or size validation failed",
+        ),
+    }
+}
+
 fn persist_context_snapshot(
     app: &mut App, accounting: &thndrs_agent::ProviderRequestAccounting, state: session::ContextSnapshotState,
     emit_context_event: bool,
@@ -133,6 +162,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                 .start(&accounting, app.transcript.entries.len());
             app.session.active_request_accounting = Some(accounting.as_ref().clone());
             update_context_usage(app, &accounting);
+            capture_request_content(app, &accounting);
             persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Dispatched, false);
             None
         }
@@ -786,7 +816,11 @@ fn finish_tool_output(
     app: &mut App, id: &str, status: ToolStatus, output: &[String],
 ) -> Result<Option<artifacts::ArtifactMetadata>, ToolLifecycleError> {
     let artifact = app
-        .artifact_store()
+        .session
+        .context_capture_policy
+        .permits_content()
+        .then(|| app.artifact_store())
+        .flatten()
         .and_then(|store| store.create_tool_evidence(&format!("tool:{id}"), output).ok());
     let safe_output = artifact.as_ref().map_or_else(
         || artifacts::bounded_redacted_lines(output, artifacts::DEFAULT_MAX_ARTIFACT_BYTES),

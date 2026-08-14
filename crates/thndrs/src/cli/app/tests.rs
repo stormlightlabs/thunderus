@@ -136,6 +136,9 @@ fn resumed_startup_restores_the_session_without_creating_a_scratch_file() {
     writer
         .append_entry(&Entry::User { text: "earlier prompt".to_string() }, "turn_1")
         .expect("append user entry");
+    writer
+        .append_context_capture_policy(&session::ContextCapturePolicy::retained_content())
+        .expect("append retained-content policy");
     writer.append_usage(7, 11).expect("append usage");
     let saved_path = writer.path().to_path_buf();
     drop(writer);
@@ -148,6 +151,10 @@ fn resumed_startup_restores_the_session_without_creating_a_scratch_file() {
     assert_eq!(app.runtime.session_tokens_in, 7);
     assert_eq!(app.runtime.session_tokens_out, 11);
     assert_eq!(app.session.turn_count, 1);
+    assert!(
+        !app.session.context_capture_policy.permits_content(),
+        "resume requires a fresh per-run content opt-in"
+    );
     assert!(
         app.transcript.context_ledger.is_some(),
         "resume refreshes the context projection"
@@ -2391,6 +2398,43 @@ fn tool_finished_sets_output_and_status() {
             assert_eq!(*output, vec!["line 1", "line 2"]);
         }
         _ => panic!("expected Tool entry"),
+    }
+}
+
+#[test]
+fn tool_artifact_bodies_require_context_capture_opt_in() {
+    for (capture_context_content, should_retain_artifact) in [(false, false), (true, true)] {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let cli = Cli {
+            cwd: dir.path().to_path_buf(),
+            model: "fake-agent".to_string(),
+            capture_context_content,
+            ..Cli::default()
+        };
+        let mut app = App::from_cli(&cli);
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::ToolStarted {
+                id: "artifact-policy".to_string(),
+                name: "read_file".to_string(),
+                arguments: "{}".to_string(),
+            }),
+        );
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::ToolFinished {
+                id: "artifact-policy".to_string(),
+                output: vec!["bounded output".to_string()],
+                status: ToolStatus::Ok,
+                write_result: None,
+                shell_result: None,
+            }),
+        );
+
+        assert_eq!(
+            app.transcript.tool_artifacts.contains_key("artifact-policy"),
+            should_retain_artifact
+        );
     }
 }
 

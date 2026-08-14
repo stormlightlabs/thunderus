@@ -357,6 +357,8 @@ impl App {
             .context_ledger
             .clone()
             .unwrap_or_else(|| self.refresh_context_ledger(None));
+        let content_permitted = self.session.context_capture_policy.permits_content();
+        let include_artifacts = include_artifacts && content_permitted;
         let mut artifacts = Vec::new();
         let store = self.artifact_store();
         let mut handles = std::collections::BTreeSet::new();
@@ -381,19 +383,20 @@ impl App {
             .iter()
             .map(|diagnostic| format!("{}: {}", diagnostic.code, diagnostic.message))
             .collect();
-        ContextExport::from_parts(
-            self.session.id.clone(),
-            &ledger,
-            self.session.last_request_accounting.clone(),
-            artifacts,
-            diagnostics,
-        )
+        let mut accounting = self.session.last_request_accounting.clone();
+        if !content_permitted && let Some(accounting) = accounting.as_mut() {
+            accounting.model_projection.clear();
+        }
+        ContextExport::from_parts(self.session.id.clone(), &ledger, accounting, artifacts, diagnostics)
     }
 
     /// Render and atomically write a bounded context export.
     pub fn write_context_export(
         &mut self, path: &Path, format: ContextExportFormat, include_artifacts: bool,
     ) -> Result<(), String> {
+        if include_artifacts && !self.session.context_capture_policy.permits_content() {
+            return Err("artifact bodies require --capture-context-content when the session starts".to_string());
+        }
         let export = self.build_context_export(include_artifacts);
         let content = match format {
             ContextExportFormat::Json => export

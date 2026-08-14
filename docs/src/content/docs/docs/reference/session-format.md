@@ -31,6 +31,10 @@ cycles become diagnostics; they do not invalidate unrelated sessions.
 - `request_accounting`: provider-neutral serialized request measurements,
   model projection metadata, reduction receipts, and normalized provider usage.
 - `prompt_metadata`: content-free prompt assembly metadata for one turn.
+- `context_capture_policy`: the run's access, redaction, retention, deletion,
+  and size rules. Metadata-only capture is the default.
+- `request_content_captured`: sanitized, bounded provider-neutral request
+  content written only when the run explicitly enables retained content.
 
 Streaming deltas are not session records. Only settled transcript entries are
 replayable after resume. Raw provider request and response payloads are not
@@ -66,7 +70,9 @@ successful compaction does not remove the covered records.
 <id> --json` derive a `context-history-v1` view from these records. The view is
 deterministically ordered and carries its policy version, lineage, redaction
 state, and export limits. It includes metadata when source content was not
-retained; it does not recreate provider request bodies.
+retained. With an opted-in retained-content policy, it includes the normalized
+request captures and bounded artifact evidence already recorded for the run. It
+never recreates or stores raw provider wire payloads.
 
 ## Tool and side-effect records
 

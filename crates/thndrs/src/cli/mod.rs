@@ -326,6 +326,9 @@ pub struct Cli {
     /// `--no-session` is an alias for this flag.
     #[arg(long, global = true, visible_alias = "no-session")]
     pub ephemeral: bool,
+    /// Retain sanitized, bounded request and artifact content for this run.
+    #[arg(long, global = true, conflicts_with = "ephemeral")]
+    pub capture_context_content: bool,
     /// Config diagnostics from effective config loading.
     #[arg(skip)]
     pub config_diagnostics: Vec<String>,
@@ -374,6 +377,7 @@ impl Default for Cli {
             skill_dirs: Vec::new(),
             session_dir: None,
             ephemeral: false,
+            capture_context_content: false,
             config_diagnostics: Vec::new(),
             config_layers: Vec::new(),
             config_origins: BTreeMap::new(),

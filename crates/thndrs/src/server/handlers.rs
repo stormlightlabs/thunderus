@@ -1660,6 +1660,8 @@ fn record_time(record: &SessionRecord) -> Option<String> {
     match record {
         SessionRecord::SessionMeta { time, .. }
         | SessionRecord::SessionFork { time, .. }
+        | SessionRecord::ContextCapturePolicy { time, .. }
+        | SessionRecord::RequestContentCaptured { time, .. }
         | SessionRecord::Context { time, .. }
         | SessionRecord::ContextLedger { time, .. }
         | SessionRecord::ContextSnapshot { time, .. }

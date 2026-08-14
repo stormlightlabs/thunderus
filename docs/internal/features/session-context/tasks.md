@@ -240,26 +240,26 @@
 
 **Blocked by:** CONTEXT-2, SESSION-6, SESSION-7, and SESSION-8.
 
-- [ ] Retain metadata only by default. Add a per-run opt-in for normalized
+- [x] Retain metadata only by default. Add a per-run opt-in for normalized
       request content and artifact bodies.
-- [ ] Remove credentials and secrets and exclude raw provider wire payloads in
+- [x] Remove credentials and secrets and exclude raw provider wire payloads in
       every capture mode.
-- [ ] Approve access, redaction, retention, deletion, and on-disk size rules
+- [x] Approve access, redaction, retention, deletion, and on-disk size rules
       before enabling content capture.
-- [ ] Do not write captured content when sanitization or limit enforcement
+- [x] Do not write captured content when sanitization or limit enforcement
       fails.
-- [ ] Apply the capture policy to inspect, compare, resume, fork, and export.
+- [x] Apply the capture policy to inspect, compare, resume, fork, and export.
 
 ## CONTEXT-10: Export optional OpenTelemetry observations
 
 **Blocked by:** CONTEXT-8.
 
-- [ ] Read telemetry from persisted snapshots, diffs, request accounting, and
+- [x] Read telemetry from persisted snapshots, diffs, request accounting, and
       transformation records.
-- [ ] Emit request and tool timings, token measurements, counts, errors, and
+- [x] Emit request and tool timings, token measurements, counts, errors, and
       compaction or reduction before-and-after values with capped cardinality.
-- [ ] Omit prompt, response, tool, and artifact content unless CONTEXT-9 permits
+- [x] Omit prompt, response, tool, and artifact content unless CONTEXT-9 permits
       capture for the run.
-- [ ] Include estimate and measurement provenance and use provider-neutral
+- [x] Include estimate and measurement provenance and use provider-neutral
       export types.
-- [ ] Ensure exporter failures do not block or change an agent request.
+- [x] Ensure exporter failures do not block or change an agent request.

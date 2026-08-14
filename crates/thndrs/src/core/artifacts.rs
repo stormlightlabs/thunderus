@@ -257,7 +257,8 @@ pub fn bounded_redacted_lines(lines: &[String], max_bytes: usize) -> Vec<String>
     split_lines(&bounded)
 }
 
-fn redact_artifact_content(value: &str) -> String {
+/// Remove known secret shapes from content before it crosses a durable export boundary.
+pub(crate) fn redact_artifact_content(value: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(value) {
         Ok(json) => redact_json_value(json).to_string(),
         Err(_) => {

@@ -359,6 +359,12 @@ pub struct ProviderRequestAccounting {
     /// the application may use it to build an explicit bounded export.
     #[serde(skip)]
     pub model_projection: Vec<ModelProjectionMessage>,
+    /// Whether the in-memory model projection exceeded its byte bound.
+    ///
+    /// Content capture uses this signal to fail closed instead of persisting
+    /// an incomplete normalized request.
+    #[serde(skip)]
+    pub model_projection_truncated: bool,
 }
 
 impl ProviderRequestAccounting {
@@ -392,6 +398,7 @@ impl ProviderRequestAccounting {
             applied_receipts: Vec::new(),
             fallback_receipts: Vec::new(),
             model_projection: Vec::new(),
+            model_projection_truncated: false,
         }
     }
 
@@ -423,20 +430,25 @@ impl ProviderRequestAccounting {
     /// accounting or provider request bytes.
     pub fn with_model_projection(mut self, projection: Vec<ModelProjectionMessage>) -> Self {
         let mut bytes = 0usize;
-        self.model_projection = projection
-            .into_iter()
-            .filter_map(|mut message| {
-                let remaining = MODEL_PROJECTION_MAX_BYTES.saturating_sub(bytes);
-                if remaining == 0 {
-                    return None;
-                }
-                message.content = truncate_utf8(&message.content, remaining);
-                bytes = bytes
-                    .saturating_add(message.role.len())
-                    .saturating_add(message.content.len());
-                Some(message)
-            })
-            .collect();
+        let mut retained = Vec::new();
+        for mut message in projection {
+            let message_bytes = message.role.len().saturating_add(message.content.len());
+            let remaining = MODEL_PROJECTION_MAX_BYTES.saturating_sub(bytes);
+            if message_bytes > remaining {
+                self.model_projection_truncated = true;
+            }
+            if remaining == 0 {
+                continue;
+            }
+            message.role = truncate_utf8(&message.role, remaining);
+            let content_remaining = remaining.saturating_sub(message.role.len());
+            message.content = truncate_utf8(&message.content, content_remaining);
+            bytes = bytes
+                .saturating_add(message.role.len())
+                .saturating_add(message.content.len());
+            retained.push(message);
+        }
+        self.model_projection = retained;
         self
     }
 }
@@ -556,6 +568,33 @@ mod tests {
         assert_eq!(accounting.estimated_input_tokens.value, Some(17));
         assert_eq!(accounting.context.len(), 1);
         assert_eq!(accounting.context[0].reason_code, "recent_transcript");
+    }
+
+    #[test]
+    fn model_projection_reports_truncation_without_exceeding_its_bound() {
+        let accounting = ProviderRequestAccounting::from_serialized_request(
+            "turn_1",
+            "turn_1:request:0",
+            1,
+            "provider",
+            "model",
+            b"{}",
+            Vec::new(),
+        )
+        .with_model_projection(vec![ModelProjectionMessage {
+            role: "assistant".repeat(MODEL_PROJECTION_MAX_BYTES),
+            content: "content beyond the limit".to_string(),
+        }]);
+
+        assert!(accounting.model_projection_truncated);
+        assert!(
+            accounting
+                .model_projection
+                .iter()
+                .map(|message| message.role.len() + message.content.len())
+                .sum::<usize>()
+                <= MODEL_PROJECTION_MAX_BYTES
+        );
     }
 
     #[test]

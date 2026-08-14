@@ -364,6 +364,10 @@ fn run_context_command(cli: &Cli, command: &ContextCommand) -> io::Result<()> {
     let mut writer = stdout.lock();
 
     match &command.command {
+        Some(ContextSubcommand::Telemetry) => {
+            let telemetry = session::ContextTelemetryExport::from_records(&session_id, &records)?;
+            writeln!(writer, "{}", telemetry.to_json()?)
+        }
         Some(ContextSubcommand::Changes { from_request_id, to_request_id }) => {
             let selectors = match (from_request_id.as_deref(), to_request_id.as_deref()) {
                 (None, None) => Vec::new(),
@@ -394,6 +398,7 @@ fn run_context_command(cli: &Cli, command: &ContextCommand) -> io::Result<()> {
                         "schema_version": export.schema_version,
                         "policy_version": export.policy_version,
                         "session_id": export.session_id,
+                        "capture_policy": export.capture_policy,
                         "redaction": export.redaction,
                         "diff": diff,
                     }),
