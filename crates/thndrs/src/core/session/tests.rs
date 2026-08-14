@@ -579,6 +579,11 @@ fn context_snapshot_lifecycle_round_trips_without_payload_content_or_false_zeroe
         estimated_input_tokens: None,
         transformations: Vec::new(),
         provider_usage: None,
+        duration_ms: None,
+        time_to_first_token_ms: None,
+        tool_count: None,
+        tool_duration_ms: None,
+        transcript_entries: Vec::new(),
     };
     let record = SessionRecord::ContextSnapshot {
         schema_version: 1,

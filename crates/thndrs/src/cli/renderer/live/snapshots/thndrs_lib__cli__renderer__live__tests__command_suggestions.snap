@@ -2,11 +2,11 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│     COMMANDS                                                        option 1/8    # [-]=   [-]=   [fg=#f1fc79 b]=COMMANDS [-]=                                                         [fg=#abb4da]=option 1/8 [-]=  
+│     COMMANDS                                                        option 1/9    # [-]=   [-]=   [fg=#f1fc79 b]=COMMANDS [-]=                                                         [fg=#abb4da]=option 1/9 [-]=  
 │     filter: c                                                                     # [-]=   [-]=   [fg=#abb4da]=filter: c [-]=                                                                  [-]=  
 │     ❯ clear  clear transcript                                                     # [-]=   [-]=   [fg=#ebfafa b]=❯ clear  clear transcript [-]=                                                  [-]=  
 │       context  inspect context lifecycle                                          # [-]=   [-]=   [fg=#ebfafa]=  context  inspect context lifecycle [-]=                                       [-]=  
+│       context request  inspect a provider request                                 # [-]=   [-]=   [fg=#ebfafa]=  context request  inspect a provider request [-]=                              [-]=  
 │       context verify  review a verification relation                              # [-]=   [-]=   [fg=#ebfafa]=  context verify  review a verification relation [-]=                           [-]=  
-│       context release  explicitly release context prot…                           # [-]=   [-]=   [fg=#ebfafa]=  context release  explicitly release context prot… [-]=                        [-]=  
-│     … 4 rows below                                                                # [-]=   [-]=   [fg=#abb4da]=… 4 rows below [-]=                                                             [-]=  
+│     … 5 rows below                                                                # [-]=   [-]=   [fg=#abb4da]=… 5 rows below [-]=                                                             [-]=  
 │     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=                                                   [-]=

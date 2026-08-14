@@ -3510,6 +3510,53 @@ fn request_attempts_append_distinct_context_snapshot_lifecycle_records() {
 }
 
 #[test]
+fn completed_request_snapshot_tracks_tool_observations_and_transcript_links() {
+    let mut app = fresh_app();
+    app.refresh_context_ledger(Some("inspect tools"));
+    let mut accounting = thndrs_agent::ProviderRequestAccounting::from_serialized_request(
+        "turn_1",
+        "turn_1:request:1",
+        1,
+        "opencode",
+        "big-pickle",
+        br#"{"messages":[]}"#,
+        Vec::new(),
+    );
+    accounting.tool_count = Some(1);
+
+    handle_agent_event(&mut app, AgentEvent::RequestStarted(Box::new(accounting.clone())));
+    handle_agent_event(&mut app, AgentEvent::RequestAccounting(Box::new(accounting)));
+    handle_agent_event(
+        &mut app,
+        AgentEvent::ToolStarted {
+            id: "call-1".to_string(),
+            name: "read_file_range".to_string(),
+            arguments: "{}".to_string(),
+        },
+    );
+    handle_agent_event(
+        &mut app,
+        AgentEvent::ToolFinished {
+            id: "call-1".to_string(),
+            output: vec!["done".to_string()],
+            status: ToolStatus::Ok,
+            write_result: None,
+            shell_result: None,
+        },
+    );
+
+    let rendered = app
+        .transcript
+        .context_history
+        .render_request(None)
+        .expect("request details");
+    assert!(rendered.contains("tools  1 · "));
+    assert!(!rendered.contains("tools  1 · unknown"));
+    assert!(rendered.contains("tool:call-1"));
+    assert!(!rendered.contains("duration  unknown"));
+}
+
+#[test]
 fn backspace_while_streaming_deletes_char() {
     let mut app = working_app_with_streaming();
     app.composer.input = PromptInput::from("hello");

@@ -79,6 +79,17 @@ fn slash_clear_while_working_is_rejected() {
 }
 
 #[test]
+fn submitted_slash_command_closes_command_suggestions() {
+    let mut app = fresh_app();
+    app.composer.input = PromptInput::from("/context request");
+    app.overlay.show_commands();
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.overlay.accessory(), PromptAccessory::None);
+}
+
+#[test]
 fn slash_help_while_working_executes_immediately() {
     let mut app = working_app_with_streaming();
     app.composer.input = PromptInput::from("/help");
@@ -259,6 +270,33 @@ fn context_surface_is_bounded_and_does_not_render_source_content() {
                 && text.contains("artifact")
                 && text.contains("protected")
                 && text.contains("recovery")
+    ));
+}
+
+#[test]
+fn context_request_command_opens_latest_request_details() {
+    let mut app = fresh_app();
+    app.refresh_context_ledger(Some("inspect request"));
+    let accounting = thndrs_agent::ProviderRequestAccounting::from_serialized_request(
+        "turn_1",
+        "turn_1:request:1",
+        1,
+        "fixture",
+        "fixture-model",
+        br#"{"messages":[]}"#,
+        Vec::new(),
+    );
+    handle_agent_event(&mut app, AgentEvent::RequestStarted(Box::new(accounting.clone())));
+    handle_agent_event(&mut app, AgentEvent::RequestAccounting(Box::new(accounting)));
+    app.composer.input = PromptInput::from("/context request");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(matches!(
+        app.transcript.entries.last(),
+        Some(Entry::Status { text })
+            if text.contains("context request turn_1:request:1#1")
+                && text.contains("provider operation  turn_1:request:1#1")
     ));
 }
 

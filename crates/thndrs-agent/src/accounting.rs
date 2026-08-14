@@ -202,6 +202,20 @@ pub struct ProviderUsage {
     pub inclusive_input_tokens: TokenMeasurement,
 }
 
+impl ProviderUsage {
+    /// Provider-reported input that was not served from cache, when derivable.
+    pub fn fresh_input_tokens(&self) -> Option<u64> {
+        let input = self.components.input_tokens?;
+        match self.rule {
+            ProviderUsageRule::AnthropicMessages => Some(input),
+            ProviderUsageRule::OpenAiChat | ProviderUsageRule::OpenAiResponses => self
+                .components
+                .cache_read_input_tokens
+                .map(|cached| input.saturating_sub(cached)),
+        }
+    }
+}
+
 /// One bounded provider-neutral message in the model-facing request projection.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ModelProjectionMessage {
@@ -323,6 +337,9 @@ pub struct ProviderRequestAccounting {
     pub estimated_input_tokens: TokenMeasurement,
     /// Provider usage, when the successful response reported it.
     pub provider_usage: Option<ProviderUsage>,
+    /// Tool calls returned by this provider operation, once its response is complete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_count: Option<u64>,
     /// All context candidates considered for this request, once each.
     pub context: Vec<ContextItemSnapshot>,
     /// Shadow reducer receipts for this request.
@@ -369,6 +386,7 @@ impl ProviderRequestAccounting {
                 },
             },
             provider_usage: None,
+            tool_count: None,
             context,
             shadow_receipts: Vec::new(),
             applied_receipts: Vec::new(),
@@ -489,6 +507,21 @@ mod tests {
                 .value,
             Some(100)
         );
+        assert_eq!(
+            components
+                .normalize("anthropic", ProviderUsageRule::AnthropicMessages)
+                .fresh_input_tokens(),
+            Some(100)
+        );
+        assert_eq!(
+            components
+                .normalize("openai", ProviderUsageRule::OpenAiChat)
+                .fresh_input_tokens(),
+            Some(80)
+        );
+        let without_cache =
+            ProviderUsageComponents::new(100, 10).normalize("openai", ProviderUsageRule::OpenAiResponses);
+        assert_eq!(without_cache.fresh_input_tokens(), None);
     }
 
     #[test]

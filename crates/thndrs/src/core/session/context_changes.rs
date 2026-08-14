@@ -129,6 +129,64 @@ impl ContextHistory {
         Ok(self.render_between(before_index, before, after_index, after))
     }
 
+    /// Render metadata and observations for one provider request attempt.
+    pub fn render_request(&self, selector: Option<&str>) -> Result<String, ContextChangeError> {
+        let snapshots = self.terminal_request_snapshots();
+        let (index, snapshot) = match selector {
+            Some(selector) => select_snapshot(&snapshots, selector)?,
+            None => snapshots.last().copied().ok_or_else(|| {
+                ContextChangeError("context request requires a recorded provider request".to_string())
+            })?,
+        };
+        let usage = snapshot.provider_usage.as_ref();
+        let components = usage.map(|usage| &usage.components);
+        let projected_provenance = snapshot
+            .ledger
+            .projection
+            .as_ref()
+            .map_or("unknown", |projection| projection.estimate_provenance.as_str());
+        let provider_input = usage.map_or_else(
+            || "unknown".to_string(),
+            |usage| {
+                measurement_label(
+                    usage.inclusive_input_tokens.value,
+                    &usage.inclusive_input_tokens.provenance,
+                )
+            },
+        );
+        let transcript_entries = if snapshot.transcript_entries.is_empty() {
+            "none".to_string()
+        } else {
+            bounded_list(&snapshot.transcript_entries)
+        };
+        let (reductions, compactions, recoveries, item_changes, changes_link) =
+            self.request_context_links(&snapshots, index, snapshot);
+
+        Ok(truncate_output(format!(
+            "context request {}#{} · {}\nmodel  {}\nroute  {}\n\n── Timing\nduration  {}\nfirst token  {}\n\n── Tokens\ninput projected  {} ({projected_provenance})\ninput provider  {provider_input}\ninput fresh  {}\ncache read  {}\ncache write  {}\noutput  {}\nreasoning  {}\n\n── Activity\ntools  {} · {}\ncontext changes  {reductions} reductions · {compactions} compactions · {recoveries} recoveries · {item_changes} other item changes\n\n── Links\nturn  {}\nsnapshot  {}#{}\nprovider operation  {}#{}\ntranscript  {transcript_entries}\nchanges  {changes_link}",
+            snapshot.request_id,
+            snapshot.attempt,
+            snapshot_state_label(snapshot.state),
+            snapshot.model,
+            snapshot.route,
+            milliseconds_label(snapshot.duration_ms),
+            milliseconds_label(snapshot.time_to_first_token_ms),
+            value_label(snapshot.estimated_input_tokens),
+            value_label(usage.and_then(thndrs_agent::ProviderUsage::fresh_input_tokens)),
+            value_label(components.and_then(|usage| usage.cache_read_input_tokens)),
+            value_label(components.and_then(|usage| usage.cache_creation_input_tokens)),
+            value_label(components.and_then(|usage| usage.output_tokens)),
+            value_label(components.and_then(|usage| usage.reasoning_tokens)),
+            value_label(snapshot.tool_count),
+            milliseconds_label(snapshot.tool_duration_ms),
+            snapshot.turn_id,
+            snapshot.request_id,
+            snapshot.attempt,
+            snapshot.request_id,
+            snapshot.attempt,
+        )))
+    }
+
     /// Build a semantic transcript event for a context-affecting record.
     pub fn transcript_event(&self, record: &SessionRecord) -> Option<(String, String)> {
         match record {
@@ -193,6 +251,44 @@ impl ContextHistory {
             }
             _ => None,
         })
+    }
+
+    fn request_context_links(
+        &self, snapshots: &[(usize, &ContextSnapshot)], index: usize, snapshot: &ContextSnapshot,
+    ) -> (usize, usize, usize, &'static str, String) {
+        let previous = snapshots
+            .iter()
+            .rev()
+            .find(|(candidate, _)| *candidate < index)
+            .copied();
+        let start = previous.map_or(0, |(index, _)| index.saturating_add(1));
+        let records = &self.records[start..=index];
+        let compactions = records
+            .iter()
+            .filter(|record| matches!(record, ContextHistoryRecord::Compaction { .. }))
+            .count();
+        let recoveries = records
+            .iter()
+            .filter(|record| matches!(record, ContextHistoryRecord::Recovery { .. }))
+            .count();
+        let reductions = snapshot
+            .transformations
+            .iter()
+            .filter(|receipt| receipt.mode == ContextReductionMode::Applied)
+            .count();
+        let (item_changes, changes_link) = previous.map_or_else(
+            || ("unknown", "unavailable (first recorded request)".to_string()),
+            |(_, previous)| {
+                (
+                    if previous.ledger.items == snapshot.ledger.items { "no" } else { "yes" },
+                    format!(
+                        "/context changes {}#{} {}#{}",
+                        previous.request_id, previous.attempt, snapshot.request_id, snapshot.attempt
+                    ),
+                )
+            },
+        );
+        (reductions, compactions, recoveries, item_changes, changes_link)
     }
 
     fn render_between(
@@ -471,6 +567,27 @@ fn provenance_label(provenance: &MeasurementProvenance) -> String {
     }
 }
 
+fn measurement_label(value: Option<u64>, provenance: &MeasurementProvenance) -> String {
+    format!("{} ({})", value_label(value), provenance_label(provenance))
+}
+
+fn value_label(value: Option<u64>) -> String {
+    value.map_or_else(|| "unknown".to_string(), |value| value.to_string())
+}
+
+fn milliseconds_label(value: Option<u64>) -> String {
+    value.map_or_else(|| "unknown".to_string(), |value| format!("{value}ms"))
+}
+
+fn snapshot_state_label(state: ContextSnapshotState) -> &'static str {
+    match state {
+        ContextSnapshotState::Dispatched => "dispatched",
+        ContextSnapshotState::Completed => "completed",
+        ContextSnapshotState::Failed => "failed",
+        ContextSnapshotState::Interrupted => "interrupted",
+    }
+}
+
 fn request_label(snapshot: &ContextSnapshot) -> String {
     format!(
         "{} (attempt {}, {})",
@@ -591,7 +708,7 @@ mod tests {
     use thndrs_agent::context::{
         ContextItemKind, ContextLifecycle, ContextVisibility, ModelLimitConfidence, ModelLimitSource,
     };
-    use thndrs_agent::{ContextReductionMode, ContextReductionReceipt};
+    use thndrs_agent::{ContextReductionMode, ContextReductionReceipt, ProviderUsageComponents, ProviderUsageRule};
 
     use super::*;
     use crate::session::ContextLedgerMeta;
@@ -695,6 +812,78 @@ mod tests {
         assert!(text.contains("details /context changes"));
     }
 
+    #[test]
+    fn request_details_show_observations_links_and_unknowns_without_request_content() {
+        let mut history = ContextHistory::default();
+        history.record_snapshot(snapshot("request-1", ContextSnapshotState::Completed, vec![]));
+        let mut inspected = snapshot("request-2", ContextSnapshotState::Completed, vec![item("tool", 2)]);
+        inspected.turn_id = "turn-2".to_string();
+        inspected.duration_ms = Some(125);
+        inspected.time_to_first_token_ms = Some(20);
+        inspected.tool_count = Some(1);
+        inspected.tool_duration_ms = Some(40);
+        inspected.transcript_entries = vec!["block:4".to_string(), "tool:call-1".to_string()];
+        inspected.provider_usage = Some(
+            ProviderUsageComponents {
+                input_tokens: Some(80),
+                output_tokens: Some(12),
+                cache_read_input_tokens: Some(15),
+                cache_creation_input_tokens: Some(5),
+                reasoning_tokens: None,
+            }
+            .normalize("provider", ProviderUsageRule::AnthropicMessages),
+        );
+        inspected.transformations.push(ContextReductionReceipt {
+            item_id: "tool".to_string(),
+            method: "cap".to_string(),
+            version: "1".to_string(),
+            before_bytes: 100,
+            after_bytes: 40,
+            lossy: true,
+            mode: ContextReductionMode::Applied,
+            diagnostic: None,
+        });
+        history.record_snapshot(inspected);
+
+        let rendered = history.render_request(Some("request-2#1")).expect("request details");
+
+        assert!(rendered.contains("context request request-2#1 · completed"));
+        assert!(rendered.contains("duration  125ms"));
+        assert!(rendered.contains("first token  20ms"));
+        assert!(rendered.contains("input provider  100 (derived"));
+        assert!(rendered.contains("input fresh  80"));
+        assert!(rendered.contains("cache read  15"));
+        assert!(rendered.contains("cache write  5"));
+        assert!(rendered.contains("output  12"));
+        assert!(rendered.contains("reasoning  unknown"));
+        assert!(rendered.contains("tools  1 · 40ms"));
+        assert!(rendered.contains("1 reductions"));
+        assert!(rendered.contains("turn  turn-2"));
+        assert!(rendered.contains("transcript  block:4, tool:call-1"));
+        assert!(rendered.contains("/context changes request-1#1 request-2#1"));
+        assert!(!rendered.contains("messages"));
+    }
+
+    #[test]
+    fn request_details_default_to_latest_attempt_and_label_missing_measurements_unknown() {
+        let mut history = ContextHistory::default();
+        let mut first = snapshot("request-1", ContextSnapshotState::Failed, vec![]);
+        first.attempt = 1;
+        history.record_snapshot(first);
+        let mut retry = snapshot("request-1", ContextSnapshotState::Completed, vec![]);
+        retry.attempt = 2;
+        history.record_snapshot(retry);
+
+        let rendered = history.render_request(None).expect("latest request attempt");
+
+        assert!(rendered.contains("context request request-1#2"));
+        assert!(rendered.contains("duration  unknown"));
+        assert!(rendered.contains("first token  unknown"));
+        assert!(rendered.contains("input provider  unknown"));
+        assert!(rendered.contains("tools  unknown · unknown"));
+        assert!(history.render_request(Some("request-1")).is_err());
+    }
+
     fn snapshot(request_id: &str, state: ContextSnapshotState, items: Vec<ContextItemMeta>) -> ContextSnapshot {
         ContextSnapshot {
             snapshot_version: 1,
@@ -721,6 +910,11 @@ mod tests {
             estimated_input_tokens: Some(1_000),
             transformations: Vec::new(),
             provider_usage: None,
+            duration_ms: None,
+            time_to_first_token_ms: None,
+            tool_count: None,
+            tool_duration_ms: None,
+            transcript_entries: Vec::new(),
         }
     }
 

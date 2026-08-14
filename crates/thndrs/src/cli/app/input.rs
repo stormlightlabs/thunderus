@@ -1924,6 +1924,7 @@ pub fn handle_submit(app: &mut App) -> Option<Msg> {
     }
 
     if let Some(command) = text.strip_prefix('/') {
+        close_prompt_accessory(app);
         return handle_command(app, command);
     }
 

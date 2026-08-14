@@ -212,14 +212,14 @@
 
 **Blocked by:** CONTEXT-2 and CONTEXT-6.
 
-- [ ] Open request details by request and attempt ID.
-- [ ] Show model, route, duration, time to first token, projected input, measured
+- [x] Open request details by request and attempt ID.
+- [x] Show model, route, duration, time to first token, projected input, measured
       provider input, fresh and cached input, output, and reasoning when known.
-- [ ] Show tool count and duration and link reductions, compactions, recoveries,
+- [x] Show tool count and duration and link reductions, compactions, recoveries,
       and other context changes.
-- [ ] Link the request to its turn, snapshot, provider operation, and transcript
+- [x] Link the request to its turn, snapshot, provider operation, and transcript
       entries without exposing raw request bodies.
-- [ ] Label unavailable timings and provider measurements as unknown.
+- [x] Label unavailable timings and provider measurements as unknown.
 
 ## CONTEXT-8: Provide CLI and export parity
 

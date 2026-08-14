@@ -6,7 +6,8 @@ use crate::mcp;
 
 fn persist_active_context_snapshot(app: &mut App, state: session::ContextSnapshotState) {
     let Some(accounting) = app.session.active_request_accounting.take() else { return };
-    persist_context_snapshot(app, &accounting, state);
+    app.runtime.request_observation.finish_request(&accounting);
+    persist_context_snapshot(app, &accounting, state, true);
 }
 
 fn update_context_usage(app: &mut App, accounting: &thndrs_agent::ProviderRequestAccounting) {
@@ -24,8 +25,19 @@ fn update_context_usage(app: &mut App, accounting: &thndrs_agent::ProviderReques
 
 fn persist_context_snapshot(
     app: &mut App, accounting: &thndrs_agent::ProviderRequestAccounting, state: session::ContextSnapshotState,
+    emit_context_event: bool,
 ) {
     let Some(ledger) = app.transcript.context_ledger.as_ref() else { return };
+    let transcript_entries = if app.runtime.request_observation.matches(accounting) {
+        app.transcript
+            .entries
+            .blocks()
+            .skip(app.runtime.request_observation.transcript_start)
+            .map(|block| block.id.to_string())
+            .collect()
+    } else {
+        Vec::new()
+    };
     let snapshot = session::ContextSnapshot {
         snapshot_version: 1,
         session_id: app.session.id.clone(),
@@ -41,6 +53,11 @@ fn persist_context_snapshot(
         estimated_input_tokens: accounting.estimated_input_tokens.value,
         transformations: accounting.reduction_receipts(),
         provider_usage: accounting.provider_usage.clone(),
+        duration_ms: app.runtime.request_observation.duration_ms(accounting),
+        time_to_first_token_ms: app.runtime.request_observation.time_to_first_token_ms(accounting),
+        tool_count: accounting.tool_count,
+        tool_duration_ms: app.runtime.request_observation.tool_duration_ms(accounting),
+        transcript_entries,
     };
     let persisted = match app.session.writer.as_mut() {
         Some(writer) => match writer.append_context_snapshot(snapshot.clone()) {
@@ -57,13 +74,20 @@ fn persist_context_snapshot(
     if !persisted {
         return;
     }
-    if let Some(text) = session::ContextHistory::live_reduction_event(&snapshot) {
+    if emit_context_event && let Some(text) = session::ContextHistory::live_reduction_event(&snapshot) {
         app.transcript.entries.push_context_event(
             format!("context:reduction:live:{}:{}", snapshot.request_id, snapshot.attempt),
             text,
         );
     }
     app.transcript.context_history.record_snapshot(snapshot);
+}
+
+fn persist_completed_observation(app: &mut App) {
+    let Some(accounting) = app.session.last_request_accounting.clone() else { return };
+    if app.runtime.request_observation.matches(&accounting) {
+        persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Completed, false);
+    }
 }
 
 /// Process an [`AgentEvent`] and mutate `app` accordingly.
@@ -104,14 +128,18 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::RequestStarted(accounting) => {
             app.runtime.provider_retry = None;
+            app.runtime
+                .request_observation
+                .start(&accounting, app.transcript.entries.len());
             app.session.active_request_accounting = Some(accounting.as_ref().clone());
             update_context_usage(app, &accounting);
-            persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Dispatched);
+            persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Dispatched, false);
             None
         }
         AgentEvent::RequestAccounting(accounting) => {
+            app.runtime.request_observation.finish_request(&accounting);
             update_context_usage(app, &accounting);
-            persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Completed);
+            persist_context_snapshot(app, &accounting, session::ContextSnapshotState::Completed, true);
             app.session.active_request_accounting = None;
             app.session.last_request_accounting = Some(accounting.as_ref().clone());
             app.runtime
@@ -133,6 +161,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::AssistantDelta(delta) => {
             app.runtime.provider_retry = None;
             app.runtime.ttft.stop_on_semantic_output();
+            app.runtime.request_observation.stop_on_semantic_output();
             finalize_reasoning(app);
             if let Some(Entry::Agent { text, streaming: true }) = app.transcript.entries.last_mut() {
                 text.push_str(&delta);
@@ -146,6 +175,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::ReasoningDelta(delta) => {
             app.runtime.provider_retry = None;
             app.runtime.ttft.stop_on_semantic_output();
+            app.runtime.request_observation.stop_on_semantic_output();
             if let Some(Entry::Reasoning { text, streaming: true }) = app.transcript.entries.last_mut() {
                 text.push_str(&delta);
             } else {
@@ -157,7 +187,9 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::ToolStarted { id, name, arguments } => {
             app.runtime.provider_retry = None;
+            app.runtime.request_observation.start_tool(&id);
             record_tool_started(app, &id, &name, &arguments);
+            persist_completed_observation(app);
             None
         }
         AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
@@ -171,6 +203,8 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                     return None;
                 }
             }
+            app.runtime.request_observation.finish_tool(&id);
+            persist_completed_observation(app);
             record_successful_skill_read(app, &id, status);
 
             if let Some(result) = write_result
@@ -276,6 +310,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             app.runtime.stopping_deadline = None;
             app.runtime.ttft.clear_pending();
             finalize_streaming(app);
+            persist_completed_observation(app);
             cancel_pending_permission(app);
             app.runtime.run_state = RunState::Idle;
             app.composer.last_input = None;

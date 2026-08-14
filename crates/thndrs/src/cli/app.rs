@@ -240,6 +240,92 @@ impl TurnTtftState {
     }
 }
 
+/// Client-observed timing and transcript links for one provider request.
+#[derive(Debug, Default)]
+pub struct RequestObservationState {
+    request_id: Option<String>,
+    attempt: u32,
+    started_at: Option<Instant>,
+    duration: Option<Duration>,
+    time_to_first_token: Option<Duration>,
+    tool_count: Option<u64>,
+    completed_tools: u64,
+    tool_duration: Duration,
+    active_tools: HashMap<String, Instant>,
+    transcript_start: usize,
+}
+
+impl RequestObservationState {
+    fn start(&mut self, accounting: &ProviderRequestAccounting, transcript_start: usize) {
+        *self = Self {
+            request_id: Some(accounting.request_id.clone()),
+            attempt: accounting.attempt,
+            started_at: Some(Instant::now()),
+            transcript_start,
+            ..Self::default()
+        };
+    }
+
+    fn matches(&self, accounting: &ProviderRequestAccounting) -> bool {
+        self.request_id.as_deref() == Some(accounting.request_id.as_str()) && self.attempt == accounting.attempt
+    }
+
+    fn stop_on_semantic_output(&mut self) {
+        if self.time_to_first_token.is_none()
+            && let Some(started_at) = self.started_at
+        {
+            self.time_to_first_token = Some(started_at.elapsed());
+        }
+    }
+
+    fn finish_request(&mut self, accounting: &ProviderRequestAccounting) {
+        if !self.matches(accounting) {
+            return;
+        }
+        if self.duration.is_none()
+            && let Some(started_at) = self.started_at
+        {
+            self.duration = Some(started_at.elapsed());
+        }
+        if let Some(tool_count) = accounting.tool_count {
+            self.tool_count = Some(tool_count);
+        }
+    }
+
+    fn start_tool(&mut self, id: &str) {
+        self.stop_on_semantic_output();
+        self.active_tools.insert(id.to_string(), Instant::now());
+    }
+
+    fn finish_tool(&mut self, id: &str) {
+        let Some(started_at) = self.active_tools.remove(id) else { return };
+        self.completed_tools = self.completed_tools.saturating_add(1);
+        self.tool_duration = self.tool_duration.saturating_add(started_at.elapsed());
+    }
+
+    fn duration_ms(&self, accounting: &ProviderRequestAccounting) -> Option<u64> {
+        self.matches(accounting).then_some(self.duration?).map(duration_millis)
+    }
+
+    fn time_to_first_token_ms(&self, accounting: &ProviderRequestAccounting) -> Option<u64> {
+        self.matches(accounting)
+            .then_some(self.time_to_first_token?)
+            .map(duration_millis)
+    }
+
+    fn tool_duration_ms(&self, accounting: &ProviderRequestAccounting) -> Option<u64> {
+        if !self.matches(accounting) {
+            return None;
+        }
+        let expected = self.tool_count?;
+        (self.completed_tools >= expected && self.active_tools.is_empty()).then(|| duration_millis(self.tool_duration))
+    }
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
 /// Where input submitted during an active run should be queued.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 pub enum QueueTarget {
@@ -1134,6 +1220,7 @@ pub struct RuntimeState {
     pub session_usage: SessionUsage,
     pub codex_usage: Option<codex::CodexUsageStatus>,
     pub ttft: TurnTtftState,
+    pub request_observation: RequestObservationState,
     pub ui_tick: u64,
     pub ctrl_d_pending: Option<u64>,
     pub stopping_deadline: Option<u64>,
@@ -1344,6 +1431,7 @@ impl App {
                 session_usage: SessionUsage::default(),
                 codex_usage: None,
                 ttft: TurnTtftState::default(),
+                request_observation: RequestObservationState::default(),
                 ui_tick: 0,
                 ctrl_d_pending: None,
                 stopping_deadline: None,
@@ -1864,14 +1952,7 @@ fn display_token(value: Option<u64>) -> String {
 }
 
 fn fresh_input_tokens(usage: &thndrs_agent::ProviderUsage) -> Option<u64> {
-    let input = usage.components.input_tokens?;
-    match usage.rule {
-        thndrs_agent::ProviderUsageRule::AnthropicMessages => Some(input),
-        thndrs_agent::ProviderUsageRule::OpenAiChat | thndrs_agent::ProviderUsageRule::OpenAiResponses => usage
-            .components
-            .cache_read_input_tokens
-            .map(|cached| input.saturating_sub(cached)),
-    }
+    usage.fresh_input_tokens()
 }
 
 fn session_usage_line(usage: &SessionUsage) -> String {

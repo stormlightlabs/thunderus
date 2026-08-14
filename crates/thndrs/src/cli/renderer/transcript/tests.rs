@@ -74,6 +74,36 @@ fn skill_activation_is_a_compact_estimate_instead_of_instruction_body() {
     assert!(!text.contains("INTERNAL INSTRUCTIONS"));
 }
 
+#[test]
+fn context_request_status_uses_section_and_value_hierarchy() {
+    let entry = Entry::Status {
+        text: "context request request-1#1 · completed\nmodel  gpt-5\nroute  provider/model\n\n── Timing\nduration  125ms\nfirst token  20ms\n\n── Links\nprovider operation  request-1#1"
+            .to_string(),
+    };
+
+    let rows = ctx(80).rows_for_entry(&entry);
+    let palette = renderer::style::palette();
+
+    assert!(
+        rows.iter()
+            .any(|row| row.text().contains("◇ Request  request-1#1 · completed"))
+    );
+    assert!(rows.iter().any(|row| {
+        row.spans
+            .iter()
+            .any(|span| span.text == "Timing" && span.style.fg == palette.accent && span.style.bold)
+    }));
+    assert!(rows.iter().any(|row| {
+        row.spans
+            .iter()
+            .any(|span| span.text == "125ms" && span.style.fg == palette.primary)
+    }));
+    assert!(
+        rows.iter()
+            .any(|row| row.text().contains("provider operation  request-1#1"))
+    );
+}
+
 fn assert_snapshot(name: &str, contents: &str) {
     insta::with_settings!({snapshot_path => "../snapshots"}, {
         insta::assert_snapshot!(name, contents);

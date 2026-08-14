@@ -1267,6 +1267,7 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
                 None
             }
             "changes" => return show_context_changes(app, ""),
+            "request" => return show_context_request(app, None),
             "export" => {
                 app.transcript.entries.push(Entry::Error {
                     text: "usage: /context export <path> [json|markdown] [--artifacts]".to_string(),
@@ -1293,8 +1294,9 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
             }
             _ => {
                 app.transcript.entries.push(Entry::Error {
-                    text: "usage: /context [show|all|changes|item|pin|drop|recover|verify|release|review|export]"
-                        .to_string(),
+                    text:
+                        "usage: /context [show|all|request|changes|item|pin|drop|recover|verify|release|review|export]"
+                            .to_string(),
                 });
                 None
             }
@@ -1303,6 +1305,7 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
 
     let result = match action {
         "changes" => return show_context_changes(app, reference.trim()),
+        "request" => return show_context_request(app, Some(reference.trim())),
         "item" => return show_context_item(app, reference.trim()),
         "pin" => app.pin_context_reference(reference.trim()),
         "drop" if reference.trim() == "--reset" => app.reset_context_drops(),
@@ -1312,7 +1315,9 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
         "review" => return handle_context_review(app, reference.trim()),
         "verify" | "verification" => return handle_context_verification(app, reference.trim()),
         "export" => return handle_context_export(app, reference.trim()),
-        _ => Err("usage: /context [show|all|changes|item|pin|drop|recover|verify|release|review|export]".to_string()),
+        _ => Err(
+            "usage: /context [show|all|request|changes|item|pin|drop|recover|verify|release|review|export]".to_string(),
+        ),
     };
     match result {
         Ok(()) => {
@@ -1329,6 +1334,15 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
 fn show_context_changes(app: &mut App, input: &str) -> Option<Msg> {
     let request_ids = input.split_whitespace().collect::<Vec<_>>();
     match app.transcript.context_history.render_changes(&request_ids) {
+        Ok(text) => app.transcript.entries.push(Entry::Status { text }),
+        Err(error) => app.transcript.entries.push(Entry::Error { text: error.to_string() }),
+    }
+    app.composer.input.clear();
+    None
+}
+
+fn show_context_request(app: &mut App, selector: Option<&str>) -> Option<Msg> {
+    match app.transcript.context_history.render_request(selector) {
         Ok(text) => app.transcript.entries.push(Entry::Status { text }),
         Err(error) => app.transcript.entries.push(Entry::Error { text: error.to_string() }),
     }

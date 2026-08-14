@@ -207,6 +207,21 @@ pub struct ContextSnapshot {
     /// Provider-reported usage and normalization provenance after completion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_usage: Option<ProviderUsage>,
+    /// Client-observed provider operation duration in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Client-observed time to the first semantic provider output in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_to_first_token_ms: Option<u64>,
+    /// Tool calls returned by the provider operation, once known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_count: Option<u64>,
+    /// Aggregate client-observed duration of this request's tool calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_duration_ms: Option<u64>,
+    /// Stable transcript block identities produced while handling this request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transcript_entries: Vec<String>,
 }
 
 /// Content-free audit record for an explicit lifecycle transition.

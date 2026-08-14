@@ -1178,6 +1178,9 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
             }
         }
         Entry::Status { text } => {
+            if text.starts_with("context request ") {
+                return context_request_rows(text, width, railed_body_width, bg);
+            }
             let rail_style = CellStyle::new().fg(p.secondary).bg(bg);
             let label_style = CellStyle::new().fg(p.secondary).bg(bg);
             let text_style = CellStyle::new().fg(p.secondary).bg(bg);
@@ -1198,6 +1201,60 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
                 .build("⚠ Error", text)
         }
     }
+}
+
+fn context_request_rows(text: &str, width: usize, body_width: usize, bg: Color) -> Vec<Row> {
+    let p = super::style::palette();
+    let rail_style = CellStyle::new().fg(p.accent).bg(bg);
+    let heading_style = CellStyle::new().fg(p.accent).bg(bg).bold();
+    let label_style = CellStyle::new().fg(p.secondary).bg(bg);
+    let value_style = CellStyle::new().fg(p.primary).bg(bg);
+    let mut lines = text.lines();
+    let summary = lines.next().unwrap_or_default().trim_start_matches("context request ");
+    let mut rows = vec![
+        Row::blank(width, CellStyle::new().bg(bg)),
+        Row::padded(
+            vec![
+                Span::styled(ENTRY_RAIL, rail_style),
+                Span::styled("◇ Request", heading_style),
+                Span::styled("  ", CellStyle::new().bg(bg)),
+                Span::styled(summary.to_string(), CellStyle::new().fg(p.primary).bg(bg).bold()),
+            ],
+            width,
+            CellStyle::new().bg(bg),
+        ),
+    ];
+
+    for line in lines {
+        if line.is_empty() {
+            rows.push(Row::blank(width, CellStyle::new().bg(bg)));
+            continue;
+        }
+        if let Some(section) = line.strip_prefix("── ") {
+            rows.push(Row::padded(
+                vec![
+                    Span::styled(ENTRY_RAIL, rail_style),
+                    Span::styled(section.to_string(), heading_style),
+                ],
+                width,
+                CellStyle::new().bg(bg),
+            ));
+            continue;
+        }
+
+        let (label, value) = line.split_once("  ").unwrap_or(("", line));
+        let label = if label.is_empty() { String::new() } else { format!("{label:<18}  ") };
+        let content = vec![
+            Span::styled(label, label_style),
+            Span::styled(value.to_string(), value_style),
+        ];
+        for wrapped in super::layout::wrap_spans(&content, body_width) {
+            let mut spans = vec![Span::styled(ENTRY_RAIL, rail_style)];
+            spans.extend(wrapped);
+            rows.push(Row::padded(spans, width, CellStyle::new().bg(bg)));
+        }
+    }
+    rows
 }
 
 /// Build an assistant message block, detecting markdown code fences for syntax highlighting.

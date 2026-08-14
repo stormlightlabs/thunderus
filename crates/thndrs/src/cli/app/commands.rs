@@ -21,6 +21,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("reasoning", "set reasoning effort"),
     ("skills", "browse loaded skills"),
     ("context", "inspect context lifecycle"),
+    ("context request", "inspect a provider request"),
     ("context verify", "review a verification relation"),
     ("context release", "explicitly release context protection"),
     ("doctor", "show context health"),

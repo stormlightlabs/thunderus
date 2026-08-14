@@ -1232,6 +1232,7 @@ where
                         }
                     });
                     accounting.provider_usage = provider_usage;
+                    accounting.tool_count = Some(turn.tool_requests.len() as u64);
                     if send(tx, AgentEvent::RequestAccounting(Box::new(accounting)), cancel).is_none() {
                         return Err(ProviderAttemptError::Stream("cancelled".to_string()));
                     }
