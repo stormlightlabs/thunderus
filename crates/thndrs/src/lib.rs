@@ -1844,6 +1844,15 @@ fn redact_secret(text: &str) -> String {
     text.replace("sk-", "sk-[REDACTED]")
 }
 
+fn session_resume_message(app: &App) -> Option<String> {
+    (!app.is_ephemeral()).then(|| {
+        format!(
+            "Session ID: {}\nResume with: thndrs session resume {}",
+            app.session.id, app.session.id
+        )
+    })
+}
+
 /// Interactive alternate-screen mode with one application-owned viewport.
 fn run_inline(tick: Duration, cli: &Cli, initial_session: InitialSession<'_>) -> io::Result<()> {
     let app = match initial_session {
@@ -1855,7 +1864,13 @@ fn run_inline(tick: Duration, cli: &Cli, initial_session: InitialSession<'_>) ->
     let stdout = io::BufWriter::with_capacity(TERMINAL_WRITE_BUFFER_CAPACITY, io::stdout());
     let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
     let mut surface = RatatuiSurface::new(terminal, terminal_session);
-    interactive_loop(&mut surface, tick, cli, app)
+    let resume_message = interactive_loop(&mut surface, tick, cli, app)?;
+    surface.terminal_session.suspend()?;
+    drop(surface);
+    if let Some(message) = resume_message {
+        println!("{message}");
+    }
+    Ok(())
 }
 
 trait InteractiveSurface {
@@ -1967,7 +1982,9 @@ fn encode_base64(bytes: &[u8]) -> String {
 
 /// Renderer-neutral interactive coordinator for application, agent, terminal,
 /// and render events.
-fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli: &Cli, mut app: App) -> io::Result<()> {
+fn interactive_loop<S: InteractiveSurface>(
+    surface: &mut S, tick: Duration, cli: &Cli, mut app: App,
+) -> io::Result<Option<String>> {
     let tick = tick.max(MIN_RENDER_INTERVAL);
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let observability = init_tracing(&workspace_root, &app.session.id, app.session.run_persistence);
@@ -2028,7 +2045,7 @@ fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli:
         if app.runtime.quit {
             tracing::info!("quitting thndrs");
             append_daily_log(&observability, &app.session.id, "session_end", "reason=quit");
-            return Ok(());
+            return Ok(session_resume_message(&app));
         }
 
         let wait_deadline = presenter
@@ -2432,6 +2449,28 @@ mod tests {
     use prompt::PromptBundle;
     use std::path::{Path, PathBuf};
     use std::process::Command;
+
+    #[test]
+    fn durable_exit_message_includes_session_id_and_resume_command() {
+        let dir = tempfile::tempdir().expect("temp workspace");
+        let app = App::from_cli(&Cli { cwd: dir.path().to_path_buf(), ..Cli::default() });
+
+        assert_eq!(
+            session_resume_message(&app),
+            Some(format!(
+                "Session ID: {}\nResume with: thndrs session resume {}",
+                app.session.id, app.session.id
+            ))
+        );
+    }
+
+    #[test]
+    fn ephemeral_exit_has_no_resume_message() {
+        let dir = tempfile::tempdir().expect("temp workspace");
+        let app = App::from_cli(&Cli { cwd: dir.path().to_path_buf(), ephemeral: true, ..Cli::default() });
+
+        assert_eq!(session_resume_message(&app), None);
+    }
 
     fn test_agent_slot(
         receiver: mpsc::Receiver<app::AgentEvent>, cancel: CancelToken, steering: mpsc::Sender<String>,

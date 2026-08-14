@@ -186,6 +186,37 @@ fn double_slash_while_working_queues_literal_slash_followup() {
 }
 
 #[test]
+fn slash_new_replaces_the_active_session() {
+    let mut app = fresh_durable_app();
+    let previous_id = app.session.id.clone();
+    app.composer.input = PromptInput::from("/new");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_ne!(app.session.id, previous_id);
+    assert!(!app.is_ephemeral());
+    assert!(matches!(
+        app.transcript.entries.last(),
+        Some(Entry::Status { text }) if text == &format!("started new session: {}", app.session.id)
+    ));
+    assert!(app.composer.input.is_empty());
+}
+
+#[test]
+fn slash_new_while_working_is_rejected() {
+    let mut app = working_app_with_streaming();
+    let session_id = app.session.id.clone();
+    app.composer.input = PromptInput::from("/new");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.session.id, session_id);
+    assert!(app.transcript.entries.iter().any(
+        |entry| matches!(entry, Entry::Status { text } if text.contains("not available while the agent is working"))
+    ));
+}
+
+#[test]
 fn slash_clear_clears_transcript_and_input() {
     let mut app = fresh_app();
     app.transcript.entries.push(Entry::User { text: String::from("old") });

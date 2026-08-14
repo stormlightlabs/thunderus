@@ -1309,7 +1309,7 @@ impl App {
             .clone()
             .unwrap_or_else(|| session::sessions_dir(&workspace_root));
         let run_persistence = if value.ephemeral { RunPersistence::Ephemeral } else { RunPersistence::Durable };
-        let session_id = session::generate_session_id();
+        let session_id = available_session_id(&sessions_dir);
         let input_history_store = InputHistoryStore::for_workspace(&workspace_root);
         let input_history = input_history_store.load_recent().ok().flatten().unwrap_or_default();
         let (mcp_config_files, mcp_config_diagnostics) = agent_lifecycle::load_mcp_config_audit(&workspace_root);
@@ -1492,6 +1492,17 @@ impl App {
         let mut app = Self::build(cli, SessionStartup::Existing);
         app.resume_session(session_id)?;
         Ok(app)
+    }
+
+    /// Replace the active session with a newly created session.
+    pub fn start_new_session(&mut self) {
+        let cli = self.runtime.cli.clone();
+        let mut next = Self::from_cli(&cli);
+        let id = next.session.id.clone();
+        next.transcript
+            .entries
+            .push(Entry::Status { text: format!("started new session: {id}") });
+        *self = next;
     }
 
     /// Replace the active session with a validated durable session.
@@ -1895,6 +1906,18 @@ impl App {
             .find(|config| **config != ReductionConfig::default())
             .cloned()
             .unwrap_or_else(|| self.runtime.cli.context.reduction.clone())
+    }
+}
+
+fn available_session_id(session_directory: &Path) -> String {
+    let base = session::generate_session_id();
+    let mut suffix = 1_u64;
+    loop {
+        let candidate = if suffix == 1 { base.clone() } else { format!("{base}-{suffix}") };
+        if !session_directory.join(format!("{candidate}.jsonl")).exists() {
+            return candidate;
+        }
+        suffix = suffix.saturating_add(1);
     }
 }
 

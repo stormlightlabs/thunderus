@@ -26,6 +26,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("context release", "explicitly release context protection"),
     ("doctor", "show context health"),
     ("history", "list recent sessions"),
+    ("new", "start a new session"),
     ("resume", "resume a local session"),
     ("name", "name the current session"),
     ("session", "show a local session summary"),
@@ -187,6 +188,10 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
 
     match command {
         "compact" => super::context::start_compaction(app, session::CompactionTrigger::Manual, None),
+        "new" => {
+            app.start_new_session();
+            None
+        }
         "clear" => {
             app.transcript.entries.clear();
             app.composer.input.clear();

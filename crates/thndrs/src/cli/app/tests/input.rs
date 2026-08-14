@@ -215,6 +215,18 @@ fn q_appends_to_input_and_does_not_quit() {
 }
 
 #[test]
+fn ctrl_c_quits_when_idle() {
+    let mut app = fresh_app();
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+    );
+
+    assert!(app.runtime.quit);
+}
+
+#[test]
 fn mouse_wheel_does_not_edit_or_recall_prompt_input() {
     let mut app = fresh_app();
     app.composer.input = PromptInput::from("current draft");
