@@ -404,6 +404,7 @@ impl ToolBlockView<'_> {
         };
         let preview = &output[preview_start..];
 
+        let mut output_rows = Vec::new();
         match content {
             super::tool_output::ContentKind::Code { language } => {
                 let joined: String = preview
@@ -428,7 +429,7 @@ impl ToolBlockView<'_> {
                         tool_content_width,
                         muted_style,
                     ));
-                    rows.push(Row::padded(spans, self.width, CellStyle::new().bg(self.bg)));
+                    output_rows.push(Row::padded(spans, self.width, CellStyle::new().bg(self.bg)));
                 }
             }
             super::tool_output::ContentKind::SearchResults => {
@@ -452,7 +453,7 @@ impl ToolBlockView<'_> {
                                 spans.extend(prefix.clone());
                             }
                             spans.push(Span::styled(part, CellStyle::new().fg(p.secondary).bg(self.bg)));
-                            rows.push(Row::padded(
+                            output_rows.push(Row::padded(
                                 super::layout::truncate_spans(&spans, self.body_width, muted_style),
                                 self.width,
                                 CellStyle::new().bg(self.bg),
@@ -460,7 +461,7 @@ impl ToolBlockView<'_> {
                         }
                     } else {
                         push_plain_tool_line(
-                            &mut rows,
+                            &mut output_rows,
                             &line,
                             self.width,
                             tool_content_width,
@@ -475,7 +476,7 @@ impl ToolBlockView<'_> {
                 for line in preview {
                     let line = super::path_display::transcript_line(line, self.cwd);
                     push_plain_tool_line(
-                        &mut rows,
+                        &mut output_rows,
                         &line,
                         self.width,
                         tool_content_width,
@@ -488,28 +489,68 @@ impl ToolBlockView<'_> {
             super::tool_output::ContentKind::Diff(_) => unreachable!("diff content returned above"),
         }
 
-        if !self.detail_open && output.len() > MAX_TOOL_OUTPUT_LINES {
-            rows.push(Row::padded(
-                vec![
-                    Span::styled(ACTIVITY_RAIL, rail_style),
-                    Span::styled(
-                        format!(
-                            "     … ({} lines stored, {} {} shown here){}",
-                            output.len(),
-                            MAX_TOOL_OUTPUT_LINES,
-                            if self.status == ToolStatus::Running { "latest" } else { "first" },
-                            if self.detail_target { " · Ctrl+O details" } else { "" }
-                        ),
-                        muted_style,
-                    ),
-                ],
+        if self.detail_open {
+            rows.extend(output_rows);
+        } else {
+            rows.extend(bounded_tool_output_rows(
+                output_rows,
+                output.len(),
+                self.status,
+                self.detail_target,
                 self.width,
-                CellStyle::new().bg(self.bg),
+                self.bg,
+                rail_style,
+                muted_style,
             ));
         }
 
         rows
     }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The row projection needs the surrounding transcript styles."
+)]
+fn bounded_tool_output_rows(
+    output_rows: Vec<Row>, stored_lines: usize, status: ToolStatus, detail_target: bool, width: usize, bg: Color,
+    rail_style: CellStyle, muted_style: CellStyle,
+) -> Vec<Row> {
+    if output_rows.len() <= MAX_TOOL_OUTPUT_LINES && stored_lines <= MAX_TOOL_OUTPUT_LINES {
+        return output_rows;
+    }
+
+    let marker_text = format!(
+        "     … {} output hidden{}",
+        if status == ToolStatus::Running { "Earlier" } else { "Middle" },
+        if detail_target { " · Ctrl+O details" } else { "" }
+    );
+    let marker_spans = vec![
+        Span::styled(ACTIVITY_RAIL, rail_style),
+        Span::styled(marker_text, muted_style),
+    ];
+    let marker = Row::padded(
+        super::layout::truncate_spans(&marker_spans, width, muted_style),
+        width,
+        CellStyle::new().bg(bg),
+    );
+
+    if status == ToolStatus::Running {
+        let start = output_rows.len().saturating_sub(MAX_TOOL_OUTPUT_LINES);
+        let mut bounded = Vec::with_capacity(MAX_TOOL_OUTPUT_LINES + 1);
+        bounded.push(marker);
+        bounded.extend(output_rows.into_iter().skip(start));
+        return bounded;
+    }
+
+    const HEAD_ROWS: usize = 2;
+    let tail_rows = MAX_TOOL_OUTPUT_LINES - HEAD_ROWS;
+    let tail_start = output_rows.len().saturating_sub(tail_rows).max(HEAD_ROWS);
+    let mut bounded = Vec::with_capacity(MAX_TOOL_OUTPUT_LINES + 1);
+    bounded.extend(output_rows.iter().take(HEAD_ROWS).cloned());
+    bounded.push(marker);
+    bounded.extend(output_rows.into_iter().skip(tail_start));
+    bounded
 }
 
 fn push_plain_tool_line(

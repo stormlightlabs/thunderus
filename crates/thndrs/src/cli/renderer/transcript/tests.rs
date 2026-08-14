@@ -665,6 +665,38 @@ fn snapshot_tool_failed_compiler() {
 }
 
 #[test]
+fn failed_tool_output_is_bounded_after_wrapping_and_keeps_the_summary() {
+    let entry = Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"program": "cargo clippy --workspace"}"#.to_string(),
+        status: ToolStatus::Failed,
+        output: vec![
+            "error: command failed (exit 101)".to_string(),
+            "Checking dependency_zero v1.0.0".to_string(),
+            "Checking dependency_one v1.0.0".to_string(),
+            "Checking dependency_two v1.0.0".to_string(),
+            "Checking dependency_three v1.0.0".to_string(),
+            "error: this compiler diagnostic is deliberately long enough to wrap across several terminal rows"
+                .to_string(),
+            "  --> src/main.rs:38:29".to_string(),
+            "help: use a clearer conditional expression".to_string(),
+            "error: could not compile `thndrs` due to 1 previous error".to_string(),
+        ],
+    };
+    let rows = ctx(48).rows_for_entry(&entry);
+    let rendered = row::Frame { rows: rows.clone(), width: 48, cursor: None, cursor_visible: true }.render_text();
+
+    assert!(
+        rows.len() <= 11,
+        "header, detail affordance, and bounded output should stay compact:\n{rendered}"
+    );
+    assert!(rendered.contains("error: command failed (exit 101)"));
+    assert!(rendered.contains("Middle output hidden"));
+    assert!(rendered.contains("could not compile `thndrs`"));
+    assert!(!rendered.contains("dependency_two"));
+}
+
+#[test]
 fn snapshot_status_entry_normal() {
     let entry = Entry::Status { text: "context  AGENTS.md (scope: .)".to_string() };
     assert_snapshot("transcript_status_entry_normal", &render_entry_styled(&entry, 80));

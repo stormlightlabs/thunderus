@@ -427,7 +427,7 @@ impl RunHandle {
                     );
                     return;
                 }
-                if self.expects_write && !wrote_file {
+                if stopped_without_expected_write(&turn.assistant_text, self.expects_write, wrote_file) {
                     let _ = send(
                         tx,
                         AgentEvent::Failed(String::from(
@@ -1301,6 +1301,10 @@ fn append_steering_messages(messages: &mut Vec<ProviderMessage>, handle: &RunHan
         }
         None => false,
     }
+}
+
+fn stopped_without_expected_write(assistant_text: &str, expects_write: bool, wrote_file: bool) -> bool {
+    assistant_text.is_empty() && expects_write && !wrote_file
 }
 
 /// Read an Anthropic-compatible SSE streaming response, converting events to [`AgentEvent`]
@@ -2788,6 +2792,16 @@ mod tests {
         assert_eq!(messages[0].role, "user");
         assert!(messages[0].as_text().contains("[steering]"));
         assert!(messages[0].as_text().contains("look at tests first"));
+    }
+
+    #[test]
+    fn edit_like_request_can_finish_with_a_clarifying_response() {
+        assert!(!stopped_without_expected_write(
+            "Should I build on the existing changes?",
+            true,
+            false
+        ));
+        assert!(stopped_without_expected_write("", true, false));
     }
 
     fn handle_with_permission(decision: ToolPermissionDecision) -> RunHandle {

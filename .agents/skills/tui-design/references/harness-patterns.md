@@ -132,6 +132,7 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 - Keep spinner width constant so adjacent text does not move.
 - Replace transient progress with a durable outcome when work completes.
 - Show duration, exit status, or output counts only when they help interpret the result.
+- Bound collapsed tool output by rendered viewport rows after wrapping. Keep the latest rows for live output; for failures, keep a small head-and-tail diagnostic preview with an explicit path to the full output.
 - Put recovery or approval actions directly after the condition that needs them.
 
 ### Pickers, command palettes, and permissions
