@@ -1,10 +1,11 @@
-# Homebrew Release Checklist
+# Homebrew release checklist
 
-Complete the [common release gate](README.md#common-release-gate) and the applicable [Cargo release](cargo.md) before starting this checklist.
+Complete the [common release gate](README.md#common-release-gate) and the
+applicable [Cargo release](cargo.md) before starting this checklist.
 
 The v0.2 Homebrew cask installs prebuilt binaries. It does not build the Cargo
-package. Complete the [Cargo release checklist](cargo.md) for each crate that changed, using
-its v0.2 version, before publishing the binary channel.
+package. Complete the [Cargo release checklist](cargo.md) for each crate that
+changed, using its v0.2 version, before publishing the binary channel.
 
 The application and library version independently. If only the application
 changed, publish only `thndrs 0.2.0`. If the library changed, publish it first,

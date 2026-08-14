@@ -6,14 +6,14 @@ time. Herdr is the preferred tool for agent work because it understands agent
 lifecycle state. tmux and Zellij are useful fallbacks for ordinary terminal
 processes.
 
-The multiplexer owns terminal layout and process visibility while the orchestrating
+The multiplexer owns terminal layout and process visibility. The orchestrating
 agent handles task selection, delegation, review, and the decision to continue.
 
 ## Working Layout
 
-Use one orchestrator pane and one worker pane are enough for most
-tasks. Add a third pane only for a server, focused test watcher, or
-other long-running process that is actively useful.
+One orchestrator pane and one worker pane are enough for most tasks. Add a third
+pane only for a server, focused test watcher, or another useful long-running
+process.
 
 | Pane    | Typical responsibility                                       |
 | ------- | ------------------------------------------------------------ |
@@ -21,10 +21,10 @@ other long-running process that is actively useful.
 | Worker  | Implement one bounded change or investigate one question     |
 | Runtime | Run a server, focused tests, logs, or a reproducible failure |
 
-You don't need to fill every available pane, as multiple agents, builds, language
-servers, and test processes can make the entire machine unresponsive, so start with
-a single worker, wait for it to settle, and add concurrency for independent units
-of work on capable resources.
+Do not fill every available pane. Multiple agents, builds, language servers,
+and test processes can make the machine unresponsive. Start with one worker,
+wait for it to settle, and add concurrency only for independent work when the
+machine has capacity.
 
 ## Operating Rules
 

@@ -1,9 +1,12 @@
-# Shell Installer Release Checklist
+# Shell installer release checklist
 
-Complete the [common release gate](README.md#common-release-gate), [Cargo release](cargo.md), and [Homebrew release](brew.md) before starting this checklist.
+Complete the [common release gate](README.md#common-release-gate),
+[Cargo release](cargo.md), and [Homebrew release](brew.md) before starting this
+checklist.
 
-The v0.3 installer reuses the tagged release archives and checksum manifest
-introduced in v0.2. It must not maintain a second binary build path.
+The shell installer follows the first Homebrew release. It reuses the tagged
+release archives and checksum manifest introduced for v0.2; it must not
+maintain a second binary build path.
 
 ## 1. Define the installer contract
 
@@ -40,7 +43,7 @@ introduced in v0.2. It must not maintain a second binary build path.
 - [ ] Test paths containing spaces, a missing installation directory, an
       unwritable destination, interrupted downloads, HTTP failures, checksum
       mismatches, and malformed archives.
-- [ ] Confirm a pinned v0.3 install reports `thndrs 0.3.0`.
+- [ ] Confirm a pinned install reports the candidate version.
 - [ ] Confirm rerunning the installer is idempotent.
 - [ ] Confirm an upgrade replaces only the managed `thndrs` binary.
 - [ ] Run a shell linter and formatter chosen by the implementation change.
@@ -57,9 +60,9 @@ Record:
 
 Publish in this order:
 
-1. Complete the Cargo release and clean registry install for v0.3.
-2. Publish and verify the tagged v0.3 binary archives and checksum manifest.
-3. Update and test the v0.3 Homebrew cask.
+1. Complete the Cargo release and clean registry install for the candidate.
+2. Publish and verify the tagged binary archives and checksum manifest.
+3. Update and test the matching Homebrew cask.
 4. Publish an immutable, versioned copy of the installer.
 5. Run the versioned installer from its public URL in clean environments.
 6. Point the stable installer URL at the tested versioned copy.
@@ -72,8 +75,8 @@ Publish in this order:
 - [ ] Public docs show how to download and inspect the script before running it.
 - [ ] Public docs state the default destination, supported targets, version
       pinning syntax, and uninstall command.
-- [ ] The Cargo, Homebrew, and shell paths all install the same `thndrs 0.3.0`
-      application behavior.
+- [ ] The Cargo, Homebrew, and shell paths all install the same candidate
+      version and application behavior.
 
 Record:
 

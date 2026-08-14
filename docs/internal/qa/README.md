@@ -1,17 +1,24 @@
-# Release Checklist And Publication Sequence
+# Release checklist and publication sequence
 
 This is the release-owner runbook for `thndrs-agent` and `thndrs`. Complete it
 in order. Record redacted results as the release evidence.
 
-The installation channels are phased:
+The publication channels are phased by prerequisite, not by a permanent
+product-version sequence:
 
-| Release | Channel             | Published artifact                                                     |
-| ------- | ------------------- | ---------------------------------------------------------------------- |
-| v0.1    | [Cargo](cargo.md)   | `thndrs-agent` and `thndrs` on crates.io                               |
-| v0.2    | [Homebrew](brew.md) | Tagged binaries and `Casks/thndrs.rb` in `stormlightlabs/homebrew-tap` |
-| v0.3    | [Shell](shell.md)   | A versioned installer that uses the v0.2 binary archives and checksums |
+| Channel                             | First target    | Prerequisite                                  |
+| ----------------------------------- | --------------- | --------------------------------------------- |
+| [Cargo](cargo.md)                   | Every release   | The common gate and crate archive review      |
+| [GitHub bins and Homebrew](brew.md) | v0.2            | A tagged release with archives and checksums  |
+| [Shell installer](shell.md)         | A later release | A proven binary archive and checksum pipeline |
 
-Complete the common gate in this document before using a channel checklist. Publishing a crate version is permanent. Never publish from a dirty checkout,
+As of 2026-08-14, `thndrs-agent 0.1.0` and `thndrs 0.1.0` are available on
+crates.io. The repository has no version tag or GitHub release, and the
+Homebrew tap has no `thndrs` cask. Confirm the provenance of the published
+v0.1 crates before deciding whether to backfill a v0.1 tag or release.
+
+Complete the common gate in this document before using a channel checklist.
+Publishing a crate version is permanent. Never publish from a dirty checkout,
 never pass `--allow-dirty` to the real publish command, and never record
 registry tokens, credentials, account identifiers, authorization URLs,
 callback URLs, or device codes.
@@ -32,22 +39,16 @@ callback URLs, or device codes.
 
 ## Maintainability risks
 
-- All 260 non-merge commits in the available history have one author. This is a
-  review and continuity risk even though it says nothing negative about the
-  code itself. Require a second human reviewer for both package archives and
-  the two runtime-boundary fixes.
-- Several core files carry too many responsibilities: `core/agent.rs`,
-  `core/auth.rs`, `core/session/mod.rs`, `core/search.rs`, and
-  `server/handlers.rs` each exceed 1,000 lines before or including substantial
-  inline tests. Split them only along existing domain seams when making related
-  changes; a broad pre-release refactor would add risk.
+- The available history is concentrated in one author. Require a second human
+  reviewer for package archives and release-boundary changes.
+- Several coordination modules carry many responsibilities, notably
+  `lib.rs`, `cli/app.rs` and its submodules, `core/agent.rs`,
+  `core/session/mod.rs`, `core/auth.rs`, and `server/handlers.rs`. Split them
+  only along existing domain seams when related work needs the split; a broad
+  pre-release refactor would add risk.
 - The dependency graph contains duplicate generations of the HTML parsing
   stack through `lectito` and the direct `scraper` dependency. This is a build
-  size and maintenance cost, not a v0.1 correctness blocker. Revisit it when
-  search or extraction next changes.
-- The documentation build passes but warns that Astro's `markdown.gfm` and
-  `markdown.smartypants` settings are deprecated. Move them before the next
-  Astro major upgrade.
+  size and maintenance cost. Revisit it when search or extraction next changes.
 
 ## Common Release Gate
 

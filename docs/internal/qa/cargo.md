@@ -1,17 +1,26 @@
-# Cargo Release Checklist
+# Cargo release checklist
 
-Complete the [common release gate](README.md#common-release-gate) before starting this checklist.
+Complete the [common release gate](README.md#common-release-gate) before
+starting this checklist. Set the candidate versions in the release shell and
+use them throughout. The values below are for the planned v0.2 release and must
+match the manifests.
+
+```sh
+agent_version=0.2.0
+app_version=0.2.0
+```
 
 The library must reach crates.io before Cargo can verify the application's
-registry dependency. Treat the two publishes as separate irreversible actions
-with separate approval gates.
+registry dependency when both crates change. Skip the library archive and
+publish sections when the release does not change `thndrs-agent`. Treat each
+publish as a separate irreversible action with its own approval gate.
 
 ## 1. Review the `thndrs-agent` archive
 
 ```sh
 cargo publish -p thndrs-agent --dry-run --locked
 cargo package -p thndrs-agent --locked --list
-tar -tzf target/package/thndrs-agent-0.1.0.crate
+tar -tzf "target/package/thndrs-agent-$agent_version.crate"
 ```
 
 - [ ] The archive contains `Cargo.toml`, `README.md`, `LICENSE`, intended Rust
@@ -42,11 +51,12 @@ cargo publish -p thndrs-agent --locked
 ```
 
 - [ ] The upload succeeds.
-- [ ] crates.io serves version `0.1.0` and its metadata is correct.
+- [ ] crates.io serves the candidate library version and its metadata is
+      correct.
 - [ ] The version is available through the registry index:
 
   ```sh
-  cargo info --registry crates-io thndrs-agent@0.1.0
+  cargo info --registry crates-io "thndrs-agent@$agent_version"
   ```
 
 - [ ] docs.rs builds the public API documentation without warnings.
@@ -65,16 +75,17 @@ registry reports that the upload failed.
 
 ## 3. Review the final `thndrs` archive
 
-Run this only after `thndrs-agent 0.1.0` is available from the registry:
+Run this only after the required `thndrs-agent` version is available from the
+registry:
 
 ```sh
 cargo publish -p thndrs --dry-run --locked
 cargo package -p thndrs --locked --list
-tar -tzf target/package/thndrs-0.1.0.crate
+tar -tzf "target/package/thndrs-$app_version.crate"
 ```
 
-- [ ] Cargo resolves `thndrs-agent = "0.1.0"` from crates.io while verifying
-      the package.
+- [ ] Cargo resolves the manifest's `thndrs-agent` requirement from crates.io
+      while verifying the package.
 - [ ] The archive contains the Apache-2.0 license, package metadata,
       application README, sources, tests, snapshots, prompt fragments, and the
       intended provider and ACP fixtures.
@@ -99,11 +110,12 @@ cargo publish -p thndrs --locked
 ```
 
 - [ ] The upload succeeds.
-- [ ] crates.io serves version `0.1.0` with the correct metadata and README.
+- [ ] crates.io serves the candidate application version with the correct
+      metadata and README.
 - [ ] The version is available through the registry index:
 
   ```sh
-  cargo info --registry crates-io thndrs@0.1.0
+  cargo info --registry crates-io "thndrs@$app_version"
   ```
 
 Record:
@@ -122,13 +134,13 @@ existing `thndrs` binary:
 release_root="$(mktemp -d)"
 mkdir -p "$release_root/home" "$release_root/cargo"
 HOME="$release_root/home" CARGO_HOME="$release_root/cargo" \
-  cargo install --locked --version 0.1.0 thndrs
+  cargo install --locked --version "$app_version" thndrs
 HOME="$release_root/home" \
   "$release_root/cargo/bin/thndrs" --version
 ```
 
-- [ ] Cargo downloads and installs `thndrs 0.1.0` from crates.io.
-- [ ] The installed binary reports `thndrs 0.1.0`.
+- [ ] Cargo downloads and installs the candidate version from crates.io.
+- [ ] The installed binary reports the candidate version.
 - [ ] Complete the installed application acceptance checks with that binary.
 - [ ] Remove the disposable directory after recording redacted evidence.
 
@@ -139,13 +151,13 @@ Record:
 - Setup and diagnostics result:
 - Provider and terminal smoke result:
 
-## 6. Finish v0.1
+## 6. Finish the Cargo release
 
 - [ ] Review the final crates.io pages, docs.rs output, public docs, and
       repository links.
 - [ ] Confirm this checklist contains no secrets or account data.
-- [ ] Tag the exact published and tested revision as `v0.1.0` only after both
-      crate publishes and the clean-install smoke succeed.
+- [ ] Tag the exact published and tested revision only after the required crate
+      publishes and the clean-install smoke succeed.
 - [ ] Publish release notes from the matching changelog section.
 - [ ] Record any failure or workaround before closing the release.
 
@@ -157,9 +169,9 @@ Record:
 
 ## Existing v0.1 Package Evidence
 
-These preliminary reviews were completed on 2026-07-16. They are mechanical
-evidence, not publication approval, and do not replace the clean release
-commands above.
+These archive reviews were completed on 2026-07-16. Both packages are now
+available on crates.io. The evidence is retained for the v0.1 record; it does
+not replace the clean release commands above.
 
 ### `thndrs-agent 0.1.0`
 
@@ -180,10 +192,10 @@ commands above.
 
 ### `thndrs 0.1.0`
 
-Cargo assembled this preliminary archive with a command-local crates.io patch
-pointing to the workspace copy of `thndrs-agent`; the package manifest still
-names the registry dependency. Repeat the normal verification after
-`thndrs-agent 0.1.0` is available from crates.io.
+Cargo assembled this archive before `thndrs-agent 0.1.0` was available, using
+a command-local crates.io patch that pointed to the workspace copy. The package
+manifest still named the registry dependency. `thndrs 0.1.0` was subsequently
+published to crates.io.
 
 - Archive: `target/package/thndrs-0.1.0.crate`
 - Contents: 226 files, 2.8 MiB before compression, 542.4 KiB compressed
