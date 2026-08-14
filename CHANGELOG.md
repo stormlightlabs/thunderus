@@ -18,6 +18,29 @@
 - Context compaction through `/compact` or automatic budget thresholds, with
   anchored summaries, a retained recent turn-aligned tail, and configurable
   mode, review policy, threshold, and tail size.
+- Inspect upcoming and past request context with `/context`, including item
+  details, changes, and compaction, reduction, and recovery events. An optional
+  status segment shows remaining context.
+- Record context snapshots and changes for every provider request, including
+  usage reported by the provider.
+- Fork sessions from completed turns and export sessions as Markdown, HTML, or
+  JSON.
+- Run without saving a session with `--ephemeral` or `--no-session`.
+- Start a new session with `/new`. When a saved session ends, thndrs prints its
+  ID and resume command.
+- Mention workspace files and directories with `@` or `Ctrl+P`.
+- Continue tool-heavy turns past the tool-batch limit, with progress updates
+  between batches.
+- Show activated skills in the transcript and improve transcript scrolling with
+  the keyboard and mouse.
+- Manage session storage from the CLI and session browser: archive, pin, delete,
+  restore, prune, and purge sessions.
+- Automatically remove expired trash, unreferenced artifacts, stale temporary
+  files, and old shared logs.
+- Choose whether to retain request content and artifact bodies; metadata is kept
+  by default.
+- Export request and context timing, token, and transformation metrics through
+  OpenTelemetry.
 
 ### Changed
 
