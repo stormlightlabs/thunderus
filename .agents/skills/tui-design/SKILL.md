@@ -26,7 +26,7 @@ For a narrow correction, keep this pass short. For a redesign, cover the whole s
 - Leave the session label, surrounding space, status, and footer on the terminal background.
 - Establish a spacing rhythm and shared alignment anchors. One stray row or column can make a small TUI feel unfinished.
 - Use borders for real containment, focus, or selection. Avoid nested chrome and decorative rules around passive content.
-- Keep labels short, specific, and visually subordinate to the user's draft and current work.
+- Keep labels short, specific, and visually subordinate to the user's draft and current work. Show one primary elapsed-time measure instead of competing operation and aggregate timers.
 - Use one dominant accent plus semantic success, warning, and error roles. Make every state legible without color.
 - Keep live updates spatially stable. Streaming, spinners, status changes, and popup dismissal must not make unrelated content jump.
 - Design empty, busy, failed, cancelled, permission, long-content, and tiny-terminal states with the same care as the ideal screenshot.

@@ -47,6 +47,8 @@
 - Refined the TUI with responsive content rails, a quieter conversation
   hierarchy, a unified composer and status area, grouped tool activity, and
   semantic colors across the built-in themes.
+- Simplified runtime labels and added continuous elapsed-turn timing to the
+  composer header.
 
 ## v0.1.0
 

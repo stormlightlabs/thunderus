@@ -695,8 +695,8 @@ fn build_view_working_state_has_live_tail_without_duplicate_composer_status() {
     let view = RendererView::build(&app, 80, 24);
 
     assert!(!view.live.live_tail.is_empty(), "working state should have a live tail");
-    assert!(!view.live.prompt_rows[0].text().contains("Responding"));
-    assert!(view.live.static_status.text().contains("Responding"));
+    assert!(!view.live.prompt_rows[0].text().contains("Working"));
+    assert!(view.live.static_status.text().contains("Working"));
 }
 
 #[test]

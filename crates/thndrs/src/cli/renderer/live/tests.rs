@@ -258,7 +258,7 @@ fn frame_prompt_rows_keeps_runtime_status_out_of_composer_header() {
     let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
 
     assert!(rows[0].text().contains("test-session"));
-    assert!(!rows[0].text().contains("Responding"));
+    assert!(!rows[0].text().contains("Working"));
 }
 
 #[test]
@@ -303,6 +303,53 @@ fn static_status_row_prioritizes_immediate_state() {
 }
 
 #[test]
+fn composer_header_shows_completed_turn_elapsed_time() {
+    let mut app = test_app();
+    app.session.id = "test-session".to_string();
+    app.runtime
+        .turn_timing
+        .set_completed_for_test(std::time::Duration::from_secs(83));
+
+    let (body_rows, cursor) = prompt_rows_for(&app, 80);
+    let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
+
+    assert!(rows[0].text().contains("test-session"));
+    assert!(rows[0].text().trim_end().ends_with("Worked for 1m 23s"));
+}
+
+#[test]
+fn composer_header_shows_active_turn_elapsed_time() {
+    let mut app = test_app();
+    app.runtime.turn_timing.start_turn();
+
+    let (body_rows, cursor) = prompt_rows_for(&app, 80);
+    let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
+
+    assert!(rows[0].text().trim_end().ends_with("Working for 0s"));
+}
+
+#[test]
+fn composer_header_hides_elapsed_time_before_the_session_label_at_narrow_width() {
+    let mut app = test_app();
+    app.session.id = "test-session".to_string();
+    app.runtime
+        .turn_timing
+        .set_completed_for_test(std::time::Duration::from_secs(83));
+
+    let (rows, _) = frame_prompt_rows(&app, 12, prompt_rows_for(&app, 12).0, None);
+
+    assert!(rows[0].text().contains("test"));
+    assert!(!rows[0].text().contains("Worked for"));
+}
+
+#[test]
+fn elapsed_time_uses_a_compact_minutes_and_seconds_format() {
+    assert_eq!(format_elapsed(std::time::Duration::from_millis(999)), "0s");
+    assert_eq!(format_elapsed(std::time::Duration::from_secs(59)), "59s");
+    assert_eq!(format_elapsed(std::time::Duration::from_secs(60)), "1m 00s");
+}
+
+#[test]
 fn static_status_row_names_active_work() {
     let mut app = test_app();
     app.runtime.run_state = RunState::Working;
@@ -311,7 +358,7 @@ fn static_status_row_names_active_work() {
         .push(Entry::Reasoning { text: "checking".to_string(), streaming: true });
 
     let text = static_status_row(&app, 80).text();
-    assert!(text.contains("Thinking"));
+    assert!(text.contains("Working"));
     assert!(text.contains('⠋'));
 }
 

@@ -146,6 +146,7 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 ### Status and footer
 
 - Show only state that changes the user's next action.
+- Use `Working` for model-side activity without a distinct user-facing action; reserve specific labels for tools, approval, retry, cancellation, and failure.
 - Prefer one calm line to several badges or counters.
 - Keep predictive context capacity visible when it is known; hide it before
   primary state under width pressure.

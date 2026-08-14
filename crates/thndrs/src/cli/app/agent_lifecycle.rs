@@ -126,6 +126,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             // A `Started` event can still be queued when the user stops the
             // run. Do not let it revive a run that is already winding down.
             if app.runtime.run_state != RunState::Stopping {
+                app.runtime.turn_timing.ensure_started();
                 app.runtime.stopping_deadline = None;
                 app.runtime.run_state = RunState::Working;
             }
@@ -157,6 +158,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::RequestStarted(accounting) => {
             app.runtime.provider_retry = None;
+            app.runtime.turn_timing.ensure_started();
             app.runtime
                 .request_observation
                 .start(&accounting, app.transcript.entries.len());
@@ -217,6 +219,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::ToolStarted { id, name, arguments } => {
             app.runtime.provider_retry = None;
+            app.runtime.turn_timing.ensure_started();
             app.runtime.request_observation.start_tool(&id);
             record_tool_started(app, &id, &name, &arguments);
             persist_completed_observation(app);
@@ -288,12 +291,14 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::Retrying { attempt, max_attempts, delay_ms, error } => {
             persist_active_context_snapshot(app, session::ContextSnapshotState::Failed);
+            app.runtime.turn_timing.ensure_started();
             discard_retry_output(app);
             app.runtime.run_state = RunState::Working;
             app.runtime.provider_retry = Some(provider_retry_status(attempt, max_attempts, delay_ms, &error));
             None
         }
         AgentEvent::PermissionRequest(permission) => {
+            app.runtime.turn_timing.ensure_started();
             finalize_streaming(app);
             if app.overlay.permission().is_some() {
                 let _ = permission.cancel();
@@ -337,6 +342,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::Finished => {
             app.runtime.provider_retry = None;
+            app.runtime.turn_timing.finish_turn();
             app.runtime.stopping_deadline = None;
             app.runtime.ttft.clear_pending();
             finalize_streaming(app);
@@ -360,6 +366,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             next.and_then(|next| submit_user_turn(app, next))
         }
         AgentEvent::Failed(msg) => {
+            app.runtime.turn_timing.finish_turn();
             persist_active_context_snapshot(app, session::ContextSnapshotState::Failed);
             app.runtime.provider_retry = None;
             app.runtime.stopping_deadline = None;
@@ -385,6 +392,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Cancelled => {
+            app.runtime.turn_timing.finish_turn();
             persist_active_context_snapshot(app, session::ContextSnapshotState::Interrupted);
             app.runtime.provider_retry = None;
             app.runtime.stopping_deadline = None;

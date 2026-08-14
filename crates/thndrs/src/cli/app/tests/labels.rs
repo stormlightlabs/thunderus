@@ -123,19 +123,19 @@ fn status_label_idle_when_no_transcript() {
 }
 
 #[test]
-fn status_label_sending_after_user_submit() {
+fn status_label_working_after_user_submit() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     app.transcript.entries.push(Entry::User { text: String::from("hi") });
-    assert_eq!(app.status_label(), "Sending");
+    assert_eq!(app.status_label(), "Working");
 }
 
 #[test]
-fn status_label_thinking_during_reasoning_stream() {
+fn status_label_working_during_reasoning_stream() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::ReasoningDelta(String::from("hmm"))));
-    assert_eq!(app.status_label(), "Thinking");
+    assert_eq!(app.status_label(), "Working");
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn status_label_working_during_assistant_stream() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
-    assert_eq!(app.status_label(), "Responding");
+    assert_eq!(app.status_label(), "Working");
 }
 
 #[test]
@@ -189,6 +189,18 @@ fn status_label_names_a_legacy_running_shell_command() {
         }),
     );
     assert_eq!(app.status_label(), "Running cargo test");
+}
+
+#[test]
+fn turn_timing_is_preserved_after_finished() {
+    let mut app = fresh_app();
+    app.composer.input = PromptInput::from("measure this turn");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    assert!(app.runtime.turn_timing.elapsed().is_some());
 }
 
 #[test]

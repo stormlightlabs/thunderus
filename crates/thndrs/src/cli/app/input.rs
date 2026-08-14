@@ -2022,6 +2022,7 @@ fn start_turn(app: &mut App, text: String, record_user_entry: bool) -> Option<Ms
     app.composer.history_draft.clear();
     app.composer.last_input = Some(text);
     app.runtime.ttft.start_turn();
+    app.runtime.turn_timing.start_turn();
     app.session.turn_count += 1;
     let turn_id = format!("turn_{}", app.session.turn_count);
     agent_lifecycle::refresh_mcp_config_audit(app, &turn_id);

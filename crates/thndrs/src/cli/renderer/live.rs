@@ -132,14 +132,8 @@ pub fn frame_prompt_rows(
     let label_style = CellStyle::new().fg(accent).bold();
     let content_width = super::layout::content_width(width);
 
-    let session = app.run_label();
-    let session_budget = content_width.saturating_sub(LIVE_INSET).max(1);
-    let label = utils::truncate_ellipsis(session, session_budget);
-    let fixed = LIVE_INSET + utils::text_width(&label);
     let queued_count = app.composer.queue.pending_count(crate::app::QueueTarget::Steering)
         + app.composer.queue.pending_count(crate::app::QueueTarget::FollowUp);
-    let queued = format!("{queued_count} queued");
-    let queued_width = utils::text_width(&queued);
     let queue_is_in_status = app
         .runtime
         .cli
@@ -148,25 +142,32 @@ pub fn frame_prompt_rows(
         .iter()
         .chain(&app.runtime.cli.status_line.right)
         .any(|segment| *segment == crate::config::StatusSegment::QueueCount);
-    let show_queued = queued_count > 0 && !queue_is_in_status && fixed + 1 + queued_width <= content_width;
-    let top_spans = if show_queued {
-        vec![
-            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new()),
-            Span::styled(label, label_style),
-            Span::styled(" ".repeat(content_width - fixed - queued_width), CellStyle::new()),
-            Span::styled(queued, CellStyle::new().fg(p.secondary)),
-        ]
-    } else if fixed < content_width {
-        vec![
-            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new()),
-            Span::styled(label, label_style),
-            Span::styled(" ".repeat(content_width - fixed), CellStyle::new()),
-        ]
-    } else {
-        vec![
-            Span::styled(" ".repeat(LIVE_INSET.min(content_width)), CellStyle::new()),
-            Span::styled(label, label_style),
-        ]
+    let right_text = turn_timing(app)
+        .or_else(|| (queued_count > 0 && !queue_is_in_status).then(|| format!("{queued_count} queued")));
+    let right_width = right_text.as_deref().map_or(0, utils::text_width);
+    let session_width = utils::text_width(app.run_label());
+    let has_right = right_width > 0 && LIVE_INSET + session_width + 1 + right_width <= content_width;
+    let session_budget = content_width
+        .saturating_sub(LIVE_INSET + usize::from(has_right) * (right_width + 1))
+        .max(1);
+    let label = utils::truncate_ellipsis(app.run_label(), session_budget);
+    let fixed = LIVE_INSET + utils::text_width(&label) + usize::from(has_right) * (right_width + 1);
+    let mut top_spans = vec![
+        Span::styled(" ".repeat(LIVE_INSET.min(content_width)), CellStyle::new()),
+        Span::styled(label, label_style),
+    ];
+    match right_text {
+        Some(right_text) if has_right => {
+            top_spans.push(Span::styled(
+                " ".repeat(content_width.saturating_sub(fixed)),
+                CellStyle::new(),
+            ));
+            top_spans.push(Span::styled(right_text, CellStyle::new().fg(p.secondary)));
+        }
+        _ if fixed < content_width => {
+            top_spans.push(Span::styled(" ".repeat(content_width - fixed), CellStyle::new()));
+        }
+        _ => {}
     };
 
     let vertical_padding = || composer_input_row(Vec::new(), width, content_width, p.input);
@@ -181,6 +182,20 @@ pub fn frame_prompt_rows(
         cursor
     });
     (framed, cursor)
+}
+
+/// Format the active or completed turn elapsed time for the composer header.
+fn turn_timing(app: &App) -> Option<String> {
+    let timing = &app.runtime.turn_timing;
+    let label = if timing.is_active() { "Working for" } else { "Worked for" };
+    timing
+        .elapsed()
+        .map(|elapsed| format!("{label} {}", format_elapsed(elapsed)))
+}
+
+fn format_elapsed(duration: std::time::Duration) -> String {
+    let seconds = duration.as_secs();
+    if seconds < 60 { format!("{seconds}s") } else { format!("{}m {:02}s", seconds / 60, seconds % 60) }
 }
 
 /// Build accessory rows (help, commands, or file picker) if active.

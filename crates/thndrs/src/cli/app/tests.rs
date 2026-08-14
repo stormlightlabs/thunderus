@@ -3486,7 +3486,7 @@ fn request_start_updates_live_context_usage() {
 }
 
 #[test]
-fn request_start_returns_status_to_sending_after_a_tool() {
+fn request_start_returns_status_to_working_after_a_tool() {
     let mut app = fresh_app();
     app.runtime.run_state = RunState::Working;
     app.transcript.entries.push(Entry::Tool {
@@ -3508,7 +3508,7 @@ fn request_start_returns_status_to_sending_after_a_tool() {
 
     handle_agent_event(&mut app, AgentEvent::RequestStarted(Box::new(accounting)));
 
-    assert_eq!(app.status_label(), "Sending");
+    assert_eq!(app.status_label(), "Working");
 }
 
 #[test]

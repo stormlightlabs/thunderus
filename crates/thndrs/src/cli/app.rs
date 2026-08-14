@@ -240,6 +240,53 @@ impl TurnTtftState {
     }
 }
 
+/// Client-observed elapsed time for the active or most recent turn.
+#[derive(Clone, Debug, Default)]
+pub struct TurnTimingState {
+    turn_started_at: Option<Instant>,
+    last_turn: Option<Duration>,
+}
+
+impl TurnTimingState {
+    /// Start timing a new turn.
+    pub fn start_turn(&mut self) {
+        self.turn_started_at = Some(Instant::now());
+        self.last_turn = None;
+    }
+
+    /// Ensure an externally started turn has a timing origin.
+    pub fn ensure_started(&mut self) {
+        if self.turn_started_at.is_none() {
+            self.start_turn();
+        }
+    }
+
+    /// Freeze the current timing when the turn settles.
+    pub fn finish_turn(&mut self) {
+        if let Some(started_at) = self.turn_started_at.take() {
+            self.last_turn = Some(started_at.elapsed());
+        }
+    }
+
+    /// Whether the turn timer is currently running.
+    pub fn is_active(&self) -> bool {
+        self.turn_started_at.is_some()
+    }
+
+    /// The elapsed time for the active or most recently completed turn.
+    pub fn elapsed(&self) -> Option<Duration> {
+        self.turn_started_at
+            .map(|started_at| started_at.elapsed())
+            .or(self.last_turn)
+    }
+
+    #[cfg(test)]
+    pub fn set_completed_for_test(&mut self, turn: Duration) {
+        self.turn_started_at = None;
+        self.last_turn = Some(turn);
+    }
+}
+
 /// Client-observed timing and transcript links for one provider request.
 #[derive(Debug, Default)]
 pub struct RequestObservationState {
@@ -1222,6 +1269,7 @@ pub struct RuntimeState {
     pub session_usage: SessionUsage,
     pub codex_usage: Option<codex::CodexUsageStatus>,
     pub ttft: TurnTtftState,
+    pub turn_timing: TurnTimingState,
     pub request_observation: RequestObservationState,
     pub ui_tick: u64,
     pub ctrl_d_pending: Option<u64>,
@@ -1449,6 +1497,7 @@ impl App {
                 session_usage: SessionUsage::default(),
                 codex_usage: None,
                 ttft: TurnTtftState::default(),
+                turn_timing: TurnTimingState::default(),
                 request_observation: RequestObservationState::default(),
                 ui_tick: 0,
                 ctrl_d_pending: None,
@@ -1772,14 +1821,10 @@ impl App {
                 self.runtime.provider_retry.clone().unwrap_or_default()
             }
             RunState::Working => match self.transcript.entries.last() {
-                Some(Entry::Reasoning { streaming: true, .. }) => "Thinking".to_string(),
-                Some(Entry::Agent { streaming: true, .. }) => "Responding".to_string(),
                 Some(Entry::Tool { name, arguments, status: ToolStatus::Running, .. }) => {
                     running_tool_status(name, arguments)
                 }
-                _ if self.session.active_request_accounting.is_some() => "Sending".to_string(),
                 Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "Stopped".to_string(),
-                Some(Entry::User { .. }) | None => "Sending".to_string(),
                 _ => "Working".to_string(),
             },
             RunState::Stopping => "Stopping".to_string(),

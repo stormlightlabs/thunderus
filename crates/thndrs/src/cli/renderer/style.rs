@@ -233,7 +233,7 @@ pub fn status_color(label: &str) -> Color {
         "Ready" => p.success,
         "Stopped" => p.focus,
         "Failed" => p.failure,
-        "Sending" | "Thinking" | "Responding" | "Working" | "Compacting" | "Stopping" => p.active,
+        "Working" | "Compacting" | "Stopping" => p.active,
         _ if label.starts_with("Running ") => p.active,
         _ => p.secondary,
     }
@@ -241,7 +241,7 @@ pub fn status_color(label: &str) -> Color {
 
 pub fn status_icon(label: &str, tick: u64) -> &'static str {
     match label {
-        "Sending" | "Thinking" | "Responding" | "Working" | "Compacting" | "Stopping" => spinner_frame(tick),
+        "Working" | "Compacting" | "Stopping" => spinner_frame(tick),
         "Ready" => "✓",
         "Failed" => "✕",
         "Stopped" => "○",
@@ -417,8 +417,8 @@ mod tests {
 
         for label in [
             "Ready",
-            "Sending",
-            "Responding",
+            "Working",
+            "Compacting",
             "Running cargo test",
             "Stopped",
             "Failed",
@@ -426,7 +426,7 @@ mod tests {
             assert_eq!(UnicodeWidthStr::width(status_icon(label, 0)), 1, "{label}");
         }
         assert!(status_icon("Ready", 0) != status_icon("Failed", 0));
-        assert!(status_icon("Stopped", 0) != status_icon("Sending", 0));
+        assert!(status_icon("Stopped", 0) != status_icon("Working", 0));
     }
 
     #[test]
