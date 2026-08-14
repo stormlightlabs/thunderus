@@ -71,9 +71,7 @@ pub use retention::{
     PruneCandidate, PruneFailure, PruneOverrides, PruneReason, PruneReport, SessionRetentionPolicy, apply_prune,
     apply_prune_cancellable, select_prune_candidates,
 };
-pub use telemetry::{
-    CONTEXT_TELEMETRY_MAX_OBSERVATIONS, CONTEXT_TELEMETRY_SCHEMA_VERSION, ContextTelemetryExport, TelemetryObservation,
-};
+pub use telemetry::{CONTEXT_TELEMETRY_CARDINALITY_LIMIT, emit_context_telemetry, export_context_telemetry};
 
 /// Current JSONL schema version.
 pub const SCHEMA_VERSION: u32 = 1;

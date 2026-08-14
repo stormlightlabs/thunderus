@@ -22,6 +22,9 @@ insta = "1.48.0"
 lectito = "0.2"
 markdown = "1.0.0"
 minijinja = { version = "2.21.0", default-features = false, features = ["builtins", "debug", "fuel", "serde"] }
+opentelemetry = { version = "0.32.0", default-features = false, features = ["metrics"] }
+opentelemetry_sdk = { version = "0.32.1", default-features = false, features = ["metrics"] }
+opentelemetry-stdout = { version = "0.32.0", default-features = false, features = ["metrics"] }
 process-wrap = { version = "9.1", default-features = false, features = ["job-object", "process-group", "std"] }
 regex-lite = "0.1"
 ratatui = { version = "0.30.0", default-features = false }

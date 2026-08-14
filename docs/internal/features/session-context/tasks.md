@@ -250,16 +250,16 @@
       fails.
 - [x] Apply the capture policy to inspect, compare, resume, fork, and export.
 
-## CONTEXT-10: Export optional OpenTelemetry observations
+## CONTEXT-10: Export optional OpenTelemetry metrics
 
 **Blocked by:** CONTEXT-8.
 
-- [x] Read telemetry from persisted snapshots, diffs, request accounting, and
-      transformation records.
+- [x] Use the OpenTelemetry Rust API and SDK to read persisted snapshots,
+      request accounting, adjacent working-set changes, and transformations.
 - [x] Emit request and tool timings, token measurements, counts, errors, and
       compaction or reduction before-and-after values with capped cardinality.
-- [x] Omit prompt, response, tool, and artifact content unless CONTEXT-9 permits
-      capture for the run.
-- [x] Include estimate and measurement provenance and use provider-neutral
-      export types.
+- [x] Keep prompt, response, tool, and artifact content out of metrics in every
+      capture mode.
+- [x] Include estimate and measurement provenance as bounded attributes on
+      provider-neutral OpenTelemetry instruments.
 - [x] Ensure exporter failures do not block or change an agent request.

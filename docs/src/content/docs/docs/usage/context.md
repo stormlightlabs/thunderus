@@ -66,12 +66,12 @@ deletion, and per-item size limits. If sanitization or limit enforcement fails,
 capture stops without writing that content. Raw provider payloads are never
 retained.
 
-`thndrs context telemetry` derives bounded, provider-neutral OpenTelemetry
-observations from persisted snapshots, diffs, accounting, and transformations.
-It includes timings, token measurements and provenance, tool counts, errors,
-and reduction before-and-after values. Content follows the run's capture policy.
-Export errors cannot affect an agent request because telemetry is generated
-afterward from the session log.
+`thndrs context telemetry` sends provider-neutral metrics from the persisted
+session log through the OpenTelemetry SDK's stdout exporter. It includes
+timings, token measurements and provenance, tool counts, errors, working-set
+changes, and reduction before-and-after values. Metrics never include prompt,
+response, tool, or artifact content. Export errors cannot affect an agent
+request because the command runs afterward against the session log.
 
 ## What can enter the working set
 

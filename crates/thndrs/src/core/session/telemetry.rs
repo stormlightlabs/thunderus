@@ -1,369 +1,267 @@
-//! Provider-neutral OpenTelemetry observations derived from persisted session records.
+//! OpenTelemetry metrics derived from persisted session records.
 
-use std::collections::BTreeMap;
 use std::io;
 
-use serde::Serialize;
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Counter, Histogram, Meter, MeterProvider};
+use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::metrics::{SdkMeterProvider, Stream};
 use thndrs_agent::MeasurementProvenance;
 
-use super::{CapturedRequestContent, ContextSnapshotState, SessionRecord};
+use super::{ContextSnapshotState, SessionRecord};
 
-/// Version of the stable persisted-record telemetry projection.
-pub const CONTEXT_TELEMETRY_SCHEMA_VERSION: &str = "context-otel-v1";
-/// Maximum number of observations emitted by one export.
-pub const CONTEXT_TELEMETRY_MAX_OBSERVATIONS: usize = 8_192;
+/// Maximum number of attribute sets retained for each exported metric.
+pub const CONTEXT_TELEMETRY_CARDINALITY_LIMIT: usize = 128;
 const MAX_ATTRIBUTE_BYTES: usize = 128;
 
-/// A bounded telemetry document suitable for an OpenTelemetry adapter or collector input.
-#[derive(Clone, Debug, Serialize)]
-pub struct ContextTelemetryExport {
-    pub schema_version: &'static str,
-    pub session_id: String,
-    pub content_included: bool,
-    pub observations: Vec<TelemetryObservation>,
+struct ContextMetrics {
+    operation_duration: Histogram<f64>,
+    time_to_first_token: Histogram<f64>,
+    request_size: Histogram<u64>,
+    token_usage: Histogram<u64>,
+    tool_calls: Histogram<u64>,
+    tool_duration: Histogram<f64>,
+    transformation_size: Histogram<u64>,
+    transformation_tokens: Histogram<u64>,
+    working_set_delta: Histogram<f64>,
+    errors: Counter<u64>,
 }
 
-/// One provider-neutral metric, event, or request span observation.
-#[derive(Clone, Debug, Serialize)]
-pub struct TelemetryObservation {
-    pub signal: String,
-    pub name: String,
-    pub unit: String,
-    pub value: f64,
-    pub attributes: BTreeMap<String, String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provenance: Option<MeasurementProvenance>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<CapturedRequestContent>,
-}
+impl ContextMetrics {
+    fn new(meter: &Meter) -> Self {
+        Self {
+            operation_duration: meter
+                .f64_histogram("gen_ai.client.operation.duration")
+                .with_unit("s")
+                .build(),
+            time_to_first_token: meter
+                .f64_histogram("thndrs.context.time_to_first_token")
+                .with_unit("s")
+                .build(),
+            request_size: meter
+                .u64_histogram("thndrs.context.request.size")
+                .with_unit("By")
+                .build(),
+            token_usage: meter
+                .u64_histogram("gen_ai.client.token.usage")
+                .with_unit("{token}")
+                .build(),
+            tool_calls: meter
+                .u64_histogram("thndrs.context.tool.calls")
+                .with_unit("{call}")
+                .build(),
+            tool_duration: meter
+                .f64_histogram("thndrs.context.tool.duration")
+                .with_unit("s")
+                .build(),
+            transformation_size: meter
+                .u64_histogram("thndrs.context.transformation.size")
+                .with_unit("By")
+                .build(),
+            transformation_tokens: meter
+                .u64_histogram("thndrs.context.transformation.tokens")
+                .with_unit("{token}")
+                .build(),
+            working_set_delta: meter
+                .f64_histogram("thndrs.context.working_set.delta")
+                .with_unit("{token}")
+                .build(),
+            errors: meter.u64_counter("thndrs.context.errors").with_unit("{error}").build(),
+        }
+    }
 
-impl ContextTelemetryExport {
-    /// Derive bounded observations only from records already persisted for the session.
-    pub fn from_records(session_id: &str, records: &[SessionRecord]) -> io::Result<Self> {
-        let content_permitted = records
-            .iter()
-            .rev()
-            .find_map(|record| match record {
-                SessionRecord::ContextCapturePolicy { policy, .. } => Some(policy.permits_content()),
-                _ => None,
-            })
-            .unwrap_or(false);
-        let captures = if content_permitted {
-            records
-                .iter()
-                .filter_map(|record| match record {
-                    SessionRecord::RequestContentCaptured { capture, .. } => {
-                        Some(((capture.request_id.clone(), capture.attempt), capture.clone()))
-                    }
-                    _ => None,
-                })
-                .collect::<BTreeMap<_, _>>()
-        } else {
-            BTreeMap::new()
-        };
-        let mut observations = Vec::new();
+    fn record(&self, records: &[SessionRecord]) {
         for record in records {
             match record {
                 SessionRecord::ContextSnapshot { snapshot, .. }
                     if snapshot.state != ContextSnapshotState::Dispatched =>
                 {
-                    let mut attributes = request_attributes(
-                        &snapshot.provider,
-                        &snapshot.model,
-                        &snapshot.request_id,
-                        snapshot.attempt,
-                    );
-                    attributes.insert(
-                        "thndrs.request.state".to_string(),
-                        format!("{:?}", snapshot.state).to_lowercase(),
-                    );
-                    push(
-                        &mut observations,
-                        "span",
-                        "gen_ai.client.operation.duration",
-                        "ms",
-                        snapshot.duration_ms.unwrap_or(0) as f64,
-                        attributes.clone(),
-                        captures.get(&(snapshot.request_id.clone(), snapshot.attempt)).cloned(),
-                    )?;
-                    optional_metric(
-                        &mut observations,
-                        "thndrs.context.time_to_first_token",
-                        "ms",
-                        snapshot.time_to_first_token_ms,
-                        &attributes,
-                    )?;
-                    optional_metric(
-                        &mut observations,
-                        "thndrs.context.request.size",
-                        "By",
-                        snapshot.serialized_bytes,
-                        &attributes,
-                    )?;
-                    optional_metric(
-                        &mut observations,
-                        "gen_ai.client.token.usage",
-                        "token",
-                        snapshot.estimated_input_tokens,
-                        &attributes,
-                    )?;
-                    optional_metric(
-                        &mut observations,
-                        "thndrs.context.tool.calls",
-                        "{call}",
-                        snapshot.tool_count,
-                        &attributes,
-                    )?;
-                    optional_metric(
-                        &mut observations,
-                        "thndrs.context.tool.duration",
-                        "ms",
-                        snapshot.tool_duration_ms,
-                        &attributes,
-                    )?;
+                    let attributes = request_attributes(&snapshot.provider, &snapshot.model, snapshot.state);
+                    if let Some(duration_ms) = snapshot.duration_ms {
+                        self.operation_duration.record(seconds(duration_ms), &attributes);
+                    }
+                    if let Some(duration_ms) = snapshot.time_to_first_token_ms {
+                        self.time_to_first_token.record(seconds(duration_ms), &attributes);
+                    }
+                    if let Some(tool_count) = snapshot.tool_count {
+                        self.tool_calls.record(tool_count, &attributes);
+                    }
+                    if let Some(duration_ms) = snapshot.tool_duration_ms {
+                        self.tool_duration.record(seconds(duration_ms), &attributes);
+                    }
                     if let Some(usage) = &snapshot.provider_usage {
-                        if let Some(value) = usage.components.input_tokens {
-                            push_measurement(
-                                &mut observations,
-                                "gen_ai.client.token.usage",
-                                "token",
-                                value,
-                                with_attr(&attributes, "gen_ai.token.type", "input"),
-                                MeasurementProvenance::ProviderReported {
-                                    provider: snapshot.provider.clone(),
-                                    component: "input_tokens".to_string(),
-                                },
-                            )?;
-                        }
-                        if let Some(value) = usage.components.output_tokens {
-                            push_measurement(
-                                &mut observations,
-                                "gen_ai.client.token.usage",
-                                "token",
-                                value,
-                                with_attr(&attributes, "gen_ai.token.type", "output"),
-                                MeasurementProvenance::ProviderReported {
-                                    provider: snapshot.provider.clone(),
-                                    component: "output_tokens".to_string(),
-                                },
-                            )?;
-                        }
+                        record_provider_usage(&self.token_usage, usage, &attributes);
                     }
                     for receipt in &snapshot.transformations {
-                        let attrs = with_attr(&attributes, "thndrs.context.transform", &receipt.method);
-                        push(
-                            &mut observations,
-                            "event",
-                            "thndrs.context.transform.before",
-                            "By",
-                            receipt.before_bytes as f64,
-                            attrs.clone(),
-                            None,
-                        )?;
-                        push(
-                            &mut observations,
-                            "event",
-                            "thndrs.context.transform.after",
-                            "By",
-                            receipt.after_bytes as f64,
-                            attrs,
-                            None,
-                        )?;
+                        record_transformation(
+                            &self.transformation_size,
+                            receipt.before_bytes,
+                            receipt.after_bytes,
+                            &receipt.method,
+                        );
                     }
                 }
                 SessionRecord::RequestAccounting { accounting, .. } => {
-                    let attributes = request_attributes(
-                        &accounting.provider,
-                        &accounting.model,
-                        &accounting.request_id,
-                        accounting.attempt,
-                    );
-                    push_measurement(
-                        &mut observations,
-                        "thndrs.context.request.size",
-                        "By",
+                    let attributes =
+                        request_attributes(&accounting.provider, &accounting.model, ContextSnapshotState::Completed);
+                    self.request_size.record(
                         accounting.serialized_bytes.value,
-                        attributes.clone(),
-                        accounting.serialized_bytes.provenance.clone(),
-                    )?;
+                        &with_provenance(attributes.clone(), &accounting.serialized_bytes.provenance),
+                    );
                     if let Some(value) = accounting.estimated_input_tokens.value {
-                        push_measurement(
-                            &mut observations,
-                            "gen_ai.client.token.usage",
-                            "token",
-                            value,
-                            attributes,
-                            accounting.estimated_input_tokens.provenance.clone(),
-                        )?;
+                        let mut attributes = with_provenance(attributes, &accounting.estimated_input_tokens.provenance);
+                        attributes.push(KeyValue::new("gen_ai.token.type", "input"));
+                        self.token_usage.record(value, &attributes);
                     }
                 }
                 SessionRecord::Compaction { audit, .. } => {
-                    let mut attributes = BTreeMap::new();
-                    attributes.insert("thndrs.context.transform".to_string(), "compaction".to_string());
                     if let Some(receipt) = audit.local_receipt {
-                        push(
-                            &mut observations,
-                            "event",
-                            "thndrs.context.transform.before",
-                            "By",
-                            receipt.before_bytes as f64,
-                            attributes.clone(),
-                            None,
-                        )?;
-                        push(
-                            &mut observations,
-                            "event",
-                            "thndrs.context.transform.after",
-                            "By",
-                            receipt.after_bytes as f64,
-                            attributes.clone(),
-                            None,
-                        )?;
-                        push(
-                            &mut observations,
-                            "event",
-                            "thndrs.context.transform.before",
-                            "token",
-                            receipt.before_token_estimate as f64,
-                            attributes.clone(),
-                            None,
-                        )?;
-                        push(
-                            &mut observations,
-                            "event",
-                            "thndrs.context.transform.after",
-                            "token",
-                            receipt.after_token_estimate as f64,
-                            attributes,
-                            None,
-                        )?;
+                        record_transformation(
+                            &self.transformation_size,
+                            receipt.before_bytes as u64,
+                            receipt.after_bytes as u64,
+                            "compaction",
+                        );
+                        record_transformation(
+                            &self.transformation_tokens,
+                            receipt.before_token_estimate,
+                            receipt.after_token_estimate,
+                            "compaction",
+                        );
                     }
                 }
-                SessionRecord::Failed { .. } => {
-                    push(
-                        &mut observations,
-                        "metric",
-                        "thndrs.context.errors",
-                        "{error}",
-                        1.0,
-                        BTreeMap::new(),
-                        None,
-                    )?;
-                }
+                SessionRecord::Failed { .. } => self.errors.add(1, &[]),
                 _ => {}
             }
         }
 
-        let mut terminal = records
-            .iter()
-            .filter_map(|record| match record {
-                SessionRecord::ContextSnapshot { seq, snapshot, .. }
-                    if snapshot.state != ContextSnapshotState::Dispatched =>
-                {
-                    Some((*seq, snapshot.as_ref()))
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        terminal.sort_by_key(|(seq, _)| *seq);
-        for pair in terminal.windows(2) {
-            let before = pair[0].1;
-            let after = pair[1].1;
-            let delta = after.ledger.used as i128 - before.ledger.used as i128;
-            let mut attributes = BTreeMap::new();
-            attributes.insert(
-                "thndrs.context.change".to_string(),
-                if delta < 0 { "decrease" } else { "increase_or_equal" }.to_string(),
-            );
-            push(
-                &mut observations,
-                "metric",
-                "thndrs.context.working_set.delta",
-                "token",
-                delta as f64,
-                attributes,
-                None,
-            )?;
+        let terminal = records.iter().filter_map(|record| match record {
+            SessionRecord::ContextSnapshot { seq, snapshot, .. }
+                if snapshot.state != ContextSnapshotState::Dispatched =>
+            {
+                Some((*seq, snapshot.ledger.used))
+            }
+            _ => None,
+        });
+        let mut previous = None;
+        for (_, used) in terminal {
+            if let Some(before) = previous {
+                let delta = used as i128 - before as i128;
+                let direction = if delta < 0 { "decrease" } else { "increase_or_equal" };
+                self.working_set_delta
+                    .record(delta as f64, &[KeyValue::new("thndrs.context.change", direction)]);
+            }
+            previous = Some(used);
         }
-        Ok(Self {
-            schema_version: CONTEXT_TELEMETRY_SCHEMA_VERSION,
-            session_id: session_id.to_string(),
-            content_included: content_permitted,
-            observations,
+    }
+}
+
+/// Export content-free metrics from persisted records with the OpenTelemetry stdout exporter.
+pub fn export_context_telemetry(session_id: &str, records: &[SessionRecord]) -> io::Result<()> {
+    let resource = Resource::builder_empty()
+        .with_service_name("thndrs")
+        .with_attribute(KeyValue::new("thndrs.session.id", session_id.to_string()))
+        .build();
+    let provider = SdkMeterProvider::builder()
+        .with_resource(resource)
+        .with_periodic_exporter(opentelemetry_stdout::MetricExporter::default())
+        .with_view(|_| {
+            Stream::builder()
+                .with_cardinality_limit(CONTEXT_TELEMETRY_CARDINALITY_LIMIT)
+                .build()
+                .ok()
         })
-    }
+        .build();
+    let meter = provider.meter("thndrs.context");
+    emit_context_telemetry(&meter, records);
+    provider.shutdown().map_err(io::Error::other)
+}
 
-    /// Encode the bounded exporter document as JSON.
-    pub fn to_json(&self) -> io::Result<String> {
-        serde_json::to_string_pretty(self).map_err(io::Error::other)
+/// Record content-free context metrics through an application-provided meter.
+pub fn emit_context_telemetry(meter: &Meter, records: &[SessionRecord]) {
+    ContextMetrics::new(meter).record(records);
+}
+
+fn record_provider_usage(instrument: &Histogram<u64>, usage: &thndrs_agent::ProviderUsage, attributes: &[KeyValue]) {
+    if let Some(value) = usage.components.input_tokens {
+        instrument.record(value, &token_attributes(attributes, "input", "provider_reported"));
+    }
+    if let Some(value) = usage.components.output_tokens {
+        instrument.record(value, &token_attributes(attributes, "output", "provider_reported"));
     }
 }
 
-fn optional_metric(
-    output: &mut Vec<TelemetryObservation>, name: &str, unit: &str, value: Option<u64>,
-    attributes: &BTreeMap<String, String>,
-) -> io::Result<()> {
-    if let Some(value) = value {
-        push(output, "metric", name, unit, value as f64, attributes.clone(), None)?;
-    }
-    Ok(())
+fn record_transformation(instrument: &Histogram<u64>, before: u64, after: u64, method: &str) {
+    let method = cap(method);
+    instrument.record(
+        before,
+        &[
+            KeyValue::new("thndrs.context.transformation", method.clone()),
+            KeyValue::new("thndrs.context.transformation.phase", "before"),
+        ],
+    );
+    instrument.record(
+        after,
+        &[
+            KeyValue::new("thndrs.context.transformation", method),
+            KeyValue::new("thndrs.context.transformation.phase", "after"),
+        ],
+    );
 }
 
-fn push(
-    output: &mut Vec<TelemetryObservation>, signal: &str, name: &str, unit: &str, value: f64,
-    attributes: BTreeMap<String, String>, content: Option<CapturedRequestContent>,
-) -> io::Result<()> {
-    if output.len() >= CONTEXT_TELEMETRY_MAX_OBSERVATIONS {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "context telemetry observation limit exceeded",
-        ));
-    }
-    output.push(TelemetryObservation {
-        signal: signal.to_string(),
-        name: name.to_string(),
-        unit: unit.to_string(),
-        value,
-        attributes,
-        provenance: None,
-        content,
-    });
-    Ok(())
+fn request_attributes(provider: &str, model: &str, state: ContextSnapshotState) -> Vec<KeyValue> {
+    vec![
+        KeyValue::new("gen_ai.provider.name", cap(provider)),
+        KeyValue::new("gen_ai.request.model", cap(model)),
+        KeyValue::new("thndrs.request.state", state_label(state)),
+    ]
 }
 
-fn push_measurement(
-    output: &mut Vec<TelemetryObservation>, name: &str, unit: &str, value: u64, attributes: BTreeMap<String, String>,
-    provenance: MeasurementProvenance,
-) -> io::Result<()> {
-    if output.len() >= CONTEXT_TELEMETRY_MAX_OBSERVATIONS {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "context telemetry observation limit exceeded",
-        ));
-    }
-    output.push(TelemetryObservation {
-        signal: "metric".to_string(),
-        name: name.to_string(),
-        unit: unit.to_string(),
-        value: value as f64,
-        attributes,
-        provenance: Some(provenance),
-        content: None,
-    });
-    Ok(())
-}
-
-fn request_attributes(provider: &str, model: &str, _request_id: &str, _attempt: u32) -> BTreeMap<String, String> {
-    BTreeMap::from([
-        ("gen_ai.provider.name".to_string(), cap(provider)),
-        ("gen_ai.request.model".to_string(), cap(model)),
-    ])
-}
-
-fn with_attr(attributes: &BTreeMap<String, String>, key: &str, value: &str) -> BTreeMap<String, String> {
-    let mut output = attributes.clone();
-    output.insert(key.to_string(), cap(value));
+fn token_attributes(attributes: &[KeyValue], token_type: &'static str, provenance: &'static str) -> Vec<KeyValue> {
+    let mut output = attributes.to_vec();
+    output.push(KeyValue::new("gen_ai.token.type", token_type));
+    output.push(KeyValue::new("thndrs.measurement.provenance", provenance));
     output
+}
+
+fn with_provenance(mut attributes: Vec<KeyValue>, provenance: &MeasurementProvenance) -> Vec<KeyValue> {
+    match provenance {
+        MeasurementProvenance::ExactSerialized { boundary } => {
+            attributes.push(KeyValue::new("thndrs.measurement.provenance", "exact_serialized"));
+            attributes.push(KeyValue::new("thndrs.measurement.boundary", cap(boundary)));
+        }
+        MeasurementProvenance::Estimated { estimator, version } => {
+            attributes.push(KeyValue::new("thndrs.measurement.provenance", "estimated"));
+            attributes.push(KeyValue::new("thndrs.measurement.method", cap(estimator)));
+            attributes.push(KeyValue::new("thndrs.measurement.version", cap(version)));
+        }
+        MeasurementProvenance::ProviderReported { component, .. } => {
+            attributes.push(KeyValue::new("thndrs.measurement.provenance", "provider_reported"));
+            attributes.push(KeyValue::new("thndrs.measurement.component", cap(component)));
+        }
+        MeasurementProvenance::Derived { rule, version } => {
+            attributes.push(KeyValue::new("thndrs.measurement.provenance", "derived"));
+            attributes.push(KeyValue::new("thndrs.measurement.method", cap(rule)));
+            attributes.push(KeyValue::new("thndrs.measurement.version", cap(version)));
+        }
+        MeasurementProvenance::Unknown => {
+            attributes.push(KeyValue::new("thndrs.measurement.provenance", "unknown"));
+        }
+    }
+    attributes
+}
+
+const fn state_label(state: ContextSnapshotState) -> &'static str {
+    match state {
+        ContextSnapshotState::Dispatched => "dispatched",
+        ContextSnapshotState::Completed => "completed",
+        ContextSnapshotState::Failed => "failed",
+        ContextSnapshotState::Interrupted => "interrupted",
+    }
+}
+
+fn seconds(milliseconds: u64) -> f64 {
+    milliseconds as f64 / 1_000.0
 }
 
 fn cap(value: &str) -> String {
@@ -377,67 +275,57 @@ fn cap(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::{ContextCapturePolicy, ContextLedgerMeta, ContextSnapshot, SCHEMA_VERSION};
+    use crate::session::{CapturedRequestContent, ContextLedgerMeta, ContextSnapshot, SCHEMA_VERSION};
+    use opentelemetry_sdk::metrics::InMemoryMetricExporter;
     use thndrs_agent::context::{ModelLimitConfidence, ModelLimitSource};
 
     #[test]
-    fn metadata_policy_omits_captured_content() {
+    fn emits_sdk_metrics_without_captured_content() {
+        let exporter = InMemoryMetricExporter::default();
+        let provider = SdkMeterProvider::builder()
+            .with_periodic_exporter(exporter.clone())
+            .build();
+        let meter = provider.meter("test");
         let records = vec![
-            SessionRecord::ContextCapturePolicy {
+            SessionRecord::RequestContentCaptured {
                 schema_version: SCHEMA_VERSION,
                 seq: 1,
                 time: String::new(),
-                policy: ContextCapturePolicy::metadata_only(),
-            },
-            SessionRecord::RequestContentCaptured {
-                schema_version: SCHEMA_VERSION,
-                seq: 2,
-                time: String::new(),
                 capture: CapturedRequestContent {
-                    request_id: "r".into(),
-                    turn_id: "t".into(),
-                    attempt: 1,
-                    messages: vec![],
-                },
-            },
-        ];
-        let export = ContextTelemetryExport::from_records("s", &records).unwrap();
-        assert!(!export.content_included);
-        assert!(!export.to_json().unwrap().contains("messages"));
-    }
-
-    #[test]
-    fn retained_policy_includes_only_normalized_captured_content() {
-        let records = vec![
-            SessionRecord::ContextCapturePolicy {
-                schema_version: SCHEMA_VERSION,
-                seq: 1,
-                time: String::new(),
-                policy: ContextCapturePolicy::retained_content(),
-            },
-            SessionRecord::RequestContentCaptured {
-                schema_version: SCHEMA_VERSION,
-                seq: 2,
-                time: String::new(),
-                capture: CapturedRequestContent {
-                    request_id: "r".into(),
+                    request_id: "r1".into(),
                     turn_id: "t".into(),
                     attempt: 1,
                     messages: vec![thndrs_agent::ModelProjectionMessage {
                         role: "user".into(),
-                        content: "normalized".into(),
+                        content: "normalized secret".into(),
                     }],
                 },
             },
-            snapshot_record(3, "r", 100),
-            snapshot_record(4, "r2", 80),
+            snapshot_record(2, "r1", 100),
+            snapshot_record(3, "r2", 80),
         ];
 
-        let export = ContextTelemetryExport::from_records("s", &records).unwrap();
-        assert!(export.content_included);
-        let json = export.to_json().unwrap();
-        assert!(json.contains("normalized"));
-        assert!(json.contains("thndrs.context.working_set.delta"));
+        emit_context_telemetry(&meter, &records);
+        provider.force_flush().unwrap();
+
+        let exported = exporter.get_finished_metrics().unwrap();
+        let names = exported
+            .iter()
+            .flat_map(|resource| resource.scope_metrics())
+            .flat_map(|scope| scope.metrics())
+            .map(|metric| metric.name())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"gen_ai.client.operation.duration"));
+        assert!(names.contains(&"thndrs.context.working_set.delta"));
+        assert!(!format!("{exported:?}").contains("normalized secret"));
+    }
+
+    #[test]
+    fn caps_utf8_attributes_on_character_boundaries() {
+        let value = "é".repeat(MAX_ATTRIBUTE_BYTES);
+        let capped = cap(&value);
+        assert!(capped.len() <= MAX_ATTRIBUTE_BYTES);
+        assert!(value.starts_with(&capped));
     }
 
     fn snapshot_record(seq: u64, request_id: &str, used: u64) -> SessionRecord {

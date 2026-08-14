@@ -25,7 +25,7 @@ pub enum ContextSubcommand {
         /// Later request id, optionally suffixed with `#attempt`.
         to_request_id: Option<String>,
     },
-    /// Export provider-neutral OpenTelemetry observations from persisted records.
+    /// Export content-free metrics with the OpenTelemetry stdout exporter.
     Telemetry,
 }
 

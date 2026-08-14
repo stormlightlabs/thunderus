@@ -141,7 +141,7 @@ deletion, and size rules. Session deletion, pruning, purge, and garbage
 collection apply those rules to captured content as part of the same storage
 graph. Capture excludes credentials and raw provider wire payloads.
 
-After local snapshots and exports ship, an optional OpenTelemetry exporter can
-read the persisted records. It emits low-cardinality counts, timings, token
-measurements, and transformation events. It includes content only when the
-request-content capture policy allows it.
+The optional OpenTelemetry SDK exporter reads persisted records after a run. It
+emits low-cardinality counts, timings, token measurements, and transformation
+measurements. Metrics are always content-free, including for runs that retained
+sanitized request content.

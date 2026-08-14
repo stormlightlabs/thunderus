@@ -139,8 +139,9 @@ the server. Provider-facing names are namespaced as `mcp__{server}__{tool}`.
 - `thndrs context changes [<from-request> <to-request>] [--session <id>]`:
   compare two terminal request attempts. Without request ids, compare the
   latest two.
-- `thndrs context telemetry [--session <id>]`: derive bounded provider-neutral
-  OpenTelemetry observations from persisted context records.
+- `thndrs context telemetry [--session <id>]`: export content-free,
+  provider-neutral metrics from persisted context records through the
+  OpenTelemetry SDK's stdout exporter.
 - `thndrs usage [--json] [--session <id>]`: report persisted provider usage for
   the newest or selected session.
 - `thndrs sessions list`: scan live, archived, and trashed sessions newest first

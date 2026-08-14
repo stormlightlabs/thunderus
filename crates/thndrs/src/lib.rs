@@ -359,15 +359,15 @@ fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()> {
 fn run_context_command(cli: &Cli, command: &ContextCommand) -> io::Result<()> {
     let (path, session_id) = resolve_context_session(cli, command.session.as_deref())?;
     let records = session::SessionReader::read_validated_records(&path, &session_id)?;
+    if matches!(command.command, Some(ContextSubcommand::Telemetry)) {
+        return session::export_context_telemetry(&session_id, &records);
+    }
     let export = session::PersistedContextExport::from_records(&session_id, &records)?;
     let stdout = io::stdout();
     let mut writer = stdout.lock();
 
     match &command.command {
-        Some(ContextSubcommand::Telemetry) => {
-            let telemetry = session::ContextTelemetryExport::from_records(&session_id, &records)?;
-            writeln!(writer, "{}", telemetry.to_json()?)
-        }
+        Some(ContextSubcommand::Telemetry) => unreachable!("telemetry returned before stdout was locked"),
         Some(ContextSubcommand::Changes { from_request_id, to_request_id }) => {
             let selectors = match (from_request_id.as_deref(), to_request_id.as_deref()) {
                 (None, None) => Vec::new(),

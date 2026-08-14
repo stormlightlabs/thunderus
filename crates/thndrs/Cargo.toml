@@ -28,6 +28,9 @@ ignore.workspace = true
 lectito.workspace = true
 markdown.workspace = true
 minijinja.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-stdout.workspace = true
 process-wrap.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
 regex-lite.workspace = true
@@ -57,6 +60,7 @@ workspace = true
 [dev-dependencies]
 divan.workspace = true
 insta.workspace = true
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
 vt100.workspace = true
 
