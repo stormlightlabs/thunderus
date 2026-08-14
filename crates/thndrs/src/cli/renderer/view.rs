@@ -197,7 +197,7 @@ impl From<&App> for FocusedSurfaceView {
                 })
             }
             PromptAccessory::Files(_) => app
-                .render_picker_surface("files")
+                .render_picker_surface("paths")
                 .map_or(FocusedSurfaceView::None, FocusedSurfaceView::FilePicker),
             PromptAccessory::Models => app
                 .render_picker_surface("models")

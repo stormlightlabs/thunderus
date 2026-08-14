@@ -49,7 +49,7 @@ Keep fixtures deterministic. Freeze time, spinner phase, provider events, and fi
 
 ## Real-terminal review
 
-Treat the current documentation screenshot and VHS tapes as legacy until checked against the running product. Use a deterministic scenario for stable captures only after its content, dimensions, and product state have been refreshed. Interact manually when the change involves input timing or terminal protocols.
+Treat the current documentation screenshot and VHS tapes as legacy until checked against the running product. Use a deterministic scenario for stable captures only after its content, dimensions, and product state have been refreshed. Interact manually when the change involves input timing or terminal protocols. When a user asks for verification in a background Herdr tab, use that tab for this hands-on product flow; run formatting, linting, and automated tests through the normal command workflow.
 
 Inspect:
 

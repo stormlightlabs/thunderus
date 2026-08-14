@@ -125,7 +125,7 @@ impl Action {
             Self::OpenDetail => "open output, diff, warning, or error detail",
             Self::Submit => "submit prompt",
             Self::SubmitSteering => "steer the running turn",
-            Self::CloseOverlay | Self::Cancel => "close help, files, or commands",
+            Self::CloseOverlay | Self::Cancel => "close help, paths, or commands",
             Self::CursorUp | Self::CursorDown => "move cursor or recall history",
             Self::OpenHelp => "show help",
             Self::OpenTranscriptSearch => "search transcript",
@@ -142,7 +142,7 @@ impl Action {
             Self::CursorWordLeft | Self::CursorWordRight => "move word left/right",
             Self::KillWordRight => "delete next word",
             Self::Interrupt => "stop a running turn",
-            Self::AcceptSuggestion => "accept a command or file suggestion",
+            Self::AcceptSuggestion => "accept a command or path suggestion",
             Self::QuitConfirm => "quit after double-press",
             _ => "",
         }
@@ -238,9 +238,9 @@ const DEFAULT_HELP: &[(&str, &str)] = &[
     ("── Navigation ──", ""),
     ("Ctrl+O", "open output, diff, warning, or error detail"),
     ("Enter", "accept highlighted item"),
-    ("Escape", "close help, files, or commands"),
+    ("Escape", "close help, paths, or commands"),
     ("Up/Down", "move cursor or recall history"),
-    ("Ctrl+P", "open workspace file picker"),
+    ("Ctrl+P", "open workspace path picker"),
     ("Ctrl+Shift+F", "search transcript"),
     ("Ctrl+Q", "inspect queued input"),
     (STEERING_KEY_LABEL, "steer the running turn"),
@@ -260,11 +260,11 @@ const DEFAULT_HELP: &[(&str, &str)] = &[
     ("Alt+B/F", "move word left/right"),
     ("Alt+D", "delete next word"),
     ("Alt+Bksp", "delete previous word"),
-    ("── Files ──", ""),
-    ("@path", "mention a file from fuzzy search"),
+    ("── Paths ──", ""),
+    ("@path", "mention a file or directory from fuzzy search"),
     ("── App ──", ""),
     ("Ctrl+C", "stop a running turn"),
-    ("Tab", "accept a command or file suggestion"),
+    ("Tab", "accept a command or path suggestion"),
     ("Ctrl+D", "quit after double-press"),
 ];
 
@@ -1329,7 +1329,7 @@ pub fn accept_command_suggestion(app: &mut App) -> Option<Msg> {
 
 /// Accept the active prompt suggestion based on current accessory focus.
 ///
-/// The prompt can surface command suggestions (`:` / slash-mode) and file
+/// The prompt can surface command suggestions (`:` / slash-mode) and path
 /// mention suggestions (`@path`). This helper keeps the selection model
 /// centralized and safely no-ops when no suggestion is available.
 pub fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
@@ -1356,9 +1356,9 @@ pub fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
 }
 
 pub fn open_file_picker(app: &mut App, source: FilePickerSource) {
-    match tools::searchable_file_paths(&app.runtime.cwd, 2_000) {
-        Ok(files) => {
-            let items = files.into_iter().map(|path| PickerItem::new(path, "")).collect();
+    match tools::searchable_workspace_paths(&app.runtime.cwd, 2_000) {
+        Ok(paths) => {
+            let items = paths.into_iter().map(|path| PickerItem::new(path, "")).collect();
             let _ = app.overlay.show_picker(
                 PromptAccessory::Files(source),
                 PickerState::new(items, LARGE_PICKER_LIMIT),
@@ -1368,7 +1368,7 @@ pub fn open_file_picker(app: &mut App, source: FilePickerSource) {
         Err(err) => {
             app.transcript
                 .entries
-                .push(Entry::Error { text: format!("file picker failed: {err}") });
+                .push(Entry::Error { text: format!("path picker failed: {err}") });
         }
     }
 }

@@ -81,17 +81,17 @@ Commands currently include `clear`, `quit`, `exit`, `help`, `bg`, `bg cancel <id
 | `Tab`                   | Accept completion for the active command suggestion |
 | Any printable character | Append to the command buffer                        |
 
-## File Picker
+## Path Picker
 
-Available while the file picker overlay is open.
+Available while the path picker is open.
 
 | Key                     | Description                                     |
 | ----------------------- | ----------------------------------------------- |
-| `Ctrl+P`                | Open the file picker (from prompt)              |
+| `Ctrl+P`                | Open the path picker (from prompt)              |
 | `Up` / `Down`           | Move selection up / down                        |
 | `PageUp` / `PageDown`   | Move selection up / down by a page              |
 | `Enter`                 | Insert the selected path into the prompt        |
-| `Esc`                   | Close the file picker without inserting         |
+| `Esc`                   | Close the path picker without inserting         |
 | `Backspace`             | Remove the last character from the picker query |
 | Any printable character | Append to the picker query and filter results   |
 

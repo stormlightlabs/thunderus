@@ -2,7 +2,7 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│     FILES                                                          option 6/15    # [-]=   [-]=   [fg=#f1fc79 b]=FILES [-]=                                                           [fg=#abb4da]=option 6/15 [-]=  
+│     PATHS                                                          option 6/15    # [-]=   [-]=   [fg=#f1fc79 b]=PATHS [-]=                                                           [fg=#abb4da]=option 6/15 [-]=  
 │     filter: type to filter                                                        # [-]=   [-]=   [fg=#abb4da]=filter: type to filter [-]=                                                     [-]=  
 │       src/file_00.rs                                                              # [-]=   [-]=   [fg=#ebfafa]=  src/file_00.rs [-]=                                                           [-]=  
 │       src/file_01.rs                                                              # [-]=   [-]=   [fg=#ebfafa]=  src/file_01.rs [-]=                                                           [-]=  

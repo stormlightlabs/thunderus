@@ -67,6 +67,13 @@ pub fn with_implementation_line(label: &str, mut lines: Vec<String>) -> Vec<Stri
 /// a fixed file cap. Canonicalizing the root before walking and refusing to
 /// follow symlinks keeps every returned path contained to that root.
 pub fn fallback_files(root: &Path, include_hidden: bool, max_depth: Option<u32>) -> io::Result<Vec<PathBuf>> {
+    fallback_paths(root, include_hidden, max_depth, false)
+}
+
+/// Enumerate workspace files and, when requested, directories without following symlinks.
+pub fn fallback_paths(
+    root: &Path, include_hidden: bool, max_depth: Option<u32>, include_directories: bool,
+) -> io::Result<Vec<PathBuf>> {
     let canonical_root = fs::canonicalize(root)?;
     let metadata = fs::symlink_metadata(&canonical_root)?;
     if metadata.is_file() {
@@ -86,17 +93,19 @@ pub fn fallback_files(root: &Path, include_hidden: bool, max_depth: Option<u32>)
         builder.max_depth(Some(max_depth as usize + 1));
     }
 
-    let mut files = Vec::new();
+    let mut paths = Vec::new();
     for entry in builder.build() {
         let entry = entry.map_err(|error| io::Error::other(error.to_string()))?;
-        if entry.file_type().is_some_and(|file_type| file_type.is_file()) {
-            files.push(entry.into_path());
-            if files.len() >= MAX_FALLBACK_FILES {
+        let is_file = entry.file_type().is_some_and(|file_type| file_type.is_file());
+        let is_directory = entry.depth() > 0 && entry.file_type().is_some_and(|file_type| file_type.is_dir());
+        if is_file || (include_directories && is_directory) {
+            paths.push(entry.into_path());
+            if paths.len() >= MAX_FALLBACK_FILES {
                 break;
             }
         }
     }
-    Ok(files)
+    Ok(paths)
 }
 
 /// Render a fallback path using the same relative/absolute shape as the root.

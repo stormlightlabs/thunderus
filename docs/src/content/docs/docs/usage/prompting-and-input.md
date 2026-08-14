@@ -119,13 +119,14 @@ review reject`. Approval replaces only the covered transcript entries in later
 model requests. Rejection and provider failure preserve the active projection.
 The original records remain in the append-only session in every case.
 
-## File Mentions
+## Path Mentions
 
-Use `Ctrl+P` to open the workspace file picker. Type to fuzzy-filter files, move
-with `Up`/`Down`, and press `Enter` to insert the selected path.
+Use `Ctrl+P` to open the workspace path picker. Type to fuzzy-filter files and
+directories, move with `Up`/`Down`, and press `Enter` to insert the selected
+path.
 
-Typing `@` in the prompt opens inline file mention suggestions. `Tab` accepts
-the active suggestion and inserts the workspace path into the draft.
+Typing `@` in the prompt opens inline path suggestions. `Tab` accepts the active
+file or directory and inserts its workspace path into the draft.
 
 ## Focused Surfaces
 

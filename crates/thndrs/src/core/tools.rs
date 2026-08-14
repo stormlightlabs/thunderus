@@ -39,6 +39,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use thndrs_agent::CancelToken;
 
+#[cfg(test)]
 use crate::app::ToolStatus;
 use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
 use crate::mcp::manager::McpManager;
@@ -502,28 +503,27 @@ pub fn dispatch_authorized_runtime_full_with_cancel_and_search_and_registry(
     )
 }
 
-/// Return searchable file paths for UI features that need file selection.
-pub fn searchable_file_paths(root: &Path, max_results: usize) -> Result<Vec<String>, String> {
-    let output = list_searchable_files::exec(root, None, max_results, false);
-    if output.status == ToolStatus::Failed {
-        return Err(output.error.unwrap_or_else(|| "file listing failed".to_string()));
-    }
-
-    Ok(output
-        .display
-        .lines
+/// Return searchable file and directory paths for workspace path selection.
+pub fn searchable_workspace_paths(root: &Path, max_results: usize) -> Result<Vec<String>, String> {
+    let paths = search::backend::fallback_paths(root, false, None, true)
+        .map_err(|error| format!("path listing failed: {error}"))?;
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    Ok(paths
         .into_iter()
-        .map(|p| normalize_tool_path(root, &p))
+        .take(max_results)
+        .map(|path| {
+            let is_directory = path.is_dir();
+            let mut display = normalize_tool_path(&canonical_root, &path);
+            if is_directory {
+                display.push('/');
+            }
+            display
+        })
         .collect())
 }
 
-fn normalize_tool_path(root: &Path, path: &str) -> String {
-    let path_buf = PathBuf::from(path);
-    path_buf
-        .strip_prefix(root)
-        .unwrap_or(&path_buf)
-        .to_string_lossy()
-        .to_string()
+fn normalize_tool_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root).unwrap_or(path).to_string_lossy().to_string()
 }
 
 #[cfg(test)]
@@ -537,6 +537,18 @@ mod tests {
         assert_eq!(output.status, ToolStatus::Ok);
         assert_eq!(output.display.lines, vec!["line1"]);
         assert!(output.error.is_none());
+    }
+
+    #[test]
+    fn searchable_workspace_paths_include_directories() {
+        let dir = tempfile::tempdir().expect("temp workspace");
+        std::fs::create_dir(dir.path().join("empty")).expect("create directory");
+        std::fs::write(dir.path().join("file.rs"), "fn main() {}\n").expect("write file");
+
+        let paths = searchable_workspace_paths(dir.path(), 10).expect("list workspace paths");
+
+        assert!(paths.contains(&"empty/".to_string()), "paths: {paths:?}");
+        assert!(paths.contains(&"file.rs".to_string()), "paths: {paths:?}");
     }
 
     #[test]

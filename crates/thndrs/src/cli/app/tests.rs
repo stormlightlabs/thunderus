@@ -3384,6 +3384,26 @@ fn at_token_opens_file_picker_and_accepts_mention() {
 }
 
 #[test]
+fn at_token_accepts_directory_mention() {
+    let mut app = fresh_app();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    app.runtime.cwd = dir.path().to_path_buf();
+    std::fs::create_dir(app.runtime.cwd.join("src")).expect("create source directory");
+
+    for ch in "inspect @src".chars() {
+        update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+
+    let picker = app.overlay.picker().expect("path picker");
+    assert_eq!(picker.selected().map(|item| item.label.as_str()), Some("src/"));
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.overlay.accessory(), PromptAccessory::None);
+    assert_eq!(app.composer.input.as_str(), "inspect @src/ ");
+}
+
+#[test]
 fn model_metadata_event_updates_model_picker_items() {
     let mut app = fresh_app();
     app.refresh_context_ledger(None);
