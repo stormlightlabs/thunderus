@@ -3,6 +3,6 @@ source: crates/thndrs/src/cli/app/tests.rs
 expression: rendered_status
 ---
 normal (80):
-│     ⠋ Compacting                                  opencode/big-pickle · auto      # [-]=   [-]=   [fg=#f7c67f b]=⠋ Compacting [-]=                                   [fg=#abb4da]=opencode/big-pickle · auto [-]=   [-]=  
+│     ⠋ Compacting                    opencode/big-pickle · auto · 7% ctx left      # [-]=   [-]=   [fg=#f7c67f b]=⠋ Compacting [-]=                     [fg=#abb4da]=opencode/big-pickle · auto · 7% ctx left [-]=   [-]=  
 narrow (40):
 │     ⠋ Compacting opencode/big-pickle      # [-]=   [-]=   [fg=#f7c67f b]=⠋ Compacting [-]=  [fg=#abb4da]=opencode/big-pickle [-]=   [-]=

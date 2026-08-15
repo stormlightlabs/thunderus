@@ -123,6 +123,7 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 - Make placeholder text quieter than a draft.
 - Keep the cursor visible and clamped after wrapping, resize, completion, and multiline edits.
 - Preserve the draft until a successful action consumes it.
+- Let Up/Down move within multiline input first, then traverse prompt history at the boundary while preserving the current draft; a focused picker or modal owns those keys instead.
 
 ### Tools and progress
 
@@ -151,6 +152,7 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 - Prefer one calm line to several badges or counters.
 - Keep predictive context capacity visible when it is known; hide it before
   primary state under width pressure.
+- Put transient operational phases such as context compaction in the primary left status indicator, not beside route or context-capacity metadata, and do not duplicate them.
 - Remove labels when position and value already explain the field.
 - Hide low-priority metadata before shortening primary content.
 

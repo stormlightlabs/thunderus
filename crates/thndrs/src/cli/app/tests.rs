@@ -847,6 +847,9 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
     );
     assert!(app.compaction_in_flight());
     assert_eq!(app.status_label(), "Compacting");
+    let mut ledger = app.refresh_context_ledger(None);
+    ledger.budget.used = ledger.budget.auto_compaction_threshold.saturating_add(1);
+    app.transcript.context_ledger = Some(ledger);
 
     let mut rendered_status = String::new();
     for (label, width) in [("normal", 80), ("narrow", 40)] {
@@ -856,6 +859,12 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
         rendered_status.push_str(&frame.render_styled());
         rendered_status.push('\n');
     }
+    assert!(rendered_status.contains("Compacting"));
+    assert!(rendered_status.contains("ctx left"));
+    assert!(
+        !rendered_status.contains("ctx left · compact"),
+        "active compaction belongs in the left operational indicator"
+    );
     insta::assert_snapshot!("compaction_statusline", rendered_status);
 
     assert!(

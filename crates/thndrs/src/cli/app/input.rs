@@ -1210,6 +1210,7 @@ fn handle_command_action(app: &mut App, action: Action) -> Option<Msg> {
 }
 
 fn handle_prompt_action(app: &mut App, action: Action) -> Option<Msg> {
+    let preserves_history_navigation = matches!(&action, Action::CursorUp | Action::CursorDown);
     match action {
         Action::CursorWordLeft => app.composer.input.cursor_word_left(),
         Action::CursorWordRight => app.composer.input.cursor_word_right(),
@@ -1251,12 +1252,12 @@ fn handle_prompt_action(app: &mut App, action: Action) -> Option<Msg> {
             app.composer.input.transpose_chars();
         }
         Action::CursorUp => {
-            if !app.composer.input.cursor_up() {
+            if app.composer.history_cursor.is_some() || !app.composer.input.cursor_up() {
                 agent_lifecycle::recall_older_input(app);
             }
         }
         Action::CursorDown => {
-            if !app.composer.input.cursor_down() {
+            if app.composer.history_cursor.is_some() || !app.composer.input.cursor_down() {
                 agent_lifecycle::recall_newer_input(app);
             }
         }
@@ -1282,7 +1283,9 @@ fn handle_prompt_action(app: &mut App, action: Action) -> Option<Msg> {
         }
         _ => {}
     }
-    agent_lifecycle::exit_history_navigation(app);
+    if !preserves_history_navigation {
+        agent_lifecycle::exit_history_navigation(app);
+    }
     sync_prompt_accessory(app);
     None
 }

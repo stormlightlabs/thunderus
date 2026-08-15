@@ -242,6 +242,77 @@ fn mouse_wheel_does_not_edit_or_recall_prompt_input() {
 }
 
 #[test]
+fn empty_prompt_without_history_ignores_up_and_down() {
+    let mut app = fresh_app();
+
+    update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+
+    assert!(app.composer.input.is_empty());
+    assert_eq!(app.composer.history_cursor, None);
+}
+
+#[test]
+fn up_and_down_traverse_history_then_restore_the_draft() {
+    let mut app = fresh_app();
+    app.composer.input_history = vec!["oldest".to_string(), "newest".to_string()];
+    app.composer.input = PromptInput::from("current draft");
+
+    update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(app.composer.input.as_str(), "newest");
+    assert_eq!(app.composer.history_cursor, Some(1));
+
+    update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(app.composer.input.as_str(), "oldest");
+    assert_eq!(app.composer.history_cursor, Some(0));
+
+    update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(app.composer.input.as_str(), "newest");
+    assert_eq!(app.composer.history_cursor, Some(1));
+
+    update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(app.composer.input.as_str(), "current draft");
+    assert_eq!(app.composer.history_cursor, None);
+}
+
+#[test]
+fn multiline_prompt_moves_between_lines_before_recalling_history() {
+    let mut app = fresh_app();
+    app.composer.input_history.push("previous prompt".to_string());
+    app.composer.input = PromptInput::from("first\nsecond");
+
+    update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(app.composer.input.as_str(), "first\nsecond");
+    assert_eq!(app.composer.input.cursor(), 5);
+    assert_eq!(app.composer.history_cursor, None);
+
+    update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(app.composer.input.as_str(), "previous prompt");
+    assert_eq!(app.composer.history_cursor, Some(0));
+}
+
+#[test]
+fn picker_owns_up_and_down_without_touching_prompt_history() {
+    let mut app = fresh_app();
+    app.composer.input_history.push("previous prompt".to_string());
+    app.composer.input = PromptInput::from("current draft");
+    app.overlay
+        .show_picker(
+            PromptAccessory::Files(FilePickerSource::Forced),
+            PickerState::new(vec![PickerItem::new("first", ""), PickerItem::new("second", "")], 10),
+        )
+        .expect("show picker");
+
+    update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(app.overlay.picker().expect("picker").selected, 1);
+    update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(app.overlay.picker().expect("picker").selected, 0);
+
+    assert_eq!(app.composer.input.as_str(), "current draft");
+    assert_eq!(app.composer.history_cursor, None);
+}
+
+#[test]
 fn ctrl_d_works_even_with_input() {
     let mut app = fresh_app();
     app.composer.input = PromptInput::from("some text");

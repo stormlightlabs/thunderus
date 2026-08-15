@@ -150,7 +150,9 @@ fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
         StatusSegment::ContextRemaining => {
             let projection = app.transcript.context_ledger.as_ref()?.projection();
             let remaining = projection.remaining_percent?;
-            let warning = if projection.used > projection.auto_compaction_threshold {
+            let warning = if app.compaction_in_flight() {
+                ""
+            } else if projection.used > projection.auto_compaction_threshold {
                 " · compact"
             } else if projection.used > projection.target {
                 " · target"
