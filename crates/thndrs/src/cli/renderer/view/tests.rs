@@ -446,7 +446,7 @@ fn running_exploration_updates_one_live_summary_row() {
 }
 
 #[test]
-fn failed_exploration_remains_expanded() {
+fn failed_exploration_summarizes_the_diagnostic() {
     let mut app = test_app();
     app.transcript.entries.push(Entry::Tool {
         name: "search_text".to_string(),
@@ -464,8 +464,9 @@ fn failed_exploration_remains_expanded() {
         .join("\n");
 
     assert!(rendered.contains("Exploration failed"), "{rendered}");
-    assert!(rendered.contains("search_text"), "{rendered}");
     assert!(rendered.contains("permission denied"), "{rendered}");
+    assert!(rendered.contains("Ctrl+O details"), "{rendered}");
+    assert!(!rendered.contains("search_text"), "{rendered}");
     assert!(!rendered.contains("Explored"), "{rendered}");
 }
 
@@ -585,7 +586,16 @@ fn failed_tests_stay_loud_and_commands_stay_compact_when_narrow() {
         name: "run_shell".to_string(),
         arguments: r#"{"argv":["cargo","test","renderer"]}"#.to_string(),
         status: ToolStatus::Failed,
-        output: vec!["test result: FAILED. 1 passed; 1 failed".to_string()],
+        output: vec![
+            "error: command failed (exit 101)".to_string(),
+            "$ cargo test renderer [one-shot failed exit 101 4800ms]".to_string(),
+            "── stdout ──".to_string(),
+            "running 2 tests".to_string(),
+            "test renderer::keeps_diagnostics ... FAILED".to_string(),
+            "assertion failed: rendered.contains(\"diagnostic\")".to_string(),
+            "  --> crates/thndrs/src/cli/renderer/view/tests.rs:42:5".to_string(),
+            "test result: FAILED. 1 passed; 1 failed".to_string(),
+        ],
     });
     app.transcript.entries.push(Entry::Tool {
         name: "run_shell".to_string(),
@@ -594,8 +604,15 @@ fn failed_tests_stay_loud_and_commands_stay_compact_when_narrow() {
         output: Vec::new(),
     });
 
-    let view = RendererView::build(&app, 40, 24);
-    let rendered = view
+    let wide_rendered = RendererView::build(&app, 80, 24)
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let narrow_view = RendererView::build(&app, 40, 24);
+    let narrow_rendered = narrow_view
         .transcript
         .rows
         .iter()
@@ -603,10 +620,25 @@ fn failed_tests_stay_loud_and_commands_stay_compact_when_narrow() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains("Tests failed"), "{rendered}");
-    assert!(rendered.contains("test result: FAILED"), "{rendered}");
-    assert!(rendered.contains("Ran git diff --check"), "{rendered}");
-    assert!(view.transcript.rows.iter().all(|row| row.text_width() == 40));
+    assert!(
+        wide_rendered.contains("Tests failed · 1 failed · 1 passed · 4.8s · exit 101"),
+        "{wide_rendered}"
+    );
+    assert!(wide_rendered.contains("$ cargo test renderer"), "{wide_rendered}");
+    assert!(
+        wide_rendered.contains("keeps_diagnostics ... FAILED"),
+        "{wide_rendered}"
+    );
+    assert!(
+        wide_rendered.contains("assertion failed: rendered.contains"),
+        "{wide_rendered}"
+    );
+    assert!(wide_rendered.contains("view/tests.rs:42:5"), "{wide_rendered}");
+    assert!(wide_rendered.contains("… +5 lines"), "{wide_rendered}");
+    assert!(!wide_rendered.contains("[Failed] run_shell"), "{wide_rendered}");
+    assert!(!wide_rendered.contains("Middle output hidden"), "{wide_rendered}");
+    assert!(narrow_rendered.contains("Ran git diff --check"), "{narrow_rendered}");
+    assert!(narrow_view.transcript.rows.iter().all(|row| row.text_width() == 40));
 }
 
 #[test]

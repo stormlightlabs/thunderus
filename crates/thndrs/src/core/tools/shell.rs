@@ -181,6 +181,13 @@ impl ProcessResult {
         let elapsed_ms = self.elapsed.as_millis();
         match self.status {
             ProcessStatus::Running => format!("$ {argv} [{}]", self.kind.label()),
+            ProcessStatus::Failed => {
+                let exit_code = self.exit_code.map_or_else(|| "?".to_string(), |code| code.to_string());
+                format!(
+                    "$ {argv} [{} failed exit {exit_code} {elapsed_ms}ms]",
+                    self.kind.label()
+                )
+            }
             other => format!("$ {argv} [{} {} {}ms]", self.kind.label(), other.label(), elapsed_ms),
         }
     }

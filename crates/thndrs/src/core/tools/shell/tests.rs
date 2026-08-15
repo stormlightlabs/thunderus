@@ -356,6 +356,24 @@ fn process_result_summary_includes_command_and_status() {
 }
 
 #[test]
+fn failed_process_summary_includes_exit_code() {
+    let result = ProcessResult {
+        process_id: None,
+        command: vec!["cargo".to_string(), "test".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: ProcessStatus::Failed,
+        exit_code: Some(101),
+        stdout: vec![],
+        stderr: vec![],
+        output_truncated: false,
+        elapsed: Duration::from_millis(4_800),
+        kind: ProcessKind::OneShot,
+    };
+
+    assert_eq!(result.summary(), "$ cargo test [one-shot failed exit 101 4800ms]");
+}
+
+#[test]
 fn process_result_to_output_lines_includes_markers() {
     let result = ProcessResult {
         process_id: None,

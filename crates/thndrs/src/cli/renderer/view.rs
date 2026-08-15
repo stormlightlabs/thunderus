@@ -430,7 +430,7 @@ fn activity_projection(
                 detail_target == Some(entry_index),
                 detail_open,
             ),
-            show_tool: detail_open || matches!(status, ToolStatus::Failed | ToolStatus::Cancelled),
+            show_tool: detail_open,
         };
     }
 
@@ -488,6 +488,8 @@ fn activity_projection(
             label,
             marker: activity_marker(app, *if running { &ToolStatus::Running } else { &ToolStatus::Ok }),
             details,
+            preview: Vec::new(),
+            hidden_lines: 0,
             detail_target: detail_target.is_some_and(|index| (entry_index..=end).contains(&index)),
             detail_open: disclosed,
         },
@@ -531,12 +533,25 @@ fn single_activity_summary(
             details.push(format!("+{added} −{removed}"));
         }
     }
-    if kind == ActivityKind::Test
-        && status == ToolStatus::Ok
-        && let Some(count) = passed_test_count(output)
-    {
-        details.push(format!("{count} passed"));
+    if kind == ActivityKind::Test {
+        let (passed, failed) = test_counts(output);
+        if failed > 0 {
+            details.push(format!("{failed} failed"));
+        }
+        if passed > 0 {
+            details.push(format!("{passed} passed"));
+        }
     }
+    if name == "run_shell" {
+        let metadata = shell_result_metadata(output);
+        if let Some(duration) = metadata.duration {
+            details.push(duration);
+        }
+        if let Some(exit_code) = metadata.exit_code {
+            details.push(format!("exit {exit_code}"));
+        }
+    }
+    let (preview, hidden_lines) = activity_preview(kind, status, &target, output);
     ActivitySummary {
         kind,
         importance: ActivityImportance::Significant,
@@ -551,6 +566,8 @@ fn single_activity_summary(
         label,
         marker: activity_marker(app, status),
         details,
+        preview,
+        hidden_lines,
         detail_target,
         detail_open,
     }
@@ -669,18 +686,122 @@ fn shell_command(arguments: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn passed_test_count(output: &[String]) -> Option<usize> {
-    let mut total = None;
-    for count in output.iter().filter_map(|line| {
+fn test_counts(output: &[String]) -> (usize, usize) {
+    output.iter().fold((0usize, 0usize), |(passed, failed), line| {
         let clean = super::tool_output::sanitize_terminal_text(line);
         let words = clean.split(|ch: char| !ch.is_ascii_alphanumeric()).collect::<Vec<_>>();
-        words
-            .windows(2)
-            .find_map(|pair| (pair[1] == "passed").then(|| pair[0].parse::<usize>().ok()).flatten())
-    }) {
-        total = Some(total.unwrap_or(0usize).checked_add(count)?);
+        let count = |label| {
+            words
+                .windows(2)
+                .find_map(|pair| (pair[1] == label).then(|| pair[0].parse::<usize>().ok()).flatten())
+                .unwrap_or(0)
+        };
+        (
+            passed.saturating_add(count("passed")),
+            failed.saturating_add(count("failed")),
+        )
+    })
+}
+
+#[derive(Default)]
+struct ShellResultMetadata {
+    duration: Option<String>,
+    exit_code: Option<i32>,
+}
+
+fn shell_result_metadata(output: &[String]) -> ShellResultMetadata {
+    let Some(summary) = output
+        .iter()
+        .map(|line| super::tool_output::sanitize_terminal_text(line))
+        .find(|line| line.starts_with("$ "))
+    else {
+        return ShellResultMetadata::default();
+    };
+    let words = summary
+        .trim_end_matches(']')
+        .split_ascii_whitespace()
+        .collect::<Vec<_>>();
+    let duration = words
+        .iter()
+        .rev()
+        .find_map(|word| word.strip_suffix("ms")?.parse::<u64>().ok())
+        .map(format_duration);
+    let exit_code = words
+        .windows(2)
+        .find_map(|pair| (pair[0] == "exit").then(|| pair[1].parse::<i32>().ok()).flatten());
+    ShellResultMetadata { duration, exit_code }
+}
+
+fn format_duration(milliseconds: u64) -> String {
+    if milliseconds < 1_000 {
+        return format!("{milliseconds}ms");
     }
-    total
+    let seconds = milliseconds as f64 / 1_000.0;
+    if milliseconds.is_multiple_of(1_000) { format!("{seconds:.0}s") } else { format!("{seconds:.1}s") }
+}
+
+fn activity_preview(kind: ActivityKind, status: ToolStatus, target: &str, output: &[String]) -> (Vec<String>, usize) {
+    if !matches!(status, ToolStatus::Running | ToolStatus::Failed | ToolStatus::Cancelled) {
+        return (Vec::new(), 0);
+    }
+
+    let lines = output
+        .iter()
+        .map(|line| super::tool_output::sanitize_terminal_text(line))
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty()
+                && !trimmed.starts_with("$ ")
+                && !trimmed.to_ascii_lowercase().starts_with("error: command failed")
+                && !matches!(trimmed, "── stdout ──" | "── stderr ──")
+        })
+        .collect::<Vec<_>>();
+    let mut preview = Vec::new();
+    if kind == ActivityKind::Test {
+        preview.push(format!("$ {target}"));
+    }
+
+    if status == ToolStatus::Running {
+        preview.extend(lines.iter().rev().take(2).rev().cloned());
+    } else {
+        if kind == ActivityKind::Test
+            && let Some(failed_test) = lines.iter().find(|line| {
+                let lower = line.to_ascii_lowercase();
+                lower.starts_with("test ") && lower.contains("failed")
+            })
+        {
+            preview.push(failed_test.clone());
+        }
+        let diagnostic = lines.iter().position(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.starts_with("error")
+                || lower.contains("panicked")
+                || lower.contains("assertion")
+                || lower.contains("not found")
+                || lower.contains("permission denied")
+        });
+        if let Some(index) = diagnostic {
+            if !preview.contains(&lines[index]) {
+                preview.push(lines[index].clone());
+            }
+            if let Some(location) = lines.iter().skip(index + 1).find(|line| {
+                let trimmed = line.trim_start();
+                trimmed.starts_with("-->") || trimmed.starts_with("at ")
+            }) {
+                preview.push(location.clone());
+            } else if preview.len() < 2
+                && let Some(next) = lines.get(index + 1)
+            {
+                preview.push(next.clone());
+            }
+        } else if preview.len() == usize::from(kind == ActivityKind::Test) {
+            preview.extend(lines.iter().take(2).cloned());
+        }
+    }
+
+    let output_preview_lines = preview.len().saturating_sub(usize::from(kind == ActivityKind::Test));
+    let hidden_lines = output.len().saturating_sub(output_preview_lines);
+    (preview, hidden_lines)
 }
 
 fn is_edit_tool(name: &str) -> bool {

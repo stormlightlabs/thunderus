@@ -134,6 +134,7 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 - Replace transient progress with a durable outcome when work completes.
 - Show duration, exit status, or output counts only when they help interpret the result.
 - Bound collapsed tool output by rendered viewport rows after wrapping. Keep the latest rows for live output; for failures, keep a small head-and-tail diagnostic preview with an explicit path to the full output.
+- Render transcript errors on the terminal background with equal spacing above and below. Coalesce adjacent identical replayed failures from the same turn.
 - Put recovery or approval actions directly after the condition that needs them.
 
 ### Pickers, command palettes, and permissions

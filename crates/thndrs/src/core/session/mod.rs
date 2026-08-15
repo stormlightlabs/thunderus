@@ -1706,7 +1706,21 @@ impl SessionReader {
         let records = Self::read_records(path);
         let context_history = ContextHistory::from_records(&records);
         let mut transcript = TranscriptBlocks::new();
+        let mut previous_failure: Option<(String, String)> = None;
         for record in records {
+            let duplicate_failure = match &record {
+                SessionRecord::Failed { turn_id, error, .. } => previous_failure
+                    .as_ref()
+                    .is_some_and(|(previous_turn, previous_error)| previous_turn == turn_id && previous_error == error),
+                _ => false,
+            };
+            previous_failure = match &record {
+                SessionRecord::Failed { turn_id, error, .. } => Some((turn_id.clone(), error.clone())),
+                _ => None,
+            };
+            if duplicate_failure {
+                continue;
+            }
             if let Some((id, text)) = context_history.transcript_event(&record) {
                 transcript.push_context_event(id, text);
                 continue;

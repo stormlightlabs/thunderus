@@ -17,6 +17,14 @@ fn render_entry_styled(entry: &Entry, width: usize) -> String {
     frame.render_styled()
 }
 
+fn render_entry_styled_trimmed(entry: &Entry, width: usize) -> String {
+    render_entry_styled(entry, width)
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn render_entry_detail_styled(entry: &Entry, width: usize) -> String {
     let mut context = ctx(width);
     context.detail_open = true;
@@ -691,7 +699,8 @@ fn failed_tool_output_is_bounded_after_wrapping_and_keeps_the_summary() {
         "header, detail affordance, and bounded output should stay compact:\n{rendered}"
     );
     assert!(rendered.contains("error: command failed (exit 101)"));
-    assert!(rendered.contains("Middle output hidden"));
+    assert!(rendered.contains("… +7 lines"), "{rendered}");
+    assert!(!rendered.contains("Middle output hidden"));
     assert!(rendered.contains("could not compile `thndrs`"));
     assert!(!rendered.contains("dependency_two"));
 }
@@ -711,13 +720,19 @@ fn snapshot_status_entry_narrow() {
 #[test]
 fn snapshot_error_message_normal() {
     let entry = Entry::Error { text: "Provider request failed: connection refused".to_string() };
-    assert_snapshot("transcript_error_message_normal", &render_entry_styled(&entry, 80));
+    assert_snapshot(
+        "transcript_error_message_normal",
+        &render_entry_styled_trimmed(&entry, 80),
+    );
 }
 
 #[test]
 fn snapshot_error_message_narrow() {
     let entry = Entry::Error { text: "Provider request failed: connection refused".to_string() };
-    assert_snapshot("transcript_error_message_narrow", &render_entry_styled(&entry, 40));
+    assert_snapshot(
+        "transcript_error_message_narrow",
+        &render_entry_styled_trimmed(&entry, 40),
+    );
 }
 
 #[test]

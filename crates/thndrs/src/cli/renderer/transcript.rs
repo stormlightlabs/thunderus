@@ -75,6 +75,8 @@ pub struct ActivitySummary {
     pub label: String,
     pub marker: String,
     pub details: Vec<String>,
+    pub preview: Vec<String>,
+    pub hidden_lines: usize,
     pub detail_target: bool,
     pub detail_open: bool,
 }
@@ -520,9 +522,11 @@ fn bounded_tool_output_rows(
         return output_rows;
     }
 
+    let hidden_lines = stored_lines
+        .max(output_rows.len())
+        .saturating_sub(MAX_TOOL_OUTPUT_LINES);
     let marker_text = format!(
-        "     … {} output hidden{}",
-        if status == ToolStatus::Running { "Earlier" } else { "Middle" },
+        "     … +{hidden_lines} lines{}",
         if detail_target { " · Ctrl+O details" } else { "" }
     );
     let marker_spans = vec![
@@ -656,6 +660,36 @@ fn activity_summary_rows(
         width,
         CellStyle::new().bg(bg),
     ));
+    if !summary.detail_open {
+        let preview_style = CellStyle::new()
+            .fg(if summary.failed { p.primary } else { p.secondary })
+            .bg(bg);
+        let preview_width = body_width.saturating_sub(utils::text_width(ACTIVITY_RAIL) + utils::text_width(GUTTER));
+        for line in &summary.preview {
+            for wrapped in super::layout::wrap_text_preserving_whitespace(line, preview_width) {
+                rows.push(Row::padded(
+                    vec![
+                        Span::styled(ACTIVITY_RAIL, rail_style),
+                        Span::styled(GUTTER, CellStyle::new().fg(p.border).bg(bg)),
+                        Span::styled(wrapped, preview_style),
+                    ],
+                    width,
+                    CellStyle::new().bg(bg),
+                ));
+            }
+        }
+        if summary.hidden_lines > 0 {
+            let hint = if summary.detail_target { " · Ctrl+O details" } else { "" };
+            rows.push(Row::padded(
+                vec![
+                    Span::styled(ACTIVITY_RAIL, rail_style),
+                    Span::styled(format!("{GUTTER}… +{} lines{hint}", summary.hidden_lines), muted_style),
+                ],
+                width,
+                CellStyle::new().bg(bg),
+            ));
+        }
+    }
     rows
 }
 
@@ -1236,12 +1270,13 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
             }
         }
         Entry::Error { text } => {
-            let error_bg = p.surface_muted;
-            let rail_style = CellStyle::new().fg(p.failure).bg(error_bg).bold();
-            let label_style = CellStyle::new().fg(p.failure).bg(error_bg).bold();
-            let text_style = CellStyle::new().fg(p.primary).bg(error_bg);
-            LabeledBlock::new(rail_style, label_style, text_style, error_bg, width, railed_body_width)
-                .build("⚠ Error", text)
+            let rail_style = CellStyle::new().fg(p.failure).bg(bg).bold();
+            let label_style = CellStyle::new().fg(p.failure).bg(bg).bold();
+            let text_style = CellStyle::new().fg(p.primary).bg(bg);
+            let mut rows = LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
+                .build("⚠ Error", text);
+            rows.push(Row::blank(width, CellStyle::new().bg(bg)));
+            rows
         }
     }
 }

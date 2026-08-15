@@ -2164,6 +2164,29 @@ fn semantic_transcript_replay_replaces_tool_lifecycle_records() {
 }
 
 #[test]
+fn semantic_transcript_replay_coalesces_adjacent_duplicate_failures_within_a_turn() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "semantic-failure-replay");
+    let failure = Entry::Error { text: "tool-call budget exhausted".to_string() };
+    writer.append_entry(&failure, "turn_1").expect("append first failure");
+    writer
+        .append_entry(&failure, "turn_1")
+        .expect("append duplicate failure");
+    writer
+        .append_entry(&failure, "turn_2")
+        .expect("append later-turn failure");
+
+    let transcript = SessionReader::read_transcript_blocks(writer.path());
+
+    assert_eq!(transcript.len(), 2);
+    assert!(
+        transcript
+            .blocks()
+            .all(|block| matches!(block.entry, Entry::Error { text } if text == "tool-call budget exhausted"))
+    );
+}
+
+#[test]
 fn semantic_transcript_replay_restores_context_events() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "semantic-context-replay");
