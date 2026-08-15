@@ -150,22 +150,7 @@ fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
         StatusSegment::ContextRemaining => {
             let projection = app.transcript.context_ledger.as_ref()?.projection();
             let remaining = projection.remaining_percent?;
-            let warning = if app.compaction_in_flight() {
-                ""
-            } else if projection.used > projection.auto_compaction_threshold {
-                " · compact"
-            } else if projection.used > projection.target {
-                " · target"
-            } else {
-                ""
-            };
-            (
-                format!("{remaining}% ctx left{warning}"),
-                5,
-                12,
-                Truncation::None,
-                !warning.is_empty(),
-            )
+            (format!("{remaining}% ctx left"), 5, 12, Truncation::None, false)
         }
     };
     Some(Field { text, priority, min_width, truncation, urgent, required: segment == StatusSegment::RunState })
@@ -479,11 +464,10 @@ mod tests {
         assert!(!status_row(&app, 24, false).text().contains("ctx left"));
 
         let ledger = app.transcript.context_ledger.as_mut().expect("refreshed ledger");
-        ledger.budget.used = ledger.budget.target.saturating_add(1);
-        assert!(status_row(&app, 100, false).text().contains("· target"));
-        let ledger = app.transcript.context_ledger.as_mut().expect("refreshed ledger");
-        ledger.budget.used = ledger.budget.auto_compaction_threshold.saturating_add(1);
-        assert!(status_row(&app, 100, false).text().contains("· compact"));
+        ledger.budget.used = ledger.budget.available_input;
+        let exhausted = status_row(&app, 100, false).text();
+        assert!(exhausted.contains("0% ctx left"));
+        assert!(!exhausted.contains("compact"));
     }
 
     #[test]

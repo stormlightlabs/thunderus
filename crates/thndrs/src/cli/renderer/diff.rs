@@ -448,7 +448,7 @@ fn render_source_line(
     bg: Color,
 ) {
     let p = super::style::palette();
-    let (marker, marker_color, source_bg) = match line.kind {
+    let (marker, source_color, source_bg) = match line.kind {
         DiffLineKind::Context => (' ', p.border, bg),
         DiffLineKind::Addition => ('+', p.success, p.surface),
         DiffLineKind::Deletion => ('-', p.failure, p.surface),
@@ -463,13 +463,13 @@ fn render_source_line(
         .saturating_sub(utils::text_width(ACTIVITY_RAIL))
         .saturating_sub(utils::text_width(&gutter))
         .max(1);
-    let source_style = CellStyle::new().fg(p.secondary).bg(source_bg);
+    let source_style = CellStyle::new().fg(source_color).bg(source_bg);
     let syntax = syntax
         .into_iter()
         .map(|span| {
             let mut style = span.style.with_bg(source_bg);
             if style.fg == Color::Reset {
-                style.fg = p.secondary;
+                style.fg = source_color;
             }
             Span { text: span.text, style }
         })
@@ -482,7 +482,7 @@ fn render_source_line(
         let line_gutter = if index == 0 { gutter.clone() } else { "↪ ".to_string() };
         let mut spans = vec![
             Span::styled(ACTIVITY_RAIL, CellStyle::new().fg(p.warning).bg(bg)),
-            Span::styled(line_gutter, CellStyle::new().fg(marker_color).bg(source_bg)),
+            Span::styled(line_gutter, source_style),
         ];
         spans.extend(if wrapped.is_empty() { vec![Span::styled("", source_style)] } else { wrapped });
         rows.push(Row::padded(
@@ -545,6 +545,32 @@ mod tests {
                 span.text.contains("new_call") && span.style.bg == super::super::style::palette().surface
             })
         );
+    }
+
+    #[test]
+    fn wrapped_change_fragments_keep_their_semantic_color() {
+        let p = super::super::style::palette();
+        for (kind, color) in [(DiffLineKind::Addition, p.success), (DiffLineKind::Deletion, p.failure)] {
+            let mut rendered = Vec::new();
+            let line = DiffLine { kind, old_line: Some(1), new_line: Some(1), content: "abcdefghijk".to_string() };
+            render_source_line(
+                &mut rendered,
+                &line,
+                vec![Span::plain(line.content.clone())],
+                1,
+                12,
+                8,
+                Color::Reset,
+            );
+
+            let fragments = rendered
+                .iter()
+                .flat_map(|row| &row.spans)
+                .filter(|span| span.text.chars().all(char::is_alphabetic))
+                .collect::<Vec<_>>();
+            assert!(fragments.len() > 1, "source should wrap");
+            assert!(fragments.iter().all(|span| span.style.fg == color));
+        }
     }
 
     #[test]

@@ -5,9 +5,12 @@
 - [x] Context is erratic (this could be model related): with terra, the turn
       ended at 27% then jumped to 72% with a follow-up
 - [ ] Keybind for steering vs. queueing doesn't work in all environments
-- [ ] We see 0% context then just "compact" after reasoning level. that should not be
+- [x] We see 0% context then just "compact" after reasoning level. that should not be
       the case. Compacting should be a discrete state.
 - [ ] the input icon shouldn't change based on state/status
+- [x] Diffs aren't colored properly
+- [ ] You can't move through a potential file path when the file picker is open.
+      For example, if you put `@READ`, you can add & delete chars but can't move through it
 
 ## UI
 
