@@ -12,9 +12,7 @@
 //!    result is emitted as a `ToolFinished` event appended to the transcript.
 //! 4. Provider tool results are fed back into the next turn using the provider's
 //!    native continuation format.
-//! 5. The loop enforces bounded tool-budget continuations to prevent recursive
-//!    or unbounded tool-call loops while still allowing longer useful runs.
-//! 6. Cancellation is cooperative: the loop checks the shared [`CancelToken`]
+//! 5. Cancellation is cooperative: the loop checks the shared [`CancelToken`]
 //!    between events, lines, and tool executions. When cancelled, it emits
 //!    [`AgentEvent::Cancelled`] and stops.
 
@@ -253,8 +251,7 @@ impl RunHandle {
     }
 
     /// The unified agent loop. Dispatches to a built-in provider, handles
-    /// tool-use requests, enforces the per-turn cap, and checks cancellation
-    /// cooperatively.
+    /// tool-use requests, and checks cancellation cooperatively.
     fn run_agent(&self, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
         if send(tx, AgentEvent::Started, cancel).is_none() {
             return;
@@ -279,7 +276,7 @@ impl RunHandle {
     /// A streaming provider sends the prompt to its API, streams the response,
     /// dispatches any tool-use requests, feeds the tool results back as
     /// provider-native tool result messages, and repeats until the model stops
-    /// requesting tools or the per-turn cap is hit.
+    /// requesting tools.
     #[expect(
         clippy::cognitive_complexity,
         reason = "Provider turns intentionally centralize cancellation, tool permissions, and continuation state."
@@ -303,7 +300,6 @@ impl RunHandle {
             model = %self.config.model,
             cwd = %self.config.root.display(),
             messages = self.messages.len(),
-            max_tool_iterations = self.config.max_tool_iterations,
             "starting provider agent run"
         );
         if send(tx, AgentEvent::Status(provider.load_status()), cancel).is_none() {
@@ -323,7 +319,7 @@ impl RunHandle {
         } else {
             self.messages.clone()
         };
-        let mut tool_budget = thndrs_agent::ToolIterationBudget::unbounded(self.config.max_tool_iterations);
+        let mut tool_budget = thndrs_agent::ToolIterationBudget::unbounded();
         let mut wrote_file = false;
         let mut continuation = ProviderContinuation::default();
         let mut pending_reduction_receipts = Vec::new();
@@ -342,34 +338,10 @@ impl RunHandle {
 
             match tool_budget.before_provider_request() {
                 thndrs_agent::ToolBudgetDecision::Continue => {}
-                thndrs_agent::ToolBudgetDecision::ContinueAfterBudgetMessage => {
-                    let text = format!(
-                        "[tool-budget]\nTool batch segment limit reached after {} total batches. Continue from the current state, avoid repeating completed work, and stop requesting tools once you can answer.",
-                        tool_budget.total_batches()
-                    );
-                    tracing::warn!(
-                        total_batches = tool_budget.total_batches(),
-                        continuations_used = tool_budget.continuations_used(),
-                        "continuing after tool-budget segment cap"
-                    );
-                    messages.push(ProviderMessage::user(&text));
-                    if send(
-                        tx,
-                        AgentEvent::Status(format!(
-                            "tool budget: auto-continue {} after {} batches",
-                            tool_budget.continuations_used(),
-                            tool_budget.total_batches()
-                        )),
-                        cancel,
-                    )
-                    .is_none()
-                    {
-                        return;
-                    }
-                }
-                thndrs_agent::ToolBudgetDecision::Exhausted { .. } => {
-                    // Invariant: unbounded budgets never return `Exhausted`.
-                    unreachable!("the primary agent uses an unbounded continuation budget");
+                thndrs_agent::ToolBudgetDecision::ContinueAfterBudgetMessage
+                | thndrs_agent::ToolBudgetDecision::Exhausted { .. } => {
+                    // Invariant: an unbounded budget never returns a boundary decision.
+                    unreachable!("the primary agent uses an unbounded tool budget");
                 }
             }
 
@@ -1994,7 +1966,7 @@ mod tests {
     use crate::app::ToolStatus;
     use crate::cli::WebSearchMode;
     use crate::providers;
-    use crate::tools::{self, AgentRunConfig, MAX_TOOL_ITERATIONS};
+    use crate::tools::{self, AgentRunConfig};
     use std::path::{Path, PathBuf};
 
     fn config() -> AgentRunConfig {
@@ -2302,12 +2274,6 @@ mod tests {
         );
         let output = dispatch_output(&req, Path::new("src"));
         assert_eq!(output.status, ToolStatus::Ok);
-    }
-
-    #[test]
-    fn max_tool_iterations_is_reasonable() {
-        let cap = MAX_TOOL_ITERATIONS;
-        assert!(cap >= 4 && cap <= 16, "per-turn cap should be 4..=16, got {cap}");
     }
 
     #[test]

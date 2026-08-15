@@ -45,13 +45,6 @@ use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
 use crate::mcp::manager::McpManager;
 use crate::search::SearchConfig;
 
-/// Maximum number of tool-call iterations per agent turn before the loop
-/// stops with a cap-exceeded error.
-///
-/// This prevents recursive or unbounded tool-call loops (e.g. a model that
-/// keeps requesting tools without converging on a final answer).
-pub const MAX_TOOL_ITERATIONS: usize = 8;
-
 /// Default maximum number of results from a search or list operation.
 pub const MAX_RESULTS: usize = 100;
 /// Maximum stdout/stderr bytes captured from a subprocess.
@@ -145,8 +138,6 @@ pub struct AgentRunConfig {
     /// TODO: Route this through every provider/model family that supports
     /// reasoning-summary controls.
     pub reasoning_summary: ReasoningSummary,
-    /// Maximum tool-call iterations per turn.
-    pub max_tool_iterations: usize,
     /// Optional MCP manager used to extend the built-in tool registry.
     pub mcp_manager: Option<Arc<McpManager>>,
     /// Shared application owner for background shell processes.
@@ -173,7 +164,6 @@ impl AgentRunConfig {
             search_url: None,
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
-            max_tool_iterations: MAX_TOOL_ITERATIONS,
             mcp_manager: None,
             process_registry: None,
             accounting_turn_id: None,
@@ -870,36 +860,15 @@ mod tests {
     }
 
     #[test]
-    fn tool_budget_continues_after_many_segments() {
-        let mut budget = ToolIterationBudget::unbounded(2);
-        for continuation in 1..=12 {
-            budget.record_tool_batch();
-            budget.record_tool_batch();
-            assert_eq!(
-                budget.before_provider_request(),
-                ToolBudgetDecision::ContinueAfterBudgetMessage
-            );
-            assert_eq!(budget.continuations_used(), continuation);
-        }
-    }
+    fn unbounded_tool_budget_never_injects_segment_boundaries() {
+        let mut budget = ToolIterationBudget::unbounded();
 
-    #[test]
-    fn tool_budget_continues_beyond_64_batches() {
-        let mut budget = ToolIterationBudget::unbounded(MAX_TOOL_ITERATIONS);
-
-        for batch in 0..72 {
+        for _ in 0..72 {
             assert_eq!(budget.before_provider_request(), ToolBudgetDecision::Continue);
             budget.record_tool_batch();
-
-            if (batch + 1) % MAX_TOOL_ITERATIONS == 0 {
-                assert_eq!(
-                    budget.before_provider_request(),
-                    ToolBudgetDecision::ContinueAfterBudgetMessage
-                );
-            }
         }
 
         assert_eq!(budget.total_batches(), 72);
-        assert_eq!(budget.continuations_used(), 9);
+        assert_eq!(budget.continuations_used(), 0);
     }
 }

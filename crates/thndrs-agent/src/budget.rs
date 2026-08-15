@@ -22,7 +22,7 @@ pub enum ToolBudgetDecision {
 /// Tool-batch segment budget for one agent turn, with optional exhaustion.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToolIterationBudget {
-    segment_limit: usize,
+    segment_limit: Option<usize>,
     continuation_limit: Option<usize>,
     segment_iterations: usize,
     total_batches: usize,
@@ -33,7 +33,7 @@ impl ToolIterationBudget {
     /// Create a budget with a segment limit and total continuation limit.
     pub fn new(segment_limit: usize, continuation_limit: usize) -> Self {
         Self {
-            segment_limit,
+            segment_limit: Some(segment_limit),
             continuation_limit: Some(continuation_limit),
             segment_iterations: 0,
             total_batches: 0,
@@ -41,10 +41,10 @@ impl ToolIterationBudget {
         }
     }
 
-    /// Create a budget that sends segment reminders without ending the turn.
-    pub fn unbounded(segment_limit: usize) -> Self {
+    /// Create a budget that never interrupts the turn.
+    pub fn unbounded() -> Self {
         Self {
-            segment_limit,
+            segment_limit: None,
             continuation_limit: None,
             segment_iterations: 0,
             total_batches: 0,
@@ -60,7 +60,11 @@ impl ToolIterationBudget {
 
     /// Decide whether the next provider request fits the remaining budget.
     pub fn before_provider_request(&mut self) -> ToolBudgetDecision {
-        if self.segment_iterations < self.segment_limit {
+        let Some(segment_limit) = self.segment_limit else {
+            return ToolBudgetDecision::Continue;
+        };
+
+        if self.segment_iterations < segment_limit {
             return ToolBudgetDecision::Continue;
         }
 
@@ -117,15 +121,12 @@ mod tests {
 
     #[test]
     fn unbounded_budget_continues_across_segment_boundaries() {
-        let mut budget = ToolIterationBudget::unbounded(2);
-        for continuation in 1..=12 {
+        let mut budget = ToolIterationBudget::unbounded();
+        for _ in 1..=24 {
             budget.record_tool_batch();
-            budget.record_tool_batch();
-            assert_eq!(
-                budget.before_provider_request(),
-                ToolBudgetDecision::ContinueAfterBudgetMessage
-            );
-            assert_eq!(budget.continuations_used(), continuation);
+            assert_eq!(budget.before_provider_request(), ToolBudgetDecision::Continue);
         }
+        assert_eq!(budget.total_batches(), 24);
+        assert_eq!(budget.continuations_used(), 0);
     }
 }
