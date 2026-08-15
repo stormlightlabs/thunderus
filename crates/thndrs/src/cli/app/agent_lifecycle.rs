@@ -11,16 +11,19 @@ fn persist_active_context_snapshot(app: &mut App, state: session::ContextSnapsho
 }
 
 fn update_context_usage(app: &mut App, accounting: &thndrs_agent::ProviderRequestAccounting) {
-    let used = accounting
-        .provider_usage
-        .as_ref()
-        .and_then(|usage| usage.components.input_tokens)
-        .or(accounting.estimated_input_tokens.value);
-    if let Some(used) = used
+    if let Some(used) = observed_context_usage(accounting)
         && let Some(ledger) = app.transcript.context_ledger.as_mut()
     {
         ledger.budget.used = used;
     }
+}
+
+pub(super) fn observed_context_usage(accounting: &thndrs_agent::ProviderRequestAccounting) -> Option<u64> {
+    accounting
+        .provider_usage
+        .as_ref()
+        .and_then(|usage| usage.inclusive_input_tokens.value)
+        .or(accounting.estimated_input_tokens.value)
 }
 
 fn disable_context_content_capture(app: &mut App, reason: &str) {

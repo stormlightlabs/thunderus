@@ -311,6 +311,12 @@ impl App {
         let (limits, mut diagnostics) =
             agent_context::ModelContextLimits::resolve(provider, &self.runtime.model, None, None);
         let mut ledger = agent_context::select_context(&selection_input, limits);
+        if let Some(accounting) = self.session.last_request_accounting.as_ref()
+            && request_context_is_retained(&ledger, accounting)
+            && let Some(used) = super::agent_lifecycle::observed_context_usage(accounting)
+        {
+            ledger.budget.used = ledger.budget.used.max(used);
+        }
         ledger.budget.auto_compaction_threshold = self
             .effective_compaction_policy()
             .auto_compaction_threshold(ledger.budget.available_input);
@@ -1726,6 +1732,34 @@ fn compaction_audit(
             diagnostic: "provider adapter does not report native context editing capability".to_string(),
         }),
     }
+}
+
+/// Whether the current selection still contains every item sent with a prior
+/// provider request.
+///
+/// A provider's input-token measurement includes serialization and provider
+/// framing that the local ledger cannot reconstruct. It remains useful for the
+/// next request only while the prior working set is intact. Dropping or
+/// compacting any rendered item invalidates that measurement.
+fn request_context_is_retained(
+    ledger: &agent_context::ContextLedger, accounting: &thndrs_agent::ProviderRequestAccounting,
+) -> bool {
+    let retained_ids = ledger
+        .items
+        .iter()
+        .filter(|item| item.visibility.is_rendered())
+        .map(|item| item.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let mut has_rendered_context = false;
+    for item in &accounting.context {
+        if item.state.is_rendered() {
+            has_rendered_context = true;
+            if !retained_ids.contains(item.id.as_str()) {
+                return false;
+            }
+        }
+    }
+    has_rendered_context
 }
 
 fn transcript_candidate_label(entry: &Entry) -> String {

@@ -3495,6 +3495,61 @@ fn request_start_updates_live_context_usage() {
 }
 
 #[test]
+fn retained_provider_measurement_survives_model_switches() {
+    let mut app = fresh_app();
+    let ledger = app.refresh_context_ledger(None);
+    let context = thndrs_agent::snapshot_context(&ledger.items);
+    let mut accounting = thndrs_agent::ProviderRequestAccounting::from_serialized_request(
+        "turn_1",
+        "turn_1:request:1",
+        1,
+        "chatgpt-codex",
+        "gpt-5.6-terra",
+        &vec![b'x'; 180_000],
+        context,
+    );
+    accounting.provider_usage = Some(
+        thndrs_agent::ProviderUsageComponents::new(60_000, 1_000)
+            .normalize("chatgpt-codex", thndrs_agent::ProviderUsageRule::OpenAiResponses),
+    );
+    app.session.last_request_accounting = Some(accounting);
+
+    app.runtime.model = "opencode/gpt-5.6-terra".to_string();
+    let refreshed = app.refresh_context_ledger(None);
+
+    assert_eq!(refreshed.budget.used, 60_000);
+}
+
+#[test]
+fn request_start_counts_cached_anthropic_input_as_context() {
+    let mut app = fresh_app();
+    app.refresh_context_ledger(None);
+    let mut accounting = thndrs_agent::ProviderRequestAccounting::from_serialized_request(
+        "turn_1",
+        "turn_1:request:1",
+        1,
+        "opencode",
+        "claude-opus-4-8",
+        br#"{"messages":[]}"#,
+        Vec::new(),
+    );
+    accounting.provider_usage = Some(
+        thndrs_agent::ProviderUsageComponents {
+            input_tokens: Some(100),
+            output_tokens: Some(1),
+            cache_read_input_tokens: Some(20),
+            cache_creation_input_tokens: Some(5),
+            reasoning_tokens: None,
+        }
+        .normalize("opencode", thndrs_agent::ProviderUsageRule::AnthropicMessages),
+    );
+
+    handle_agent_event(&mut app, AgentEvent::RequestStarted(Box::new(accounting)));
+
+    assert_eq!(app.transcript.context_ledger.expect("context ledger").budget.used, 125);
+}
+
+#[test]
 fn request_start_returns_status_to_working_after_a_tool() {
     let mut app = fresh_app();
     app.runtime.run_state = RunState::Working;
