@@ -49,47 +49,47 @@ presentation.
 
 **Acceptance criteria:**
 
-- [ ] Inline mode stays on the normal screen and uses terminal scrollback,
+- [x] Inline mode stays on the normal screen and uses terminal scrollback,
       selection, and copy. It does not enter the alternate screen or enable
       mouse capture by default.
-- [ ] Ratatui's `Viewport::Inline` and `Terminal::insert_before` support
+- [x] Ratatui's `Viewport::Inline` and `Terminal::insert_before` support
       composer height changes, transcript commits, and focused-view transitions
       without stale rows or damage to content above the live surface.
-- [ ] One coordinator owns terminal modes, viewport reservation, ordered
+- [x] One coordinator owns terminal modes, viewport reservation, ordered
       insertion and drawing, cursor placement, and flushes. Transcript and
       surface modules do not issue independent raw cursor or scroll-region
       writes through `backend_mut()`.
-- [ ] Stability is decided for semantic blocks rather than inferred from
+- [x] Stability is decided for semantic blocks rather than inferred from
       wrapped rows, rendered strings, or viewport height.
-- [ ] The commit checkpoint uses stable block identity and generation and
+- [x] The commit checkpoint uses stable block identity and generation and
       survives width, theme, composer-height, and focused-view changes.
-- [ ] Submitted user entries and finalized assistant or tool blocks are
+- [x] Submitted user entries and finalized assistant or tool blocks are
       committed once, in transcript order.
-- [ ] Streaming assistant text, running tools, elapsed time, and other changing
+- [x] Streaming assistant text, running tools, elapsed time, and other changing
       content remain in the mutable tail.
-- [ ] Finalization inserts the complete block and removes its mutable copy in
+- [x] Finalization inserts the complete block and removes its mutable copy in
       one terminal transaction, with no duplicate or blank intermediate frame.
-- [ ] A fresh or resumed process hydrates its stable transcript once. Resize,
+- [x] A fresh or resumed process hydrates its stable transcript once. Resize,
       compaction, relayout, and in-process resume do not hydrate it again.
-- [ ] Resize reflows the mutable tail and future commits without purging,
+- [x] Resize reflows the mutable tail and future commits without purging,
       clearing, or replaying committed terminal history.
-- [ ] Clearing application history starts a new commit generation and clears
+- [x] Clearing application history starts a new commit generation and clears
       the live surface without claiming to erase emulator-retained scrollback.
-- [ ] Recently committed rows are not copied into the live surface to fill
+- [x] Recently committed rows are not copied into the live surface to fill
       unused space.
-- [ ] Transcript semantics map Skill `§`, Run/shell `$`, Search `/`, Read `›`,
+- [x] Transcript semantics map Skill `§`, Run/shell `$`, Search `/`, Read `›`,
       Explore `⌁`, Edit/patch `∆`, Create/write `+`, Delete `−`, Fetch/network
       `↗`, Retry/refresh `⟳`, Tool/MCP `@`, Subagent/parallel `∥`, and
       Warning/blocked `!`.
-- [ ] Structured tool and transcript metadata determines the operation when
+- [x] Structured tool and transcript metadata determines the operation when
       available. Unknown external capabilities use Tool/MCP, and renderers do
       not parse labels to recover semantics.
-- [ ] Skill activation uses `§ Skill`. Create, edit, and delete remain distinct
+- [x] Skill activation uses `§ Skill`. Create, edit, and delete remain distinct
       only when structured change data supports the distinction.
-- [ ] Operation kind stays fixed across running, success, and failure states.
+- [x] Operation kind stays fixed across running, success, and failure states.
       Live and committed forms use the same glyph, label, target summary, and
       width-aware layout.
-- [ ] Every operation symbol has an adjacent readable label and does not depend
+- [x] Every operation symbol has an adjacent readable label and does not depend
       on color for meaning.
 
 If Ratatui's public inline APIs cannot meet the height and insertion criteria,

@@ -2,20 +2,30 @@
 
 use super::*;
 
-/// Interactive alternate-screen mode with one application-owned viewport.
+/// Interactive normal-screen mode with native terminal scrollback.
 pub(crate) fn run_inline(tick: Duration, cli: &Cli, initial_session: InitialSession<'_>) -> io::Result<()> {
     let app = match initial_session {
         InitialSession::New => App::from_cli(cli),
         InitialSession::Resume(session_id) => App::from_cli_resuming(cli, session_id)?,
     };
-    let mouse_enabled = cli.mouse && !cli.no_mouse;
-    let terminal_session = AlternateScreenSession::enter(mouse_enabled)?;
+    let terminal_session = InlineTerminalSession::enter()?;
     let stdout = io::BufWriter::with_capacity(TERMINAL_WRITE_BUFFER_CAPACITY, io::stdout());
-    let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+    let terminal = Terminal::with_options(
+        CrosstermBackend::new(stdout),
+        TerminalOptions {
+            // The logical live frame decides its own dynamic composer height;
+            // the inline viewport reserves the terminal and owns insertion.
+            viewport: Viewport::Inline(u16::MAX),
+        },
+    )?;
     let mut surface = RatatuiSurface::new(terminal, terminal_session);
-    let resume_message = interactive_loop(&mut surface, tick, cli, app)?;
-    surface.terminal_session.suspend()?;
+    let loop_result = interactive_loop(&mut surface, tick, cli, app);
+    let finish_result = surface.finish();
+    let restore_result = surface.terminal_session.suspend();
     drop(surface);
+    let resume_message = loop_result?;
+    finish_result?;
+    restore_result?;
     if let Some(message) = resume_message {
         println!("{message}");
     }

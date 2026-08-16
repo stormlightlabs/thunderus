@@ -37,6 +37,7 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
     if let Some(toast) = &app.runtime.status_toast {
         let color = match toast.kind {
             StatusToastKind::Success => palette.success,
+            StatusToastKind::Warning => palette.warning,
             StatusToastKind::Error => palette.failure,
         };
         let body_width = super::layout::content_width(width);

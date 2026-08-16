@@ -789,9 +789,7 @@ pub fn handle_action(app: &mut App, action: Action) -> Option<Msg> {
             } else {
                 let deadline = app.runtime.ui_tick.wrapping_add(quit_confirm_timeout_ticks(app));
                 app.runtime.ctrl_d_pending = Some(deadline);
-                app.transcript
-                    .entries
-                    .push(Entry::Status { text: String::from("Press CTRL+D again to quit.") });
+                app.show_status_toast("Press CTRL+D again to quit.", StatusToastKind::Warning);
                 None
             }
         }

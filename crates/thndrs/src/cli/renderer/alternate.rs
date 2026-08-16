@@ -21,10 +21,11 @@ use crossterm::event::{
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::Frame as RatatuiFrame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color as RatatuiColor, Modifier, Style};
 use ratatui::text::{Line, Span as RatatuiSpan};
-use ratatui::widgets::{Clear, Paragraph};
+use ratatui::widgets::{Clear, Paragraph, Widget};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -813,6 +814,17 @@ pub fn render_logical_frame(frame: &mut RatatuiFrame<'_>, logical: &Frame) {
         .saturating_add((cursor.col as u16).min(area.width.saturating_sub(1)));
     let y = area.y.saturating_add(visible_row as u16);
     frame.set_cursor_position(Position::new(x, y));
+}
+
+/// Render transcript rows into an insertion buffer owned by Ratatui.
+///
+/// The inline terminal coordinator uses this adapter for
+/// `Terminal::insert_before`, keeping all terminal writes inside Ratatui.
+pub fn render_rows_to_buffer(rows: &[Row], buffer: &mut Buffer) {
+    let area = buffer.area;
+    for (index, row) in rows.iter().take(area.height as usize).enumerate() {
+        Paragraph::new(line_from_row(row)).render(Rect::new(area.x, area.y + index as u16, area.width, 1), buffer);
+    }
 }
 
 fn line_from_row(row: &Row) -> Line<'static> {

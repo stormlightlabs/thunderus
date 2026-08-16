@@ -10,9 +10,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crossterm::event;
-use ratatui::Terminal;
-use ratatui::backend::{Backend, CrosstermBackend};
-use ratatui::layout::Rect;
+use ratatui::backend::CrosstermBackend;
+use ratatui::{Terminal, TerminalOptions, Viewport};
 
 use crate::prompt::PromptBundle;
 use acp::config::provider_label;
@@ -28,7 +27,6 @@ use cli::{
     commands::session::{SessionCommand, SessionDataFormat, SessionReportFormat},
 };
 use mcp::manager::McpManager;
-use renderer::alternate::{AlternateScreenSession, AlternateViewport, render_logical_frame};
 use utils::datetime;
 
 use crate::input::TerminalInput;
@@ -217,7 +215,7 @@ pub(crate) use interactive::*;
 pub(crate) use prompt::{append_daily_log, daily_detail_value, init_tracing, session_resume_message};
 #[cfg(test)]
 pub(crate) use prompt::{redact_secret, render_print_prompt_config};
-pub(crate) use terminal::{InteractiveSurface, RatatuiSurface};
+pub(crate) use terminal::{InlineTerminalSession, InteractiveSurface, RatatuiSurface};
 
 /// Process exit code for a [`run`] error.
 pub fn exit_code(error: &io::Error) -> i32 {

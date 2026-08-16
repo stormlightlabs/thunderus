@@ -10,6 +10,7 @@ pub mod alternate;
 pub mod cursor;
 mod diff;
 pub mod highlight;
+pub mod inline;
 pub mod key_hint;
 pub mod layout;
 pub mod live;

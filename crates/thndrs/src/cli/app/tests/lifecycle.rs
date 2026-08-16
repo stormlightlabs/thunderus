@@ -96,12 +96,13 @@ fn ctrl_d_first_press_shows_confirmation() {
     assert!(!app.runtime.quit, "first Ctrl+D should not quit");
     assert!(app.runtime.ctrl_d_pending.is_some(), "should arm pending confirmation");
     assert!(
-        app.transcript.entries.iter().any(|e| matches!(
-            e,
-            Entry::Status { text } if text.contains("Press CTRL+D again to quit")
-        )),
-        "should show confirmation message"
+        app.transcript.entries.is_empty(),
+        "exit confirmation should not displace the inline welcome"
     );
+    assert!(matches!(
+        app.runtime.status_toast.as_ref(),
+        Some(StatusToast { text, kind: StatusToastKind::Warning, .. }) if text == "Press CTRL+D again to quit."
+    ));
 }
 
 #[test]

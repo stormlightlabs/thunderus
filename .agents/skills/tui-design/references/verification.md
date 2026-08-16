@@ -55,7 +55,7 @@ Inspect:
 
 - no flicker or stale cells during streaming, resize, and popup dismissal;
 - cursor shape, position, visibility, and restoration;
-- terminal cleanup after success, error, panic, and `Ctrl+C`;
+- terminal cleanup after success, error, panic, `Ctrl+C`, and a confirmed `Ctrl+D` exit; verify its confirmation remains visible without displacing live transcript content;
 - paste behavior with multiline and large content;
 - terminal text selection with mouse capture off;
 - readable hierarchy on at least one light and one dark background;
