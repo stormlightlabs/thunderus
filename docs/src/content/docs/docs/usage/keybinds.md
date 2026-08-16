@@ -16,7 +16,8 @@ These shortcuts work from any mode unless otherwise noted.
 | ------------------ | -------------------------------------------------------------------------------- |
 | `Ctrl+C`           | Cancel a running stream; quit when idle                                          |
 | `Ctrl+D`, `Ctrl+D` | Show quit confirmation; press again to quit                                      |
-| `Ctrl+T`           | Toggle the running input target (`steering` / `follow-up`)                       |
+| `Ctrl+G`           | Send the running draft as steering guidance                                      |
+| `Enter`             | Queue the running draft as a follow-up                                           |
 | `Ctrl+O`           | Open focused detail for failed/truncated tool output, diffs, warnings, or errors |
 | `?`                | Open help overlay (only when the prompt is empty)                                |
 | `:`                | Enter command mode (only when idle or after an error)                            |
@@ -35,6 +36,7 @@ Cursor movement and text editing while in the prompt.
 | `End` or `Ctrl+E`                     | Move cursor to the end of the line                     |
 | `Tab`                                 | Accept the active suggestion (`:` command or `@` path) |
 | `Shift+Enter` or `Ctrl+J`             | Insert a newline in a multi-line prompt                |
+| `Ctrl+T`                              | Transpose the adjacent characters                      |
 | `Enter`                               | Submit the current prompt                              |
 | `Backspace`                           | Delete the character before the cursor                 |
 | `Delete`                              | Delete the character after the cursor (forward delete) |
@@ -63,7 +65,8 @@ Available while the help overlay is open.
 
 | Key                    | Description                             |
 | ---------------------- | --------------------------------------- |
-| `Esc`, `?`, or `Enter` | Close help overlay and return to prompt |
+| `Esc`                | Close help overlay and return to prompt |
+| `Up` / `Down`        | Scroll the help rows                         |
 
 ## Command Mode
 
@@ -81,19 +84,19 @@ Commands currently include `clear`, `quit`, `exit`, `help`, `bg`, `bg cancel <id
 | `Tab`                   | Accept completion for the active command suggestion |
 | Any printable character | Append to the command buffer                        |
 
-## Path Picker
+## File Mentions
 
-Available while the path picker is open.
+Type `@` in the prompt to open file and directory suggestions.
 
-| Key                     | Description                                     |
-| ----------------------- | ----------------------------------------------- |
-| `Ctrl+P`                | Open the path picker (from prompt)              |
-| `Up` / `Down`           | Move selection up / down                        |
-| `PageUp` / `PageDown`   | Move selection up / down by a page              |
-| `Enter`                 | Insert the selected path into the prompt        |
-| `Esc`                   | Close the path picker without inserting         |
-| `Backspace`             | Remove the last character from the picker query |
-| Any printable character | Append to the picker query and filter results   |
+| Key                     | Description                                                   |
+| ----------------------- | ------------------------------------------------------------- |
+| `Up` / `Down`           | Move selection up / down                                      |
+| `PageUp` / `PageDown`   | Move selection up / down by a page                            |
+| `Left` / `Right`        | Move through the path text in the prompt and refresh results  |
+| `Enter` or `Tab`        | Insert the selected path into the prompt                      |
+| `Esc`                   | Close the suggestions without inserting                       |
+| `Backspace` / `Delete`  | Edit the path text in the prompt and refresh results          |
+| Any printable character | Insert into the prompt and filter results                     |
 
 ## Model Picker
 

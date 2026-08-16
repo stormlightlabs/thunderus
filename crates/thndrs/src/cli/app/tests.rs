@@ -2756,6 +2756,28 @@ fn steering_chord_queues_running_input_as_steering() {
 }
 
 #[test]
+fn ctrl_g_queues_running_input_as_steering_in_all_terminal_environments() {
+    let mut app = fresh_app();
+    app.runtime.run_state = RunState::Working;
+    app.composer.input = PromptInput::from("look at tests first");
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL)),
+    );
+
+    assert!(app.composer.input.is_empty());
+    assert_eq!(
+        app.composer
+            .queue
+            .pending(QueueTarget::Steering)
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["look at tests first"]
+    );
+}
+
+#[test]
 fn plain_submit_while_working_always_queues_a_followup() {
     let mut app = fresh_app();
     app.runtime.run_state = RunState::Working;
@@ -3390,6 +3412,29 @@ fn at_token_opens_file_picker_and_accepts_mention() {
 
     assert_eq!(app.overlay.accessory(), PromptAccessory::None);
     assert_eq!(app.composer.input.as_str(), "inspect @readme.md ");
+}
+
+#[test]
+fn file_mention_picker_routes_cursor_navigation_to_the_prompt() {
+    let mut app = fresh_app();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    app.runtime.cwd = dir.path().to_path_buf();
+    let _ = std::fs::write(app.runtime.cwd.join("README.md"), "readme");
+
+    for ch in "inspect @READ".chars() {
+        update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let end = app.composer.input.cursor();
+
+    update(&mut app, &key(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(app.composer.input.cursor(), end - 1);
+    update(&mut app, &key(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(app.composer.input.cursor(), end);
+
+    update(&mut app, &key(KeyCode::Left, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Delete, KeyModifiers::NONE));
+    assert_eq!(app.composer.input.as_str(), "inspect @REA");
+    assert_eq!(app.overlay.picker().expect("file picker").query, "REA");
 }
 
 #[test]

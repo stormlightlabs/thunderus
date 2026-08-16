@@ -268,10 +268,7 @@ const DEFAULT_HELP: &[(&str, &str)] = &[
     ("Ctrl+D", "quit after double-press"),
 ];
 
-#[cfg(target_os = "macos")]
-const STEERING_KEY_LABEL: &str = "Cmd+Enter";
-#[cfg(not(target_os = "macos"))]
-const STEERING_KEY_LABEL: &str = "Ctrl+Enter";
+const STEERING_KEY_LABEL: &str = "Ctrl+G";
 
 /// Resolve the active application focus without exposing overlay internals.
 pub fn input_focus(app: &App) -> InputFocus {
@@ -352,13 +349,26 @@ pub fn translate_input_with_keymap(app: &App, input: TerminalInput, keymap: &Key
     }
 }
 
+fn running_steering_action(app: &App, key: KeyEvent) -> Option<Action> {
+    if app.runtime.run_state != RunState::Working {
+        return None;
+    }
+
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    let steering_chord = key.code == KeyCode::Char('g') && control && !alt;
+    #[cfg(target_os = "macos")]
+    let steering_chord = steering_chord || (key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::SUPER));
+    #[cfg(not(target_os = "macos"))]
+    let steering_chord = steering_chord || (key.code == KeyCode::Enter && control && !alt);
+    steering_chord.then_some(Action::SubmitSteering)
+}
+
 fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Action> {
     let modifiers = key.modifiers;
     let control = modifiers.contains(KeyModifiers::CONTROL);
     let alt = modifiers.contains(KeyModifiers::ALT);
     let shift = modifiers.contains(KeyModifiers::SHIFT);
-    #[cfg(target_os = "macos")]
-    let command = modifiers.contains(KeyModifiers::SUPER);
     if matches!(
         focus,
         InputFocus::TranscriptSearch | InputFocus::Queue | InputFocus::Help
@@ -366,12 +376,8 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
         return focused_surface_key_action(focus, key);
     }
     if matches!(focus, InputFocus::Prompt) && matches!(app.overlay.accessory(), PromptAccessory::None) {
-        #[cfg(target_os = "macos")]
-        let steering_chord = key.code == KeyCode::Enter && command;
-        #[cfg(not(target_os = "macos"))]
-        let steering_chord = key.code == KeyCode::Enter && control && !alt;
-        if steering_chord && app.runtime.run_state == RunState::Working {
-            return Some(Action::SubmitSteering);
+        if let Some(action) = running_steering_action(app, key) {
+            return Some(action);
         }
         if key.code == KeyCode::BackTab && app.runtime.run_state == RunState::Idle {
             return Some(Action::CycleReasoningEffort);
@@ -455,18 +461,23 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
             Mode::Command => default_key_action(app, InputFocus::Command, key),
             Mode::Prompt => prompt_key_action(app, key),
         },
-        InputFocus::Picker => match key.code {
-            KeyCode::Esc => Some(Action::CloseOverlay),
-            KeyCode::Enter => Some(Action::Confirm),
-            KeyCode::Tab => Some(Action::AcceptSuggestion),
-            KeyCode::Up => Some(Action::SelectPrevious),
-            KeyCode::Down => Some(Action::SelectNext),
-            KeyCode::PageUp => Some(Action::PagePrevious),
-            KeyCode::PageDown => Some(Action::PageNext),
-            KeyCode::Backspace if !control && !alt => Some(Action::Backspace),
-            KeyCode::Char(ch) if !control && !alt => Some(Action::InsertText(ch.to_string())),
-            _ => None,
-        },
+        InputFocus::Picker => {
+            if let Some(action) = mention_picker_key_action(app, key) {
+                return Some(action);
+            }
+            match key.code {
+                KeyCode::Esc => Some(Action::CloseOverlay),
+                KeyCode::Enter => Some(Action::Confirm),
+                KeyCode::Tab => Some(Action::AcceptSuggestion),
+                KeyCode::Up => Some(Action::SelectPrevious),
+                KeyCode::Down => Some(Action::SelectNext),
+                KeyCode::PageUp => Some(Action::PagePrevious),
+                KeyCode::PageDown => Some(Action::PageNext),
+                KeyCode::Backspace if !control && !alt => Some(Action::Backspace),
+                KeyCode::Char(ch) if !control && !alt => Some(Action::InsertText(ch.to_string())),
+                _ => None,
+            }
+        }
         InputFocus::Command => match key.code {
             KeyCode::Esc => Some(Action::Cancel),
             KeyCode::Backspace => Some(Action::Backspace),
@@ -476,6 +487,48 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
             _ => None,
         },
         InputFocus::Prompt => prompt_key_action(app, key),
+    }
+}
+
+fn mention_picker_key_action(app: &App, key: KeyEvent) -> Option<Action> {
+    if !matches!(
+        app.overlay.accessory(),
+        PromptAccessory::Files(FilePickerSource::Mention { .. })
+    ) {
+        return None;
+    }
+    mention_picker_cursor_action(key)
+}
+
+fn mention_picker_cursor_action(key: KeyEvent) -> Option<Action> {
+    let modifiers = key.modifiers;
+    let control = modifiers.contains(KeyModifiers::CONTROL);
+    let alt = modifiers.contains(KeyModifiers::ALT);
+    if alt {
+        return match key.code {
+            KeyCode::Left | KeyCode::Char('b') => Some(Action::CursorWordLeft),
+            KeyCode::Right | KeyCode::Char('f') => Some(Action::CursorWordRight),
+            _ => None,
+        };
+    }
+    if control {
+        return match key.code {
+            KeyCode::Left => Some(Action::CursorWordLeft),
+            KeyCode::Right => Some(Action::CursorWordRight),
+            KeyCode::Char('a') => Some(Action::CursorStart),
+            KeyCode::Char('e') => Some(Action::CursorEnd),
+            KeyCode::Char('b') => Some(Action::CursorLeft),
+            KeyCode::Char('f') => Some(Action::CursorRight),
+            _ => None,
+        };
+    }
+    match key.code {
+        KeyCode::Left => Some(Action::CursorLeft),
+        KeyCode::Right => Some(Action::CursorRight),
+        KeyCode::Home => Some(Action::CursorStart),
+        KeyCode::End => Some(Action::CursorEnd),
+        KeyCode::Delete => Some(Action::DeleteForward),
+        _ => None,
     }
 }
 
@@ -913,7 +966,14 @@ enum PickerActionKind {
 fn handle_picker_action(app: &mut App, source: FilePickerSource, action: Action, kind: PickerActionKind) -> KeyOutcome {
     if matches!(source, FilePickerSource::Mention { .. }) {
         return match action {
-            Action::Backspace => KeyOutcome::with(handle_prompt_action(app, Action::Backspace)),
+            Action::Backspace
+            | Action::DeleteForward
+            | Action::CursorLeft
+            | Action::CursorRight
+            | Action::CursorWordLeft
+            | Action::CursorWordRight
+            | Action::CursorStart
+            | Action::CursorEnd => KeyOutcome::with(handle_prompt_action(app, action)),
             Action::InsertText(text) => KeyOutcome::with(handle_prompt_action(app, Action::InsertText(text))),
             _ => handle_picker_action(app, FilePickerSource::Forced, action, kind),
         };

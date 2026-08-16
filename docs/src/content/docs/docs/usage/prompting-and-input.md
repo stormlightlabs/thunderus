@@ -34,16 +34,13 @@ files once.
 
 ## Running Input
 
-While a turn is running, `Enter` does not discard input. It records the draft as
-either:
+While a turn is running, `Enter` does not discard input. It queues the draft as
+a follow-up after the current run settles. `Ctrl+G` sends the draft as steering
+guidance before the next model request in the active run.
 
-| Target    | Behavior                                                           |
-| --------- | ------------------------------------------------------------------ |
-| steering  | Sends guidance to the active run when the provider can consume it. |
-| follow-up | Queues the text as the next turn after the current run settles.    |
-
-Use `Ctrl+T` while running to toggle between `steering` and `follow-up`. The UI
-shows only queue counts, not queued prompt text.
+`Cmd+Enter` on macOS or `Ctrl+Enter` elsewhere also sends steering guidance when
+the terminal forwards that chord. The UI shows only queue counts, not queued
+prompt text.
 
 ## Commands
 
@@ -121,12 +118,10 @@ The original records remain in the append-only session in every case.
 
 ## Path Mentions
 
-Use `Ctrl+P` to open the workspace path picker. Type to fuzzy-filter files and
-directories, move with `Up`/`Down`, and press `Enter` to insert the selected
-path.
-
-Typing `@` in the prompt opens inline path suggestions. `Tab` accepts the active
-file or directory and inserts its workspace path into the draft.
+Typing `@` in the prompt opens inline file and directory suggestions. Type to
+fuzzy-filter paths, move the selection with `Up`/`Down`, and press `Tab` or
+`Enter` to insert the selected path. Cursor and deletion keys continue to edit
+the path text in the draft while suggestions are open.
 
 ## Focused Surfaces
 

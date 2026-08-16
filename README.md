@@ -26,7 +26,7 @@ Use a container, VM, or OS-level sandbox when the task needs isolation.
 - `Shift+Tab` cycles supported reasoning effort while idle.
 - `Ctrl+O` opens inline tool details.
 - During a run, `Enter` queues the draft as a follow-up.
-- `Cmd+Enter` on macOS or `Ctrl+Enter` elsewhere steers the running turn.
+- `Ctrl+G` steers the running turn. `Cmd+Enter` on macOS or `Ctrl+Enter` elsewhere also works when the terminal sends that chord.
 
 ## Documentation
 

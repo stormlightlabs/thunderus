@@ -96,8 +96,7 @@ matching templates with their argument hints and descriptions. Press `Tab` or
 render and submit it.
 
 When an agent turn is already running, invoking a template renders it first and
-queues the result using the current running-input target. `Ctrl+T` switches that
-target between steering and follow-up.
+queues the result as a follow-up.
 
 Malformed frontmatter, invalid MiniJinja syntax, unreadable files, and oversized
 templates appear in startup diagnostics. Invocation errors remain in the prompt

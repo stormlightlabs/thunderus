@@ -1,10 +1,10 @@
 # Runtime Surfaces
 
-`thndrs` exposes one provider-neutral run contract through the TUI, JSONL, and
-ACP adapters. A run specification contains the exact model route, absolute
+`thndrs` runs the same provider-neutral application flow through the TUI,
+JSONL, and ACP adapters. Headless input names the exact model route, absolute
 contained workspace, session policy, settings, authority, resource bounds,
-and task. It does not contain parent IDs, delegation depth, concurrency groups,
-or other orchestration topology.
+and task. Callers own parent IDs, delegation depth, concurrency groups, and
+other orchestration topology.
 
 A run identity names one execution; a session identity names durable
 conversational context. Lifecycle and terminal-result semantics stay the same

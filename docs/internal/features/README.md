@@ -14,7 +14,7 @@ ships; its durable decisions can then move to `../archive/`.
 
 | Order | Feature                                        | Current boundary                                                                                                          |
 | ----: | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-|     1 | [Runtime surfaces](runtime-surfaces/plan.md)   | Defines the provider-neutral run contract, then carries it through JSONL and packaged ACP.                                |
+|     1 | [Runtime surfaces](runtime-surfaces/plan.md)   | Completes headless JSONL execution and packages the ACP surface on the shared application run path.                       |
 |     2 | [Trust and sandbox](trust-and-sandbox/plan.md) | Establishes shared authority, approval, and sandbox boundaries before more extension surfaces are added.                  |
 |     3 | [MCP](mcp/plan.md)                             | Project-server trust is complete. Resources, lifecycle controls, TUI management, configuration, and distribution remain.  |
 |     4 | [Lifecycle hooks](hooks/plan.md)               | Builds on the shared lifecycle model; project hooks also depend on project trust.                                         |
@@ -34,5 +34,5 @@ ships; its durable decisions can then move to `../archive/`.
 
 ## v0.2
 
-Will be cut **after runtime surfaces** so v0.2 becomes the first
-release with a stable external run contract and packaged ACP surface.
+Will be cut **after runtime surfaces** so v0.2 includes documented headless
+JSONL behavior and a packaged ACP surface.

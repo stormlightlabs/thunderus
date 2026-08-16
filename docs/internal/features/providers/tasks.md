@@ -15,7 +15,7 @@
 
 ## PROVIDER-3: Configure compatible endpoints
 
-**Blocked by:** Two native adapters with stable capability contracts.
+**Blocked by:** Two native adapters that expose and enforce capability metadata.
 
 - [ ] Declare protocol, base URL, credential source, model, and trust scope.
 - [ ] Describe tools, images, reasoning, context, and output limits.

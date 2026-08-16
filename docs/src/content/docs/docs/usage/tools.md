@@ -97,9 +97,10 @@ redaction, and session log path as built-in tools. Those limits constrain what
 ## Running Input
 
 While the agent is running, typed input can be queued instead of ignored.
-`Ctrl+T` toggles the target between steering and follow-up. Steering is sent
-before the next model request in the active run. Follow-up is submitted as a
-new user turn after the active run finishes.
+`Enter` queues a follow-up, submitted as a new user turn after the active run
+finishes. `Ctrl+G` queues steering, sent before the next model request in the
+active run. `Cmd+Enter` on macOS or `Ctrl+Enter` elsewhere also queues steering
+when the terminal forwards that chord.
 
 Queued input is written to the session log as audit metadata, but resume does
 not rebuild pending queues after a crash. If that audit append fails, the TUI

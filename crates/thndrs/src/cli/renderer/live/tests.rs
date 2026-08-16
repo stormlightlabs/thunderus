@@ -548,9 +548,8 @@ fn help_rows_show_running_steering_binding() {
     let rows = accessory_rows(&app, 80, 16);
     let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
 
-    let steering_key = if cfg!(target_os = "macos") { "Cmd+Enter" } else { "Ctrl+Enter" };
     assert!(
-        text.contains(steering_key),
+        text.contains("Ctrl+G"),
         "running help should describe the steering chord: {text}"
     );
     assert!(text.contains("steer the running turn"));

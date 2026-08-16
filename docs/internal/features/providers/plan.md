@@ -1,7 +1,7 @@
 # Providers
 
-Native providers are independent adapters behind provider-neutral agent
-contracts. Provider wire payloads stay in application adapters. Compatible
+Native providers are independent adapters behind the provider-neutral agent
+API. Provider wire payloads stay in application adapters. Compatible
 endpoints wait until two native adapters establish a stable capability model.
 
 Account capacity is optional provider and runtime information, not run control.
