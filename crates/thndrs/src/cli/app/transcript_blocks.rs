@@ -126,7 +126,7 @@ struct ToolBlockState {
 }
 
 /// Metadata and content for one transcript block.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TranscriptBlock<'a> {
     pub id: &'a TranscriptBlockId,
     pub kind: TranscriptBlockKind,

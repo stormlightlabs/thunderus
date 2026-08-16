@@ -10,8 +10,6 @@ title: "CLI Reference"
 - `--websearch-url <url>`: SearXNG HTTP(S) base URL when `searxng` is selected.
 - `--verbose`: show diagnostic transcript rows such as provider events and log paths.
 - `--theme <eldritch-minimal|iceberg-dark|catppuccin-mocha>`: UI color theme.
-- `--mouse`: enable terminal mouse capture for transcript scrolling and overlay events (the default).
-- `--no-mouse`: disable capture for native terminal selection and scrollback.
 - `--print-prompt`: print the assembled prompt bundle and exit without calling the provider.
 - `--ephemeral`, `--no-session`: keep the run in memory without session JSONL,
   artifact bodies, or session and daily logs. Resume and session naming are not

@@ -23,13 +23,13 @@ redacted on the diagnostic and inspection paths on a best-effort basis.
 
 ## Rendering
 
-The TUI owns an alternate-screen frame where detail views can expose
-additional tool output without leaving that frame.
+Completed transcript blocks are appended to native terminal scrollback. Ratatui
+owns the mutable live surface: the prompt, cursor, and bounded focused views.
 
 The renderer has two cooperating lanes.
 
-1. Pure rows describe committed transcript history, prompt editing, cursor
-   placement, and focused surfaces.
+1. Pure rows describe transcript blocks, prompt editing, cursor placement, and
+   focused surfaces.
 2. A semantic view layer projects app state into prompt, transcript, orientation,
-   and focused-surface data. Ratatui turns the resulting rows into terminal cells
-   and owns redraw and resize replay.
+   and focused-surface data. The inline coordinator commits finalized blocks once
+   and redraws only the mutable surface.

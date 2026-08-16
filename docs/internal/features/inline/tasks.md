@@ -122,27 +122,27 @@ requires a full-screen surface.
 
 **Acceptance criteria:**
 
-- [ ] One guard owns raw mode, bracketed paste, keyboard enhancements, cursor
+- [x] One guard owns raw mode, bracketed paste, keyboard enhancements, cursor
       visibility, suspend/resume, and cleanup.
-- [ ] Existing normalized key, paste, resize, tick, and cancellation events
+- [x] Existing normalized key, paste, resize, tick, and cancellation events
       continue through the shared application loop.
-- [ ] Before suspension or an interactive child process, thndrs settles the
+- [x] Before suspension or an interactive child process, thndrs settles the
       current draw and leaves the live surface cleanly. Resume redraws mutable
       content without replaying committed history.
-- [ ] Terminal modes and the cursor are restored after normal exit, error,
+- [x] Terminal modes and the cursor are restored after normal exit, error,
       cancellation, panic, suspension, and child-process execution.
-- [ ] Normal interactive sessions use the inline renderer without an
+- [x] Normal interactive sessions use the inline renderer without an
       experimental selector.
-- [ ] Alternate-only transcript scroll, selection, mouse capture, viewport
+- [x] Alternate-only transcript scroll, selection, mouse capture, viewport
       cache, anchoring, and copy-feedback paths are removed.
-- [ ] The normal interactive session has one transcript projection and one
+- [x] The normal interactive session has one transcript projection and one
       terminal lifecycle path.
-- [ ] Transcript Markdown, tool output, diffs, activity, failures, compaction,
+- [x] Transcript Markdown, tool output, diffs, activity, failures, compaction,
       and skills retain their intended content apart from the planned operation
       symbols and native-history framing.
-- [ ] CLI help, configuration, key hints, and user documentation no longer
+- [x] CLI help, configuration, key hints, and user documentation no longer
       promise application-owned transcript scrolling or mouse selection.
-- [ ] A long session survives streaming output, running tools, multiline paste,
+- [x] A long session survives streaming output, running tools, multiline paste,
       repeated narrow/wide resize, native copy, every focused-view class, shell
       execution, suspend/resume, cancellation, and exit during active work.
 

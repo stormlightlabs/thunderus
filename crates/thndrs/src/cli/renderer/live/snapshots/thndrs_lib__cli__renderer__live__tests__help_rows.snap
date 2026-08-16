@@ -1,5 +1,6 @@
 ---
 source: crates/thndrs/src/cli/renderer/live/tests.rs
+assertion_line: 603
 expression: frame.render_styled()
 ---
 │   help · focus: keyboard                                                          # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=help · focus: keyboard [bg=#212337]=                                                       [bg=#212337]=  
@@ -11,10 +12,10 @@ expression: frame.render_styled()
 │   Ctrl+P          open workspace path picker                                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+P          open workspace path picker [bg=#212337]=                                   [bg=#212337]=  
 │   Ctrl+Shift+F    search transcript                                               # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+Shift+F    search transcript [bg=#212337]=                                            [bg=#212337]=  
 │   Ctrl+Q          inspect queued input                                            # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+Q          inspect queued input [bg=#212337]=                                         [bg=#212337]=  
-│   Alt+Shift+Up/Downextend transcript selection                                    # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Alt+Shift+Up/Downextend transcript selection [bg=#212337]=                                 [bg=#212337]=  
-│   Ctrl+Shift+C    copy transcript selection                                       # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+Shift+C    copy transcript selection [bg=#212337]=                                    [bg=#212337]=  
-│   Ctrl+Shift+X    clear transcript selection                                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+Shift+X    clear transcript selection [bg=#212337]=                                   [bg=#212337]=  
 │   Ctrl+T          transpose characters                                            # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+T          transpose characters [bg=#212337]=                                         [bg=#212337]=  
 │   Shift+Tab       cycle reasoning effort                                          # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Shift+Tab       cycle reasoning effort [bg=#212337]=                                       [bg=#212337]=  
-│   … 17 rows below                                                                 # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 17 rows below [bg=#212337]=                                                              [bg=#212337]=  
+│   ── Editing ──                                                                   # [bg=#212337]=   [fg=#37f499 bg=#212337]=── Editing ── [bg=#212337]=                                                                [bg=#212337]=  
+│   Shift+Enter     insert newline                                                  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Shift+Enter     insert newline [bg=#212337]=                                               [bg=#212337]=  
+│   Ctrl+A/E        move to start/end of line                                       # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+A/E        move to start/end of line [bg=#212337]=                                    [bg=#212337]=  
+│   … 14 rows below                                                                 # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 14 rows below [bg=#212337]=                                                              [bg=#212337]=  
 │    ↑↓  scroll   esc  close                                                        # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=scroll [-]=   [fg=#ebfafa bg=#292e42 b]= esc  [-]=  [fg=#abb4da]=close [-]=                                                     [-]=

@@ -1,5 +1,5 @@
 use crate::{renderer, utils};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::*;
 
@@ -40,21 +40,6 @@ fn terminal_capture_normalizes_event_kinds_and_payloads() {
     for (event, expected) in cases {
         assert_eq!(TerminalInput::from_event(event), expected);
     }
-}
-
-#[test]
-fn terminal_capture_preserves_left_mouse_selection_coordinates() {
-    let event = Event::Mouse(MouseEvent {
-        kind: MouseEventKind::Drag(MouseButton::Left),
-        column: 17,
-        row: 9,
-        modifiers: KeyModifiers::NONE,
-    });
-
-    assert_eq!(
-        TerminalInput::from_event(event),
-        Some(TerminalInput::Mouse(MouseInput::LeftDrag { column: 17, row: 9 }))
-    );
 }
 
 /// Generate a prompt string of approximately `target_bytes` by repeating

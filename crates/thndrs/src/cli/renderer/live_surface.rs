@@ -92,7 +92,7 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    use crate::renderer::alternate::render_logical_frame;
+    use crate::renderer::ratatui::render_logical_frame;
     use crate::renderer::row::Row;
     use crate::renderer::style::Span;
     use crate::renderer::view::LiveView;

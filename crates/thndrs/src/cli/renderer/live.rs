@@ -1,7 +1,7 @@
 //! Live prompt and focused-surface row builders.
 //!
 //! The live chrome is rebuilt after dirty updates and composed into the full
-//! viewport by [`super::alternate::AlternateViewport`].
+//! surface by the inline terminal coordinator.
 
 #[cfg(test)]
 mod tests;
@@ -375,7 +375,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
 
 /// Build the immediate operational state row below the prompt.
 pub fn static_status_row(app: &App, width: usize) -> Row {
-    super::status::status_row(app, width, false)
+    super::status::status_row(app, width)
 }
 
 fn composer_outer_width(width: usize) -> usize {

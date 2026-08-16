@@ -3,7 +3,7 @@
 //! [`RendererView`] is a data-only staging area built from [`App`] plus
 //! terminal dimensions. It contains no crossterm types and performs no terminal
 //! writes. The view separates semantic row construction from viewport policy so
-//! that [`super::alternate::AlternateViewport`] can focus on viewport policy,
+//! that the inline terminal coordinator can keep terminal policy separate,
 //! projection caching, and frame composition.
 
 #[cfg(test)]
@@ -298,7 +298,7 @@ impl RendererView {
     pub fn build(app: &App, width: usize, height: usize) -> Self {
         let semantic = SemanticUiView::from(app);
         let transcript = TranscriptView::build(app, width);
-        let live = LiveView::build(app, width, height, &transcript, &semantic, false);
+        let live = LiveView::build(app, width, height, &transcript, &semantic);
         Self { semantic, transcript, live, width, height }
     }
 }
@@ -330,7 +330,7 @@ pub struct LiveView {
 
 impl LiveView {
     pub fn build(
-        app: &App, width: usize, height: usize, transcript: &TranscriptView, semantic: &SemanticUiView, anchored: bool,
+        app: &App, width: usize, height: usize, transcript: &TranscriptView, semantic: &SemanticUiView,
     ) -> LiveView {
         let live_tail = transcript.live_rows.clone();
         let (prompt_rows, prompt_cursor) = super::live::prompt_rows_for(app, width);
@@ -377,7 +377,7 @@ impl LiveView {
             accessory_rows,
             queued_summary: super::live::queued_summary_row(app, width),
             detail_pane,
-            static_status: super::status::status_row(app, width, anchored),
+            static_status: super::status::status_row(app, width),
         }
     }
 }

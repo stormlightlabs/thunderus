@@ -1,5 +1,6 @@
 ---
 source: crates/thndrs/src/cli/renderer/surface.rs
+assertion_line: 1067
 expression: rendered
 ---
 permission buffer:
@@ -42,13 +43,13 @@ help buffer:
   help · focus: keyboard
   ── Navigation ──
   Ctrl+O          open output, diff, warning, or
-  … 28 rows below
+  … 25 rows below
    ↑↓  scroll   esc  close
 styles:
 │   help · focus: keyboard                          # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=help · focus: keyboard [bg=#212337]=                       [bg=#212337]=  
 │   ── Navigation ──                                # [bg=#212337]=   [fg=#37f499 bg=#212337]=── Navigation ── [bg=#212337]=                             [bg=#212337]=  
 │   Ctrl+O          open output, diff, warning, or …  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+O          open output, diff, warning, or …
-│   … 28 rows below                                 # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 28 rows below [bg=#212337]=                              [bg=#212337]=  
+│   … 25 rows below                                 # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 25 rows below [bg=#212337]=                              [bg=#212337]=  
 │    ↑↓  scroll   esc  close                        # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=scroll [-]=   [fg=#ebfafa bg=#292e42 b]= esc  [-]=  [fg=#abb4da]=close [-]=                     [-]=  
 tool detail buffer:
   run_shell · failed · focus: output

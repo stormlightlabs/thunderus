@@ -18,7 +18,7 @@ mod tests;
 use std::convert::Infallible;
 use std::str::FromStr;
 
-use crossterm::event::{Event, KeyEvent, KeyEventKind, MouseButton, MouseEventKind};
+use crossterm::event::{Event, KeyEvent, KeyEventKind};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// One terminal event after the capture layer has removed release noise and
@@ -30,26 +30,12 @@ pub enum TerminalInput {
     Key(KeyEvent),
     /// Bracketed paste, normalized to LF line endings.
     Paste(String),
-    /// A normalized mouse gesture. Unsupported mouse kinds are retained as
-    /// `Other` so routing remains deterministic.
-    Mouse(MouseInput),
     /// The terminal's current dimensions.
     Resize { width: u16, height: u16 },
     /// The terminal gained focus.
     FocusGained,
     /// The terminal lost focus.
     FocusLost,
-}
-
-/// Mouse gestures understood by the bounded UI input layer.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MouseInput {
-    ScrollUp,
-    ScrollDown,
-    LeftDown { column: u16, row: u16 },
-    LeftDrag { column: u16, row: u16 },
-    LeftUp { column: u16, row: u16 },
-    Other,
 }
 
 impl TerminalInput {
@@ -64,18 +50,7 @@ impl TerminalInput {
                 Some(Self::Key(key))
             }
             Event::Paste(text) => Some(Self::Paste(normalize_paste(&text))),
-            Event::Mouse(mouse) => Some(Self::Mouse(match mouse.kind {
-                MouseEventKind::ScrollUp => MouseInput::ScrollUp,
-                MouseEventKind::ScrollDown => MouseInput::ScrollDown,
-                MouseEventKind::Down(MouseButton::Left) => {
-                    MouseInput::LeftDown { column: mouse.column, row: mouse.row }
-                }
-                MouseEventKind::Drag(MouseButton::Left) => {
-                    MouseInput::LeftDrag { column: mouse.column, row: mouse.row }
-                }
-                MouseEventKind::Up(MouseButton::Left) => MouseInput::LeftUp { column: mouse.column, row: mouse.row },
-                _ => MouseInput::Other,
-            })),
+            Event::Mouse(_) => None,
             Event::Resize(width, height) => Some(Self::Resize { width, height }),
             Event::FocusGained => Some(Self::FocusGained),
             Event::FocusLost => Some(Self::FocusLost),

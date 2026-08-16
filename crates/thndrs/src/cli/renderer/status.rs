@@ -31,7 +31,7 @@ struct Field {
 }
 
 /// Render the configured operational status without wrapping.
-pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
+pub(super) fn status_row(app: &App, width: usize) -> Row {
     let palette = super::style::palette();
     let background = CellStyle::new();
     if let Some(toast) = &app.runtime.status_toast {
@@ -74,10 +74,10 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
         .min(body_width.saturating_sub(4) / 2);
     let available = body_width.saturating_sub(inset * 2);
     let config = &app.runtime.cli.status_line;
-    let mut left = fields(app, &config.left, anchored);
-    let mut right = fields(app, &config.right, anchored);
+    let mut left = fields(app, &config.left);
+    let mut right = fields(app, &config.right);
     if !config.left.contains(&StatusSegment::Route) && !config.right.contains(&StatusSegment::Route) {
-        right.extend(project(app, StatusSegment::Route, anchored));
+        right.extend(project(app, StatusSegment::Route));
     }
     fit(&mut left, &mut right, available);
 
@@ -100,17 +100,17 @@ pub(super) fn status_row(app: &App, width: usize, anchored: bool) -> Row {
     Row::padded(spans, width, background)
 }
 
-fn fields(app: &App, configured: &[StatusSegment], anchored: bool) -> Vec<Field> {
+fn fields(app: &App, configured: &[StatusSegment]) -> Vec<Field> {
     let run_state_names_active_tool =
         configured.contains(&StatusSegment::RunState) && app.status_label().starts_with("Running ");
     configured
         .iter()
         .filter(|segment| !(run_state_names_active_tool && **segment == StatusSegment::ActiveTool))
-        .filter_map(|segment| project(app, *segment, anchored))
+        .filter_map(|segment| project(app, *segment))
         .collect()
 }
 
-fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
+fn project(app: &App, segment: StatusSegment) -> Option<Field> {
     let (text, priority, min_width, truncation, urgent) = match segment {
         StatusSegment::RunState => {
             let text = operational_state(app);
@@ -145,8 +145,6 @@ fn project(app: &App, segment: StatusSegment, anchored: bool) -> Option<Field> {
                 + app.composer.queue.pending_count(crate::app::QueueTarget::FollowUp);
             (format!("queue {count}"), 2, 7, Truncation::None, false)
         }
-        StatusSegment::AnchoredAway if anchored => ("↑ away".to_string(), 2, 6, Truncation::None, false),
-        StatusSegment::AnchoredAway => return None,
         StatusSegment::ActiveChildren => ("children 0".to_string(), 5, 10, Truncation::None, false),
         StatusSegment::ContextRemaining => {
             let projection = app.transcript.context_ledger.as_ref()?.projection();
@@ -321,7 +319,7 @@ mod tests {
         let mut app = App::from_cli(&Cli::default());
         app.runtime.model = "fake-agent".to_string();
         for width in [80, 28, 8, 4] {
-            let row = status_row(&app, width, true);
+            let row = status_row(&app, width);
             assert_eq!(row.width, width);
             assert!(!row.text().contains('\n'));
             assert!(!row.text().trim().is_empty());
@@ -336,10 +334,10 @@ mod tests {
     #[test]
     fn transient_toast_replaces_operational_status() {
         let mut app = App::from_cli(&Cli::default());
-        app.show_status_toast("Copied transcript selection", StatusToastKind::Success);
+        app.show_status_toast("Saved transcript", StatusToastKind::Success);
 
-        let row = status_row(&app, 40, false);
-        assert!(row.text().contains("Copied transcript selection"));
+        let row = status_row(&app, 40);
+        assert!(row.text().contains("Saved transcript"));
         assert!(!row.text().contains("queue 0"));
         assert!(
             row.spans
@@ -354,14 +352,14 @@ mod tests {
         app.runtime.model = "opencode-go/glm-5.2".to_string();
         app.runtime.cli.reasoning_effort = crate::cli::ReasoningEffort::High;
 
-        let default = status_row(&app, 80, false).text();
+        let default = status_row(&app, 80).text();
         assert!(default.contains("opencode-go/glm-5.2 · high"));
         assert!(!default.contains("Editable"));
 
         app.runtime.cli.status_line.left =
             vec![StatusSegment::RunState, StatusSegment::Authority, StatusSegment::Route];
         app.runtime.cli.status_line.right = vec![StatusSegment::QueueCount];
-        let moved = status_row(&app, 80, false).text();
+        let moved = status_row(&app, 80).text();
         assert!(moved.find("opencode-go/glm-5.2").unwrap() < moved.find("queue 0").unwrap());
     }
 
@@ -375,29 +373,28 @@ mod tests {
             .right
             .retain(|field| *field != StatusSegment::Route);
 
-        assert!(status_row(&app, 80, false).text().contains("opencode-go/glm-5.2"));
-        let cramped = status_row(&app, 12, false).text();
+        assert!(status_row(&app, 80).text().contains("opencode-go/glm-5.2"));
+        let cramped = status_row(&app, 12).text();
         assert!(cramped.contains('✓'));
         assert!(!cramped.contains("5.2"));
     }
 
     #[test]
-    fn optional_authority_and_anchor_are_projected_semantically() {
+    fn optional_authority_is_projected_semantically() {
         let mut app = App::from_cli(&Cli::default());
-        let text = status_row(&app, 80, true).text();
+        let text = status_row(&app, 80).text();
         assert!(text.contains("✓ Ready"));
-        assert!(text.contains("↑ away"));
         assert!(!text.contains("Editable"));
 
         app.runtime.cli.status_line.left.push(StatusSegment::Authority);
         app.runtime.cli.authority = crate::tools::ToolAuthority::ReadOnly;
-        assert!(status_row(&app, 80, true).text().contains("Read-only"));
+        assert!(status_row(&app, 80).text().contains("Read-only"));
     }
 
     #[test]
     fn status_is_detached_from_the_composer_and_uses_symmetric_insets() {
         let app = App::from_cli(&Cli::default());
-        let row = status_row(&app, 80, false);
+        let row = status_row(&app, 80);
         let text = row.text();
 
         assert!(
@@ -413,7 +410,7 @@ mod tests {
     #[test]
     fn run_transitions_and_active_tool_are_projected() {
         let mut app = App::from_cli(&Cli::default());
-        assert!(status_row(&app, 80, false).text().contains("✓ Ready"));
+        assert!(status_row(&app, 80).text().contains("✓ Ready"));
 
         app.runtime.run_state = RunState::Working;
         app.transcript.entries.push(Entry::Tool {
@@ -422,15 +419,15 @@ mod tests {
             status: ToolStatus::Running,
             output: Vec::new(),
         });
-        let working = status_row(&app, 80, false).text();
+        let working = status_row(&app, 80).text();
         assert!(working.contains("Running search text"));
         assert!(working.contains('⠋'));
         assert!(!working.contains("tool search_text"));
 
         app.runtime.run_state = RunState::Stopping;
-        assert!(status_row(&app, 80, false).text().contains("Stopping"));
+        assert!(status_row(&app, 80).text().contains("Stopping"));
         app.runtime.run_state = RunState::Error("provider detail".to_string());
-        let failed = status_row(&app, 80, false).text();
+        let failed = status_row(&app, 80).text();
         assert!(failed.contains("Failed"));
         assert!(!failed.contains("provider detail"));
     }
@@ -445,7 +442,7 @@ mod tests {
             output: vec!["secret-output".to_string()],
         });
 
-        let text = status_row(&app, 80, false).text();
+        let text = status_row(&app, 80).text();
         assert!(text.contains("✕ Failed"));
         assert!(!text.contains("secret-argument"));
         assert!(!text.contains("secret-output"));
@@ -457,16 +454,16 @@ mod tests {
         app.runtime.model = "fixture-model".to_string();
         app.refresh_context_ledger(None);
 
-        let wide = status_row(&app, 100, false).text();
+        let wide = status_row(&app, 100).text();
         let route = wide.find("fixture-model · auto").expect("model and reasoning");
         let context = wide.find("% ctx left").expect("context remaining");
         assert!(route < context);
         assert!(!wide.contains("queue"));
-        assert!(!status_row(&app, 24, false).text().contains("ctx left"));
+        assert!(!status_row(&app, 24).text().contains("ctx left"));
 
         let ledger = app.transcript.context_ledger.as_mut().expect("refreshed ledger");
         ledger.budget.used = ledger.budget.available_input;
-        let exhausted = status_row(&app, 100, false).text();
+        let exhausted = status_row(&app, 100).text();
         assert!(exhausted.contains("0% ctx left"));
         assert!(!exhausted.contains("compact"));
     }
@@ -482,6 +479,6 @@ mod tests {
             .budget
             .available_input = 0;
 
-        assert!(!status_row(&app, 100, false).text().contains("ctx left"));
+        assert!(!status_row(&app, 100).text().contains("ctx left"));
     }
 }

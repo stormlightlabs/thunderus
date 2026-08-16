@@ -65,7 +65,6 @@ provider-specific names.
 | `theme`             | `eldritch-minimal` | `eldritch-minimal`                  | UI color theme.                                                           |
 |                     | `iceberg-dark`     |                                     |                                                                           |
 |                     | `catppuccin-mocha` |                                     |                                                                           |
-| `mouse`             | boolean            | `true`                              | Enable focused terminal mouse capture.                                    |
 | `verbose`           | boolean            | `false`                             | Show diagnostic transcript rows.                                          |
 | `skill_dirs`        | array of paths     | `[]`                                | Additional local skill discovery roots.                                   |
 | `session_dir`       | path               | `.thndrs/sessions` in the workspace | Directory for append-only session JSONL files.                            |
@@ -93,7 +92,6 @@ reasoning_effort = "auto"
 reasoning_summary = "off"
 tick_rate_ms = 33
 theme = "eldritch-minimal"
-mouse = true
 verbose = false
 skill_dirs = ["vendor/agent-skills"]
 session_dir = ".thndrs/sessions"
@@ -241,15 +239,13 @@ These settings are intentionally CLI-only:
 
 - `--cwd`: one-run workspace override.
 - `--print-prompt`: print prompt assembly and exit.
-- `--no-mouse`: one-run override for `mouse = false`, preserving native terminal selection and scrollback.
 
 `cwd` is not a TOML or environment key because it controls which project config
 file is discovered. Use `default_workspace` for a persistent workspace default,
 and use `--cwd` when a single invocation needs to point somewhere else.
 
 `print_prompt` is rejected in TOML and env because a persistent setting that
-exits immediately would make normal startup surprising. Use `mouse = false`
-instead of a persistent `no_mouse` key.
+exits immediately would make normal startup surprising.
 
 ## Sessions
 

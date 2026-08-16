@@ -8,7 +8,6 @@ websearch = "duckduckgo"
 # websearch_url = "http://127.0.0.1:8080" # required for SearXNG
 tick_rate_ms = 33
 theme = "eldritch-minimal"
-mouse = true
 verbose = false
 
 skill_dirs = ["vendor/agent-skills"]

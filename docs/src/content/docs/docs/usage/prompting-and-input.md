@@ -132,6 +132,5 @@ closes the active surface before it affects the prompt.
 `Ctrl+O` opens the highest-priority available detail: failed tool output,
 truncated tool output, latest edit/diff detail, then latest warning or error.
 
-Mouse capture is enabled by default so wheel input scrolls the transcript instead
-of being interpreted as prompt-history navigation. Use `--no-mouse` to preserve
-native terminal selection and scrollback.
+The transcript stays in native terminal scrollback. Use your terminal's normal
+selection, copy, and scroll controls while the prompt remains keyboard-driven.

@@ -2,8 +2,8 @@ use super::super::input::finish_reasoning_effort_picker;
 use super::super::onboarding::after_setup_model_config;
 use super::*;
 use crate::input::PromptInput;
-use crate::input::{MouseInput, TerminalInput};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use crate::input::TerminalInput;
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
 use helpers::*;
 
@@ -153,17 +153,6 @@ fn custom_keymap_and_terminal_actions_are_deterministic() {
         translate_input(&app, TerminalInput::from_event(Event::Resize(80, 24)).unwrap()),
         vec![Action::Resize { width: 80, height: 24 }]
     );
-    assert_eq!(
-        translate_input(&app, TerminalInput::Mouse(MouseInput::ScrollUp),),
-        vec![Action::ScrollTranscriptWheelUp]
-    );
-    assert_eq!(
-        translate_input(
-            &app,
-            TerminalInput::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)),
-        ),
-        vec![Action::ScrollTranscriptPageUp]
-    );
 }
 
 #[test]
@@ -179,27 +168,6 @@ fn bracketed_paste_is_one_grapheme_preserving_action_and_overlay_first() {
     app.overlay.show_help();
     update(&mut app, &Msg::Action(Action::InsertText("blocked".to_string())));
     assert_eq!(app.composer.input.as_str(), "a\n👩‍🔬");
-}
-
-#[test]
-fn mouse_wheel_routes_to_the_detail_overlay_before_the_transcript() {
-    let mut app = fresh_app();
-    app.overlay.show_detail(0);
-
-    assert_eq!(
-        translate_input(&app, TerminalInput::Mouse(MouseInput::ScrollDown)),
-        vec![Action::ScrollOverlayDown]
-    );
-}
-
-#[test]
-fn left_mouse_drag_routes_to_transcript_selection_with_coordinates() {
-    let app = fresh_app();
-
-    assert_eq!(
-        translate_input(&app, TerminalInput::Mouse(MouseInput::LeftDrag { column: 17, row: 9 })),
-        vec![Action::UpdateTranscriptSelection { column: 17, row: 9 }]
-    );
 }
 
 #[test]
@@ -224,21 +192,6 @@ fn ctrl_c_quits_when_idle() {
     );
 
     assert!(app.runtime.quit);
-}
-
-#[test]
-fn mouse_wheel_does_not_edit_or_recall_prompt_input() {
-    let mut app = fresh_app();
-    app.composer.input = PromptInput::from("current draft");
-    app.composer.input_history.push("previous prompt".to_string());
-
-    update(
-        &mut app,
-        &Msg::Mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: 0, row: 0, modifiers: KeyModifiers::NONE }),
-    );
-
-    assert_eq!(app.composer.input.as_str(), "current draft");
-    assert_eq!(app.composer.history_cursor, None);
 }
 
 #[test]

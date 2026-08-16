@@ -1,11 +1,10 @@
 //! Keyboard interaction, prompt accessories, and picker behavior.
 //!
-//! This module converts terminal key and mouse events into prompt edits,
+//! This module converts terminal key events into prompt edits,
 //! accessory transitions, picker selections, and submitted [`Msg`] values. It
 //! owns command mode, file/model/reasoning/skill pickers, detail-pane
 //! navigation, input history, and queued input while an agent is running.
 use super::*;
-use crate::input::MouseInput;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Top-level interaction mode.
@@ -87,23 +86,6 @@ pub enum Action {
     PageNext,
     ScrollOverlayUp,
     ScrollOverlayDown,
-    ScrollTranscriptWheelUp,
-    ScrollTranscriptWheelDown,
-    ScrollTranscriptUp,
-    ScrollTranscriptDown,
-    ScrollTranscriptPageUp,
-    ScrollTranscriptPageDown,
-    ScrollTranscriptHalfUp,
-    ScrollTranscriptHalfDown,
-    TranscriptTop,
-    TranscriptFollowTail,
-    ExtendTranscriptSelectionUp,
-    ExtendTranscriptSelectionDown,
-    CopyTranscriptSelection,
-    ClearTranscriptSelection,
-    BeginTranscriptSelection { column: u16, row: u16 },
-    UpdateTranscriptSelection { column: u16, row: u16 },
-    EndTranscriptSelection { column: u16, row: u16 },
     SearchNext,
     SearchPrevious,
     QueueEdit,
@@ -244,9 +226,6 @@ const DEFAULT_HELP: &[(&str, &str)] = &[
     ("Ctrl+Shift+F", "search transcript"),
     ("Ctrl+Q", "inspect queued input"),
     (STEERING_KEY_LABEL, "steer the running turn"),
-    ("Alt+Shift+Up/Down", "extend transcript selection"),
-    ("Ctrl+Shift+C", "copy transcript selection"),
-    ("Ctrl+Shift+X", "clear transcript selection"),
     ("Ctrl+T", "transpose characters"),
     ("Shift+Tab", "cycle reasoning effort"),
     ("── Editing ──", ""),
@@ -323,26 +302,6 @@ pub fn translate_input_with_keymap(app: &App, input: TerminalInput, keymap: &Key
                 .collect()
         }
         TerminalInput::Paste(text) => vec![Action::InsertText(text)],
-        TerminalInput::Mouse(MouseInput::LeftDown { column, row }) => {
-            vec![Action::BeginTranscriptSelection { column, row }]
-        }
-        TerminalInput::Mouse(MouseInput::LeftDrag { column, row }) => {
-            vec![Action::UpdateTranscriptSelection { column, row }]
-        }
-        TerminalInput::Mouse(MouseInput::LeftUp { column, row }) => {
-            vec![Action::EndTranscriptSelection { column, row }]
-        }
-        TerminalInput::Mouse(mouse) => match (input_focus(app), mouse) {
-            (InputFocus::Prompt | InputFocus::Command, MouseInput::ScrollUp) => {
-                vec![Action::ScrollTranscriptWheelUp]
-            }
-            (InputFocus::Prompt | InputFocus::Command, MouseInput::ScrollDown) => {
-                vec![Action::ScrollTranscriptWheelDown]
-            }
-            (_, MouseInput::ScrollUp) => vec![Action::ScrollOverlayUp],
-            (_, MouseInput::ScrollDown) => vec![Action::ScrollOverlayDown],
-            (_, _) => Vec::new(),
-        },
         TerminalInput::Resize { width, height } => vec![Action::Resize { width, height }],
         TerminalInput::FocusGained => vec![Action::FocusGained],
         TerminalInput::FocusLost => vec![Action::FocusLost],
@@ -382,13 +341,8 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
         if key.code == KeyCode::BackTab && app.runtime.run_state == RunState::Idle {
             return Some(Action::CycleReasoningEffort);
         }
-        match (key.code, control, alt, shift) {
-            (KeyCode::Char('c'), true, false, true) => return Some(Action::CopyTranscriptSelection),
-            (KeyCode::Char('x'), true, false, true) => return Some(Action::ClearTranscriptSelection),
-            (KeyCode::Char('f'), true, false, true) => return Some(Action::OpenTranscriptSearch),
-            (KeyCode::Up, false, true, true) => return Some(Action::ExtendTranscriptSelectionUp),
-            (KeyCode::Down, false, true, true) => return Some(Action::ExtendTranscriptSelectionDown),
-            _ => {}
+        if matches!((key.code, control, alt, shift), (KeyCode::Char('f'), true, false, true)) {
+            return Some(Action::OpenTranscriptSearch);
         }
     }
     if control && !alt {
@@ -402,32 +356,6 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
         };
         if action.is_some() {
             return action;
-        }
-    }
-
-    if matches!(focus, InputFocus::Prompt) && matches!(app.overlay.accessory(), PromptAccessory::None) {
-        match (key.code, modifiers) {
-            (KeyCode::PageUp, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                return Some(Action::ScrollTranscriptHalfUp);
-            }
-            (KeyCode::PageDown, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                return Some(Action::ScrollTranscriptHalfDown);
-            }
-            (KeyCode::PageUp, _) => return Some(Action::ScrollTranscriptPageUp),
-            (KeyCode::PageDown, _) => return Some(Action::ScrollTranscriptPageDown),
-            (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::ALT) => {
-                return Some(Action::ScrollTranscriptUp);
-            }
-            (KeyCode::Down, modifiers) if modifiers.contains(KeyModifiers::ALT) => {
-                return Some(Action::ScrollTranscriptDown);
-            }
-            (KeyCode::Home, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                return Some(Action::TranscriptTop);
-            }
-            (KeyCode::End, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                return Some(Action::TranscriptFollowTail);
-            }
-            _ => {}
         }
     }
 
@@ -799,27 +727,7 @@ pub fn handle_action(app: &mut App, action: Action) -> Option<Msg> {
             cycle_reasoning_effort(app);
             None
         }
-        Action::Resize { .. }
-        | Action::Suspend
-        | Action::FocusGained
-        | Action::FocusLost
-        | Action::ScrollTranscriptWheelUp
-        | Action::ScrollTranscriptWheelDown
-        | Action::ScrollTranscriptUp
-        | Action::ScrollTranscriptDown
-        | Action::ScrollTranscriptPageUp
-        | Action::ScrollTranscriptPageDown
-        | Action::ScrollTranscriptHalfUp
-        | Action::ScrollTranscriptHalfDown
-        | Action::TranscriptTop
-        | Action::TranscriptFollowTail
-        | Action::ExtendTranscriptSelectionUp
-        | Action::ExtendTranscriptSelectionDown
-        | Action::CopyTranscriptSelection
-        | Action::ClearTranscriptSelection
-        | Action::BeginTranscriptSelection { .. }
-        | Action::UpdateTranscriptSelection { .. }
-        | Action::EndTranscriptSelection { .. } => None,
+        Action::Resize { .. } | Action::Suspend | Action::FocusGained | Action::FocusLost => None,
         action => {
             app.runtime.ctrl_d_pending = None;
             if app.overlay.permission().is_some() {

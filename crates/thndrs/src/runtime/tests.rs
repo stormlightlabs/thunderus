@@ -103,6 +103,7 @@ fn fake_agent_fixture() -> PathBuf {
 
 #[derive(Default)]
 struct TestSurface {
+    events: Vec<&'static str>,
     clears: usize,
     draws: usize,
     full_repaints: usize,
@@ -112,6 +113,7 @@ struct TestSurface {
 
 impl InteractiveSurface for TestSurface {
     fn draw(&mut self, _app: &mut App, full_repaint: bool) -> io::Result<()> {
+        self.events.push("draw");
         self.draws += 1;
         self.full_repaints += usize::from(full_repaint);
         Ok(())
@@ -128,6 +130,7 @@ impl InteractiveSurface for TestSurface {
     }
 
     fn suspend(&mut self) -> io::Result<()> {
+        self.events.push("suspend");
         self.suspends += 1;
         Ok(())
     }
@@ -1122,14 +1125,15 @@ fn clear_resets_application_and_render_surface() {
 }
 
 #[test]
-fn suspend_action_uses_the_terminal_effect_boundary() {
+fn suspension_settles_the_current_frame_before_the_terminal_effect() {
     let cli = Cli::default();
     let mut app = App::from_cli(&cli);
     app.session.writer = None;
     let mut surface = TestSurface::default();
 
-    handle_msg(&mut app, Msg::Action(Action::Suspend), &mut surface, &mut None).expect("suspend");
+    suspend_terminal(&mut surface, &mut app, &mut None).expect("suspend");
 
+    assert_eq!(surface.events, ["draw", "suspend"]);
     assert_eq!(surface.suspends, 1);
 }
 

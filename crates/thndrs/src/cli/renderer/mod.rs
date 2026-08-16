@@ -3,10 +3,9 @@
 //! The row model
 //! ([`style`], [`layout`], [`row`], [`cursor`]) is independent of crossterm I/O
 //! so wrapping, padding, truncation, cursor coordinates, and snapshots remain
-//! unit-testable. [`alternate`] owns the production Ratatui surface and terminal
-//! lifecycle.
+//! unit-testable. The inline terminal coordinator owns terminal lifecycle, while
+//! [`ratatui`] adapts renderer rows into Ratatui cells.
 
-pub mod alternate;
 pub mod cursor;
 mod diff;
 pub mod highlight;
@@ -16,6 +15,7 @@ pub mod layout;
 pub mod live;
 pub mod live_surface;
 pub mod path_display;
+pub mod ratatui;
 pub mod row;
 mod status;
 pub mod style;

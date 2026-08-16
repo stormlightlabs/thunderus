@@ -16,8 +16,8 @@ narrow-terminal behavior without opening a real terminal.
 ## Snapshots
 
 Renderer snapshots use the row model plus `insta` at fixed terminal sizes.
-Backend tests assert important terminal escape sequences such as full-screen
-clear/purge.
+Backend tests assert terminal insertion, mutable-surface cleanup, and cursor
+restoration.
 
 Snapshots cover prompt, picker/help, setup, permissions, detail surfaces,
 startup, submitted, streaming, reasoning, tool, error, banner, and narrow-layout

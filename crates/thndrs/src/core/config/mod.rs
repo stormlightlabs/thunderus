@@ -18,7 +18,7 @@ use thndrs_agent::context::ContextConfig;
 use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use crate::utils;
 
-static CONFIG_KEYS: [&str; 16] = [
+static CONFIG_KEYS: [&str; 15] = [
     "model",
     "websearch",
     "websearch_url",
@@ -26,7 +26,6 @@ static CONFIG_KEYS: [&str; 16] = [
     "reasoning_summary",
     "tick_rate_ms",
     "theme",
-    "mouse",
     "verbose",
     "skill_dirs",
     "session_dir",
@@ -48,7 +47,6 @@ pub enum StatusSegment {
     Workspace,
     Session,
     QueueCount,
-    AnchoredAway,
     ActiveChildren,
     ContextRemaining,
 }
@@ -65,11 +63,7 @@ impl Default for StatusLineConfig {
     fn default() -> Self {
         Self {
             left: vec![StatusSegment::RunState, StatusSegment::ActiveTool],
-            right: vec![
-                StatusSegment::AnchoredAway,
-                StatusSegment::Route,
-                StatusSegment::ContextRemaining,
-            ],
+            right: vec![StatusSegment::Route, StatusSegment::ContextRemaining],
         }
     }
 }
@@ -96,8 +90,6 @@ pub enum ConfigError {
     SecretInConfig { key: String },
     #[error("invalid config {key}: {message}")]
     InvalidConfig { key: String, message: String },
-    #[error("conflicting CLI flags: --mouse and --no-mouse cannot both be set")]
-    ConflictingMouseFlags,
     #[error(
         "unsupported provider route: the configured provider is no longer supported; choose ChatGPT Codex, OpenCode Zen, or OpenCode Go with `thndrs setup --provider <provider>`. Existing retired-provider credentials are left untouched."
     )]
@@ -144,7 +136,7 @@ pub type AcpAgentsConfig = BTreeMap<String, AcpAgentConfig>;
 /// User-editable configuration loaded from TOML.
 ///
 /// Only ordinary runtime keys are present. CLI-only flags (`print_prompt`,
-/// `cwd`, `no_mouse`) are not TOML keys. Secret-shaped keys
+/// `cwd`) are not TOML keys. Secret-shaped keys
 /// are rejected before deserialization reaches this struct.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -155,7 +147,6 @@ pub struct Config {
     pub reasoning_effort: Option<ReasoningEffort>,
     pub reasoning_summary: Option<ReasoningSummary>,
     pub tick_rate_ms: Option<u64>,
-    pub mouse: Option<bool>,
     pub verbose: Option<bool>,
     pub theme: Option<Theme>,
     pub skill_dirs: Vec<PathBuf>,
@@ -176,7 +167,6 @@ impl Config {
         self.reasoning_effort = other.reasoning_effort.or(self.reasoning_effort);
         self.reasoning_summary = other.reasoning_summary.or(self.reasoning_summary);
         self.tick_rate_ms = other.tick_rate_ms.or(self.tick_rate_ms);
-        self.mouse = other.mouse.or(self.mouse);
         self.verbose = other.verbose.or(self.verbose);
         self.theme = other.theme.or(self.theme);
         self.session_dir = other.session_dir.or(self.session_dir);
@@ -536,7 +526,6 @@ fn status_segment_label(segment: StatusSegment) -> &'static str {
         StatusSegment::Workspace => "workspace",
         StatusSegment::Session => "session",
         StatusSegment::QueueCount => "queue-count",
-        StatusSegment::AnchoredAway => "anchored-away",
         StatusSegment::ActiveChildren => "active-children",
         StatusSegment::ContextRemaining => "context-remaining",
     }
@@ -612,10 +601,6 @@ pub fn load_env(
             "theme" => {
                 config.theme = Some(parse_theme_env(key, value)?);
                 origins.insert("theme".to_string(), env_origin(key));
-            }
-            "mouse" => {
-                config.mouse = Some(parse_bool_env(key, value)?);
-                origins.insert("mouse".to_string(), env_origin(key));
             }
             "verbose" => {
                 config.verbose = Some(parse_bool_env(key, value)?);
@@ -835,9 +820,6 @@ fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: 
     if config.theme.is_some() {
         origins.insert("theme".to_string(), ConfigOrigin { source, detail: detail.to_string() });
     }
-    if config.mouse.is_some() {
-        origins.insert("mouse".to_string(), ConfigOrigin { source, detail: detail.to_string() });
-    }
     if config.verbose.is_some() {
         origins.insert(
             "verbose".to_string(),
@@ -890,7 +872,6 @@ fn has_any_value(config: &Config) -> bool {
         || config.reasoning_summary.is_some()
         || config.tick_rate_ms.is_some()
         || config.theme.is_some()
-        || config.mouse.is_some()
         || config.verbose.is_some()
         || !config.skill_dirs.is_empty()
         || config.session_dir.is_some()
@@ -907,7 +888,6 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         reasoning_effort: Some(ReasoningEffort::default()),
         reasoning_summary: Some(ReasoningSummary::default()),
         tick_rate_ms: Some(DEFAULT_TICK_RATE_MS),
-        mouse: Some(true),
         verbose: Some(false),
         theme: Some(Theme::default()),
         skill_dirs: Vec::new(),

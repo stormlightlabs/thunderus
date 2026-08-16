@@ -122,7 +122,7 @@ pub(crate) fn interactive_loop<S: InteractiveSurface>(
                     presenter.request_immediate();
                 }
                 Action::Suspend => {
-                    handle_msg(&mut app, Msg::Action(Action::Suspend), surface, &mut agent)?;
+                    suspend_terminal(surface, &mut app, &mut agent)?;
                     presenter.request_full_repaint();
                 }
                 action => {
@@ -134,6 +134,14 @@ pub(crate) fn interactive_loop<S: InteractiveSurface>(
         flush_steering(&mut app, &agent);
         present_if_due(surface, &mut app, &mut presenter, Instant::now())?;
     }
+}
+
+/// Settle the current terminal frame before giving terminal control to the shell.
+pub(crate) fn suspend_terminal<S: InteractiveSurface>(
+    surface: &mut S, app: &mut App, agent: &mut Option<AgentSlot>,
+) -> io::Result<()> {
+    surface.draw(app, false)?;
+    handle_msg(app, Msg::Action(Action::Suspend), surface, agent)
 }
 
 pub(crate) fn present_if_due<S: InteractiveSurface>(

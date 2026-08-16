@@ -15,9 +15,9 @@ use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::layout::{Position, Rect};
 
 use super::*;
-use crate::renderer::alternate::{render_logical_frame, render_rows_to_buffer};
 use crate::renderer::inline::{InlineTranscript, InlineTranscriptPlan};
 use crate::renderer::live_surface::LiveSurfaceLayout;
+use crate::renderer::ratatui::{render_logical_frame, render_rows_to_buffer};
 use crate::renderer::row::Frame;
 use crate::renderer::view::{LiveView, SemanticUiView, TranscriptView};
 
@@ -174,36 +174,25 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
     }
 
     fn suspend(&mut self) -> io::Result<()> {
+        // Clear only Ratatui's mutable inline viewport before the shell or a
+        // child process takes over. Committed transcript blocks stay in native
+        // history and are never hydrated or replayed on resume.
+        self.terminal.clear()?;
         self.terminal_session.suspend()?;
         let status = std::process::Command::new("kill")
             .args(["-TSTP", &std::process::id().to_string()])
-            .status()?;
-        self.terminal_session.resume()?;
-        self.terminal.clear()?;
-        if status.success() { Ok(()) } else { Err(io::Error::other("failed to suspend process")) }
+            .status();
+        let resume = self.terminal_session.resume();
+        resume?;
+        match status {
+            Ok(status) if status.success() => Ok(()),
+            Ok(_) => Err(io::Error::other("failed to suspend process")),
+            Err(error) => Err(error),
+        }
     }
 
-    fn handle_navigation(&mut self, _app: &mut App, action: &Action) -> bool {
-        matches!(
-            action,
-            Action::ScrollTranscriptWheelUp
-                | Action::ScrollTranscriptWheelDown
-                | Action::ScrollTranscriptUp
-                | Action::ScrollTranscriptDown
-                | Action::ScrollTranscriptPageUp
-                | Action::ScrollTranscriptPageDown
-                | Action::ScrollTranscriptHalfUp
-                | Action::ScrollTranscriptHalfDown
-                | Action::TranscriptTop
-                | Action::TranscriptFollowTail
-                | Action::ExtendTranscriptSelectionUp
-                | Action::ExtendTranscriptSelectionDown
-                | Action::CopyTranscriptSelection
-                | Action::ClearTranscriptSelection
-                | Action::BeginTranscriptSelection { .. }
-                | Action::UpdateTranscriptSelection { .. }
-                | Action::EndTranscriptSelection { .. }
-        )
+    fn handle_navigation(&mut self, _app: &mut App, _action: &Action) -> bool {
+        false
     }
 }
 
@@ -215,7 +204,7 @@ fn inline_frame(app: &App, width: usize, height: usize, plan: &InlineTranscriptP
         stable_rows: Vec::new(),
         live_rows: plan.live_rows.clone(),
     };
-    let live = LiveView::build(app, width, height, &transcript, &semantic, false);
+    let live = LiveView::build(app, width, height, &transcript, &semantic);
     let chrome = LiveSurfaceLayout::build(&live, width, height).into_frame();
 
     let mut frame = Frame::new(width);

@@ -63,15 +63,7 @@ The output redacts secrets.
 
 ## Terminal Options
 
-Use `--tick-rate-ms` to tune UI tick timing. The TUI uses an alternate screen
-with an application-owned transcript.
-
-Page Up and Page Down scroll by a page; Alt+Up and Alt+Down scroll by a line;
-Ctrl+Home and Ctrl+End jump to the oldest entry and the live tail.
-
-Mouse capture is enabled by default for transcript wheel scrolling and mouse
-navigation in pickers.
-
-Use `--no-mouse` to preserve native terminal selection and scrollback. Most
-terminal emulators let you hold a modifier while selecting text when capture is
-enabled.
+Use `--tick-rate-ms` to tune UI tick timing. Completed transcript entries stay
+in native terminal scrollback; Ratatui redraws only the active prompt and
+bounded focused views. Use your terminal's normal scroll, selection, and copy
+controls for transcript history.

@@ -6,8 +6,7 @@
 use super::style::{CellStyle, Span};
 
 /// Stable identity for a group of rows that belong to the same transcript
-/// entry. The alternate viewport uses this metadata to preserve a reader's
-/// position without parsing rendered text.
+/// entry. It keeps semantic provenance attached to projected rows.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RowGroupId {
     /// Index into [`crate::app::App::transcript`] for the entry that produced
@@ -21,7 +20,7 @@ pub struct Row {
     pub spans: Vec<Span>,
     /// Width in display columns the row is padded/truncated to.
     pub width: usize,
-    /// Optional transcript entry grouping metadata for viewport navigation.
+    /// Optional transcript entry grouping metadata.
     pub group_id: Option<RowGroupId>,
 }
 

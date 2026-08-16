@@ -25,7 +25,6 @@ still override environment variables.
 | `THNDRS_REASONING_SUMMARY` | `off` or `auto` for GPT-5.6 summaries.                                       |
 | `THNDRS_TICK_RATE_MS`      | Positive integer milliseconds.                                               |
 | `THNDRS_THEME`             | `eldritch-minimal`, `iceberg-dark`, or `catppuccin-mocha`.                   |
-| `THNDRS_MOUSE`             | Boolean[^1]                                                                  |
 | `THNDRS_VERBOSE`           | Boolean                                                                      |
 | `THNDRS_SKILL_DIRS`        | Path list using the platform path separator.                                 |
 | `THNDRS_SESSION_DIR`       | Session JSONL directory path.                                                |

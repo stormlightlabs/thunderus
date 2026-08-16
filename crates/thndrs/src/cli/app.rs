@@ -774,8 +774,6 @@ pub enum Msg {
     Action(Action),
     /// Compatibility adapter for callers that still provide a raw key.
     Key(crossterm::event::KeyEvent),
-    /// Compatibility adapter for callers that still provide a raw mouse event.
-    Mouse(crossterm::event::MouseEvent),
     /// Periodic tick.
     Tick,
     /// Clear the transcript.
@@ -2101,14 +2099,6 @@ pub fn update_with_effects(app: &mut App, msg: &Msg) -> UpdateResult {
         Msg::Action(action) => input::handle_action(app, action.clone()),
         Msg::Key(key) => {
             let input = TerminalInput::Key(*key);
-            translate_input(app, input)
-                .into_iter()
-                .find_map(|action| input::handle_action(app, action))
-        }
-        Msg::Mouse(mouse) => {
-            let Some(input) = TerminalInput::from_event(crossterm::event::Event::Mouse(*mouse)) else {
-                return UpdateResult::default();
-            };
             translate_input(app, input)
                 .into_iter()
                 .find_map(|action| input::handle_action(app, action))

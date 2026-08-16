@@ -1073,7 +1073,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).expect("test terminal");
         let logical = Frame { rows: rows.to_vec(), width, cursor: None, cursor_visible: false };
         terminal
-            .draw(|frame| super::super::alternate::render_logical_frame(frame, &logical))
+            .draw(|frame| super::super::ratatui::render_logical_frame(frame, &logical))
             .expect("render surface through Ratatui");
         let buffer = terminal.backend().buffer();
         let mut rendered = String::new();

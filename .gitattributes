@@ -1,0 +1,2 @@
+# Insta snapshots preserve padding to show terminal-cell styling.
+*.snap whitespace=-trailing-space

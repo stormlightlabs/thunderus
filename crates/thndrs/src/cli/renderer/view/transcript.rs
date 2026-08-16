@@ -59,8 +59,8 @@ pub fn transcript_projection_key(app: &App, entry_index: usize) -> TranscriptPro
 
 /// Project one transcript entry at a specific width.
 ///
-/// Alternate-screen caching uses this boundary to invalidate a changing entry
-/// without rebuilding settled entries above it.
+/// The inline coordinator uses this boundary to separate settled entries from
+/// the mutable transcript tail.
 pub fn project_transcript_entry(app: &App, entry_index: usize, width: usize) -> (Vec<Row>, Vec<Row>) {
     let Some(entry) = app.transcript.entries.get(entry_index) else {
         return (Vec::new(), Vec::new());
