@@ -17,6 +17,10 @@
   - The pane uses the old background color when it should be transparent.
   - Our pickers should have fuzzy finding if their contents are deterministic
 - [ ] Keybind hint text shouldn't be bolded
+- [ ] The slash command ui doesn't look quite right
+- [ ] padding on the right side both above & below the input isn't correct (should be the same as the left)
+- [ ] Model, Reasoning Level, & remaining context should be different colors. Remaining context should
+      stay as-is (light grey)
 
 ## UI
 

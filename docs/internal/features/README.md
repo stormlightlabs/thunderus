@@ -15,14 +15,16 @@ ships; its durable decisions can then move to `../archive/`.
 | Order | Feature                                | Current boundary                                                                                                         |
 | ----: | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 |     1 | [MCP](mcp/plan.md)                     | Project-server trust is complete. Resources, lifecycle controls, TUI management, configuration, and distribution remain. |
-|     2 | [Lifecycle hooks](hooks/plan.md)       | Builds on the shared lifecycle model; project hooks also depend on project trust.                                        |
-|     3 | [Skills](skills/plan.md)               | Owns its project activation rules, diagnostics, supply-chain policy, and packaged discovery.                             |
-|     4 | [Providers](providers/plan.md)         | Adds native provider adapters and only then compatible endpoints and account-capacity work.                              |
-|     5 | [Image prompts](image-prompts/plan.md) | Uses the provider capability model to route and validate image input.                                                    |
+|     2 | [Inline renderer](inline/plan.md)       | Keeps transcript output in native scrollback while Ratatui owns the composer and application views.                      |
+|     3 | [Lifecycle hooks](hooks/plan.md)       | Builds on the shared lifecycle model; project hooks also depend on project trust.                                        |
+|     4 | [Skills](skills/plan.md)               | Owns its project activation rules, diagnostics, supply-chain policy, and packaged discovery.                             |
+|     5 | [Providers](providers/plan.md)         | Adds native provider adapters and only then compatible endpoints and account-capacity work.                              |
+|     6 | [Image prompts](image-prompts/plan.md) | Uses the provider capability model to route and validate image input.                                                    |
 
 ### Task Index
 
 - [MCP tasks](mcp/tasks.md)
+- [Inline renderer tasks](inline/tasks.md)
 - [Lifecycle hooks tasks](hooks/tasks.md)
 - [Skills tasks](skills/tasks.md)
 - [Providers tasks](providers/tasks.md)
@@ -30,4 +32,5 @@ ships; its durable decisions can then move to `../archive/`.
 
 ## v0.2
 
-Includes documented headless JSONL behavior and the packaged ACP surface.
+v0.2 covers MCP and the inline renderer. It also includes documented headless
+JSONL behavior and the packaged ACP surface.
