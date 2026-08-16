@@ -990,15 +990,15 @@ pub(crate) fn run_mcp_status<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Res
         writeln!(writer, "project MCP configuration: not found")?;
         return Ok(());
     };
-    let trust = mcp::trust::project_mcp_trust(&workspace, &hash)?;
+    let trust = crate::trust::project_trust(&workspace, crate::trust::ProjectTrustScope::Mcp, &hash)?;
     match trust {
-        mcp::trust::ProjectMcpTrust::Trusted => {
+        crate::trust::ProjectTrust::Trusted => {
             writeln!(writer, "project MCP configuration: trusted")?;
         }
-        mcp::trust::ProjectMcpTrust::Untrusted => {
+        crate::trust::ProjectTrust::Untrusted => {
             writeln!(writer, "project MCP configuration: blocked by trust")?;
         }
-        mcp::trust::ProjectMcpTrust::Stale { trusted_hash } => {
+        crate::trust::ProjectTrust::Stale { trusted_hash } => {
             writeln!(writer, "project MCP configuration: blocked; configuration changed")?;
             writeln!(writer, "trusted sha256: {trusted_hash}")?;
         }
@@ -1018,7 +1018,7 @@ pub(crate) fn run_mcp_trust<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Resu
                 "project MCP configuration `.thndrs/mcp.toml` not found",
             )
         })?;
-    mcp::trust::trust_project_mcp(&workspace, &hash)?;
+    crate::trust::trust_project(&workspace, crate::trust::ProjectTrustScope::Mcp, &hash)?;
     writeln!(writer, "trusted project MCP configuration")?;
     writeln!(writer, "sha256: {hash}")?;
     writeln!(writer, "scope: workspace={} capability=mcp", workspace.display())?;
@@ -1032,7 +1032,7 @@ pub(crate) fn run_mcp_trust<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Resu
 
 pub(crate) fn run_mcp_revoke<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
     let workspace = crate::context::discover_workspace_root(&cli.cwd);
-    if mcp::trust::revoke_project_mcp(&workspace)? {
+    if crate::trust::revoke_project_trust(&workspace, crate::trust::ProjectTrustScope::Mcp)? {
         writeln!(writer, "revoked project MCP trust for {}", workspace.display())
     } else {
         writeln!(writer, "project MCP trust was not set for {}", workspace.display())

@@ -247,7 +247,7 @@ fn git_status_changed_message_updates_app_summary() {
 
     update(
         &mut app,
-        &Msg::GitStatusChanged(Some(renderer::git::GitStatusSummary {
+        &Msg::GitStatusChanged(Some(crate::cli::git::GitStatusSummary {
             branch: Some("main".to_string()),
             added: 1,
             modified: 2,

@@ -31,7 +31,6 @@ pub mod openai;
 pub mod opencode;
 
 pub use codex as chatgpt_codex;
-pub use opencode::zen as opencode_zen;
 
 pub type Result<T> = std::result::Result<T, ProviderError>;
 

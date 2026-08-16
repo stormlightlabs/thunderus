@@ -9,7 +9,6 @@
 pub mod alternate;
 pub mod cursor;
 mod diff;
-pub mod git;
 pub mod highlight;
 pub mod layout;
 pub mod live;

@@ -22,7 +22,6 @@ use crate::config::{Config, ConfigOrigin, ConfigSource, LoadedConfigLayer};
 use crate::context::{AGENTS_MD_SIZE_CAP, ContextSource, discover_workspace_root};
 use crate::harness::HarnessTurn;
 use crate::input::PromptInput;
-use crate::renderer;
 use crate::tools::AgentRunConfig;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use helpers::*;

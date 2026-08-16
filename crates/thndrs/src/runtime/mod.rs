@@ -68,7 +68,7 @@ pub(crate) struct AgentSlot {
 }
 
 pub(crate) struct GitStatusWatcher {
-    receiver: mpsc::Receiver<Option<renderer::git::GitStatusSummary>>,
+    receiver: mpsc::Receiver<Option<cli::git::GitStatusSummary>>,
     _initialized: mpsc::Receiver<()>,
     stop: mpsc::Sender<()>,
 }
@@ -83,7 +83,7 @@ impl GitStatusWatcher {
         let (initialized_tx, initialized_rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel();
         thread::spawn(move || {
-            let mut last = renderer::git::collect(&cwd);
+            let mut last = cli::git::collect(&cwd);
             let _ = initialized_tx.send(());
             loop {
                 match stop_rx.recv_timeout(interval) {
@@ -91,7 +91,7 @@ impl GitStatusWatcher {
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
                 }
 
-                let next = renderer::git::collect(&cwd);
+                let next = cli::git::collect(&cwd);
                 if next != last {
                     last = next.clone();
                     if status_tx.send(next).is_err() {

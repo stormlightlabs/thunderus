@@ -5,8 +5,8 @@ use crate::app::{
     App, ChatGptOAuthMethod, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, RecoveryStage, RunState,
 };
 use crate::cli::commands::setup::SetupProviderArg;
+use crate::cli::git::GitStatusSummary;
 use crate::cli::{Cli, Theme, WebSearchMode};
-use crate::renderer::git::GitStatusSummary;
 use crate::renderer::layout::truncate_spans;
 use crate::renderer::row::Frame;
 use crate::thndrs_core::auth::ChatGptCodexDeviceCode;

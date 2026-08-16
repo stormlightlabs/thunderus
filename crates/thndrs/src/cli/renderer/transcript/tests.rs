@@ -151,7 +151,7 @@ fn test_app() -> App {
     app.overlay.close();
     app.session.id = "test-session".to_string();
     app.runtime.git_status =
-        Some(renderer::git::GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
+        Some(crate::cli::git::GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
     app.transcript.entries.clear();
     app.transcript.context_sources.clear();
     app.transcript.skills.clear();
