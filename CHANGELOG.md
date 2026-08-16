@@ -47,6 +47,10 @@
 
 ### Changed
 
+- Keep recent session history visible when the inline TUI starts, while
+  preserving native terminal scrollback and room for bounded overlays.
+- Make headless cancellation output deterministic, with one canonical result
+  and no late provider diagnostics after cancellation begins.
 - Refined the TUI with responsive content rails, a quieter conversation
   hierarchy, a unified composer and status area, grouped tool activity, and
   semantic colors across the built-in themes.

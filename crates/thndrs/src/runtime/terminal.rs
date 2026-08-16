@@ -21,6 +21,9 @@ use crate::renderer::ratatui::{render_logical_frame, render_rows_to_buffer};
 use crate::renderer::row::Frame;
 use crate::renderer::view::{LiveView, SemanticUiView, TranscriptView};
 
+pub(crate) const INLINE_VIEWPORT_HEIGHT: u16 =
+    (crate::renderer::live::MAX_PROMPT_ROWS + crate::renderer::live::MAX_SETUP_ROWS + 3) as u16;
+
 pub(crate) trait InteractiveSurface {
     fn draw(&mut self, app: &mut App, full_repaint: bool) -> io::Result<()>;
     fn resize(&mut self, width: u16, height: u16) -> io::Result<()>;
@@ -251,6 +254,8 @@ mod tests {
 
     use super::*;
     use crate::app::Entry;
+    use crate::renderer::row::Row;
+    use crate::renderer::style::{CellStyle, Span};
 
     #[test]
     fn inline_viewport_inserts_completed_rows_without_retaining_them_in_the_live_frame() {
@@ -269,7 +274,7 @@ mod tests {
 
         let mut terminal = Terminal::with_options(
             TestBackend::new(40, 8),
-            TerminalOptions { viewport: Viewport::Inline(u16::MAX) },
+            TerminalOptions { viewport: Viewport::Inline(INLINE_VIEWPORT_HEIGHT) },
         )
         .expect("inline terminal");
         let rows = plan
@@ -286,6 +291,33 @@ mod tests {
         coordinator.mark_committed(&plan.commits);
 
         assert!(coordinator.plan(&app, 20).commits.is_empty());
+    }
+
+    #[test]
+    fn inline_viewport_leaves_room_for_recent_history_on_tall_terminals() {
+        let mut terminal = Terminal::with_options(
+            TestBackend::new(40, 30),
+            TerminalOptions { viewport: Viewport::Inline(INLINE_VIEWPORT_HEIGHT) },
+        )
+        .expect("inline terminal");
+        let rows = vec![Row::padded(
+            vec![Span::plain("recent transcript")],
+            40,
+            CellStyle::default(),
+        )];
+
+        terminal
+            .insert_before(1, |buffer| render_rows_to_buffer(&rows, buffer))
+            .expect("insert transcript row");
+
+        let visible = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(40)
+            .map(|line| line.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>();
+        assert!(visible.iter().any(|line| line.contains("recent transcript")));
     }
 
     #[test]

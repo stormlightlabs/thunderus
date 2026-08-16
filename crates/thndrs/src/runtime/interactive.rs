@@ -13,9 +13,9 @@ pub(crate) fn run_inline(tick: Duration, cli: &Cli, initial_session: InitialSess
     let terminal = Terminal::with_options(
         CrosstermBackend::new(stdout),
         TerminalOptions {
-            // The logical live frame decides its own dynamic composer height;
-            // the inline viewport reserves the terminal and owns insertion.
-            viewport: Viewport::Inline(u16::MAX),
+            // Reserve enough rows for the largest bounded surface without
+            // pushing the visible transcript out of the terminal on startup.
+            viewport: Viewport::Inline(super::terminal::INLINE_VIEWPORT_HEIGHT),
         },
     )?;
     let mut surface = RatatuiSurface::new(terminal, terminal_session);

@@ -588,7 +588,22 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
                 if terminal.is_some() {
                     finish_output(stdout, &mut output)?;
                 }
-                write_event(stdout, stderr, &event, &mut output, app.is_ephemeral())?;
+                if cancellation_requested {
+                    // Once cancellation is visible, discard provider events
+                    // still in flight and project a single stable terminal
+                    // event regardless of how the worker winds down.
+                    if terminal.is_some() {
+                        write_event(
+                            stdout,
+                            stderr,
+                            &app::AgentEvent::Cancelled,
+                            &mut output,
+                            app.is_ephemeral(),
+                        )?;
+                    }
+                } else {
+                    write_event(stdout, stderr, &event, &mut output, app.is_ephemeral())?;
+                }
                 apply_message(&mut app, Msg::Agent(event));
 
                 if requested_permission {
