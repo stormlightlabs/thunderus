@@ -98,10 +98,7 @@ pub fn exec(path_str: &str, root: &Path, old_string: &str, new_string: &str) -> 
 pub fn exec_many(
     path_str: &str, root: &Path, replacements: &[Replacement], expected_before_hash: Option<u64>,
 ) -> (ToolOutput, Option<WriteResult>) {
-    let resolved = match path::resolve_within_root(root, path_str) {
-        Ok(p) => p,
-        Err(e) => return (ToolOutput::failed("replace_range", e.to_string()), None),
-    };
+    let resolved = path::resolve_from_root(root, path_str);
 
     with_file_lock(&resolved, || {
         exec_many_locked(path_str, &resolved, replacements, expected_before_hash)
@@ -118,13 +115,13 @@ Replace a unique exact string occurrence in an existing file.
 
 Use this for direct small edits. Prefer write_patch op=edit when doing a mixed
 edit. old_string must match exactly and once; include surrounding context for
-uniqueness. Paths are contained to the root; failed edits leave files unchanged.
-The complete replacement is synchronized in a same-directory temporary file
-before installation."#,
+uniqueness. Relative paths resolve from the workspace; absolute paths and paths
+outside it are allowed. Failed edits leave files unchanged. The complete
+replacement is synchronized in a same-directory temporary file before installation."#,
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": { "type": "string", "description": "Path relative to the workspace root." },
+                "path": { "type": "string", "description": "Absolute path or path relative to the workspace root." },
                 "old_string": { "type": "string", "description": "The exact string to find. Must appear exactly once." },
                 "new_string": { "type": "string", "description": "The replacement string." },
                 "expected_before_hash": { "type": "integer", "description": "Optional current-content hash guard." }
@@ -553,6 +550,21 @@ mod tests {
         assert!(output.display.lines.iter().any(|line| line == "+++ b/file.txt"));
         assert!(output.display.lines.iter().any(|line| line == "-hello world"));
         assert!(output.display.lines.iter().any(|line| line == "+hello there"));
+    }
+
+    #[test]
+    fn replace_range_edits_absolute_path_outside_root() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path().join("workspace");
+        let outside = dir.path().join("outside.txt");
+        std::fs::create_dir(&root).expect("workspace");
+        std::fs::write(&outside, "hello\n").expect("write");
+
+        let (output, result) = exec(&outside.to_string_lossy(), &root, "hello", "goodbye");
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert!(result.is_some());
+        assert_eq!(std::fs::read_to_string(outside).expect("read"), "goodbye\n");
     }
 
     #[test]

@@ -356,10 +356,10 @@ pub fn run_command(cli: &Cli, command: &RunCommand) -> io::Result<()> {
 }
 
 /// Run one prompt through the shared lifecycle and return only assistant text.
-/// Validate and apply the explicit execution boundary required by JSONL callers.
+/// Validate and apply the explicit run inputs required by JSONL callers.
 ///
 /// The interactive command continues to support configured defaults. Machine
-/// callers instead name every boundary that can otherwise be implicit: a
+/// callers instead name every input that can otherwise be implicit: a
 /// canonical workspace, persistence policy, authority, deadline, and bounded
 /// request/evidence allocation. Validation happens before [`App::from_cli`]
 /// can start provider work or create a durable session.

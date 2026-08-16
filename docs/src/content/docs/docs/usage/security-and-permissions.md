@@ -2,24 +2,16 @@
 title: "Security and Permissions"
 ---
 
-`thndrs` does not treat the TUI as a security boundary. Built-in file tools
-operate inside the selected workspace with deterministic limits and audit
-records. Process execution needs an OS sandbox, container, or VM to receive
-less authority than the current user.
+`thndrs` does not treat the TUI as a security boundary. Local tools use the
+filesystem permissions of the `thndrs` process. Process execution needs an OS
+sandbox, container, or VM to receive less authority than the current user.
 
-## Tool Boundary
+## Tool Access
 
-The model can act only through the tools exposed by `thndrs`. File tools reject
-paths that escape the workspace root. Search, reads, URL fetching, shell output,
-and transcript rendering are bounded by timeouts, byte caps, result caps, and
-line truncation.
-
-`thndrs` reports filesystem authority, network authority, and isolation
-separately. A boundary report with `isolation=none` means the process inherits
-host authority. `isolation=external-unverified` means an ACP client or remote
-service owns the execution environment; `thndrs` cannot verify its isolation.
-The labels `read-only` and `workspace-write` describe filesystem policies for a
-sandbox backend. They do not claim OS enforcement until a backend is active.
+The model can act only through the tools exposed by `thndrs`. Relative file
+paths resolve from the workspace. Built-in file reads and writes also accept
+absolute paths and paths outside the workspace. Searches, reads, URL fetches,
+shell output, and transcript rendering have timeouts and size limits.
 
 `AGENTS.md` files are guidance, not permissions. They can steer behavior, but
 they cannot grant extra filesystem access, change tools, or disable safety
@@ -29,7 +21,7 @@ limits.
 
 `run_shell` executes an argv array with `std::process::Command`. It is not a
 raw shell string tool. The command inherits the filesystem and network
-permissions of the `thndrs` process. Its boundary report says `isolation=none`.
+permissions of the `thndrs` process.
 
 If a task needs real isolation, run `thndrs` inside a container, VM, or
 OS-level sandbox with the filesystem and credentials you are willing to expose.
@@ -38,19 +30,17 @@ OS-level sandbox with the filesystem and credentials you are willing to expose.
 
 [MCP](/docs/usage/mcp) servers are external tools configured by the user. Stdio
 servers run as local child processes with the same filesystem and network
-permissions as `thndrs`; their boundary report says `isolation=none`.
+permissions as `thndrs`.
 
-Streamable HTTP servers receive requests at the configured URL with the configured
-headers. The remote server's filesystem authority and isolation are external to
-`thndrs` and reported as unverified.
+Streamable HTTP servers receive requests at the configured URL with the
+configured headers. The remote service owns its execution environment.
 
 Project MCP configuration is inactive until the user trusts the workspace and
 the file's exact hash. Editing the file invalidates that decision. Global MCP
 configuration is active without a project trust step.
 
-Agent-initiated MCP tool calls use the shared permission path. A trust decision
-controls whether project servers may start; it does not reduce the operating
-system permissions available to a server.
+A trust decision controls whether project servers may start. It does not reduce
+the operating system permissions available to a server.
 
 MCP tools cannot replace built-in tool names or change prompt identity. They
 are namespaced as `mcp__{server}__{tool}` and use the shared timeout, output
@@ -61,24 +51,26 @@ records and shows but do not sandbox what the MCP server itself can do.
 
 [ACP](/docs/usage/acp) agents are external local child processes configured by the
 user. A configured agent owns its model loop, but `thndrs` still owns the
-workspace boundary, TUI permission prompts, cancellation, and local session
-records.
+TUI permission prompts, cancellation, local session records, and path checks
+for callbacks it services.
 
-ACP filesystem callbacks are workspace-contained. When `thndrs` runs an ACP
-terminal callback, the local child inherits the filesystem and network
-permissions of `thndrs`; its boundary report says `isolation=none`. When the
-ACP client runs a terminal command for the `thndrs` server, that client owns
-filesystem, network, and isolation policy. `thndrs` reports that boundary as
-external and unverified. In both directions, the requested cwd is kept inside
-the workspace, output is capped and redacted, and lifecycle metadata is
-recorded in the session log.
+ACP read and write callbacks reject paths outside the workspace. When `thndrs`
+runs an ACP terminal callback, the local child inherits the filesystem and
+network permissions of `thndrs`. When an ACP client runs a terminal command for
+the `thndrs` server, that client owns the execution environment and permission
+policy. ACP permission requests are protocol interactions with that client;
+they do not create a permission system shared by other tool surfaces.
+
+In both directions, the requested cwd stays inside the workspace, output is
+capped and redacted, and lifecycle metadata is recorded in the session log.
 
 ## Writes
 
-Write-capable tools are workspace-contained and transcripted. Each create,
-replace, and patch write builds the complete new content in a temporary file in
-the target directory, flushes and synchronizes it, closes it, and only then
-installs it.
+Built-in write tools can modify any path available to the `thndrs` process and
+record their use in the transcript. Relative paths resolve from the workspace.
+Each create, replace, and patch write builds the complete new content in a
+temporary file in the target directory, flushes and synchronizes it, closes it,
+and only then installs it.
 
 A failed write therefore leaves the previous target bytes intact and cleans
 up its temporary file.

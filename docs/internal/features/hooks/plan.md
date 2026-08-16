@@ -173,9 +173,9 @@ Global hooks otherwise run with the thndrs process authority, so status and
 errors must not imply process isolation that does not exist.
 
 Project hook configuration may be discovered and shown, but remains inactive
-until the shared project trust work in `SAFETY-1` covers hooks. Trust applies to
-the exact project configuration hash and is inspectable and revocable. A
-changed configuration returns its hooks to the blocked state.
+until `HOOK-5` integrates it with project trust. Trust applies to the exact
+project configuration hash and is inspectable and revocable. A changed
+configuration returns its hooks to the blocked state.
 
 ## Boundaries
 

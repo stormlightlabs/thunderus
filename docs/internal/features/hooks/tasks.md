@@ -149,7 +149,7 @@ configuration and execute them through a bounded, versioned JSON protocol.
 merge active definitions after global hooks without allowing project code to
 activate during discovery.
 
-**Blocked by:** HOOK-4 and SAFETY-1.
+**Blocked by:** HOOK-4.
 
 **Acceptance criteria:**
 

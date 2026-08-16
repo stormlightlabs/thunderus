@@ -28,7 +28,8 @@
 //! - The command runs via `std::process::Command` argv; no `/bin/sh -c`.
 //! - stdout/stderr bytes are capped at [`MAX_OUTPUT_BYTES`]; lines truncate
 //!   at `MAX_LINE_LEN`.
-//! - Paths are contained to the workspace root.
+//! - The optional working directory is contained to the workspace root; command
+//!   arguments retain the process's normal filesystem access.
 
 #[cfg(test)]
 mod tests;
@@ -51,7 +52,6 @@ use process_wrap::std::{ChildWrapper, CommandWrap};
 
 use super::{MAX_LINE_LEN, MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest, path};
 use crate::app::ToolStatus;
-use crate::sandbox::ExecutionSurface;
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::utils;
 use thndrs_agent::CancelToken;
@@ -762,12 +762,18 @@ impl ShellArgs {
 
 /// Provider-visible definition for `run_shell`.
 pub fn definition() -> ToolDefinition {
-    let boundary = ExecutionSurface::BuiltinShell.boundary().report();
     ToolDefinition::new(
         NAME,
-        format!(
-            "run_shell\n\nRun an argv command in the workspace and capture output and exit status.\n\nPrefer narrower tools. Use for build, test, format, and inspection.\n\nExecution boundary: {boundary}. Output is capped, truncated, and redacted; timeouts are enforced. With background=true, the interactive app owns the child, returns its registry id immediately, and supports :bg listing and cancellation."
-        ),
+        r#"run_shell
+
+Run an argv command in the workspace and capture stdout, stderr, and exit status.
+
+Prefer narrower tools when they fit. Use for build, test, format, and inspection.
+
+Runs as thndrs with its permissions, not in a sandbox. Output is capped,
+truncated, and redacted; timeouts are enforced. With background=true, the
+interactive app owns the child, returns its registry id immediately, and
+supports :bg listing and cancellation."#,
         serde_json::json!({
             "type": "object",
             "properties": {

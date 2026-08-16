@@ -201,7 +201,7 @@ expression: json
     "name": "read_url"
   },
   {
-    "description": "create_file\n\nCreate a new file with the given content.\n\nUse this for direct new-file writes. Prefer write_patch op=create when doing a\nmixed edit. Fails if the file exists. Paths are contained to the workspace root;\nescapes are rejected. Parent directories are created if needed. Failed writes\nleave no partial target or temporary file.",
+    "description": "create_file\n\nCreate a new file with the given content.\n\nUse this for direct new-file writes. Prefer write_patch op=create when doing a\nmixed edit. Fails if the file exists. Relative paths resolve from the workspace;\nabsolute paths and paths outside it are allowed. Parent directories are created\nif needed. Failed writes leave no partial target or temporary file.",
     "input_schema": {
       "properties": {
         "content": {
@@ -209,7 +209,7 @@ expression: json
           "type": "string"
         },
         "path": {
-          "description": "Path relative to the workspace root.",
+          "description": "Absolute path or path relative to the workspace root.",
           "type": "string"
         }
       },
@@ -222,7 +222,7 @@ expression: json
     "name": "create_file"
   },
   {
-    "description": "replace_range\n\nReplace a unique exact string occurrence in an existing file.\n\nUse this for direct small edits. Prefer write_patch op=edit when doing a mixed\nedit. old_string must match exactly and once; include surrounding context for\nuniqueness. Paths are contained to the root; failed edits leave files unchanged.\nThe complete replacement is synchronized in a same-directory temporary file\nbefore installation.",
+    "description": "replace_range\n\nReplace a unique exact string occurrence in an existing file.\n\nUse this for direct small edits. Prefer write_patch op=edit when doing a mixed\nedit. old_string must match exactly and once; include surrounding context for\nuniqueness. Relative paths resolve from the workspace; absolute paths and paths\noutside it are allowed. Failed edits leave files unchanged. The complete\nreplacement is synchronized in a same-directory temporary file before installation.",
     "input_schema": {
       "properties": {
         "expected_before_hash": {
@@ -238,7 +238,7 @@ expression: json
           "type": "string"
         },
         "path": {
-          "description": "Path relative to the workspace root.",
+          "description": "Absolute path or path relative to the workspace root.",
           "type": "string"
         }
       },
@@ -252,7 +252,7 @@ expression: json
     "name": "replace_range"
   },
   {
-    "description": "write_patch\n\nApply one or more structured patches to a file.\n\nUse this as the preferred file-write tool. Put operations in patches. A call may\ncontain one create/replace operation or one or more edits for the same file. All\nedits match the original file, not earlier edits in the call. Paths are contained;\nfailures leave the file unchanged. Content is synchronized in a same-directory\ntemporary file before installation.",
+    "description": "write_patch\n\nApply one or more structured patches to a file.\n\nUse this as the preferred file-write tool. Put operations in patches. A call may\ncontain one create/replace operation or one or more edits for the same file. All\nedits match the original file, not earlier edits in the call. Relative paths resolve\nfrom the workspace; absolute paths and paths outside it are allowed. Failures leave\nthe file unchanged. Content is synchronized in a same-directory temporary file\nbefore installation.",
     "input_schema": {
       "properties": {
         "patches": {
@@ -285,7 +285,7 @@ expression: json
                 "type": "string"
               },
               "path": {
-                "description": "Path relative to the workspace root.",
+                "description": "Absolute path or path relative to the workspace root.",
                 "type": "string"
               }
             },
@@ -307,7 +307,7 @@ expression: json
     "name": "write_patch"
   },
   {
-    "description": "run_shell\n\nRun an argv command in the workspace and capture output and exit status.\n\nPrefer narrower tools. Use for build, test, format, and inspection.\n\nExecution boundary: filesystem=host-process network=host-process isolation=none. Output is capped, truncated, and redacted; timeouts are enforced. With background=true, the interactive app owns the child, returns its registry id immediately, and supports :bg listing and cancellation.",
+    "description": "run_shell\n\nRun an argv command in the workspace and capture stdout, stderr, and exit status.\n\nPrefer narrower tools when they fit. Use for build, test, format, and inspection.\n\nRuns as thndrs with its permissions, not in a sandbox. Output is capped,\ntruncated, and redacted; timeouts are enforced. With background=true, the\ninteractive app owns the child, returns its registry id immediately, and\nsupports :bg listing and cancellation.",
     "input_schema": {
       "properties": {
         "argv": {

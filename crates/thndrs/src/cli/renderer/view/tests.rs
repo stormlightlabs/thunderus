@@ -1339,7 +1339,7 @@ fn semantic_orientation_has_truncation_metadata() {
         orientation
             .fields
             .iter()
-            .any(|field| field.label == "trust" && field.truncate == TruncationPolicy::Hide)
+            .any(|field| field.label == "access" && field.truncate == TruncationPolicy::Hide)
     );
 }
 

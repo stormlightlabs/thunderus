@@ -22,7 +22,6 @@ use crate::mcp::config::{McpConfig, McpServerConfig, McpTransport};
 use crate::mcp::manager::McpManager;
 use crate::prompt;
 use crate::providers::{ProviderContentBlock, ProviderImageSource, ProviderMessage};
-use crate::sandbox::ExecutionSurface;
 use crate::server::ServerConfig;
 use crate::server::config_options::{ConfigOptionValue, acp_config_options, validate_config_option};
 use crate::server::events::{
@@ -1246,16 +1245,8 @@ fn execute_shell_in_client_terminal(
     let _ = block_client_request(connection, ReleaseTerminalRequest::new(session_id, terminal_id));
 
     let result = process_result_from_terminal(&args, cwd, start.elapsed(), &final_output, &wait, cancel);
-    let output = execution_output(result.to_tool_output(), ExecutionSurface::AcpClientTerminal);
+    let output = result.to_tool_output();
     (output, None, Some(result))
-}
-
-fn execution_output(mut output: ToolOutput, surface: ExecutionSurface) -> ToolOutput {
-    let boundary = format!("[execution boundary: {}]", surface.boundary().report());
-    output.display.lines.push(boundary.clone());
-    output.model.lines.push(boundary);
-    output.evidence.byte_count = output.display.lines.join("\n").len();
-    output
 }
 
 fn block_client_request<R>(

@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 
 use super::adapter::{McpSdkClient, McpSdkError, McpToolDefinition, sdk_error_to_output};
 use super::config::{McpConfig, McpServerConfig, McpTransport};
-use crate::sandbox::ExecutionSurface;
 use crate::tools::{MAX_LINE_LEN, MAX_OUTPUT_BYTES, ToolDefinition, ToolOutput, ToolUseRequest, shell};
 
 const MAX_MCP_OUTPUT_LINES: usize = 100;
@@ -115,14 +114,11 @@ impl McpManager {
                 continue;
             }
 
-            let surface = match server.transport {
-                McpTransport::Stdio => ExecutionSurface::McpStdioServer,
-                McpTransport::StreamableHttp => ExecutionSurface::McpStreamableHttpServer,
+            let execution = match server.transport {
+                McpTransport::Stdio => "starts as a child process with thndrs process permissions",
+                McpTransport::StreamableHttp => "runs remotely in an externally owned environment",
             };
-            diagnostics.push(format!(
-                "mcp server `{name}` startup boundary: {}",
-                surface.boundary().report()
-            ));
+            diagnostics.push(format!("mcp server `{name}` {execution}"));
 
             match McpClient::connect(name.clone(), server) {
                 Ok(client) => {

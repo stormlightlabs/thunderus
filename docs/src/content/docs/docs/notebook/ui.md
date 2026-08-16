@@ -117,7 +117,7 @@ supports them, but they add configuration, status, and discoverability burden.
 | Prompt surface         | The bottom input area plus its local controls: draft text, history, command discovery, file mentions, queued input, model/status hints, and submit/stop state. |
 | Tool output preview    | A bounded rendering of command or tool output in the transcript, distinct from the full stored output.                                                         |
 | Focused detail surface | A temporary, keyboard-focused panel for bounded details such as help, command selection, file selection, diff detail, or long tool output.                     |
-| Orientation band       | A compact status row that tells the user where they are, what is running, and what execution boundary applies.                                                 |
+| Orientation band       | A compact status row that tells the user where they are, what is running, and where tool execution occurs.                                                      |
 | Permission theater     | UI that implies safety or review guarantees that the underlying runtime or sandbox does not actually enforce.                                                  |
 | Native scrollback      | The terminal emulator's own history, search, selection, and scrolling behavior, rather than an app-owned transcript scroller.                                  |
 
@@ -268,8 +268,8 @@ The reusable design lessons are:
   - When session switching, task lists, or background runs become frequent
     enough that command-driven access feels slow.
 - What should the UI say about permissions?
-  - It should show the real execution boundary and approval state, while actual
-    enforcement stays in the harness/sandbox layer.
+  - It should show whether a process runs locally or in an ACP client, plus the
+    approval state. Actual isolation belongs to the surrounding OS environment.
 
 ## Connections
 

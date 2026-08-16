@@ -170,11 +170,13 @@ log.
 - Agent-owned authentication through advertised ACP auth methods.
 - Assistant, reasoning, status, usage, and tool-call session updates mapped into
   the normal transcript.
-- Workspace-contained `read_text_file` and `write_text_file` callbacks.
+- `read_text_file` and `write_text_file` callbacks that reject paths outside
+  the workspace.
 - User permission prompts with selected or cancelled outcomes.
 - Local cancellation through `session/cancel`.
-- Terminal callbacks with workspace-contained cwd handling, output caps,
-  redaction, visible tool rows, cleanup, and session audit records.
+- Terminal callbacks that reject requested working directories outside the
+  workspace, cap and redact output, show visible tool rows, clean up, and write
+  session audit records.
 - Effective user-plus-project MCP server config passed through `session/new`
   when the agent advertises MCP support and the server fits ACP's stable
   `mcpServers` shape.

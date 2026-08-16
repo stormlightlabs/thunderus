@@ -68,11 +68,12 @@ The write tools are `create_file`, `replace_range`, and `write_patch`.
 unique exact string occurrence. `write_patch` is the unified create, replace,
 or edit entry point. Its `patches` array accepts one create/replace operation or
 one or more edits for the same file. Batched edits all match the original file,
-and the tool validates them before writing. All write paths must stay inside
-the workspace root. Writes complete and synchronize same-directory temporary
-files before installation, so failed writes preserve the previous target;
-creates also fail rather than clobbering a target that appears during
-validation.
+and the tool validates them before writing. Relative paths resolve from the
+workspace root; absolute paths and paths outside it are allowed when the
+`thndrs` process can access them. Writes complete and synchronize
+same-directory temporary files before installation, so failed writes preserve
+the previous target; creates also fail rather than clobbering a target that
+appears during validation.
 
 ## Shell
 

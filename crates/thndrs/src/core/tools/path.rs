@@ -3,6 +3,12 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+/// Resolve a process-accessible path, using `root` only as the base for relative paths.
+pub fn resolve_from_root(root: &Path, path: &str) -> PathBuf {
+    let path = Path::new(path);
+    if path.is_absolute() { path.to_path_buf() } else { root.join(path) }
+}
+
 /// Check whether `path` is within `root` after normalization.
 ///
 /// The root is canonicalized to resolve symlinks (e.g. macOS `/var` → `/private/var`).

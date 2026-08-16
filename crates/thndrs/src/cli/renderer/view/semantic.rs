@@ -303,8 +303,8 @@ impl From<&App> for OrientationBandView {
                 truncate: TruncationPolicy::EllipsizeEnd,
             },
             OrientationFieldView {
-                label: "trust".to_string(),
-                value: "local user · workspace-contained tools · no TUI sandbox".to_string(),
+                label: "access".to_string(),
+                value: "local tools · thndrs process permissions".to_string(),
                 priority: 40,
                 truncate: TruncationPolicy::Hide,
             },

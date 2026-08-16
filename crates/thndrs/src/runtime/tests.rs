@@ -1088,7 +1088,7 @@ fn mcp_list_tools_and_call_use_fake_server() {
         let list = String::from_utf8(list_output).expect("utf8");
         assert!(list.contains("docs"));
         assert!(list.contains("source=project"));
-        assert!(list.contains("boundary=filesystem=host-process network=host-process isolation=none"));
+        assert!(list.contains("execution=local-process\tpermissions=thndrs-process"));
 
         let mut tools_output = Vec::new();
         run_mcp_tools(&cli, "docs", &mut tools_output).expect("tools mcp");

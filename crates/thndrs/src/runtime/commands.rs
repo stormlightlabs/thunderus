@@ -958,16 +958,14 @@ pub(crate) fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Resul
             .server_sources
             .get(name)
             .map_or("unknown", |source| source.as_str());
+        let execution = match server.transport {
+            mcp::config::McpTransport::Stdio => "execution=local-process\tpermissions=thndrs-process",
+            mcp::config::McpTransport::StreamableHttp => "execution=remote-server\tpermissions=externally-owned",
+        };
         writeln!(
             writer,
-            "{name}\t{status}\t{:?}\tsource={source}\tboundary={}",
+            "{name}\t{status}\t{:?}\tsource={source}\t{execution}",
             server.transport,
-            match server.transport {
-                mcp::config::McpTransport::Stdio => sandbox::ExecutionSurface::McpStdioServer,
-                mcp::config::McpTransport::StreamableHttp => sandbox::ExecutionSurface::McpStreamableHttpServer,
-            }
-            .boundary()
-            .report(),
         )?;
     }
     for (name, server) in &effective.blocked_project_servers {
@@ -1022,11 +1020,6 @@ pub(crate) fn run_mcp_trust<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Resu
     writeln!(writer, "trusted project MCP configuration")?;
     writeln!(writer, "sha256: {hash}")?;
     writeln!(writer, "scope: workspace={} capability=mcp", workspace.display())?;
-    writeln!(
-        writer,
-        "boundary: {}",
-        sandbox::ExecutionSurface::McpStdioServer.boundary().report()
-    )?;
     Ok(())
 }
 

@@ -14,7 +14,6 @@ pub mod prelude;
 pub mod prompt;
 pub mod providers;
 pub mod review;
-pub mod sandbox;
 pub mod search;
 pub mod skills;
 pub mod tools;

@@ -1,7 +1,7 @@
 //! Create a new file with given content.
 //!
-//! Enforces workspace-root containment. Fails if the file already exists,
-//! preventing accidental overwrites. Parent directories are created if needed.
+//! Fails if the file already exists, preventing accidental overwrites. Parent
+//! directories are created if needed.
 
 use std::path::Path;
 
@@ -19,21 +19,16 @@ pub struct CreateFileInput {
     content: String,
 }
 
-/// Create a new file at `path` (relative to `root`) with the given `content`.
+/// Create a new file at `path` with the given `content`.
 ///
-/// - Resolves and validates the path against `root`.
+/// - Resolves relative paths from `root`; absolute paths are used directly.
 /// - Fails if the file already exists.
 /// - Creates parent directories as needed.
 /// - Returns a [`WriteResult`] with before/after metadata for audit.
 ///
 /// On failure, the file is left unchanged.
 pub fn exec(path_str: &str, root: &Path, content: &str) -> (ToolOutput, Option<WriteResult>) {
-    let resolved = match path::resolve_within_root(root, path_str) {
-        Ok(p) => p,
-        Err(e) => {
-            return (ToolOutput::failed("create_file", e.to_string()), None);
-        }
-    };
+    let resolved = path::resolve_from_root(root, path_str);
 
     replace_range::with_file_lock(&resolved, || exec_locked(path_str, &resolved, content))
 }
@@ -91,13 +86,13 @@ pub fn definition() -> ToolDefinition {
 Create a new file with the given content.
 
 Use this for direct new-file writes. Prefer write_patch op=create when doing a
-mixed edit. Fails if the file exists. Paths are contained to the workspace root;
-escapes are rejected. Parent directories are created if needed. Failed writes
-leave no partial target or temporary file."#,
+mixed edit. Fails if the file exists. Relative paths resolve from the workspace;
+absolute paths and paths outside it are allowed. Parent directories are created
+if needed. Failed writes leave no partial target or temporary file."#,
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": { "type": "string", "description": "Path relative to the workspace root." },
+                "path": { "type": "string", "description": "Absolute path or path relative to the workspace root." },
                 "content": { "type": "string", "description": "The full file content to write." }
             },
             "required": ["path", "content"]
@@ -191,23 +186,16 @@ mod tests {
     }
 
     #[test]
-    fn create_file_outside_root_fails() {
+    fn create_file_writes_relative_path_outside_root() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let root = dir.path();
-        let parent = root.parent().unwrap();
-        let escape_path = parent.join("escape.txt");
-        let escape_str = escape_path.to_string_lossy().to_string();
-        let (output, result) = exec(&escape_str, root, "content");
+        let root = dir.path().join("workspace");
+        let outside = dir.path().join("outside.txt");
+        std::fs::create_dir(&root).expect("workspace");
+        let (output, result) = exec("../outside.txt", &root, "content");
 
-        assert_eq!(output.status, ToolStatus::Failed);
-        assert!(result.is_none());
-        assert!(
-            output
-                .error
-                .as_ref()
-                .is_some_and(|e| e.contains("escapes workspace root")),
-            "error should mention workspace root escape"
-        );
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert!(result.is_some());
+        assert_eq!(std::fs::read_to_string(outside).expect("read"), "content");
     }
 
     #[test]
@@ -284,20 +272,21 @@ mod tests {
     }
 
     #[test]
-    fn registry_execute_rejects_path_escape() {
+    fn registry_execute_writes_absolute_path_outside_workspace() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let outside = dir.path().parent().unwrap().join("escape.txt");
+        let root = dir.path().join("workspace");
+        let outside = dir.path().join("outside.txt");
+        std::fs::create_dir(&root).expect("workspace");
         let request = crate::tools::ToolUseRequest::new(
             "create_file".to_string(),
             format!(r#"{{"path":"{}","content":"nope"}}"#, outside.display()),
             "call_1".to_string(),
         );
 
-        let execution =
-            crate::tools::registry::execute(&request, &crate::tools::registry::ToolContext::new(dir.path()));
+        let execution = crate::tools::registry::execute(&request, &crate::tools::registry::ToolContext::new(&root));
 
-        assert_eq!(execution.output.status, ToolStatus::Failed);
-        assert!(execution.write_result.is_none());
-        assert!(!outside.exists());
+        assert_eq!(execution.output.status, ToolStatus::Ok);
+        assert!(execution.write_result.is_some());
+        assert_eq!(std::fs::read_to_string(outside).expect("read"), "nope");
     }
 }

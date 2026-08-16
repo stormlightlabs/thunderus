@@ -5,7 +5,7 @@
 //! Multiple edits may be batched for one file and are all matched against the
 //! original content.
 //!
-//! All operations enforce workspace-root containment. Failed patches leave the
+//! Relative paths resolve from the workspace root. Failed patches leave the
 //! target file unchanged.
 
 use std::path::Path;
@@ -23,14 +23,14 @@ const NAME: &str = "write_patch";
 pub enum Patch {
     /// Create a new file. Fails if it already exists.
     Create {
-        /// Path relative to the workspace root.
+        /// Absolute path or path relative to the workspace root.
         path: String,
         /// Full file content to write.
         content: String,
     },
     /// Replace the entire contents of an existing or new file.
     Replace {
-        /// Path relative to the workspace root.
+        /// Absolute path or path relative to the workspace root.
         path: String,
         /// Full file content to write.
         content: String,
@@ -39,7 +39,7 @@ pub enum Patch {
     },
     /// Edit a file by replacing one or more unique exact string occurrences.
     Edit {
-        /// Path relative to the workspace root.
+        /// Absolute path or path relative to the workspace root.
         path: String,
         /// Disjoint replacements matched against the same original file.
         edits: Vec<Replacement>,
@@ -157,9 +157,10 @@ Apply one or more structured patches to a file.
 
 Use this as the preferred file-write tool. Put operations in patches. A call may
 contain one create/replace operation or one or more edits for the same file. All
-edits match the original file, not earlier edits in the call. Paths are contained;
-failures leave the file unchanged. Content is synchronized in a same-directory
-temporary file before installation."#,
+edits match the original file, not earlier edits in the call. Relative paths resolve
+from the workspace; absolute paths and paths outside it are allowed. Failures leave
+the file unchanged. Content is synchronized in a same-directory temporary file
+before installation."#,
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -170,7 +171,7 @@ temporary file before installation."#,
                         "type": "object",
                         "properties": {
                             "op": { "type": "string", "enum": ["create", "replace", "edit"], "description": "The patch operation. create/replace must be the only patch in a call." },
-                            "path": { "type": "string", "description": "Path relative to the workspace root." },
+                            "path": { "type": "string", "description": "Absolute path or path relative to the workspace root." },
                             "content": { "type": "string", "description": "Full file content, required for create/replace." },
                             "old_string": { "type": "string", "description": "The exact unique string to find in the original file." },
                             "new_string": { "type": "string", "description": "The replacement string." },
@@ -212,12 +213,10 @@ fn string_field(v: &serde_json::Value, field: &str, message: &str) -> Result<Str
 fn exec_replace(
     path_str: &str, root: &Path, content: &str, expected_before_hash: Option<u64>,
 ) -> (ToolOutput, Option<WriteResult>) {
-    match path::resolve_within_root(root, path_str) {
-        Ok(resolved) => replace_range::with_file_lock(&resolved, || {
-            exec_replace_locked(path_str, &resolved, content, expected_before_hash)
-        }),
-        Err(e) => (ToolOutput::failed("write_patch", e.to_string()), None),
-    }
+    let resolved = path::resolve_from_root(root, path_str);
+    replace_range::with_file_lock(&resolved, || {
+        exec_replace_locked(path_str, &resolved, content, expected_before_hash)
+    })
 }
 
 fn exec_replace_locked(
@@ -472,25 +471,22 @@ mod tests {
     }
 
     #[test]
-    fn patch_apply_outside_root_fails() {
+    fn patch_apply_replaces_absolute_path_outside_root() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let root = dir.path();
-        let outside = root.parent().unwrap().join("escape.txt");
+        let root = dir.path().join("workspace");
+        let outside = dir.path().join("outside.txt");
+        std::fs::create_dir(&root).expect("workspace");
+        std::fs::write(&outside, "old").expect("write");
         let patch = Patch::Replace {
             path: outside.to_string_lossy().to_string(),
-            content: "oops".to_string(),
+            content: "new".to_string(),
             expected_before_hash: None,
         };
 
-        let (output, result) = patch.exec(root);
-        assert_eq!(output.status, ToolStatus::Failed);
-        assert!(result.is_none());
-        assert!(
-            output
-                .error
-                .as_ref()
-                .is_some_and(|e| e.contains("escapes workspace root"))
-        );
+        let (output, result) = patch.exec(&root);
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert!(result.is_some());
+        assert_eq!(std::fs::read_to_string(outside).expect("read"), "new");
     }
 
     #[test]
@@ -563,9 +559,11 @@ mod tests {
     }
 
     #[test]
-    fn registry_execute_rejects_path_escape() {
+    fn registry_execute_writes_absolute_path_outside_workspace() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let outside = dir.path().parent().unwrap().join("escape.txt");
+        let root = dir.path().join("workspace");
+        let outside = dir.path().join("outside.txt");
+        std::fs::create_dir(&root).expect("workspace");
         let request = crate::tools::ToolUseRequest::new(
             "write_patch".to_string(),
             format!(
@@ -575,12 +573,11 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let execution =
-            crate::tools::registry::execute(&request, &crate::tools::registry::ToolContext::new(dir.path()));
+        let execution = crate::tools::registry::execute(&request, &crate::tools::registry::ToolContext::new(&root));
 
-        assert_eq!(execution.output.status, ToolStatus::Failed);
-        assert!(execution.write_result.is_none());
-        assert!(!outside.exists());
+        assert_eq!(execution.output.status, ToolStatus::Ok);
+        assert!(execution.write_result.is_some());
+        assert_eq!(std::fs::read_to_string(outside).expect("read"), "nope");
     }
 
     #[test]

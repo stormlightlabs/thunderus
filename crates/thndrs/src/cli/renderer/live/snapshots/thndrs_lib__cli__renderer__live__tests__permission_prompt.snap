@@ -3,7 +3,7 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
 │   permission · Write src/main.rs · approval required · focused                    # [bg=#212337]=   [fg=#f1fc79 bg=#212337]=permission · Write src/main.rs · approval required · focused [bg=#212337]=                 [bg=#212337]=  
-│   scope: local user · active tool only · no TUI sandbox                           # [bg=#212337]=   [fg=#f1fc79 bg=#212337]=scope: local user · active tool only · no TUI sandbox [bg=#212337]=                        [bg=#212337]=  
+│   scope: ACP client · active tool request                                         # [bg=#212337]=   [fg=#f1fc79 bg=#212337]=scope: ACP client · active tool request [bg=#212337]=                                      [bg=#212337]=  
 │     Allow once  [allow once]                                                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Allow once  [allow once] [bg=#212337]=                                                   [bg=#212337]=  
 │   ❯ Reject  [reject once]                                                         # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=❯ Reject  [reject once] [bg=#292e42]=                                                      [bg=#292e42]=  
 │    ↑↓  navigate   enter  choose   esc  cancel                                     # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=navigate [-]=   [fg=#ebfafa bg=#292e42 b]= enter  [-]=  [fg=#abb4da]=choose [-]=   [fg=#ebfafa bg=#292e42 b]= esc  [-]=  [fg=#abb4da]=cancel [-]=                                  [-]=

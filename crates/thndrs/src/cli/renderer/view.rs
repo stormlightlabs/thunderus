@@ -115,7 +115,7 @@ impl From<&App> for FocusedSurfaceView {
         if let Some(permission) = app.overlay.permission() {
             return FocusedSurfaceView::Permission(PermissionView {
                 title: permission.title.clone(),
-                scope: "local user · active tool only · no TUI sandbox".to_string(),
+                scope: "ACP client · active tool request".to_string(),
                 selected: permission.selected,
                 options: permission
                     .options

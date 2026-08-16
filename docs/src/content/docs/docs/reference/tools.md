@@ -67,7 +67,7 @@ Read a 1-indexed line range from a file.
 
 Inputs:
 
-- `path`: path relative to the workspace root.
+- `path`: absolute path or path relative to the workspace root.
 - `start_line`: first line to read.
 - `end_line`: optional final line.
 
@@ -105,7 +105,7 @@ Create a new file with full content.
 
 Inputs:
 
-- `path`: path relative to the workspace root.
+- `path`: absolute path or path relative to the workspace root.
 - `content`: full file content.
 
 The tool fails if the file already exists and creates parent directories when
@@ -120,7 +120,7 @@ Replace one unique exact string occurrence in an existing file.
 
 Inputs:
 
-- `path`: path relative to the workspace root.
+- `path`: absolute path or path relative to the workspace root.
 - `old_string`: exact string to find.
 - `new_string`: replacement string.
 
@@ -143,7 +143,7 @@ Inputs:
 Each patch contains:
 
 - `op`: `create`, `replace`, or `edit`.
-- `path`: path relative to the workspace root.
+- `path`: absolute path or path relative to the workspace root.
 - `content`: full content, required for `create` and `replace`.
 - `old_string`: exact string, required for `edit`.
 - `new_string`: replacement string, required for `edit`.
