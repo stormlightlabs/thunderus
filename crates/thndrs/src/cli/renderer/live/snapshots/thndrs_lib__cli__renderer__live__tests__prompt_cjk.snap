@@ -3,6 +3,6 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 width=80:
-│     ❯  日本語テキスト                                                             # [-]=   [bg=#171928]=   [fg=#04d1f9 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=日本語テキスト [bg=#171928]=                                                          [-]=
+│     ❯  日本語テキスト                                                             # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=日本語テキスト [-]=                                                          [-]=
 width=40:
-│     ❯  日本語テキスト                     # [-]=   [bg=#171928]=   [fg=#04d1f9 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=日本語テキスト [bg=#171928]=                  [-]=
+│     ❯  日本語テキスト                     # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=日本語テキスト [-]=                  [-]=

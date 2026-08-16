@@ -7,7 +7,7 @@
 - [ ] Keybind for steering vs. queueing doesn't work in all environments
 - [x] We see 0% context then just "compact" after reasoning level. that should not be
       the case. Compacting should be a discrete state.
-- [ ] the input icon shouldn't change based on state/status
+- [x] The input icon doesn't change based on state or status
 - [x] Diffs aren't colored properly
 - [ ] You can't move through a potential file path when the file picker is open.
       For example, if you put `@READ`, you can add & delete chars but can't move through it

@@ -70,6 +70,12 @@ impl CellStyle {
         self
     }
 
+    /// Dim the foreground while retaining the terminal's native color choice.
+    pub const fn dimmed(mut self) -> Self {
+        self.dim = true;
+        self
+    }
+
     /// Return a copy with the background color changed.
     pub const fn with_bg(mut self, color: Color) -> Self {
         self.bg = color;

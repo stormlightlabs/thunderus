@@ -113,14 +113,10 @@ fn prompt_rows_reserve_even_horizontal_input_padding() {
 
     assert_eq!(rows.len(), 1);
     assert_eq!(cursor, Some(CursorCoord::new(0, 16)));
-    let input = renderer::style::palette().input;
-    let right_surface_padding = rows[0]
-        .spans
-        .iter()
-        .rev()
-        .find(|span| span.style.bg == input)
-        .expect("input surface padding");
-    assert_eq!(right_surface_padding.text, "  ");
+    assert!(
+        rows[0].spans.iter().all(|span| span.style.bg == Color::Reset),
+        "input text and padding should use the terminal background"
+    );
 
     app.composer.input.insert_char('x');
     let (rows, cursor) = prompt_rows_for(&app, 20);
@@ -142,7 +138,7 @@ fn comfortable_prompt_keeps_the_readable_measure() {
 }
 
 #[test]
-fn frame_prompt_rows_adds_borderless_metadata_and_offsets_cursor() {
+fn frame_prompt_rows_adds_horizontal_rails_and_offsets_cursor() {
     let mut app = test_app();
     app.session.id = "test-session".to_string();
     app.composer.input.set_text("hello");
@@ -173,21 +169,24 @@ fn frame_prompt_rows_adds_borderless_metadata_and_offsets_cursor() {
         "the editable input surface should be inset from the terminal edges"
     );
     assert!(
-        rows[2]
-            .spans
-            .iter()
-            .any(|span| span.style.bg == renderer::style::palette().input),
-        "the editable input surface should retain the composer background"
+        rows[2].spans.iter().all(|span| span.style.bg == Color::Reset),
+        "the editable input row should use the terminal background"
     );
     for row in [&rows[1], &rows[3]] {
+        assert_eq!(row.text().trim(), "─".repeat(76));
         assert!(
-            row.spans.first().is_some_and(|span| span.style.bg == Color::Reset)
-                && row.spans.last().is_some_and(|span| span.style.bg == Color::Reset)
-                && row
-                    .spans
-                    .iter()
-                    .any(|span| span.style.bg == renderer::style::palette().input),
-            "vertical composer padding should share the inset input background"
+            row.spans.iter().all(|span| span.style.bg == Color::Reset),
+            "horizontal rails should use the terminal background"
+        );
+        let rail = row
+            .spans
+            .iter()
+            .find(|span| span.text.contains('─'))
+            .expect("horizontal rail");
+        assert_eq!(rail.style.fg, Color::Reset);
+        assert!(
+            rail.style.dim,
+            "horizontal rails should adapt from the terminal's native foreground"
         );
     }
 }
@@ -278,15 +277,19 @@ fn prompt_rows_command_mode_shows_colon() {
 }
 
 #[test]
-fn prompt_rows_submitted_shows_queue_icon() {
+fn prompt_icon_does_not_change_with_status() {
     let mut app = test_app();
-    app.runtime.run_state = RunState::Working;
-
-    let (rows, _) = prompt_rows_for(&app, 80);
-    assert!(
-        rows[0].text().contains("»"),
-        "submitted state should show queue composer icon"
-    );
+    for run_state in [
+        RunState::Idle,
+        RunState::Working,
+        RunState::Stopping,
+        RunState::Error("boom".to_string()),
+    ] {
+        app.runtime.run_state = run_state;
+        let (rows, _) = prompt_rows_for(&app, 80);
+        assert!(rows[0].text().contains('❯'));
+        assert!(!rows[0].text().contains(['»', '○', '✕']));
+    }
 }
 
 #[test]

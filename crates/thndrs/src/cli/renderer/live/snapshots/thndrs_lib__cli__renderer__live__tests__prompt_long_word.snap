@@ -3,11 +3,11 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 width=80:
-│     ❯  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa      # [-]=   [bg=#171928]=   [fg=#04d1f9 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=   [-]=
-│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                        # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=                     [-]=
+│     ❯  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa      # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [-]=   [-]=
+│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                        # [-]=   [-]=      [fg=#ebfafa]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [-]=                     [-]=
 width=40:
-│     ❯  aaaaaaaaaaaaaaaaaaaaaaaaaaaaa      # [-]=   [bg=#171928]=   [fg=#04d1f9 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=   [-]=
-│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaa      # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=   [-]=
-│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaa      # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=   [-]=
-│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaa      # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=   [-]=
-│        aaaa                               # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=aaaa [bg=#171928]=                            [-]=
+│     ❯  aaaaaaaaaaaaaaaaaaaaaaaaaaaaa      # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [-]=   [-]=
+│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaa      # [-]=   [-]=      [fg=#ebfafa]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [-]=   [-]=
+│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaa      # [-]=   [-]=      [fg=#ebfafa]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [-]=   [-]=
+│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaa      # [-]=   [-]=      [fg=#ebfafa]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [-]=   [-]=
+│        aaaa                               # [-]=   [-]=      [fg=#ebfafa]=aaaa [-]=                            [-]=

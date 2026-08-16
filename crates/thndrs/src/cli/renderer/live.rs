@@ -32,16 +32,9 @@ const COMPOSER_MIN_CONTENT_WIDTH: usize = 8;
 /// Returns the rows and the cursor coordinate (relative to the first row).
 pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord>) {
     let p = super::style::palette();
-    let surface = p.input;
-    let prompt_state = app.prompt_state();
-
-    let (prompt_color, icon) = match prompt_state {
-        PromptState::Editable => (p.focus, "❯"),
-        PromptState::Submitted => (p.active, "»"),
-        PromptState::Streaming | PromptState::RunningTool => (p.active, "»"),
-        PromptState::Stopped => (p.focus, "○"),
-        PromptState::Errored => (p.failure, "✕"),
-    };
+    let surface = Color::Reset;
+    let prompt_color = p.focus;
+    let icon = "❯";
 
     let prefix_width = if app.composer.mode == Mode::Command { 4 } else { 3 };
     let row_body_width = super::layout::UiGeometry::new(width).prose_width();
@@ -172,12 +165,21 @@ pub fn frame_prompt_rows(
         _ => {}
     };
 
-    let vertical_padding = || composer_input_row(Vec::new(), width, content_width, p.input);
+    let horizontal_rail = || {
+        Row::padded(
+            vec![
+                Span::styled(" ".repeat(LIVE_INSET), CellStyle::new()),
+                Span::styled("─".repeat(content_width), CellStyle::new().dimmed()),
+            ],
+            width,
+            CellStyle::new(),
+        )
+    };
     let mut framed = Vec::with_capacity(rows.len() + 3);
     framed.push(Row::padded(top_spans, width, CellStyle::new()));
-    framed.push(vertical_padding());
+    framed.push(horizontal_rail());
     framed.extend(rows);
-    framed.push(vertical_padding());
+    framed.push(horizontal_rail());
 
     let cursor = cursor.map(|mut cursor| {
         cursor.row += 2;

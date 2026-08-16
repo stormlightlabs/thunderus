@@ -3,6 +3,6 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 width=80:
-│     ❯  👨‍👩‍👧                                                                         # [-]=   [bg=#171928]=   [fg=#04d1f9 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=👨‍👩‍👧 [bg=#171928]=                                                                      [-]=
+│     ❯  👨‍👩‍👧                                                                         # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=👨‍👩‍👧 [-]=                                                                      [-]=
 width=40:
-│     ❯  👨‍👩‍👧                                 # [-]=   [bg=#171928]=   [fg=#04d1f9 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=👨‍👩‍👧 [bg=#171928]=                              [-]=
+│     ❯  👨‍👩‍👧                                 # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=👨‍👩‍👧 [-]=                              [-]=

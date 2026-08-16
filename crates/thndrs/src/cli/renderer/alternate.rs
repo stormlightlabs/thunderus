@@ -1024,23 +1024,30 @@ mod tests {
                 .all(|span| span.style.bg == Color::Reset),
             "session label should use the terminal background"
         );
-        assert!(
-            logical.rows[session_row + 1]
-                .spans
-                .first()
-                .is_some_and(|span| span.style.bg == Color::Reset)
-                && logical.rows[session_row + 1]
-                    .spans
-                    .last()
-                    .is_some_and(|span| span.style.bg == Color::Reset),
-            "input row should be inset from the terminal edges"
-        );
-        assert!(
-            logical.rows[session_row + 1]
+        for rail_row in [session_row + 1, session_row + 3] {
+            assert_eq!(
+                logical.rows[rail_row].spans.first().map(|span| span.style.bg),
+                Some(Color::Reset)
+            );
+            assert_eq!(
+                logical.rows[rail_row].spans.last().map(|span| span.style.bg),
+                Some(Color::Reset)
+            );
+            let rail = logical.rows[rail_row]
                 .spans
                 .iter()
-                .any(|span| span.style.bg == super::super::style::palette().input),
-            "input row should retain the composer background"
+                .find(|span| span.text.contains('─'))
+                .expect("composer rail should contain a horizontal rule");
+            assert_eq!(rail.text, "─".repeat(crate::renderer::layout::content_width(80)));
+            assert_eq!(rail.style.fg, Color::Reset);
+            assert!(rail.style.dim);
+        }
+        assert!(
+            logical.rows[session_row + 2]
+                .spans
+                .iter()
+                .all(|span| span.style.bg == Color::Reset),
+            "input row should use the terminal background"
         );
 
         let mut rendered = String::new();
@@ -1048,8 +1055,8 @@ mod tests {
             let logical = AlternateViewport::default().build_frame(&app, width, height);
             let text = test_backend_text(&logical, width, height);
             assert!(
-                !text.contains(['╭', '╮', '╰', '╯', '│', '─']),
-                "{label} full frame should be borderless:\n{text}"
+                !text.contains(['╭', '╮', '╰', '╯', '│']),
+                "{label} full frame should use horizontal rails without a surrounding box:\n{text}"
             );
             rendered.push_str(&format!("{label} ({width}x{height}):\n{text}\n"));
         }

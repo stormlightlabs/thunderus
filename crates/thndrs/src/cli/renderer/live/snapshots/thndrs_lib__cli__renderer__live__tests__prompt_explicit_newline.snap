@@ -3,10 +3,10 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 width=80:
-│     ❯  line one                                                                   # [-]=   [bg=#171928]=   [fg=#04d1f9 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=line one [bg=#171928]=                                                                [-]=
-│        line two                                                                   # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line two [bg=#171928]=                                                                [-]=
-│        line three                                                                 # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line three [bg=#171928]=                                                              [-]=
+│     ❯  line one                                                                   # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=line one [-]=                                                                [-]=
+│        line two                                                                   # [-]=   [-]=      [fg=#ebfafa]=line two [-]=                                                                [-]=
+│        line three                                                                 # [-]=   [-]=      [fg=#ebfafa]=line three [-]=                                                              [-]=
 width=40:
-│     ❯  line one                           # [-]=   [bg=#171928]=   [fg=#04d1f9 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=line one [bg=#171928]=                        [-]=
-│        line two                           # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line two [bg=#171928]=                        [-]=
-│        line three                         # [-]=   [bg=#171928]=      [fg=#ebfafa bg=#171928]=line three [bg=#171928]=                      [-]=
+│     ❯  line one                           # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=line one [-]=                        [-]=
+│        line two                           # [-]=   [-]=      [fg=#ebfafa]=line two [-]=                        [-]=
+│        line three                         # [-]=   [-]=      [fg=#ebfafa]=line three [-]=                      [-]=
