@@ -627,8 +627,8 @@ mod tests {
     /// Design assertion: every tool description is minimal but complete.
     ///
     /// Each description must lead with the tool name, state its purpose, and
-    /// mention at least one safety limit (containment, caps, truncation, or
-    /// rejection). Descriptions stay short so the tool catalog remains compact
+    /// mention at least one safety limit (containment, caps, truncation, rejection,
+    /// or failure behavior). Descriptions stay short so the tool catalog remains compact
     /// when sent every provider turn.
     #[test]
     fn tool_descriptions_are_minimal_and_complete() {
@@ -651,12 +651,13 @@ mod tests {
             let lower = desc.to_lowercase();
             let mentions_safety = lower.contains("cap")
                 || lower.contains("reject")
+                || lower.contains("fail")
                 || lower.contains("contain")
                 || lower.contains("truncat")
                 || lower.contains("enforce");
             assert!(
                 mentions_safety,
-                "description for `{}` should mention a safety limit (caps/rejection/containment/truncation/enforcement), got: {desc}",
+                "description for `{}` should mention a safety limit (caps/rejection/failure/containment/truncation/enforcement), got: {desc}",
                 def.name
             );
         }

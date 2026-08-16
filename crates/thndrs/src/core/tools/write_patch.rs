@@ -155,12 +155,10 @@ pub fn definition() -> ToolDefinition {
 
 Apply one or more structured patches to a file.
 
-Use this as the preferred file-write tool. Put operations in patches. A call may
-contain one create/replace operation or one or more edits for the same file. All
-edits match the original file, not earlier edits in the call. Relative paths resolve
-from the workspace; absolute paths and paths outside it are allowed. Failures leave
-the file unchanged. Content is synchronized in a same-directory temporary file
-before installation."#,
+Use this as the preferred file-write tool. Supply one create/replace operation or
+multiple edits for the same file. Edits all match the original content. Relative
+paths resolve from the workspace; absolute paths and paths outside it are allowed.
+Failed calls leave the file unchanged."#,
         serde_json::json!({
             "type": "object",
             "properties": {

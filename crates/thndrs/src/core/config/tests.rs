@@ -2,13 +2,6 @@ use super::*;
 use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use std::path::PathBuf;
 
-fn trust_project_configuration(workspace: &Path) {
-    let hash = project_config_hash(workspace)
-        .expect("project config hash")
-        .expect("project config");
-    trust::trust_project(workspace, ProjectTrustScope::Configuration, &hash).expect("trust project config");
-}
-
 fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
     let _guard = crate::test_env::lock();
     let old_home = std::env::var_os("HOME");
@@ -779,7 +772,7 @@ fn effective_config_loads_global_file() {
 }
 
 #[test]
-fn untrusted_project_runtime_configuration_is_inactive() {
+fn project_runtime_configuration_is_active() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");
     let workspace = tmp.path().join("workspace");
@@ -793,15 +786,9 @@ fn untrusted_project_runtime_configuration_is_inactive() {
 
     let effective = with_home(&home, || load_effective(&workspace, &[]).unwrap());
 
-    assert!(effective.config.model.is_none());
-    assert!(effective.config.acp_agents.is_empty());
-    assert!(!effective.layers[0].active);
-    assert!(
-        effective
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.contains("project runtime configuration is inactive"))
-    );
+    assert_eq!(effective.config.model.as_deref(), Some("acp:project"));
+    assert_eq!(effective.config.acp_agents["project"].command, "project-agent");
+    assert!(effective.diagnostics.is_empty());
 }
 
 #[test]
@@ -815,10 +802,7 @@ fn effective_config_project_overrides_global() {
     fs::create_dir_all(workspace.join(".thndrs")).unwrap();
     fs::write(workspace.join(".thndrs").join("config.toml"), "model = \"project\"\n").unwrap();
 
-    let effective = with_home(&home, || {
-        trust_project_configuration(&workspace);
-        load_effective(&workspace, &[]).unwrap()
-    });
+    let effective = with_home(&home, || load_effective(&workspace, &[]).unwrap());
 
     assert_eq!(effective.config.model.as_deref(), Some("project"));
     assert_eq!(effective.layers.len(), 2);
@@ -857,10 +841,7 @@ fn effective_config_project_overrides_global_acp_agent_by_name() {
     )
     .unwrap();
 
-    let effective = with_home(&home, || {
-        trust_project_configuration(&workspace);
-        load_effective(&workspace, &[]).unwrap()
-    });
+    let effective = with_home(&home, || load_effective(&workspace, &[]).unwrap());
 
     assert_eq!(effective.config.acp_agents["shared"].command, "project-agent");
     assert!(effective.config.acp_agents["shared"].args.is_empty());
@@ -889,10 +870,7 @@ fn effective_config_preserves_disabled_acp_agent() {
 
     let home = tmp.path().join("home");
     fs::create_dir_all(&home).unwrap();
-    let effective = with_home(&home, || {
-        trust_project_configuration(&workspace);
-        load_effective(&workspace, &[]).unwrap()
-    });
+    let effective = with_home(&home, || load_effective(&workspace, &[]).unwrap());
 
     assert!(!effective.config.acp_agents["disabled"].enabled);
 }
@@ -914,10 +892,7 @@ fn loaded_config_layers_redact_acp_env_values() {
 
     let home = tmp.path().join("home");
     fs::create_dir_all(&home).unwrap();
-    let effective = with_home(&home, || {
-        trust_project_configuration(&workspace);
-        load_effective(&workspace, &[]).unwrap()
-    });
+    let effective = with_home(&home, || load_effective(&workspace, &[]).unwrap());
     let redacted_layer = effective
         .layers
         .iter()
@@ -1018,10 +993,7 @@ fn load_effective_resolves_paths_without_dropping_env_skill_dirs() {
 
     let home = tmp.path().join("home");
     fs::create_dir_all(&home).unwrap();
-    let effective = with_home(&home, || {
-        trust_project_configuration(&workspace);
-        load_effective(&workspace, &env_vars).unwrap()
-    });
+    let effective = with_home(&home, || load_effective(&workspace, &env_vars).unwrap());
 
     assert_eq!(
         effective.config.skill_dirs,
@@ -1049,7 +1021,6 @@ fn resolve_paths_makes_skill_dirs_absolute() {
         path: Some(config_path),
         display_path: Some(".thndrs/config.toml".to_string()),
         hash: Some(hash),
-        active: true,
     }];
 
     let mut merged = config;
@@ -1086,7 +1057,6 @@ fn resolve_paths_deduplicates_skill_dirs() {
         path: Some(config_path),
         display_path: Some(".thndrs/config.toml".to_string()),
         hash: Some(hash),
-        active: true,
     }];
 
     let mut merged = config;
@@ -1167,7 +1137,6 @@ fn effective_config_snapshot() {
     .unwrap();
 
     let effective = with_home(&home, || {
-        trust_project_configuration(&workspace);
         load_effective(&workspace, &[("THNDRS_VERBOSE".to_string(), "on".to_string())]).unwrap()
     });
     let snapshot = format!(

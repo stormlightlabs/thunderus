@@ -97,8 +97,7 @@ fn run_config_show<W: Write>(cli: &Cli, command: &ConfigShowCommand, writer: &mu
         for layer in &effective.layers {
             let path = layer.display_path.as_deref().unwrap_or("<none>");
             let hash = layer.hash.as_deref().unwrap_or("<none>");
-            let state = if layer.active { "active" } else { "inactive: blocked by trust" };
-            writeln!(writer, "  {}: {} ({hash}; {state})", layer.source.as_str(), path)?;
+            writeln!(writer, "  {}: {} ({hash})", layer.source.as_str(), path)?;
         }
     }
 
@@ -361,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn config_show_reports_untrusted_acp_configuration_as_inactive() {
+    fn config_show_reports_project_acp_configuration() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let workspace = tmp.path().join("workspace");
         std::fs::create_dir_all(workspace.join(".thndrs")).expect("create config dir");
@@ -389,8 +388,8 @@ mod tests {
 
         assert!(output.contains("effective_config:"));
         assert!(!output.contains("plain-secret"));
-        assert!(output.contains("inactive: blocked by trust"));
-        assert!(output.contains("project runtime configuration is inactive"));
+        assert!(output.contains("command: agent"));
+        assert!(!output.contains("blocked by trust"));
         assert!(output.contains("loaded_files:"));
         assert!(output.contains("origins:"));
         assert!(output.contains("diagnostics:"));

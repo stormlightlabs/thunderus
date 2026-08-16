@@ -1,57 +1,33 @@
-//! Durable, workspace-scoped trust for project-owned runtime resources.
-//!
-//! Trust controls whether `thndrs` loads project resources. It does not grant
-//! tool, filesystem, network, provider, or sandbox authority.
+//! Durable, workspace-scoped trust for project MCP server configuration.
 
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::utils;
 
 const TRUST_STORE_VERSION: u32 = 1;
 
-/// A project resource class with its own trust decision.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum ProjectTrustScope {
-    /// `.thndrs/config.toml`, including configured ACP agents.
+enum StoredTrustScope {
+    // Retained so stores written by the removed generic trust system remain readable.
     Configuration,
-    /// Project prompt templates and slash commands.
     PromptTemplates,
-    /// Project skill packages and their references.
     Skills,
-    /// Reserved for project-defined commands.
     Commands,
-    /// Project MCP server definitions.
     Mcp,
-    /// Reserved for project lifecycle hooks.
     Hooks,
 }
 
-impl ProjectTrustScope {
-    /// Stable command-line and store label.
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Configuration => "configuration",
-            Self::PromptTemplates => "prompt-templates",
-            Self::Skills => "skills",
-            Self::Commands => "commands",
-            Self::Mcp => "mcp",
-            Self::Hooks => "hooks",
-        }
-    }
-}
-
-/// Current state of one project trust decision.
+/// Current trust state for project MCP server configuration.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectTrust {
+pub enum ProjectMcpTrust {
     /// The exact current resource fingerprint was explicitly trusted.
     Trusted,
-    /// No trust decision exists for this workspace and resource class.
+    /// No MCP trust decision exists for this workspace.
     Untrusted,
     /// A decision exists, but it covers an older resource fingerprint.
     Stale {
@@ -77,7 +53,7 @@ struct ProjectTrustRecord {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct TrustDecision {
-    scope: ProjectTrustScope,
+    scope: StoredTrustScope,
     resource_sha256: String,
     trusted_at: String,
 }
@@ -103,35 +79,45 @@ struct LegacyMcpTrustRecord {
     trusted_at: String,
 }
 
-/// Inspect a trust decision for one workspace, resource class, and fingerprint.
-pub fn project_trust(workspace: &Path, scope: ProjectTrustScope, hash: &str) -> io::Result<ProjectTrust> {
+/// Inspect project MCP trust for one workspace and configuration fingerprint.
+pub fn project_mcp_trust(workspace: &Path, hash: &str) -> io::Result<ProjectMcpTrust> {
     let store = load_store()?;
     let workspace = workspace_identity(workspace)?;
     let Some(record) = store.projects.iter().find(|record| record.workspace == workspace) else {
-        return Ok(ProjectTrust::Untrusted);
+        return Ok(ProjectMcpTrust::Untrusted);
     };
-    let Some(decision) = record.decisions.iter().find(|decision| decision.scope == scope) else {
-        return Ok(ProjectTrust::Untrusted);
+    let Some(decision) = record
+        .decisions
+        .iter()
+        .find(|decision| decision.scope == StoredTrustScope::Mcp)
+    else {
+        return Ok(ProjectMcpTrust::Untrusted);
     };
     if decision.resource_sha256 == hash {
-        Ok(ProjectTrust::Trusted)
+        Ok(ProjectMcpTrust::Trusted)
     } else {
-        Ok(ProjectTrust::Stale { trusted_hash: decision.resource_sha256.clone() })
+        Ok(ProjectMcpTrust::Stale { trusted_hash: decision.resource_sha256.clone() })
     }
 }
 
-/// Persist trust for the exact current fingerprint of one project resource class.
-pub fn trust_project(workspace: &Path, scope: ProjectTrustScope, hash: &str) -> io::Result<()> {
+/// Persist trust for the exact current project MCP configuration fingerprint.
+pub fn trust_project_mcp(workspace: &Path, hash: &str) -> io::Result<()> {
     let mut store = load_store()?;
     let workspace = workspace_identity(workspace)?;
-    let decision =
-        TrustDecision { scope, resource_sha256: hash.to_string(), trusted_at: crate::utils::datetime::now_iso8601() };
+    let decision = TrustDecision {
+        scope: StoredTrustScope::Mcp,
+        resource_sha256: hash.to_string(),
+        trusted_at: crate::utils::datetime::now_iso8601(),
+    };
     if let Some(record) = store.projects.iter_mut().find(|record| record.workspace == workspace) {
-        if let Some(existing) = record.decisions.iter_mut().find(|existing| existing.scope == scope) {
+        if let Some(existing) = record
+            .decisions
+            .iter_mut()
+            .find(|existing| existing.scope == StoredTrustScope::Mcp)
+        {
             *existing = decision;
         } else {
             record.decisions.push(decision);
-            record.decisions.sort_by_key(|decision| decision.scope.label());
         }
     } else {
         store
@@ -144,66 +130,23 @@ pub fn trust_project(workspace: &Path, scope: ProjectTrustScope, hash: &str) -> 
     save_store(&store)
 }
 
-/// Revoke trust for one project resource class. Returns whether a decision existed.
-pub fn revoke_project_trust(workspace: &Path, scope: ProjectTrustScope) -> io::Result<bool> {
+/// Revoke project MCP trust. Returns whether a decision existed.
+pub fn revoke_project_mcp_trust(workspace: &Path) -> io::Result<bool> {
     let mut store = load_store()?;
     let workspace = workspace_identity(workspace)?;
     let Some(record) = store.projects.iter_mut().find(|record| record.workspace == workspace) else {
         return Ok(false);
     };
     let before = record.decisions.len();
-    record.decisions.retain(|decision| decision.scope != scope);
+    record
+        .decisions
+        .retain(|decision| decision.scope != StoredTrustScope::Mcp);
     let removed = record.decisions.len() != before;
     store.projects.retain(|record| !record.decisions.is_empty());
     if removed {
         save_store(&store)?;
     }
     Ok(removed)
-}
-
-/// Hash all regular files below the supplied project resource roots.
-///
-/// The fingerprint includes workspace-relative paths as well as bytes, so
-/// renaming, adding, removing, or changing a resource invalidates trust.
-pub fn fingerprint_directories(workspace: &Path, roots: &[PathBuf]) -> io::Result<Option<String>> {
-    let mut files = Vec::new();
-    for root in roots {
-        collect_regular_files(root, &mut files)?;
-    }
-    if files.is_empty() {
-        return Ok(None);
-    }
-    files.sort();
-    files.dedup();
-
-    let mut hasher = Sha256::new();
-    for path in files {
-        let relative = path.strip_prefix(workspace).unwrap_or(&path);
-        hasher.update(relative.as_os_str().as_encoded_bytes());
-        hasher.update([0]);
-        hasher.update(fs::read(&path)?);
-        hasher.update([0]);
-    }
-    Ok(Some(hex_encode(&hasher.finalize())))
-}
-
-fn collect_regular_files(root: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
-    let entries = match fs::read_dir(root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        let file_type = entry.file_type()?;
-        if file_type.is_file() {
-            files.push(path);
-        } else if file_type.is_dir() {
-            collect_regular_files(&path, files)?;
-        }
-    }
-    Ok(())
 }
 
 fn trust_store_path() -> io::Result<PathBuf> {
@@ -260,7 +203,7 @@ fn load_legacy_mcp_store() -> io::Result<TrustStore> {
             .map(|record| ProjectTrustRecord {
                 workspace: record.workspace,
                 decisions: vec![TrustDecision {
-                    scope: ProjectTrustScope::Mcp,
+                    scope: StoredTrustScope::Mcp,
                     resource_sha256: record.mcp.config_sha256,
                     trusted_at: record.mcp.trusted_at,
                 }],
@@ -288,14 +231,6 @@ fn save_store(store: &TrustStore) -> io::Result<()> {
     Ok(())
 }
 
-fn hex_encode(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn trust_is_scoped_by_workspace_resource_and_fingerprint() {
+    fn mcp_trust_is_scoped_by_workspace_and_fingerprint() {
         let temp = tempfile::tempdir().expect("tempdir");
         let home = temp.path().join("home");
         let workspace = temp.path().join("workspace");
@@ -326,28 +261,24 @@ mod tests {
         fs::create_dir_all(&other).expect("other");
 
         with_home(&home, || {
-            trust_project(&workspace, ProjectTrustScope::Skills, "first").expect("trust skills");
+            trust_project_mcp(&workspace, "first").expect("trust MCP");
             assert_eq!(
-                project_trust(&workspace, ProjectTrustScope::Skills, "first").expect("inspect"),
-                ProjectTrust::Trusted
+                project_mcp_trust(&workspace, "first").expect("inspect"),
+                ProjectMcpTrust::Trusted
             );
             assert_eq!(
-                project_trust(&workspace, ProjectTrustScope::PromptTemplates, "first").expect("inspect"),
-                ProjectTrust::Untrusted
+                project_mcp_trust(&other, "first").expect("inspect"),
+                ProjectMcpTrust::Untrusted
             );
             assert_eq!(
-                project_trust(&other, ProjectTrustScope::Skills, "first").expect("inspect"),
-                ProjectTrust::Untrusted
-            );
-            assert_eq!(
-                project_trust(&workspace, ProjectTrustScope::Skills, "second").expect("inspect"),
-                ProjectTrust::Stale { trusted_hash: "first".to_string() }
+                project_mcp_trust(&workspace, "second").expect("inspect"),
+                ProjectMcpTrust::Stale { trusted_hash: "first".to_string() }
             );
         });
     }
 
     #[test]
-    fn revocation_removes_only_the_requested_scope() {
+    fn revocation_removes_mcp_trust() {
         let temp = tempfile::tempdir().expect("tempdir");
         let home = temp.path().join("home");
         let workspace = temp.path().join("workspace");
@@ -355,33 +286,12 @@ mod tests {
         fs::create_dir_all(&workspace).expect("workspace");
 
         with_home(&home, || {
-            trust_project(&workspace, ProjectTrustScope::Skills, "skills").expect("trust skills");
-            trust_project(&workspace, ProjectTrustScope::PromptTemplates, "prompts").expect("trust prompts");
-            assert!(revoke_project_trust(&workspace, ProjectTrustScope::Skills).expect("revoke skills"));
+            trust_project_mcp(&workspace, "mcp").expect("trust MCP");
+            assert!(revoke_project_mcp_trust(&workspace).expect("revoke MCP"));
             assert_eq!(
-                project_trust(&workspace, ProjectTrustScope::Skills, "skills").expect("inspect"),
-                ProjectTrust::Untrusted
-            );
-            assert_eq!(
-                project_trust(&workspace, ProjectTrustScope::PromptTemplates, "prompts").expect("inspect"),
-                ProjectTrust::Trusted
+                project_mcp_trust(&workspace, "mcp").expect("inspect"),
+                ProjectMcpTrust::Untrusted
             );
         });
-    }
-
-    #[test]
-    fn directory_fingerprint_changes_for_paths_and_content() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let root = temp.path().join(".thndrs/prompts");
-        fs::create_dir_all(&root).expect("prompt directory");
-        fs::write(root.join("review.md"), "first").expect("write prompt");
-        let first = fingerprint_directories(temp.path(), std::slice::from_ref(&root))
-            .expect("fingerprint")
-            .expect("has files");
-        fs::write(root.join("review.md"), "second").expect("change prompt");
-        let second = fingerprint_directories(temp.path(), std::slice::from_ref(&root))
-            .expect("fingerprint")
-            .expect("has files");
-        assert_ne!(first, second);
     }
 }

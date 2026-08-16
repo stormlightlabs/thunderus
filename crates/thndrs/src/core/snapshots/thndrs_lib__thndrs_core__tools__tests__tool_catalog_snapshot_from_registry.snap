@@ -222,7 +222,7 @@ expression: json
     "name": "create_file"
   },
   {
-    "description": "replace_range\n\nReplace a unique exact string occurrence in an existing file.\n\nUse this for direct small edits. Prefer write_patch op=edit when doing a mixed\nedit. old_string must match exactly and once; include surrounding context for\nuniqueness. Relative paths resolve from the workspace; absolute paths and paths\noutside it are allowed. Failed edits leave files unchanged. The complete\nreplacement is synchronized in a same-directory temporary file before installation.",
+    "description": "replace_range\n\nReplace a unique exact string occurrence in an existing file.\n\nUse this for small edits. Prefer write_patch op=edit for mixed edits. old_string\nmust match exactly once; include context for uniqueness. Relative paths resolve\nfrom the workspace; absolute paths and paths outside it are allowed. Failed edits\nleave files unchanged. The replacement is synchronized in a same-directory\ntemporary file before installation.",
     "input_schema": {
       "properties": {
         "expected_before_hash": {
@@ -252,7 +252,7 @@ expression: json
     "name": "replace_range"
   },
   {
-    "description": "write_patch\n\nApply one or more structured patches to a file.\n\nUse this as the preferred file-write tool. Put operations in patches. A call may\ncontain one create/replace operation or one or more edits for the same file. All\nedits match the original file, not earlier edits in the call. Relative paths resolve\nfrom the workspace; absolute paths and paths outside it are allowed. Failures leave\nthe file unchanged. Content is synchronized in a same-directory temporary file\nbefore installation.",
+    "description": "write_patch\n\nApply one or more structured patches to a file.\n\nUse this as the preferred file-write tool. Supply one create/replace operation or\nmultiple edits for the same file. Edits all match the original content. Relative\npaths resolve from the workspace; absolute paths and paths outside it are allowed.\nFailed calls leave the file unchanged.",
     "input_schema": {
       "properties": {
         "patches": {

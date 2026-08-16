@@ -257,7 +257,6 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
             path: None,
             display_path: Some(".thndrs/config.toml".to_string()),
             hash: Some("abc123".to_string()),
-            active: true,
         }],
         config_origins: origins,
         ..Cli::default()

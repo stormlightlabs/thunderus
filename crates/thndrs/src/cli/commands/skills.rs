@@ -92,7 +92,10 @@ mod tests {
         let output = String::from_utf8(output.into_inner()).expect("UTF-8 output");
 
         assert!(output.contains("thndrs skills doctor"));
-        assert!(output.contains("diagnostics:"));
-        assert!(output.contains("project skills are inactive because they have not been trusted"));
+        assert!(output.contains("duplicates:"));
+        assert!(output.contains("example-skill:"));
+        assert!(output.contains("selected:"));
+        assert!(output.contains("ignored:"));
+        assert!(!output.contains("blocked by trust"));
     }
 }

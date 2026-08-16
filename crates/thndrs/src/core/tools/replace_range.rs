@@ -113,11 +113,11 @@ pub fn definition() -> ToolDefinition {
 
 Replace a unique exact string occurrence in an existing file.
 
-Use this for direct small edits. Prefer write_patch op=edit when doing a mixed
-edit. old_string must match exactly and once; include surrounding context for
-uniqueness. Relative paths resolve from the workspace; absolute paths and paths
-outside it are allowed. Failed edits leave files unchanged. The complete
-replacement is synchronized in a same-directory temporary file before installation."#,
+Use this for small edits. Prefer write_patch op=edit for mixed edits. old_string
+must match exactly once; include context for uniqueness. Relative paths resolve
+from the workspace; absolute paths and paths outside it are allowed. Failed edits
+leave files unchanged. The replacement is synchronized in a same-directory
+temporary file before installation."#,
         serde_json::json!({
             "type": "object",
             "properties": {

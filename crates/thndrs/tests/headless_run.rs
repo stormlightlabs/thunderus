@@ -66,36 +66,10 @@ timeout_secs = 2
         ),
     )
     .expect("write config");
-    trust_fixture_config(workspace);
 }
 
 fn fixture_home(workspace: &Path) -> PathBuf {
     workspace.join(".test-home")
-}
-
-fn trust_fixture_config(workspace: &Path) {
-    let home = fixture_home(workspace);
-    std::fs::create_dir_all(home.join(".thndrs")).expect("create fixture home");
-    let hash = thndrs_lib::config::project_config_hash(workspace)
-        .expect("hash fixture config")
-        .expect("fixture config exists");
-    let workspace = workspace.canonicalize().expect("canonical fixture workspace");
-    let store = serde_json::json!({
-        "version": 1,
-        "projects": [{
-            "workspace": workspace.display().to_string(),
-            "decisions": [{
-                "scope": "configuration",
-                "resource_sha256": hash,
-                "trusted_at": "test"
-            }]
-        }]
-    });
-    std::fs::write(
-        home.join(".thndrs/project-trust.json"),
-        serde_json::to_vec(&store).expect("serialize fixture trust"),
-    )
-    .expect("write fixture trust");
 }
 
 fn fixture_agent() -> PathBuf {

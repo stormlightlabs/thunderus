@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use minijinja::{Environment, UndefinedBehavior};
 use serde::Deserialize;
 
-use crate::trust::{self, ProjectTrust, ProjectTrustScope};
 use crate::utils;
 
 const MAX_TEMPLATE_BYTES: u64 = 256 * 1024;
@@ -160,36 +159,14 @@ pub fn discover(workspace_root: &Path) -> PromptTemplateInventory {
         );
     }
     let project_directory = workspace_root.join(".thndrs").join("prompts");
-    match project_templates_active(workspace_root, &project_directory) {
-        Ok(true) => load_directory(
-            &project_directory,
-            PromptTemplateSource::Project,
-            &mut selected,
-            &mut diagnostics,
-        ),
-        Ok(false) => diagnostics.push(PromptTemplateDiagnostic::new(
-            project_directory,
-            "project prompt templates are inactive because they have not been trusted; inspect with `thndrs trust status` and approve with `thndrs trust grant prompt-templates`",
-        )),
-        Err(message) => diagnostics.push(PromptTemplateDiagnostic::new(project_directory, message)),
-    }
+    load_directory(
+        &project_directory,
+        PromptTemplateSource::Project,
+        &mut selected,
+        &mut diagnostics,
+    );
 
     PromptTemplateInventory { templates: selected.into_values().collect(), diagnostics }
-}
-
-fn project_templates_active(workspace_root: &Path, directory: &Path) -> Result<bool, String> {
-    let roots = [directory.to_path_buf()];
-    let Some(fingerprint) =
-        trust::fingerprint_directories(workspace_root, &roots).map_err(|error| error.to_string())?
-    else {
-        return Ok(true);
-    };
-    match trust::project_trust(workspace_root, ProjectTrustScope::PromptTemplates, &fingerprint)
-        .map_err(|error| error.to_string())?
-    {
-        ProjectTrust::Trusted => Ok(true),
-        ProjectTrust::Untrusted | ProjectTrust::Stale { .. } => Ok(false),
-    }
 }
 
 /// Parse shell-like positional arguments and `key=value` named arguments.
@@ -552,42 +529,6 @@ mod tests {
     }
 
     #[test]
-    fn untrusted_project_templates_are_ignored_without_masking_user_templates() {
-        let root = tempfile::tempdir().expect("temp workspace");
-        let home = tempfile::tempdir().expect("temp home");
-        fs::create_dir_all(home.path().join(".thndrs/prompts")).expect("global prompts");
-        fs::create_dir_all(root.path().join(".thndrs/prompts")).expect("project prompts");
-        fs::write(home.path().join(".thndrs/prompts/review.md"), "global").expect("global template");
-        fs::write(root.path().join(".thndrs/prompts/review.j2"), "project").expect("project template");
-
-        let _guard = crate::test_env::lock();
-        let old_home = std::env::var_os("HOME");
-        unsafe { std::env::set_var("HOME", home.path()) };
-        let inventory = discover(root.path());
-        unsafe {
-            if let Some(old_home) = old_home {
-                std::env::set_var("HOME", old_home);
-            } else {
-                std::env::remove_var("HOME");
-            }
-        }
-
-        let review = inventory
-            .templates
-            .iter()
-            .find(|template| template.name == "review")
-            .expect("user review template");
-        assert_eq!(review.body, "global");
-        assert_eq!(review.source, PromptTemplateSource::User);
-        assert!(
-            inventory
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("project prompt templates are inactive"))
-        );
-    }
-
-    #[test]
     fn project_templates_override_global_and_built_in_templates() {
         let root = tempfile::tempdir().expect("temp workspace");
         let home = tempfile::tempdir().expect("temp home");
@@ -599,11 +540,6 @@ mod tests {
         let _guard = crate::test_env::lock();
         let old_home = std::env::var_os("HOME");
         unsafe { std::env::set_var("HOME", home.path()) };
-        let fingerprint = trust::fingerprint_directories(root.path(), &[root.path().join(".thndrs/prompts")])
-            .expect("fingerprint")
-            .expect("project templates");
-        trust::trust_project(root.path(), ProjectTrustScope::PromptTemplates, &fingerprint)
-            .expect("trust project templates");
         let inventory = discover(root.path());
         unsafe {
             if let Some(old_home) = old_home {
@@ -632,11 +568,6 @@ mod tests {
         let _guard = crate::test_env::lock();
         let old_home = std::env::var_os("HOME");
         unsafe { std::env::set_var("HOME", home.path()) };
-        let fingerprint = trust::fingerprint_directories(root.path(), &[root.path().join(".thndrs/prompts")])
-            .expect("fingerprint")
-            .expect("project templates");
-        trust::trust_project(root.path(), ProjectTrustScope::PromptTemplates, &fingerprint)
-            .expect("trust project templates");
         let inventory = discover(root.path());
         unsafe {
             if let Some(old_home) = old_home {

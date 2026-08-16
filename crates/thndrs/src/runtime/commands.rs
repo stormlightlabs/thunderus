@@ -13,7 +13,6 @@ pub(crate) fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
         Command::Acp { command } => run_acp_command(cli, command),
         Command::Mcp { command } => run_mcp_command(cli, command),
         Command::Skills { command } => cli_commands::skills::run(cli, command),
-        Command::Trust { command } => run_trust_command(cli, command),
         Command::Run(command) => headless::run_command(cli, command),
         Command::Review(command) => review::run_command(cli, command),
         Command::Context(command) => run_context_command(cli, command),
@@ -34,114 +33,6 @@ pub(crate) fn load_mcp_manager_for_workspace(workspace: &Path) -> io::Result<Arc
 pub(crate) fn load_effective_mcp_for_workspace(workspace: &Path) -> io::Result<mcp::config::EffectiveMcpConfig> {
     let env_vars: Vec<(String, String)> = std::env::vars().collect();
     mcp::config::load_effective_mcp(workspace, &env_vars).map_err(io::Error::other)
-}
-
-pub(crate) fn run_trust_command(cli: &Cli, command: &TrustCommand) -> io::Result<()> {
-    let workspace = crate::context::discover_workspace_root(&cli.cwd);
-    let stdout = io::stdout();
-    let mut writer = stdout.lock();
-    match command {
-        TrustCommand::Status => {
-            writeln!(writer, "project runtime trust")?;
-            writeln!(writer, "workspace: {}", workspace.display())?;
-            for scope in [
-                TrustScopeArg::Configuration,
-                TrustScopeArg::PromptTemplates,
-                TrustScopeArg::Skills,
-                TrustScopeArg::Commands,
-                TrustScopeArg::Mcp,
-                TrustScopeArg::Hooks,
-            ] {
-                match project_resource_fingerprint(&workspace, scope) {
-                    Ok(Some(hash)) => {
-                        let state = crate::trust::project_trust(&workspace, trust_scope(scope), &hash)?;
-                        writeln!(
-                            writer,
-                            "{}: {} ({hash})",
-                            trust_scope(scope).label(),
-                            trust_state_label(&state)
-                        )?;
-                    }
-                    Ok(None) => writeln!(writer, "{}: not found", trust_scope(scope).label())?,
-                    Err(error) => writeln!(writer, "{}: unavailable ({error})", trust_scope(scope).label())?,
-                }
-            }
-            writeln!(
-                writer,
-                "trust controls project resource loading; it does not grant tool or process authority"
-            )
-        }
-        TrustCommand::Grant { scope } => {
-            let hash = project_resource_fingerprint(&workspace, *scope)?.ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!("no project {} resources found", trust_scope(*scope).label()),
-                )
-            })?;
-            crate::trust::trust_project(&workspace, trust_scope(*scope), &hash)?;
-            writeln!(writer, "trusted project {} resources", trust_scope(*scope).label())?;
-            writeln!(writer, "sha256: {hash}")?;
-            writeln!(writer, "scope: workspace={}", workspace.display())?;
-            writeln!(
-                writer,
-                "trust controls project resource loading; it does not grant tool or process authority"
-            )
-        }
-        TrustCommand::Revoke { scope } => {
-            if crate::trust::revoke_project_trust(&workspace, trust_scope(*scope))? {
-                writeln!(
-                    writer,
-                    "revoked project {} trust for {}",
-                    trust_scope(*scope).label(),
-                    workspace.display()
-                )
-            } else {
-                writeln!(
-                    writer,
-                    "project {} trust was not set for {}",
-                    trust_scope(*scope).label(),
-                    workspace.display()
-                )
-            }
-        }
-    }
-}
-
-pub(crate) fn trust_scope(scope: TrustScopeArg) -> crate::trust::ProjectTrustScope {
-    match scope {
-        TrustScopeArg::Configuration => crate::trust::ProjectTrustScope::Configuration,
-        TrustScopeArg::PromptTemplates => crate::trust::ProjectTrustScope::PromptTemplates,
-        TrustScopeArg::Skills => crate::trust::ProjectTrustScope::Skills,
-        TrustScopeArg::Commands => crate::trust::ProjectTrustScope::Commands,
-        TrustScopeArg::Mcp => crate::trust::ProjectTrustScope::Mcp,
-        TrustScopeArg::Hooks => crate::trust::ProjectTrustScope::Hooks,
-    }
-}
-
-pub(crate) fn trust_state_label(state: &crate::trust::ProjectTrust) -> &'static str {
-    match state {
-        crate::trust::ProjectTrust::Trusted => "trusted",
-        crate::trust::ProjectTrust::Untrusted => "blocked by trust",
-        crate::trust::ProjectTrust::Stale { .. } => "blocked; resources changed",
-    }
-}
-
-pub(crate) fn project_resource_fingerprint(workspace: &Path, scope: TrustScopeArg) -> io::Result<Option<String>> {
-    match scope {
-        TrustScopeArg::Configuration => crate::config::project_config_hash(workspace).map_err(io::Error::other),
-        TrustScopeArg::PromptTemplates => {
-            crate::trust::fingerprint_directories(workspace, &[workspace.join(".thndrs/prompts")])
-        }
-        TrustScopeArg::Skills => {
-            let roots = crate::skills::default_skill_dirs(workspace, &[])
-                .into_iter()
-                .filter_map(|(path, source)| (source == crate::skills::SkillSource::Project).then_some(path))
-                .collect::<Vec<_>>();
-            crate::trust::fingerprint_directories(workspace, &roots)
-        }
-        TrustScopeArg::Mcp => crate::mcp::config::project_mcp_config_hash(workspace).map_err(io::Error::other),
-        TrustScopeArg::Commands | TrustScopeArg::Hooks => Ok(None),
-    }
 }
 
 pub(crate) fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()> {
@@ -988,15 +879,15 @@ pub(crate) fn run_mcp_status<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Res
         writeln!(writer, "project MCP configuration: not found")?;
         return Ok(());
     };
-    let trust = crate::trust::project_trust(&workspace, crate::trust::ProjectTrustScope::Mcp, &hash)?;
+    let trust = crate::trust::project_mcp_trust(&workspace, &hash)?;
     match trust {
-        crate::trust::ProjectTrust::Trusted => {
+        crate::trust::ProjectMcpTrust::Trusted => {
             writeln!(writer, "project MCP configuration: trusted")?;
         }
-        crate::trust::ProjectTrust::Untrusted => {
+        crate::trust::ProjectMcpTrust::Untrusted => {
             writeln!(writer, "project MCP configuration: blocked by trust")?;
         }
-        crate::trust::ProjectTrust::Stale { trusted_hash } => {
+        crate::trust::ProjectMcpTrust::Stale { trusted_hash } => {
             writeln!(writer, "project MCP configuration: blocked; configuration changed")?;
             writeln!(writer, "trusted sha256: {trusted_hash}")?;
         }
@@ -1016,7 +907,7 @@ pub(crate) fn run_mcp_trust<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Resu
                 "project MCP configuration `.thndrs/mcp.toml` not found",
             )
         })?;
-    crate::trust::trust_project(&workspace, crate::trust::ProjectTrustScope::Mcp, &hash)?;
+    crate::trust::trust_project_mcp(&workspace, &hash)?;
     writeln!(writer, "trusted project MCP configuration")?;
     writeln!(writer, "sha256: {hash}")?;
     writeln!(writer, "scope: workspace={} capability=mcp", workspace.display())?;
@@ -1025,7 +916,7 @@ pub(crate) fn run_mcp_trust<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Resu
 
 pub(crate) fn run_mcp_revoke<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
     let workspace = crate::context::discover_workspace_root(&cli.cwd);
-    if crate::trust::revoke_project_trust(&workspace, crate::trust::ProjectTrustScope::Mcp)? {
+    if crate::trust::revoke_project_mcp_trust(&workspace)? {
         writeln!(writer, "revoked project MCP trust for {}", workspace.display())
     } else {
         writeln!(writer, "project MCP trust was not set for {}", workspace.display())

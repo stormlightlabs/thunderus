@@ -410,7 +410,6 @@ fn render_print_prompt_config_includes_effective_config_metadata() {
             path: None,
             display_path: Some(".thndrs/config.toml".to_string()),
             hash: Some("abc123".to_string()),
-            active: true,
         }],
         config_origins: origins,
         config_diagnostics: vec!["diagnostic with sk-secret".to_string()],
@@ -1359,7 +1358,6 @@ fn maybe_spawn_agent_auto_compacts_oversized_turn_before_spawning() {
             path: None,
             display_path: None,
             hash: None,
-            active: true,
         }],
         ..Cli::default()
     };
@@ -1416,7 +1414,6 @@ fn maybe_spawn_agent_does_not_auto_compact_when_mode_is_manual() {
             path: None,
             display_path: None,
             hash: None,
-            active: true,
         }],
         ..Cli::default()
     };
@@ -1456,7 +1453,6 @@ fn maybe_spawn_agent_does_not_run_preflight_while_agent_in_flight() {
             path: None,
             display_path: None,
             hash: None,
-            active: true,
         }],
         ..Cli::default()
     };

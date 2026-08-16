@@ -26,7 +26,6 @@ use cli::{
     commands::debug::DebugCommand,
     commands::mcp::McpCommand,
     commands::session::{SessionCommand, SessionDataFormat, SessionReportFormat},
-    commands::trust::{TrustCommand, TrustScopeArg},
 };
 use mcp::manager::McpManager;
 use renderer::alternate::{AlternateScreenSession, AlternateViewport, render_logical_frame};

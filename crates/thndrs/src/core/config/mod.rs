@@ -16,7 +16,6 @@ use sha2::{Digest, Sha256};
 use thndrs_agent::context::ContextConfig;
 
 use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
-use crate::trust::{self, ProjectTrust, ProjectTrustScope};
 use crate::utils;
 
 static CONFIG_KEYS: [&str; 16] = [
@@ -230,8 +229,6 @@ pub struct LoadedConfigLayer {
     pub display_path: Option<String>,
     /// Lowercase hex SHA-256 of file bytes.
     pub hash: Option<String>,
-    /// Whether this layer contributed runtime settings.
-    pub active: bool,
 }
 
 /// Where a config value originated.
@@ -478,33 +475,6 @@ fn load_file(path: &Path) -> Result<(Config, String), ConfigError> {
     validate_config(&config)?;
     let hash = sha256_hex(content.as_bytes());
     Ok((config, hash))
-}
-
-/// Return the validated project configuration fingerprint, when present.
-///
-/// This is used only for an explicit trust decision. Normal loading does not
-/// parse an untrusted project configuration.
-pub fn project_config_hash(workspace: &Path) -> Result<Option<String>, ConfigError> {
-    let path = project_config_path(workspace);
-    path.is_file()
-        .then(|| load_file(&path).map(|(_, hash)| hash))
-        .transpose()
-}
-
-fn file_hash(path: &Path) -> Result<String, ConfigError> {
-    let content = fs::read(path).map_err(|source| ConfigError::Read { path: path.to_path_buf(), source })?;
-    Ok(sha256_hex(&content))
-}
-
-fn project_config_blocked_diagnostic(trust: &ProjectTrust) -> String {
-    let reason = match trust {
-        ProjectTrust::Untrusted => "has not been trusted",
-        ProjectTrust::Stale { .. } => "changed since it was trusted",
-        ProjectTrust::Trusted => unreachable!(),
-    };
-    format!(
-        "project runtime configuration is inactive because it {reason}; inspect with `thndrs trust status` and approve with `thndrs trust grant configuration`"
-    )
 }
 
 fn validate_config(config: &Config) -> Result<(), ConfigError> {
@@ -762,7 +732,6 @@ pub fn load_effective(workspace: &Path, env_vars: &[(String, String)]) -> Result
             path: Some(global_path.clone()),
             display_path: Some(display_path.clone()),
             hash: Some(hash),
-            active: true,
         });
         record_origins(&global_config, ConfigSource::GlobalFile, &display_path, &mut origins);
         merged = merged.merge(global_config);
@@ -770,29 +739,18 @@ pub fn load_effective(workspace: &Path, env_vars: &[(String, String)]) -> Result
 
     let project_path = project_config_path(workspace);
     if project_path.is_file() {
-        let hash = file_hash(&project_path)?;
+        let (mut project_config, hash) = load_file(&project_path)?;
         let display_path = project_path_display(&project_path, workspace);
-        let trust =
-            trust::project_trust(workspace, ProjectTrustScope::Configuration, &hash).unwrap_or(ProjectTrust::Untrusted);
-        let active = trust == ProjectTrust::Trusted;
-        let layer_config = if active {
-            let (mut project_config, _) = load_file(&project_path)?;
-            let base = project_path.parent().unwrap_or(workspace);
-            resolve_config_paths(&mut project_config, base);
-            record_origins(&project_config, ConfigSource::ProjectFile, &display_path, &mut origins);
-            merged = merged.merge(project_config.clone());
-            project_config.redacted()
-        } else {
-            diagnostics.push(project_config_blocked_diagnostic(&trust));
-            Config::default()
-        };
+        let base = project_path.parent().unwrap_or(workspace);
+        resolve_config_paths(&mut project_config, base);
+        record_origins(&project_config, ConfigSource::ProjectFile, &display_path, &mut origins);
+        merged = merged.merge(project_config.clone());
         layers.push(LoadedConfigLayer {
             source: ConfigSource::ProjectFile,
-            config: layer_config,
+            config: project_config.redacted(),
             path: Some(project_path.clone()),
             display_path: Some(display_path),
             hash: Some(hash),
-            active,
         });
     }
 
