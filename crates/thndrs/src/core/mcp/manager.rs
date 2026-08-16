@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use super::adapter::{McpSdkClient, McpSdkError, McpToolDefinition, sdk_error_to_output};
 use super::config::{McpConfig, McpServerConfig, McpTransport};
+use crate::sandbox::ExecutionSurface;
 use crate::tools::{MAX_LINE_LEN, MAX_OUTPUT_BYTES, ToolDefinition, ToolOutput, ToolUseRequest, shell};
 
 const MAX_MCP_OUTPUT_LINES: usize = 100;
@@ -114,12 +115,13 @@ impl McpManager {
                 continue;
             }
 
-            let requested_authority = match server.transport {
-                McpTransport::Stdio => "subprocess execution with thndrs process permissions",
-                McpTransport::StreamableHttp => "network access with thndrs process permissions",
+            let surface = match server.transport {
+                McpTransport::Stdio => ExecutionSurface::McpStdioServer,
+                McpTransport::StreamableHttp => ExecutionSurface::McpStreamableHttpServer,
             };
             diagnostics.push(format!(
-                "mcp server `{name}` startup authority allowed: {requested_authority}; no enforcing sandbox"
+                "mcp server `{name}` startup boundary: {}",
+                surface.boundary().report()
             ));
 
             match McpClient::connect(name.clone(), server) {

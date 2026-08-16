@@ -16,6 +16,7 @@ use agent_client_protocol::schema::v1::{
 };
 
 use crate::app::{AgentEvent, ToolStatus};
+use crate::sandbox::ExecutionSurface;
 use crate::tools::shell::{ProcessKind, ProcessResult, ProcessStatus, redact_secrets};
 use crate::tools::{self, MAX_OUTPUT_BYTES};
 
@@ -346,6 +347,7 @@ fn terminal_arguments(argv: &[String], cwd: &Path, env: &[agent_client_protocol:
         "argv": argv,
         "cwd": cwd.display().to_string(),
         "env_keys": env.iter().map(|item| item.name.clone()).collect::<Vec<_>>(),
+        "boundary": ExecutionSurface::AcpTerminalCallback.boundary().report(),
     })
     .to_string()
 }
@@ -400,7 +402,15 @@ mod tests {
             .cwd(Some(root.path().to_path_buf()));
 
         let (response, started) = registry.create(&request, root.path()).expect("create terminal");
-        assert!(matches!(started, AgentEvent::ToolStarted { name, .. } if name == "acp.terminal"));
+        let AgentEvent::ToolStarted { name, arguments, .. } = started else {
+            panic!("terminal should report a start event");
+        };
+        assert_eq!(name, "acp.terminal");
+        let arguments: serde_json::Value = serde_json::from_str(&arguments).expect("terminal arguments JSON");
+        assert_eq!(
+            arguments["boundary"],
+            "filesystem=host-process network=host-process isolation=none"
+        );
 
         let wait = WaitForTerminalExitRequest::new(SessionId::new("s"), response.terminal_id);
         let (_, event) = registry.wait_for_exit(&wait).expect("wait");

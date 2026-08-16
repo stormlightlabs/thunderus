@@ -307,7 +307,7 @@ expression: json
     "name": "write_patch"
   },
   {
-    "description": "run_shell\n\nRun an argv command in the workspace and capture stdout, stderr, and exit status.\n\nPrefer narrower tools when they fit. Use for build, test, format, and inspection.\n\nRuns as thndrs with its permissions, not in a sandbox. Output is capped,\ntruncated, and redacted; timeouts are enforced. With background=true, the\ninteractive app owns the child, returns its registry id immediately, and\nsupports :bg listing and cancellation.",
+    "description": "run_shell\n\nRun an argv command in the workspace and capture output and exit status.\n\nPrefer narrower tools. Use for build, test, format, and inspection.\n\nExecution boundary: filesystem=host-process network=host-process isolation=none. Output is capped, truncated, and redacted; timeouts are enforced. With background=true, the interactive app owns the child, returns its registry id immediately, and supports :bg listing and cancellation.",
     "input_schema": {
       "properties": {
         "argv": {

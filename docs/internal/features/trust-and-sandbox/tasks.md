@@ -13,11 +13,11 @@
 
 **Blocked by:** SAFETY-1.
 
-- [ ] Distinguish read-only, workspace-write, and external isolation.
-- [ ] Treat filesystem and network authority separately.
-- [ ] Report the boundary used by built-in shell, ACP terminal, and MCP server
+- [x] Distinguish read-only, workspace-write, and external isolation.
+- [x] Treat filesystem and network authority separately.
+- [x] Report the boundary used by built-in shell, ACP terminal, and MCP server
       processes.
-- [ ] Claim no isolation when no enforcing backend exists.
+- [x] Claim no isolation when no enforcing backend exists.
 
 ## SAFETY-3: Implement the first OS sandbox backend
 

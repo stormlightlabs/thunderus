@@ -20,8 +20,8 @@ pub use cli::{app, input, renderer};
 
 pub use prelude::*;
 pub use thndrs_core::{
-    acp, artifacts, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, review, search,
-    skills, tools, trust, utils,
+    acp, artifacts, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, review, sandbox,
+    search, skills, tools, trust, utils,
 };
 
 #[cfg(test)]
@@ -1247,8 +1247,14 @@ fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
             .map_or("unknown", |source| source.as_str());
         writeln!(
             writer,
-            "{name}\t{status}\t{:?}\tsource={source}\tcontainment=no-enforcing-sandbox",
-            server.transport
+            "{name}\t{status}\t{:?}\tsource={source}\tboundary={}",
+            server.transport,
+            match server.transport {
+                mcp::config::McpTransport::Stdio => sandbox::ExecutionSurface::McpStdioServer,
+                mcp::config::McpTransport::StreamableHttp => sandbox::ExecutionSurface::McpStreamableHttpServer,
+            }
+            .boundary()
+            .report(),
         )?;
     }
     for (name, server) in &effective.blocked_project_servers {
@@ -1305,7 +1311,8 @@ fn run_mcp_trust<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
     writeln!(writer, "scope: workspace={} capability=mcp", workspace.display())?;
     writeln!(
         writer,
-        "containment: MCP servers run with thndrs process permissions; no enforcing sandbox"
+        "boundary: {}",
+        sandbox::ExecutionSurface::McpStdioServer.boundary().report()
     )?;
     Ok(())
 }
@@ -3649,7 +3656,7 @@ for line in sys.stdin:
             let list = String::from_utf8(list_output).expect("utf8");
             assert!(list.contains("docs"));
             assert!(list.contains("source=project"));
-            assert!(list.contains("containment=no-enforcing-sandbox"));
+            assert!(list.contains("boundary=filesystem=host-process network=host-process isolation=none"));
 
             let mut tools_output = Vec::new();
             run_mcp_tools(&cli, "docs", &mut tools_output).expect("tools mcp");
