@@ -10,6 +10,7 @@ pub mod alternate;
 pub mod cursor;
 mod diff;
 pub mod highlight;
+pub mod key_hint;
 pub mod layout;
 pub mod live;
 pub mod path_display;

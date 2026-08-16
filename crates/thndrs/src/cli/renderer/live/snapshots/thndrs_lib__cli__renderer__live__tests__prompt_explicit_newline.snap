@@ -3,10 +3,16 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 width=80:
-│     ❯  line one                                                                   # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=line one [-]=                                                                [-]=
-│        line two                                                                   # [-]=   [-]=      [fg=#ebfafa]=line two [-]=                                                                [-]=
-│        line three                                                                 # [-]=   [-]=      [fg=#ebfafa]=line three [-]=                                                              [-]=
+│     test-session                                                                  # [-]=   [-]=   [fg=#04d1f9 b]=test-session [-]=                                                               [-]=
+│   ╭──────────────────────────────────────────────────────────────────────────╮    # [-]=   [fg=#04d1f9]=╭ [fg=#04d1f9]=────────────────────────────────────────────────────────────────────────── [fg=#04d1f9]=╮ [-]=
+│   │  ❯  line one                                                             │    # [-]=   [fg=#04d1f9]=│ [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=line one [-]=                                                              [fg=#04d1f9]=│ [-]=
+│   │     line two                                                             │    # [-]=   [fg=#04d1f9]=│ [-]=      [fg=#ebfafa]=line two [-]=                                                              [fg=#04d1f9]=│ [-]=
+│   │     line three                                                           │    # [-]=   [fg=#04d1f9]=│ [-]=      [fg=#ebfafa]=line three [-]=                                                            [fg=#04d1f9]=│ [-]=
+│   ╰──────────────────────────────────────────────────────────────────────────╯    # [-]=   [fg=#04d1f9]=╰ [fg=#04d1f9]=────────────────────────────────────────────────────────────────────────── [fg=#04d1f9]=╯ [-]=
 width=40:
-│     ❯  line one                           # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=line one [-]=                        [-]=
-│        line two                           # [-]=   [-]=      [fg=#ebfafa]=line two [-]=                        [-]=
-│        line three                         # [-]=   [-]=      [fg=#ebfafa]=line three [-]=                      [-]=
+│     test-session                          # [-]=   [-]=   [fg=#04d1f9 b]=test-session [-]=                       [-]=
+│   ╭──────────────────────────────────╮    # [-]=   [fg=#04d1f9]=╭ [fg=#04d1f9]=────────────────────────────────── [fg=#04d1f9]=╮ [-]=
+│   │  ❯  line one                     │    # [-]=   [fg=#04d1f9]=│ [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=line one [-]=                      [fg=#04d1f9]=│ [-]=
+│   │     line two                     │    # [-]=   [fg=#04d1f9]=│ [-]=      [fg=#ebfafa]=line two [-]=                      [fg=#04d1f9]=│ [-]=
+│   │     line three                   │    # [-]=   [fg=#04d1f9]=│ [-]=      [fg=#ebfafa]=line three [-]=                    [fg=#04d1f9]=│ [-]=
+│   ╰──────────────────────────────────╯    # [-]=   [fg=#04d1f9]=╰ [fg=#04d1f9]=────────────────────────────────── [fg=#04d1f9]=╯ [-]=

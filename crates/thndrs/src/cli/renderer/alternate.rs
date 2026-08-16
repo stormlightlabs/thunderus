@@ -992,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_borderless_full_frames_through_ratatui() {
+    fn snapshot_composer_full_frames_through_ratatui() {
         let mut app = App::from_cli(&Cli::default());
         app.session.writer = None;
         app.session.id = "test-session".to_string();
@@ -1024,23 +1024,24 @@ mod tests {
                 .all(|span| span.style.bg == Color::Reset),
             "session label should use the terminal background"
         );
-        for rail_row in [session_row + 1, session_row + 3] {
+        for (border_row, corners) in [(session_row + 1, ('╭', '╮')), (session_row + 3, ('╰', '╯'))] {
             assert_eq!(
-                logical.rows[rail_row].spans.first().map(|span| span.style.bg),
+                logical.rows[border_row].spans.first().map(|span| span.style.bg),
                 Some(Color::Reset)
             );
             assert_eq!(
-                logical.rows[rail_row].spans.last().map(|span| span.style.bg),
+                logical.rows[border_row].spans.last().map(|span| span.style.bg),
                 Some(Color::Reset)
             );
-            let rail = logical.rows[rail_row]
+            let text = logical.rows[border_row].text();
+            assert!(text.contains(corners.0));
+            assert!(text.contains(corners.1));
+            let border = logical.rows[border_row]
                 .spans
                 .iter()
                 .find(|span| span.text.contains('─'))
-                .expect("composer rail should contain a horizontal rule");
-            assert_eq!(rail.text, "─".repeat(crate::renderer::layout::content_width(80)));
-            assert_eq!(rail.style.fg, Color::Reset);
-            assert!(rail.style.dim);
+                .expect("composer border should contain a horizontal rule");
+            assert_eq!(border.style.fg, crate::renderer::style::palette().focus);
         }
         assert!(
             logical.rows[session_row + 2]
@@ -1055,13 +1056,13 @@ mod tests {
             let logical = AlternateViewport::default().build_frame(&app, width, height);
             let text = test_backend_text(&logical, width, height);
             assert!(
-                !text.contains(['╭', '╮', '╰', '╯', '│']),
-                "{label} full frame should use horizontal rails without a surrounding box:\n{text}"
+                text.contains(['╭', '╮', '╰', '╯', '│']),
+                "{label} full frame should preserve the rounded composer:\n{text}"
             );
             rendered.push_str(&format!("{label} ({width}x{height}):\n{text}\n"));
         }
 
-        insta::assert_snapshot!("borderless_full_frames", rendered);
+        insta::assert_snapshot!("composer_full_frames", rendered);
     }
 
     fn test_backend_text(logical: &Frame, width: usize, height: usize) -> String {

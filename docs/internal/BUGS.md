@@ -11,6 +11,12 @@
 - [x] Diffs aren't colored properly
 - [x] You can't move through a potential file path when the file picker is open.
       For example, if you put `@READ`, you can add & delete chars but can't move through it
+- [ ] `?` pane behavior is off
+  - You have to hit the arrow keys to get through the first page before scrolling further
+    down which is fine if the rows are highlighted
+  - The pane uses the old background color when it should be transparent.
+  - Our pickers should have fuzzy finding if their contents are deterministic
+- [ ] Keybind hint text shouldn't be bolded
 
 ## UI
 

@@ -8,11 +8,11 @@ width=80:
 │     ❯ src/日本語.rs                                                               # [-]=   [-]=   [fg=#ebfafa b]=❯ src/日本語.rs [-]=                                                            [-]=  
 │       src/テスト.rs                                                               # [-]=   [-]=   [fg=#ebfafa]=  src/テスト.rs [-]=                                                            [-]=  
 │       Cargo.toml                                                                  # [-]=   [-]=   [fg=#ebfafa]=  Cargo.toml [-]=                                                               [-]=  
-│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=                                                   [-]=  
+│    ↑↓  navigate   enter  select   esc  close                                      # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=navigate [-]=   [fg=#ebfafa bg=#292e42 b]= enter  [-]=  [fg=#abb4da]=select [-]=   [fg=#ebfafa bg=#292e42 b]= esc  [-]=  [fg=#abb4da]=close [-]=                                   [-]=  
 width=40:
 │     PATHS                   option 1/3    # [-]=   [-]=   [fg=#f1fc79 b]=PATHS [-]=                    [fg=#abb4da]=option 1/3 [-]=  
 │     filter: type to filter                # [-]=   [-]=   [fg=#abb4da]=filter: type to filter [-]=             [-]=  
 │     ❯ src/日本語.rs                       # [-]=   [-]=   [fg=#ebfafa b]=❯ src/日本語.rs [-]=                    [-]=  
 │       src/テスト.rs                       # [-]=   [-]=   [fg=#ebfafa]=  src/テスト.rs [-]=                    [-]=  
 │       Cargo.toml                          # [-]=   [-]=   [fg=#ebfafa]=  Cargo.toml [-]=                       [-]=  
-│     Enter select · Esc close              # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=           [-]=
+│    ↑↓  navigate   enter  select           # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=navigate [-]=   [fg=#ebfafa bg=#292e42 b]= enter  [-]=  [fg=#abb4da]=select [-]=        [-]=

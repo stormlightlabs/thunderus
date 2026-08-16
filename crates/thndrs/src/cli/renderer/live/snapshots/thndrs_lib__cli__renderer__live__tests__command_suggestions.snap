@@ -9,4 +9,4 @@ expression: frame.render_styled()
 │       context request  inspect a provider request                                 # [-]=   [-]=   [fg=#ebfafa]=  context request  inspect a provider request [-]=                              [-]=  
 │       context verify  review a verification relation                              # [-]=   [-]=   [fg=#ebfafa]=  context verify  review a verification relation [-]=                           [-]=  
 │     … 5 rows below                                                                # [-]=   [-]=   [fg=#abb4da]=… 5 rows below [-]=                                                             [-]=  
-│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=                                                   [-]=
+│    ↑↓  navigate   enter  select   esc  close                                      # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=navigate [-]=   [fg=#ebfafa bg=#292e42 b]= enter  [-]=  [fg=#abb4da]=select [-]=   [fg=#ebfafa bg=#292e42 b]= esc  [-]=  [fg=#abb4da]=close [-]=                                   [-]=

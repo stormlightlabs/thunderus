@@ -703,7 +703,7 @@ fn build_view_prompt_clipping_keeps_cursor_row() {
         text.contains("test-session"),
         "clipping should preserve the metadata row:\n{text}"
     );
-    assert!(!text.contains(['╭', '╮', '╰', '╯', '│']));
+    assert!(text.contains(['╭', '╮', '╰', '╯', '│']));
     assert!(
         text.contains("line 19"),
         "prompt clipping should keep the editable tail:\n{text}"

@@ -2,4 +2,7 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│     ❯  check @src/main.rs for details                                             # [-]=   [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=check  [fg=#37f499 b]=@src/main.rs [fg=#ebfafa]= for details [-]=                                          [-]=
+│     test-session                                                                  # [-]=   [-]=   [fg=#04d1f9 b]=test-session [-]=                                                               [-]=  
+│   ╭──────────────────────────────────────────────────────────────────────────╮    # [-]=   [fg=#04d1f9]=╭ [fg=#04d1f9]=────────────────────────────────────────────────────────────────────────── [fg=#04d1f9]=╮ [-]=  
+│   │  ❯  check @src/main.rs for details                                       │    # [-]=   [fg=#04d1f9]=│ [-]=   [fg=#04d1f9]=❯ [-]=   [fg=#ebfafa]=check  [fg=#37f499 b]=@src/main.rs [fg=#ebfafa]= for details [-]=                                        [fg=#04d1f9]=│ [-]=  
+│   ╰──────────────────────────────────────────────────────────────────────────╯    # [-]=   [fg=#04d1f9]=╰ [fg=#04d1f9]=────────────────────────────────────────────────────────────────────────── [fg=#04d1f9]=╯ [-]=

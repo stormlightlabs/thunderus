@@ -1,0 +1,39 @@
+---
+source: crates/thndrs/src/cli/renderer/alternate.rs
+expression: rendered
+---
+normal (80x12):
+
+    User (owais)
+    Explain the renderer migration.
+
+    Ratatui now owns the bounded terminal frame.
+
+    test-session
+  ╭──────────────────────────────────────────────────────────────────────────╮
+  │  ❯  Keep the interface quiet                                             │
+  ╰──────────────────────────────────────────────────────────────────────────╯
+    ✓ Ready                                         model unavailable · auto
+
+
+narrow (32x9):
+    bounded terminal frame.
+
+    test-session
+  ╭──────────────────────────╮
+  │  ❯  Keep the interface   │
+  │     quiet                │
+  ╰──────────────────────────╯
+    ✓ Ready …del unavailable
+
+
+monochrome (48x10):
+
+    Ratatui now owns the bounded terminal
+    frame.
+
+    test-session
+  ╭──────────────────────────────────────────╮
+  │  ❯  Keep the interface quiet             │
+  ╰──────────────────────────────────────────╯
+    ✓ Ready         model unavailable · auto

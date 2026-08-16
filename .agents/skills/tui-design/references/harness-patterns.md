@@ -81,7 +81,7 @@ Place shortcut hints close to the action they affect. Keep the full key vocabula
 Use visual depth sparingly:
 
 - terminal background for transcript, labels, surrounding space, and footer;
-- one terminal-native input surface bounded by thin inset horizontal rules;
+- one terminal-native input surface bounded by a thin inset rounded border;
 - a focused selection surface for a picker, permission choice, or modal;
 - overlays only when focus and dismissal are unambiguous.
 
@@ -116,7 +116,7 @@ Start with terminal-default foreground and background. If themes use RGB colors,
 ### Composer
 
 - Pin it to the bottom and grow it upward.
-- Keep editable rows and rail backgrounds terminal-native. Draw the rails as horizontal rule glyphs in a subdued terminal-adaptive foreground rather than as filled spacer rows.
+- Keep editable rows and composer chrome terminal-native. Draw a thin rounded border with renderer-owned row primitives, tint it quietly by semantic state, and remove inner chrome before editable content under severe width pressure.
 - Keep mode, validation, queue, and disabled states inside or directly adjacent to the input surface.
 - Show nonzero transient counts near the control they affect, avoid duplicating
   them across chrome, and hide them before primary state under width pressure.

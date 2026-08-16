@@ -5,6 +5,7 @@
 
 use thndrs_agent::ToolStatus;
 
+use crate::renderer::key_hint::{KeyHint, render_key_hints};
 use crate::renderer::row::Row;
 use crate::renderer::style::{self, CellStyle, Span};
 use crate::renderer::view::{
@@ -19,7 +20,7 @@ struct ViewContent {
     status: String,
     body: Vec<SurfaceLine>,
     focus: Option<usize>,
-    hints: String,
+    hints: Vec<KeyHint>,
     border: ThemeRole,
 }
 
@@ -101,7 +102,11 @@ fn transcript_search_rows(
             status,
             body: Vec::new(),
             focus: None,
-            hints: "Enter/↓ next · Shift+Enter/↑ previous · Esc cancel".to_string(),
+            hints: vec![
+                KeyHint::new("enter/↓", "next"),
+                KeyHint::new("shift+enter/↑", "previous"),
+                KeyHint::new("esc", "cancel"),
+            ],
             border: ThemeRole::Focus,
         },
         width,
@@ -140,9 +145,17 @@ fn queue_rows(queue: &QueueView, width: usize, height: usize, theme: &SurfaceThe
             body,
             focus: (!queue.items.is_empty()).then_some(queue.selected),
             hints: if queue.editing.is_some() {
-                "Enter save · Esc close · typing edits".to_string()
+                vec![KeyHint::new("enter", "save"), KeyHint::new("esc", "close")]
             } else {
-                "e edit · Ctrl+↑/↓ reorder · t retarget · d delete · a after step · s send now · Esc close".to_string()
+                vec![
+                    KeyHint::new("e", "edit"),
+                    KeyHint::new("ctrl+↑↓", "reorder"),
+                    KeyHint::new("t", "retarget"),
+                    KeyHint::new("d", "delete"),
+                    KeyHint::new("a", "after step"),
+                    KeyHint::new("s", "send now"),
+                    KeyHint::new("esc", "close"),
+                ]
             },
             border: ThemeRole::Focus,
         },
@@ -212,7 +225,11 @@ fn picker_content(picker: &PickerView, width: usize) -> ViewContent {
         ),
         body,
         focus,
-        hints: "Enter select · Esc close".to_string(),
+        hints: vec![
+            KeyHint::new("↑↓", "navigate"),
+            KeyHint::new("enter", "select"),
+            KeyHint::new("esc", "close"),
+        ],
         border: ThemeRole::Focus,
     }
 }
@@ -237,7 +254,7 @@ fn quiet_picker_rows(picker: &PickerView, width: usize, height: usize) -> Vec<Ro
     }
 
     let mut rows = vec![Row::padded(header_spans, width, CellStyle::new())];
-    let body = layout_surface_body(&content, height.saturating_sub(1));
+    let body = layout_surface_body(&content, height.saturating_sub(2));
     for line in body {
         let text_style = match line.role {
             ThemeRole::Selection => CellStyle::new().fg(p.primary).bold(),
@@ -249,6 +266,9 @@ fn quiet_picker_rows(picker: &PickerView, width: usize, height: usize) -> Vec<Ro
             width,
             CellStyle::new(),
         ));
+    }
+    if rows.len() < height {
+        rows.push(render_key_hints(&content.hints, width));
     }
     rows.truncate(height);
     rows
@@ -272,7 +292,7 @@ fn help_rows(help: &HelpView, width: usize, height: usize, theme: &SurfaceThemeV
             status: "focus: keyboard".to_string(),
             body,
             focus: Some(help.scroll),
-            hints: "Up/Down scroll · Esc close".to_string(),
+            hints: vec![KeyHint::new("↑↓", "scroll"), KeyHint::new("esc", "close")],
             border: ThemeRole::Focus,
         },
         width,
@@ -296,7 +316,11 @@ fn permission_rows(permission: &PermissionView, width: usize, height: usize, the
             status: "approval required · focused".to_string(),
             body,
             focus,
-            hints: "Enter choose · Esc cancel".to_string(),
+            hints: vec![
+                KeyHint::new("↑↓", "navigate"),
+                KeyHint::new("enter", "choose"),
+                KeyHint::new("esc", "cancel"),
+            ],
             border: ThemeRole::Warning,
         },
         width,
@@ -340,7 +364,7 @@ fn tool_detail_rows(detail: &ToolDetailView, width: usize, height: usize, theme:
             status: format!("{} · focus: output", detail.status.label()),
             body,
             focus: Some(1),
-            hints: "↑/↓ scroll · Esc close".to_string(),
+            hints: vec![KeyHint::new("↑↓", "scroll"), KeyHint::new("esc", "close")],
             border,
         },
         width,
@@ -378,7 +402,7 @@ fn diff_detail_rows(detail: &DiffDetailView, width: usize, height: usize, theme:
             ),
             body,
             focus: None,
-            hints: "↑/↓ scroll · Esc close".to_string(),
+            hints: vec![KeyHint::new("↑↓", "scroll"), KeyHint::new("esc", "close")],
             border: ThemeRole::Focus,
         },
         width,
@@ -432,9 +456,16 @@ fn setup_form_rows(form: &SetupFormView, width: usize, height: usize, theme: &Su
                 .then_some(field_focus.unwrap_or_default())
                 .or_else(|| (!form.actions.is_empty()).then_some(action_offset + form.selected)),
             hints: if form.actions.is_empty() {
-                format!("Enter {} · Esc {}", form.submit_label, form.cancel_label)
+                vec![
+                    KeyHint::new("enter", form.submit_label.clone()),
+                    KeyHint::new("esc", form.cancel_label.clone()),
+                ]
             } else {
-                format!("↑/↓ choose · Enter confirm · Esc {}", form.cancel_label)
+                vec![
+                    KeyHint::new("↑↓", "choose"),
+                    KeyHint::new("enter", "confirm"),
+                    KeyHint::new("esc", form.cancel_label.clone()),
+                ]
             },
             border: if form.attention { ThemeRole::Warning } else { ThemeRole::Focus },
         },
@@ -453,7 +484,7 @@ fn table_rows(table: &TableView, width: usize, height: usize, theme: &SurfaceThe
                 status: "focus: inspect".to_string(),
                 body: table.narrow_fallback.iter().cloned().map(SurfaceLine::text).collect(),
                 focus: None,
-                hints: "Esc close".to_string(),
+                hints: vec![KeyHint::new("esc", "close")],
                 border: ThemeRole::Focus,
             },
             width,
@@ -480,7 +511,7 @@ fn table_rows(table: &TableView, width: usize, height: usize, theme: &SurfaceThe
             status,
             body,
             focus: table.selected_row.map(|row| row + 1),
-            hints: "↑/↓ inspect · Esc close".to_string(),
+            hints: vec![KeyHint::new("↑↓", "inspect"), KeyHint::new("esc", "close")],
             border: ThemeRole::Focus,
         },
         width,
@@ -504,7 +535,7 @@ fn transcript_lens_surface_rows(
                 SurfaceLine::text(format!("scroll: {scroll}")),
             ],
             focus: None,
-            hints: "↑/↓ scroll · Esc close".to_string(),
+            hints: vec![KeyHint::new("↑↓", "scroll"), KeyHint::new("esc", "close")],
             border: ThemeRole::Focus,
         },
         width,
@@ -521,12 +552,17 @@ fn render_bounded_view(content: &ViewContent, width: usize, height: usize, theme
     let palette = style::palette();
     let background = palette.surface;
     let header = format!("{} · {}", content.title, content.status);
-    let max_body_height = height.saturating_sub(1);
+    let hint_height = usize::from(!content.hints.is_empty() && height > 1);
+    let max_body_height = height.saturating_sub(1 + hint_height);
     let body_rows = layout_surface_body(content, max_body_height);
     let mut lines = Vec::with_capacity(body_rows.len() + 1);
     lines.push(SurfaceLine::new(header, content.border));
     lines.extend(body_rows);
-    render_lines(&lines, width, height, theme, background)
+    let mut rows = render_lines(&lines, width, height.saturating_sub(hint_height), theme, background);
+    if hint_height > 0 {
+        rows.push(render_key_hints(&content.hints, width));
+    }
+    rows
 }
 
 fn layout_surface_body(content: &ViewContent, max_lines: usize) -> Vec<SurfaceLine> {
@@ -534,15 +570,9 @@ fn layout_surface_body(content: &ViewContent, max_lines: usize) -> Vec<SurfaceLi
         return Vec::new();
     }
 
-    let hint = (!content.hints.is_empty()).then(|| SurfaceLine::muted(content.hints.clone()));
-    let hint_lines = usize::from(hint.is_some());
-    let body_budget = max_lines.saturating_sub(hint_lines);
+    let body_budget = max_lines;
     if content.body.len() <= body_budget {
-        let mut rows = content.body.clone();
-        if let Some(hint) = hint {
-            rows.push(hint);
-        }
-        return rows;
+        return content.body.clone();
     }
 
     let marker_budget = body_budget.saturating_sub(1);
@@ -572,12 +602,6 @@ fn layout_surface_body(content: &ViewContent, max_lines: usize) -> Vec<SurfaceLi
     let mut rows = visible;
     if body_budget > 0 {
         rows.push(SurfaceLine::muted(hidden));
-    }
-    if let Some(hint) = hint {
-        if rows.len() >= max_lines {
-            rows.pop();
-        }
-        rows.push(hint);
     }
     rows.truncate(max_lines);
     rows
@@ -754,10 +778,10 @@ mod tests {
             !text.contains('╭'),
             "command picker should use a quiet rail instead of a box"
         );
-        assert!(
-            rows.iter()
-                .all(|row| row.spans.iter().all(|span| span.style.bg == style::Color::Reset))
-        );
+        assert!(rows.iter().all(|row| row.spans.iter().all(|span| {
+            matches!(span.style.bg, style::Color::Reset) || span.style.bg == style::palette().selection
+        })));
+        assert!(rows.iter().any(|row| row.text().contains("↑↓  navigate")));
         assert!(rows.iter().all(|row| row.width == 32));
     }
 
@@ -792,7 +816,7 @@ mod tests {
         assert!(text.contains(&last_key));
         assert!(!text.contains(&first_key));
         assert!(text.contains("rows above"));
-        assert!(text.contains("Up/Down scroll"));
+        assert!(text.contains("↑↓  scroll"));
     }
 
     #[test]
@@ -847,10 +871,9 @@ mod tests {
         assert_eq!(rows.len(), 4);
         assert!(rows[0].text().contains("FILES"));
         assert!(!rows.iter().any(|row| row.text().contains('╭')));
-        assert!(
-            rows.iter()
-                .all(|row| row.spans.iter().all(|span| span.style.bg == style::Color::Reset))
-        );
+        assert!(rows.iter().all(|row| row.spans.iter().all(|span| {
+            matches!(span.style.bg, style::Color::Reset) || span.style.bg == style::palette().selection
+        })));
         assert!(rows.iter().any(|row| row.text().contains("no matches")));
     }
 

@@ -3,4 +3,5 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: rendered
 ---
 │   setup · chatgpt-codex ·…  # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=setup · chatgpt-codex ·…
-│   … 8 above · ❯ cancel    # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=… 8 above · ❯ cancel [bg=#292e42]=
+│   … 8 above · ❯ cancel    # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=… 8 above · ❯ cancel [bg=#292e42]=  
+│    ↑↓  choose             # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=choose [-]=          [-]=

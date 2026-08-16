@@ -5,4 +5,4 @@ expression: frame.render_styled()
 │     PATHS                                                           option 1/1    # [-]=   [-]=   [fg=#f1fc79 b]=PATHS [-]=                                                            [fg=#abb4da]=option 1/1 [-]=  
 │     filter: main                                                                  # [-]=   [-]=   [fg=#abb4da]=filter: main [-]=                                                               [-]=  
 │     ❯ src/main.rs                                                                 # [-]=   [-]=   [fg=#ebfafa b]=❯ src/main.rs [-]=                                                              [-]=  
-│     Enter select · Esc close                                                      # [-]=   [-]=   [fg=#abb4da]=Enter select · Esc close [-]=                                                   [-]=
+│    ↑↓  navigate   enter  select   esc  close                                      # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=navigate [-]=   [fg=#ebfafa bg=#292e42 b]= enter  [-]=  [fg=#abb4da]=select [-]=   [fg=#ebfafa bg=#292e42 b]= esc  [-]=  [fg=#abb4da]=close [-]=                                   [-]=

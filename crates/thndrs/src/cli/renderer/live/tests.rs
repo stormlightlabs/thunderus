@@ -108,11 +108,11 @@ fn prompt_rows_wraps_long_text() {
 #[test]
 fn prompt_rows_reserve_even_horizontal_input_padding() {
     let mut app = test_app();
-    app.composer.input.set_text(&"x".repeat(9));
+    app.composer.input.set_text(&"x".repeat(7));
     let (rows, cursor) = prompt_rows_for(&app, 20);
 
     assert_eq!(rows.len(), 1);
-    assert_eq!(cursor, Some(CursorCoord::new(0, 16)));
+    assert_eq!(cursor, Some(CursorCoord::new(0, 12)));
     assert!(
         rows[0].spans.iter().all(|span| span.style.bg == Color::Reset),
         "input text and padding should use the terminal background"
@@ -122,7 +122,7 @@ fn prompt_rows_reserve_even_horizontal_input_padding() {
     let (rows, cursor) = prompt_rows_for(&app, 20);
 
     assert_eq!(rows.len(), 2);
-    assert_eq!(cursor, Some(CursorCoord::new(1, 8)));
+    assert_eq!(cursor, Some(CursorCoord::new(1, 6)));
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn comfortable_prompt_keeps_the_readable_measure() {
 }
 
 #[test]
-fn frame_prompt_rows_adds_horizontal_rails_and_offsets_cursor() {
+fn frame_prompt_rows_adds_rounded_border_and_offsets_cursor() {
     let mut app = test_app();
     app.session.id = "test-session".to_string();
     app.composer.input.set_text("hello");
@@ -149,11 +149,17 @@ fn frame_prompt_rows_adds_horizontal_rails_and_offsets_cursor() {
     assert!(rows[0].text().contains("test-session"));
     assert!(!rows[0].text().contains("prompt"));
     assert!(!rows[0].text().contains("idle"));
-    assert!(rows[2].text().contains("❯  hello"));
-    assert!(!rows.iter().any(|row| row.text().contains(['╭', '╮', '╰', '╯', '│'])));
-    assert_eq!(cursor, Some(CursorCoord::new(2, 12)));
+    assert!(rows[1].text().contains("╭"));
+    assert!(rows[1].text().contains("╮"));
+    assert!(rows[2].text().contains("│  ❯  hello"));
+    assert!(rows[3].text().contains("╰"));
+    assert!(rows[3].text().contains("╯"));
+    assert_eq!(cursor, Some(CursorCoord::new(2, 13)));
     let content_column = rows[0].text().find("test-session").expect("session label");
-    assert_eq!(rows[2].text().find('❯'), Some(content_column));
+    assert_eq!(rows[1].text().find('╭'), Some(2));
+    let input_row = rows[2].text();
+    let icon_byte = input_row.find('❯').expect("prompt icon");
+    assert_eq!(crate::utils::text_width(&input_row[..icon_byte]), 5);
     assert_eq!(static_status_row(&app, 80).text().find('✓'), Some(content_column));
     assert_eq!(
         app.render_banner_rows(80)[0].text().find("thndrs"),
@@ -172,23 +178,18 @@ fn frame_prompt_rows_adds_horizontal_rails_and_offsets_cursor() {
         rows[2].spans.iter().all(|span| span.style.bg == Color::Reset),
         "the editable input row should use the terminal background"
     );
-    for row in [&rows[1], &rows[3]] {
-        assert_eq!(row.text().trim(), "─".repeat(76));
+    for row in [&rows[1], &rows[2], &rows[3]] {
         assert!(
             row.spans.iter().all(|span| span.style.bg == Color::Reset),
-            "horizontal rails should use the terminal background"
-        );
-        let rail = row
-            .spans
-            .iter()
-            .find(|span| span.text.contains('─'))
-            .expect("horizontal rail");
-        assert_eq!(rail.style.fg, Color::Reset);
-        assert!(
-            rail.style.dim,
-            "horizontal rails should adapt from the terminal's native foreground"
+            "composer chrome should use the terminal background"
         );
     }
+    let top_border = rows[1]
+        .spans
+        .iter()
+        .find(|span| span.text.contains('─'))
+        .expect("top border");
+    assert_eq!(top_border.style.fg, crate::renderer::style::palette().focus);
 }
 
 #[test]
@@ -290,6 +291,68 @@ fn prompt_icon_does_not_change_with_status() {
         assert!(rows[0].text().contains('❯'));
         assert!(!rows[0].text().contains(['»', '○', '✕']));
     }
+}
+
+#[test]
+fn composer_border_reflects_running_and_error_states() {
+    let mut app = test_app();
+
+    app.runtime.run_state = RunState::Working;
+    let (rows, _) = frame_prompt_rows(&app, 80, prompt_rows_for(&app, 80).0, None);
+    let running_border = rows[1].spans.iter().find(|span| span.text.contains('─')).unwrap();
+    assert_eq!(running_border.style.fg, crate::renderer::style::palette().active);
+
+    app.runtime.run_state = RunState::Error("boom".to_string());
+    let (rows, _) = frame_prompt_rows(&app, 80, prompt_rows_for(&app, 80).0, None);
+    let error_border = rows[1].spans.iter().find(|span| span.text.contains('─')).unwrap();
+    assert_eq!(error_border.style.fg, crate::renderer::style::palette().failure);
+}
+
+fn append_composer_snapshot(output: &mut String, label: &str, app: &App, width: usize) {
+    let (rows, cursor) = prompt_rows_for(app, width);
+    let (rows, cursor) = frame_prompt_rows(app, width, rows, cursor);
+    let frame = Frame { rows, width, cursor, cursor_visible: true };
+    output.push_str(&format!(
+        "{label} width={width} cursor={cursor:?}:\n{}\n",
+        frame.render_styled()
+    ));
+}
+
+#[test]
+fn snapshot_composer_state_matrix() {
+    let mut output = String::new();
+    let mut app = test_app();
+    app.session.id = "test-session".to_string();
+    append_composer_snapshot(&mut output, "empty", &app, 80);
+
+    app.composer.input.set_text("ship the fix");
+    append_composer_snapshot(&mut output, "draft", &app, 80);
+
+    app.composer.input.set_text("line one\nline two");
+    append_composer_snapshot(&mut output, "multiline", &app, 40);
+
+    app.composer.mode = Mode::Command;
+    app.composer.input.set_text("model");
+    append_composer_snapshot(&mut output, "command", &app, 40);
+
+    app.composer.mode = Mode::Prompt;
+    app.runtime.run_state = RunState::Working;
+    append_composer_snapshot(&mut output, "running", &app, 40);
+
+    app.runtime.run_state = RunState::Idle;
+    app.composer.queue.push(
+        crate::app::QueueTarget::FollowUp,
+        "later".to_string(),
+        "test".to_string(),
+    );
+    append_composer_snapshot(&mut output, "queued", &app, 40);
+
+    app.runtime.run_state = RunState::Error("boom".to_string());
+    append_composer_snapshot(&mut output, "error", &app, 40);
+    append_composer_snapshot(&mut output, "narrow", &app, 12);
+    append_composer_snapshot(&mut output, "tiny", &app, 6);
+
+    insta::assert_snapshot!("composer_state_matrix", output);
 }
 
 #[test]
@@ -525,9 +588,11 @@ fn snapshot_model_picker() {
 #[test]
 fn snapshot_mention_styling_in_prompt() {
     let mut app = test_app();
+    app.session.id = "test-session".to_string();
     app.composer.input.set_text("check @src/main.rs for details");
-    let (rows, _) = prompt_rows_for(&app, 80);
-    let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
+    let (rows, cursor) = prompt_rows_for(&app, 80);
+    let (rows, cursor) = frame_prompt_rows(&app, 80, rows, cursor);
+    let frame = Frame { rows, width: 80, cursor, cursor_visible: true };
     insta::assert_snapshot!("mention_styling", frame.render_styled());
 }
 
@@ -696,9 +761,11 @@ fn snapshot_prompt_at_widths(name: &str, text: &str) {
     let mut combined = String::new();
     for width in [80, 40] {
         let mut app = test_app();
+        app.session.id = "test-session".to_string();
         app.composer.input.set_text(text);
-        let (rows, _) = prompt_rows_for(&app, width);
-        let frame = Frame { rows, width, cursor: None, cursor_visible: true };
+        let (rows, cursor) = prompt_rows_for(&app, width);
+        let (rows, cursor) = frame_prompt_rows(&app, width, rows, cursor);
+        let frame = Frame { rows, width, cursor, cursor_visible: true };
         combined.push_str(&format!("width={width}:\n"));
         for line in frame.render_styled().lines() {
             combined.push_str(line.trim_end());

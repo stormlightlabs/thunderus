@@ -22,7 +22,7 @@ For a narrow correction, keep this pass short. For a redesign, cover the whole s
 
 - Give each state one obvious focal point: active output, a decision, a selection, or the composer.
 - Keep the transcript open and readable. Separate turns with rhythm and semantic markers before adding boxes.
-- Pin the composer to the bottom and let it grow upward. Keep editable rows on the terminal background and bound them with thin inset horizontal rules whose foreground adapts to the terminal background.
+- Pin the composer to the bottom and let it grow upward. Keep editable rows on the terminal background and bound them with a thin rounded border built from renderer-owned row primitives. Let semantic state tint the border quietly, and simplify or remove chrome before squeezing editable content at tiny widths.
 - Leave the session label, surrounding space, status, and footer on the terminal background.
 - Establish a spacing rhythm and shared alignment anchors. One stray row or column can make a small TUI feel unfinished.
 - Use borders for real containment, focus, or selection. Avoid nested chrome and decorative rules around passive content.
