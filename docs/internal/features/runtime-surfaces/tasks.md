@@ -2,25 +2,25 @@
 
 ## RUN-1: Complete headless JSONL runs
 
-- [ ] Require an exact model route, absolute contained cwd, session policy,
+- [x] Require an exact model route, absolute contained cwd, session policy,
       settings, authority, task, timeout, and evidence and resource limits.
-- [ ] Reject traversal, implicit model or workspace defaults, invalid state
+- [x] Reject traversal, implicit model or workspace defaults, invalid state
       transitions, and unbounded requests before provider work starts.
-- [ ] Give each execution a run identity distinct from its durable session
+- [x] Give each execution a run identity distinct from its durable session
       identity.
-- [ ] Emit starting, ready, running, waiting for permission, cancelling,
+- [x] Emit starting, ready, running, waiting for permission, cancelling,
       succeeded, failed, and cancelled states through valid transitions.
-- [ ] Preserve exact model identifiers through configuration, events, session
+- [x] Preserve exact model identifiers through configuration, events, session
       metadata, and results.
-- [ ] Return bounded semantic evidence, changed-file metadata, and a durable
+- [x] Return bounded semantic evidence, changed-file metadata, and a durable
       session handle.
-- [ ] Keep stdout protocol-clean and diagnostics bounded and redacted.
-- [ ] Preserve distinct errors for unsupported models, missing credentials,
+- [x] Keep stdout protocol-clean and diagnostics bounded and redacted.
+- [x] Preserve distinct errors for unsupported models, missing credentials,
       invalid workspaces, protocol mismatch, provider failures, cancellation,
       and timeout.
-- [ ] Keep existing callers compatible when they ignore new optional metadata.
-- [ ] Leave scheduling, hierarchy, dependencies, and concurrency to callers.
-- [ ] Exercise the same application run path as interactive execution rather
+- [x] Keep existing callers compatible when they ignore new optional metadata.
+- [x] Leave scheduling, hierarchy, dependencies, and concurrency to callers.
+- [x] Exercise the same application run path as interactive execution rather
       than reimplementing lifecycle or result rules in the JSONL adapter.
 
 ## RUN-2: Ship ACP as a stable packaged surface

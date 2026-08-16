@@ -1,3 +1,6 @@
+{"version":1,"type":"lifecycle","run_id":"<run-id>","state":"starting","session_id":null,"model":"acp:local"}
+{"version":1,"type":"lifecycle","run_id":"<run-id>","state":"ready","session_id":null,"model":"acp:local"}
+{"version":1,"type":"lifecycle","run_id":"<run-id>","state":"running","session_id":null,"model":"acp:local"}
 {"version":1,"type":"started","ephemeral":true}
 {"version":1,"type":"status","message":"acp: starting `local` with python3 <fake-acp-agent> fs-read"}
 {"version":1,"type":"status","message":"acp stderr: fake-agent stderr diagnostic"}
@@ -8,3 +11,5 @@
 {"version":1,"type":"tool_finished","id":"acp-read-<workspace>/readme.txt","status":"ok","output":["read <workspace>/readme.txt (10 bytes)"]}
 {"version":1,"type":"text","text":"read: alpha\nbeta"}
 {"version":1,"type":"completed"}
+{"version":1,"type":"lifecycle","run_id":"<run-id>","state":"succeeded","session_id":null,"model":"acp:local"}
+{"version":1,"type":"run_result","run_id":"<run-id>","session_id":null,"model":"acp:local","evidence":[],"changed_files":[]}

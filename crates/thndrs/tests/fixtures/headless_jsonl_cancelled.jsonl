@@ -1,3 +1,8 @@
+{"version":1,"type":"lifecycle","run_id":"<run-id>","state":"starting","session_id":null,"model":"acp:local"}
+{"version":1,"type":"lifecycle","run_id":"<run-id>","state":"ready","session_id":null,"model":"acp:local"}
+{"version":1,"type":"lifecycle","run_id":"<run-id>","state":"running","session_id":null,"model":"acp:local"}
 {"version":1,"type":"started","ephemeral":true}
 {"version":1,"type":"status","message":"acp: starting `local` with python3 <fake-acp-agent> cancel"}
+{"version":1,"type":"lifecycle","run_id":"<run-id>","state":"cancelling","session_id":null,"model":"acp:local"}
 {"version":1,"type":"cancelled"}
+{"version":1,"type":"lifecycle","run_id":"<run-id>","state":"cancelled","session_id":null,"model":"acp:local"}

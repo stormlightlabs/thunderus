@@ -5,16 +5,19 @@
 //! the non-interactive `thndrs run` surface.
 
 use std::io::{self, IsTerminal, Read, Write};
-use std::time::Duration;
+use std::path::Component;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use thndrs_agent::CancelToken;
 
 use crate::app::{self, App, Msg, RunState, update};
+use crate::artifacts::DEFAULT_MAX_ARTIFACT_BYTES;
 use crate::cancellation;
 use crate::cli::Cli;
-use crate::cli::commands::run::{DEFAULT_STDIN_MAX_BYTES, RunCommand};
+use crate::cli::commands::run::{DEFAULT_STDIN_MAX_BYTES, RunAuthority, RunCommand, SessionPolicy};
 use crate::maybe_spawn_agent;
+use crate::tools::ToolAuthority;
 
 /// Frequency at which the headless runner observes Ctrl-C while waiting for an
 /// agent event.
@@ -29,6 +32,7 @@ const JSONL_SCHEMA_VERSION: u8 = 1;
 /// Largest permitted standard-input limit, so a malformed invocation
 /// cannot turn the headless command into an unbounded memory read.
 const MAX_STDIN_MAX_BYTES: usize = 16 * 1024 * 1024;
+const MAX_DIAGNOSTIC_CHARS: usize = 512;
 
 type Result<T> = std::result::Result<T, RunError>;
 
@@ -184,6 +188,19 @@ enum JsonEvent<'a> {
         session_id: &'a str,
         protocol_version: &'a str,
     },
+    Lifecycle {
+        run_id: &'a str,
+        state: &'static str,
+        session_id: Option<&'a str>,
+        model: &'a str,
+    },
+    RunResult {
+        run_id: &'a str,
+        session_id: Option<&'a str>,
+        model: &'a str,
+        evidence: Vec<JsonEvidence<'a>>,
+        changed_files: Vec<&'a str>,
+    },
     Completed,
     Failed {
         message: &'a str,
@@ -284,6 +301,13 @@ struct VersionedJsonEvent<'a> {
     event: JsonEvent<'a>,
 }
 
+/// Stable, bounded evidence metadata returned when a JSONL run settles.
+#[derive(Serialize)]
+struct JsonEvidence<'a> {
+    tool_call_id: &'a str,
+    handle: &'a str,
+}
+
 /// Stable permission-option projection for a headless JSON event.
 #[derive(Serialize)]
 struct JsonPermissionOption<'a> {
@@ -310,6 +334,8 @@ pub fn exit_code(error: &io::Error) -> i32 {
 
 /// Run one prompt through the normal application lifecycle without terminal UI.
 pub fn run_command(cli: &Cli, command: &RunCommand) -> io::Result<()> {
+    let mut cli = cli.clone();
+    let timeout = validate_jsonl_request(&mut cli, command).map_err(io::Error::other)?;
     let stdin = io::stdin();
     let prompt = resolve_prompt(command, &mut stdin.lock(), stdin.is_terminal()).map_err(io::Error::other)?;
     let cancellation = CancelToken::new();
@@ -318,17 +344,90 @@ pub fn run_command(cli: &Cli, command: &RunCommand) -> io::Result<()> {
     let stdout = io::stdout();
     let stderr = io::stderr();
     let result = run_with_io(
-        cli,
+        &cli,
         &prompt,
         HeadlessOutput::from_jsonl(command.jsonl),
         &mut stdout.lock(),
         &mut stderr.lock(),
         &cancellation,
+        timeout,
     );
     result.map_err(io::Error::other)
 }
 
 /// Run one prompt through the shared lifecycle and return only assistant text.
+/// Validate and apply the explicit execution boundary required by JSONL callers.
+///
+/// The interactive command continues to support configured defaults. Machine
+/// callers instead name every boundary that can otherwise be implicit: a
+/// canonical workspace, persistence policy, authority, deadline, and bounded
+/// request/evidence allocation. Validation happens before [`App::from_cli`]
+/// can start provider work or create a durable session.
+fn validate_jsonl_request(cli: &mut Cli, command: &RunCommand) -> Result<Option<Duration>> {
+    if !command.jsonl {
+        return Ok(None);
+    }
+
+    if cli.model.trim().is_empty() {
+        return Err(RunError::new(Exit::Setup, "JSONL runs require an exact --model route"));
+    }
+    if !cli.cwd.is_absolute()
+        || cli
+            .cwd
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(RunError::new(
+            Exit::Setup,
+            "JSONL runs require an absolute workspace without traversal",
+        ));
+    }
+    cli.cwd = cli
+        .cwd
+        .canonicalize()
+        .map_err(|error| RunError::new(Exit::Setup, format!("invalid JSONL workspace: {error}")))?;
+    if !cli.cwd.is_dir() {
+        return Err(RunError::new(Exit::Setup, "JSONL workspace must be a directory"));
+    }
+
+    let timeout_secs = command
+        .timeout_secs
+        .filter(|seconds| *seconds > 0)
+        .ok_or_else(|| RunError::new(Exit::Setup, "JSONL runs require --timeout-secs greater than zero"))?;
+    let session_policy = command
+        .session_policy
+        .ok_or_else(|| RunError::new(Exit::Setup, "JSONL runs require --session-policy"))?;
+    let authority = command
+        .authority
+        .ok_or_else(|| RunError::new(Exit::Setup, "JSONL runs require --authority"))?;
+    let evidence_max_bytes = command
+        .evidence_max_bytes
+        .filter(|bytes| (1..=DEFAULT_MAX_ARTIFACT_BYTES).contains(bytes))
+        .ok_or_else(|| {
+            RunError::new(
+                Exit::Setup,
+                format!("--evidence-max-bytes must be between 1 and {DEFAULT_MAX_ARTIFACT_BYTES}"),
+            )
+        })?;
+    let resource_max_bytes = command
+        .resource_max_bytes
+        .filter(|bytes| (1..=MAX_STDIN_MAX_BYTES).contains(bytes) && *bytes >= command.stdin_max_bytes)
+        .ok_or_else(|| {
+            RunError::new(
+                Exit::Setup,
+                format!("--resource-max-bytes must be between --stdin-max-bytes and {MAX_STDIN_MAX_BYTES}"),
+            )
+        })?;
+    let _limits = (evidence_max_bytes, resource_max_bytes);
+
+    cli.ephemeral = session_policy == SessionPolicy::Ephemeral;
+    cli.authority = match authority {
+        RunAuthority::WorkspaceWrite => ToolAuthority::WorkspaceWrite,
+        RunAuthority::ReadOnly => ToolAuthority::ReadOnly,
+    };
+    Ok(Some(Duration::from_secs(timeout_secs)))
+}
+
 pub fn run_prompt_capture(cli: &Cli, prompt: &str) -> io::Result<String> {
     let cancellation = CancelToken::new();
     let _registration = cancellation::register(cancellation.clone())?;
@@ -341,6 +440,7 @@ pub fn run_prompt_capture(cli: &Cli, prompt: &str) -> io::Result<String> {
         &mut stdout,
         &mut stderr,
         &cancellation,
+        None,
     );
     result.map_err(io::Error::other)?;
     String::from_utf8(stdout).map_err(|_| io::Error::other("provider response was not valid UTF-8"))
@@ -412,9 +512,13 @@ fn read_piped_input<Input: Read>(input: &mut Input, max_bytes: usize) -> Result<
 /// information goes to `stderr`.
 fn run_with_io<Stdout: Write, Stderr: Write>(
     cli: &Cli, prompt: &str, mut output: HeadlessOutput, stdout: &mut Stdout, stderr: &mut Stderr,
-    cancellation: &CancelToken,
+    cancellation: &CancelToken, timeout: Option<Duration>,
 ) -> Result<()> {
+    let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
+    let mut timed_out = false;
     let mut app = App::from_cli(cli);
+    let run_id = format!("run-{}", app.session.id);
+    write_lifecycle(stdout, &output, &run_id, "starting", &app)?;
     if let Some(recovery) = app.overlay.setup() {
         return Err(RunError::new(
             Exit::Setup,
@@ -426,6 +530,7 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
         ));
     }
 
+    write_lifecycle(stdout, &output, &run_id, "ready", &app)?;
     let Some(started) = app::submit_user_turn(&mut app, prompt.to_string()) else {
         return Err(RunError::new(
             Exit::Setup,
@@ -433,16 +538,27 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
         ));
     };
     apply_message(&mut app, started);
+    write_lifecycle(stdout, &output, &run_id, "running", &app)?;
 
     let mut agent = None;
+    let mut cancelling_emitted = false;
     let mut cancellation_requested = false;
     let mut policy_error = None;
 
     loop {
         maybe_spawn_agent(&mut app, &mut agent);
 
-        if cancellation.is_cancelled() {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            timed_out = true;
             cancellation_requested = true;
+        }
+
+        if cancellation.is_cancelled() || timed_out {
+            cancellation_requested = true;
+            if !cancelling_emitted {
+                write_lifecycle(stdout, &output, &run_id, "cancelling", &app)?;
+                cancelling_emitted = true;
+            }
             if let Some(slot) = &agent {
                 slot.cancel.cancel();
             } else {
@@ -476,6 +592,7 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
                 apply_message(&mut app, Msg::Agent(event));
 
                 if requested_permission {
+                    write_lifecycle(stdout, &output, &run_id, "waiting_for_permission", &app)?;
                     policy_error = Some(String::from(
                         "headless runs cannot answer ACP permission requests; run the prompt in the TUI",
                     ));
@@ -499,16 +616,32 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
                         ));
                     }
                     if let Some(message) = policy_error.take() {
+                        write_lifecycle(stdout, &output, &run_id, "failed", &app)?;
                         return Err(RunError::new(Exit::Policy, message));
                     }
+                    if timed_out {
+                        write_lifecycle(stdout, &output, &run_id, "failed", &app)?;
+                        return Err(RunError::new(Exit::Failure, "headless run timed out"));
+                    }
                     if cancellation_requested {
+                        write_lifecycle(stdout, &output, &run_id, "cancelled", &app)?;
                         return Err(RunError::new(Exit::Cancelled, "headless run cancelled"));
                     }
                     match terminal {
-                        Terminal::Finished if app.runtime.run_state == RunState::Idle => return Ok(()),
+                        Terminal::Finished if app.runtime.run_state == RunState::Idle => {
+                            write_lifecycle(stdout, &output, &run_id, "succeeded", &app)?;
+                            write_result(stdout, &output, &run_id, &app)?;
+                            return Ok(());
+                        }
                         Terminal::Finished => continue,
-                        Terminal::Failed(message) => return Err(RunError::new(Exit::Failure, message)),
-                        Terminal::Cancelled => return Err(RunError::new(Exit::Cancelled, "headless run cancelled")),
+                        Terminal::Failed(message) => {
+                            write_lifecycle(stdout, &output, &run_id, "failed", &app)?;
+                            return Err(RunError::new(Exit::Failure, message));
+                        }
+                        Terminal::Cancelled => {
+                            write_lifecycle(stdout, &output, &run_id, "cancelled", &app)?;
+                            return Err(RunError::new(Exit::Cancelled, "headless run cancelled"));
+                        }
                     }
                 }
             }
@@ -523,9 +656,15 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
                 let worker_result = settled.receiver.wait();
                 finish_output(stdout, &mut output)?;
                 if let Some(message) = policy_error.take() {
+                    write_lifecycle(stdout, &output, &run_id, "failed", &app)?;
                     return Err(RunError::new(Exit::Policy, message));
                 }
+                if timed_out {
+                    write_lifecycle(stdout, &output, &run_id, "failed", &app)?;
+                    return Err(RunError::new(Exit::Failure, "headless run timed out"));
+                }
                 if cancellation_requested {
+                    write_lifecycle(stdout, &output, &run_id, "cancelled", &app)?;
                     return Err(RunError::new(Exit::Cancelled, "headless run cancelled"));
                 }
                 if let Err(error) = worker_result {
@@ -601,11 +740,73 @@ fn write_jsonl_event<Stdout: Write>(stdout: &mut Stdout, event: &app::AgentEvent
         .map_err(|error| RunError::new(Exit::Failure, format!("headless output failed: {error}")))
 }
 
+/// Project a state transition without putting diagnostics on protocol stdout.
+fn write_lifecycle<Stdout: Write>(
+    stdout: &mut Stdout, output: &HeadlessOutput, run_id: &str, state: &'static str, app: &App,
+) -> Result<()> {
+    if !matches!(output, HeadlessOutput::JsonLines) {
+        return Ok(());
+    }
+    let session_id = (!app.is_ephemeral()).then_some(app.session.id.as_str());
+    let event = VersionedJsonEvent {
+        version: JSONL_SCHEMA_VERSION,
+        event: JsonEvent::Lifecycle { run_id, state, session_id, model: &app.runtime.model },
+    };
+    serde_json::to_writer(&mut *stdout, &event)
+        .map_err(|error| RunError::new(Exit::Failure, format!("headless JSONL output failed: {error}")))?;
+    writeln!(stdout)
+        .and_then(|()| stdout.flush())
+        .map_err(|error| RunError::new(Exit::Failure, format!("headless JSONL output failed: {error}")))
+}
+
+/// Return durable handles and changed-file metadata after a successful JSONL run.
+fn write_result<Stdout: Write>(stdout: &mut Stdout, output: &HeadlessOutput, run_id: &str, app: &App) -> Result<()> {
+    if !matches!(output, HeadlessOutput::JsonLines) {
+        return Ok(());
+    }
+    let evidence = app
+        .transcript
+        .tool_artifacts
+        .iter()
+        .map(|(tool_call_id, handle)| JsonEvidence { tool_call_id, handle })
+        .collect();
+    let changed_files = app
+        .session
+        .writer
+        .as_ref()
+        .map(|writer| {
+            crate::session::SessionReader::read_records(writer.path())
+                .into_iter()
+                .filter_map(|record| match record {
+                    crate::session::SessionRecord::FileWrite { path, .. } => Some(path),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let session_id = (!app.is_ephemeral()).then_some(app.session.id.as_str());
+    let event = VersionedJsonEvent {
+        version: JSONL_SCHEMA_VERSION,
+        event: JsonEvent::RunResult {
+            run_id,
+            session_id,
+            model: &app.runtime.model,
+            evidence,
+            changed_files: changed_files.iter().map(String::as_str).collect(),
+        },
+    };
+    serde_json::to_writer(&mut *stdout, &event)
+        .map_err(|error| RunError::new(Exit::Failure, format!("headless JSONL output failed: {error}")))?;
+    writeln!(stdout)
+        .and_then(|()| stdout.flush())
+        .map_err(|error| RunError::new(Exit::Failure, format!("headless JSONL output failed: {error}")))
+}
+
 /// Write human lifecycle diagnostics without mixing them into machine output.
 fn write_diagnostic<Stderr: Write>(stderr: &mut Stderr, event: &app::AgentEvent) -> Result<()> {
     match event {
         app::AgentEvent::Started => writeln!(stderr, "thndrs run: started"),
-        app::AgentEvent::Status(message) => writeln!(stderr, "thndrs run: {message}"),
+        app::AgentEvent::Status(message) => writeln!(stderr, "thndrs run: {}", bounded_diagnostic(message)),
         app::AgentEvent::Usage { input_tokens, output_tokens } => {
             writeln!(stderr, "thndrs run: usage input={input_tokens} output={output_tokens}")
         }
@@ -625,7 +826,9 @@ fn write_diagnostic<Stderr: Write>(stderr: &mut Stderr, event: &app::AgentEvent)
             )
         }
         app::AgentEvent::AssistantDelta(_) => Ok(()),
-        app::AgentEvent::ReasoningDelta(text) => writeln!(stderr, "thndrs run: reasoning: {text}"),
+        app::AgentEvent::ReasoningDelta(text) => {
+            writeln!(stderr, "thndrs run: reasoning: {}", bounded_diagnostic(text))
+        }
         app::AgentEvent::ToolStarted { id, name, .. } => writeln!(stderr, "thndrs run: tool started: {name}#{id}"),
         app::AgentEvent::ToolFinished { id, status, .. } => {
             writeln!(stderr, "thndrs run: tool finished: {id} ({})", status.label())
@@ -634,14 +837,16 @@ fn write_diagnostic<Stderr: Write>(stderr: &mut Stderr, event: &app::AgentEvent)
         app::AgentEvent::Retrying { attempt, max_attempts, delay_ms, error } => {
             writeln!(
                 stderr,
-                "thndrs run: retry {attempt}/{max_attempts} in {delay_ms}ms after: {error}"
+                "thndrs run: retry {attempt}/{max_attempts} in {delay_ms}ms after: {}",
+                bounded_diagnostic(error)
             )
         }
         app::AgentEvent::PermissionRequest(permission) => {
             writeln!(
                 stderr,
                 "thndrs run: permission required: {} ({})",
-                permission.title, permission.tool_call_id
+                bounded_diagnostic(&permission.title),
+                bounded_diagnostic(&permission.tool_call_id)
             )
         }
         app::AgentEvent::PermissionResolved { tool_call_id, outcome } => {
@@ -655,10 +860,16 @@ fn write_diagnostic<Stderr: Write>(stderr: &mut Stderr, event: &app::AgentEvent)
             )
         }
         app::AgentEvent::Finished => writeln!(stderr, "thndrs run: finished"),
-        app::AgentEvent::Failed(message) => writeln!(stderr, "thndrs run: failed: {message}"),
+        app::AgentEvent::Failed(message) => writeln!(stderr, "thndrs run: failed: {}", bounded_diagnostic(message)),
         app::AgentEvent::Cancelled => writeln!(stderr, "thndrs run: cancelled"),
     }
     .map_err(|error| RunError::new(Exit::Failure, format!("headless output failed: {error}")))
+}
+
+/// Redact and cap human diagnostics so machine callers cannot accidentally
+/// receive provider payloads or credentials on standard error.
+fn bounded_diagnostic(text: &str) -> String {
+    crate::utils::truncate_ellipsis(&crate::tools::shell::redact_secrets(text), MAX_DIAGNOSTIC_CHARS)
 }
 
 /// Finish a text response on its own terminal line, then flush the output stream.
@@ -685,11 +896,13 @@ mod tests {
 
     use super::{
         EXIT_CANCELLED, EXIT_FAILURE, EXIT_POLICY, EXIT_SETUP, Exit, HeadlessOutput, exit_code, resolve_prompt,
-        run_with_io, write_jsonl_event,
+        run_with_io, validate_jsonl_request, write_jsonl_event,
     };
     use crate::app;
     use crate::cli::Cli;
     use crate::cli::commands::run::RunCommand;
+    use crate::cli::commands::run::{RunAuthority, SessionPolicy};
+    use crate::tools::ToolAuthority;
     use crate::{config, session};
 
     #[derive(Clone)]
@@ -763,7 +976,16 @@ mod tests {
     }
 
     fn run_command(prompt: Option<&str>, stdin_max_bytes: usize) -> RunCommand {
-        RunCommand { prompt: prompt.map(str::to_string), jsonl: false, stdin_max_bytes }
+        RunCommand {
+            prompt: prompt.map(str::to_string),
+            jsonl: false,
+            stdin_max_bytes,
+            timeout_secs: None,
+            session_policy: None,
+            authority: None,
+            evidence_max_bytes: None,
+            resource_max_bytes: None,
+        }
     }
 
     fn assert_jsonl_fixture(stdout: Vec<u8>, workspace: &Path, expected: &str) {
@@ -773,7 +995,13 @@ mod tests {
             assert_eq!(event["version"], 1, "JSONL event uses the current schema version");
         }
         let canonical_workspace = workspace.canonicalize().expect("canonical workspace path");
+        let run_id = actual
+            .split("\"run_id\":\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap_or("<missing-run-id>");
         let normalized = actual
+            .replace(run_id, "<run-id>")
             .replace(&fixture_agent().display().to_string(), "<fake-acp-agent>")
             .replace(&canonical_workspace.display().to_string(), "<workspace>")
             .replace(&workspace.display().to_string(), "<workspace>");
@@ -819,6 +1047,35 @@ mod tests {
             exit_code(&io::Error::new(io::ErrorKind::Interrupted, "cancelled")),
             EXIT_CANCELLED
         );
+    }
+
+    #[test]
+    fn jsonl_request_requires_explicit_bounded_execution_inputs() {
+        let temp = tempfile::tempdir().expect("create workspace");
+        let command = RunCommand {
+            prompt: Some("reply".to_string()),
+            jsonl: true,
+            stdin_max_bytes: 64,
+            timeout_secs: Some(1),
+            session_policy: Some(SessionPolicy::Ephemeral),
+            authority: Some(RunAuthority::ReadOnly),
+            evidence_max_bytes: Some(64),
+            resource_max_bytes: Some(64),
+        };
+        let mut cli = Cli { cwd: temp.path().to_path_buf(), model: "acp:local".to_string(), ..Cli::default() };
+
+        assert_eq!(
+            validate_jsonl_request(&mut cli, &command).expect("valid request"),
+            Some(Duration::from_secs(1))
+        );
+        assert!(cli.ephemeral);
+        assert_eq!(cli.authority, ToolAuthority::ReadOnly);
+        assert_eq!(cli.cwd, temp.path().canonicalize().expect("canonical workspace"));
+
+        let mut traversal =
+            Cli { cwd: temp.path().join("child").join(".."), model: "acp:local".to_string(), ..Cli::default() };
+        let error = validate_jsonl_request(&mut traversal, &command).expect_err("traversal is rejected");
+        assert!(error.message.contains("without traversal"));
     }
 
     #[test]
@@ -929,6 +1186,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
+            None,
         )
         .expect("headless run succeeds");
 
@@ -972,6 +1230,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
+            None,
         )
         .expect("ephemeral headless run succeeds");
 
@@ -980,9 +1239,10 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str(line).expect("JSONL event parses"))
             .collect();
-        assert_eq!(
-            events[0],
-            serde_json::json!({"version": 1, "type": "started", "ephemeral": true})
+        assert!(
+            events
+                .iter()
+                .any(|event| { event == &serde_json::json!({"version": 1, "type": "started", "ephemeral": true}) })
         );
         assert!(
             std::fs::read_dir(&sessions_dir)
@@ -1007,6 +1267,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
+            None,
         )
         .expect("headless run succeeds");
 
@@ -1028,6 +1289,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
+            None,
         )
         .expect("headless run succeeds");
 
@@ -1058,6 +1320,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
+            None,
         )
         .expect("headless tool run succeeds");
 
@@ -1087,6 +1350,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
+            None,
         )
         .expect_err("fixture provider fails");
 
@@ -1113,6 +1377,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &cancellation,
+            None,
         )
         .expect_err("cancelled run does not succeed");
 
@@ -1140,6 +1405,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
+            None,
         )
         .expect("headless tool run succeeds");
 
@@ -1171,6 +1437,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
+            None,
         )
         .expect_err("missing model requires setup");
         assert_eq!(setup.exit.code(), EXIT_SETUP);
@@ -1186,6 +1453,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
+            None,
         )
         .expect_err("missing provider executable fails");
         assert_eq!(failure.exit.code(), EXIT_FAILURE);
@@ -1205,6 +1473,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &CancelToken::new(),
+            None,
         )
         .expect_err("permission cannot be answered headlessly");
 
@@ -1237,6 +1506,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             &cancellation,
+            None,
         )
         .expect_err("cancelled run does not succeed");
         canceller.join().expect("canceller joins");

@@ -105,9 +105,26 @@ fn run_jsonl_streams_versioned_events_without_human_output_on_stdout() {
     let workspace = tempdir().expect("create workspace");
     write_fixture_config(workspace.path(), "lifecycle");
 
-    let output = headless_command(workspace.path(), &["run", "--jsonl", "reply"])
-        .output()
-        .expect("run JSONL headless command");
+    let output = headless_command(
+        workspace.path(),
+        &[
+            "run",
+            "--jsonl",
+            "--timeout-secs",
+            "2",
+            "--session-policy",
+            "ephemeral",
+            "--authority",
+            "read-only",
+            "--evidence-max-bytes",
+            "64",
+            "--resource-max-bytes",
+            "65536",
+            "reply",
+        ],
+    )
+    .output()
+    .expect("run JSONL headless command");
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");

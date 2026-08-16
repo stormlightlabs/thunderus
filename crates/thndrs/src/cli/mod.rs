@@ -599,6 +599,7 @@ mod tests {
                 prompt: None,
                 jsonl: true,
                 stdin_max_bytes: 128,
+                ..
             }))
         ));
     }
