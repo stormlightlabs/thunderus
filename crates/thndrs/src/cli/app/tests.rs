@@ -337,6 +337,7 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
             path: None,
             display_path: Some(".thndrs/config.toml".to_string()),
             hash: Some("abc123".to_string()),
+            active: true,
         }],
         config_origins: origins,
         ..Cli::default()
@@ -2292,7 +2293,12 @@ fn reading_a_discovered_skill_announces_it_during_the_run_once() {
 
     let mut app = fresh_app();
     app.runtime.cwd = dir.path().to_path_buf();
-    app.transcript.skills = skills::discover(dir.path(), &[]).skills;
+    let mut skill = test_skill(
+        skill_dir.join("SKILL.md"),
+        "---\nname: review\ndescription: Reviews changes.\n---\n\n# Review\n\nInspect the diff.\n",
+    );
+    skill.name = "review".to_string();
+    app.transcript.skills = vec![skill];
     let arguments = r#"{"path":".agents/skills/review/SKILL.md","start_line":1,"end_line":20}"#.to_string();
 
     for id in ["first", "second"] {

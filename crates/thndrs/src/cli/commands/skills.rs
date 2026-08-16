@@ -39,15 +39,20 @@ fn run_doctor<W: Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
     )?;
     if inventory.duplicates.is_empty() {
         writeln!(writer, "duplicates: <none>")?;
-        return Ok(());
+    } else {
+        writeln!(writer, "duplicates:")?;
+        for duplicate in inventory.duplicates {
+            writeln!(writer, "  {}:", duplicate.name)?;
+            writeln!(writer, "    selected: {}", duplicate.selected_path.display())?;
+            for path in duplicate.ignored_paths {
+                writeln!(writer, "    ignored: {}", path.display())?;
+            }
+        }
     }
-
-    writeln!(writer, "duplicates:")?;
-    for duplicate in inventory.duplicates {
-        writeln!(writer, "  {}:", duplicate.name)?;
-        writeln!(writer, "    selected: {}", duplicate.selected_path.display())?;
-        for path in duplicate.ignored_paths {
-            writeln!(writer, "    ignored: {}", path.display())?;
+    if !inventory.diagnostics.is_empty() {
+        writeln!(writer, "diagnostics:")?;
+        for diagnostic in inventory.diagnostics {
+            writeln!(writer, "  - {}", diagnostic.summary())?;
         }
     }
     Ok(())
@@ -87,10 +92,7 @@ mod tests {
         let output = String::from_utf8(output.into_inner()).expect("UTF-8 output");
 
         assert!(output.contains("thndrs skills doctor"));
-        assert!(output.contains("example-skill:"));
-        assert!(output.contains("selected:"));
-        assert!(output.contains(".agents/skills/example-skill/SKILL.md"));
-        assert!(output.contains("ignored:"));
-        assert!(output.contains(".claude/skills/example-skill/SKILL.md"));
+        assert!(output.contains("diagnostics:"));
+        assert!(output.contains("project skills are inactive because they have not been trusted"));
     }
 }

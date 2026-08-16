@@ -229,6 +229,11 @@ pub enum Command {
         #[command(subcommand)]
         command: commands::skills::SkillsCommand,
     },
+    /// Inspect, grant, or revoke trust for project runtime resources.
+    Trust {
+        #[command(subcommand)]
+        command: commands::trust::TrustCommand,
+    },
     /// Run one coding prompt without opening the terminal interface.
     Run(commands::run::RunCommand),
     /// Review one change target with read-only tools and structured findings.
@@ -670,7 +675,12 @@ mod tests {
 
         assert_eq!(cli.model, "cli-model");
         assert_eq!(cli.websearch, WebSearchMode::DuckDuckGo);
-        assert_eq!(cli.tick_rate_ms, 250);
+        assert_eq!(cli.tick_rate_ms, DEFAULT_TICK_RATE_MS);
+        assert!(
+            cli.config_diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("project runtime configuration is inactive"))
+        );
         assert!(cli.verbose);
         assert_eq!(cli.theme, Theme::CatppuccinMocha);
         assert!(cli.mouse);
@@ -727,13 +737,18 @@ mod tests {
             .expect("load config");
 
         assert_eq!(cli.cwd, workspace);
-        assert_eq!(cli.model, "opencode/big-pickle");
-        assert_eq!(
+        assert_ne!(cli.model, "opencode/big-pickle");
+        assert_ne!(
             cli.config_origins.get("model"),
             Some(&config::ConfigOrigin {
                 source: config::ConfigSource::ProjectFile,
                 detail: ".thndrs/config.toml".to_string()
             })
+        );
+        assert!(
+            cli.config_diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("project runtime configuration is inactive"))
         );
     }
 
@@ -759,9 +774,13 @@ mod tests {
             .expect("parse args")
             .expect("load config");
 
-        assert_eq!(cli.model, "acp:local");
-        assert_eq!(cli.acp_agents["local"].command, "agent");
-        assert_eq!(cli.acp_agents["local"].args, vec!["--stdio"]);
+        assert_ne!(cli.model, "acp:local");
+        assert!(cli.acp_agents.is_empty());
+        assert!(
+            cli.config_diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("project runtime configuration is inactive"))
+        );
     }
 
     #[test]
@@ -900,6 +919,24 @@ mod tests {
             cli.command,
             Some(Command::Doctor(commands::doctor::DoctorCommand { json: true }))
         );
+    }
+
+    #[test]
+    fn trust_commands_parse() {
+        let status = Cli::try_parse_from(["thndrs", "trust", "status"]).expect("parse trust status");
+        assert!(matches!(
+            status.command,
+            Some(Command::Trust { command: commands::trust::TrustCommand::Status })
+        ));
+        let grant = Cli::try_parse_from(["thndrs", "trust", "grant", "prompt-templates"]).expect("parse trust grant");
+        assert!(matches!(
+            grant.command,
+            Some(Command::Trust {
+                command: commands::trust::TrustCommand::Grant {
+                    scope: commands::trust::TrustScopeArg::PromptTemplates
+                }
+            })
+        ));
     }
 
     #[test]

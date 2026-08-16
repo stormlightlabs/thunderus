@@ -13,6 +13,7 @@ use markdown::{Constructs, ParseOptions, mdast::Node};
 use serde::{Deserialize, Serialize};
 
 use crate::tools;
+use crate::trust::{self, ProjectTrust, ProjectTrustScope};
 use crate::utils;
 
 enum SkillConstants {
@@ -219,11 +220,69 @@ pub fn default_skill_dirs(workspace_root: &Path, configured: &[PathBuf]) -> Vec<
 }
 
 pub fn discover(workspace_root: &Path, configured_dirs: &[PathBuf]) -> SkillInventory {
-    let roots = default_skill_dirs(workspace_root, configured_dirs)
+    let roots = default_skill_dirs(workspace_root, configured_dirs);
+    let project_roots = roots
+        .iter()
+        .filter_map(|(path, source)| (*source == SkillSource::Project).then_some(path.clone()))
+        .collect::<Vec<_>>();
+    let (project_active, trust_diagnostic) = project_resources_active(
+        workspace_root,
+        ProjectTrustScope::Skills,
+        &project_roots,
+        "project skills",
+    );
+    let roots = roots
         .into_iter()
+        .filter(|(_, source)| project_active || *source != SkillSource::Project)
         .map(|(path, source)| SkillRoot { path, source })
         .collect::<Vec<_>>();
-    discover_from_roots(roots)
+    let mut inventory = discover_from_roots(roots);
+    if let Some(diagnostic) = trust_diagnostic {
+        inventory
+            .diagnostics
+            .push(SkillDiagnostic::new(workspace_root, diagnostic));
+    }
+    inventory
+}
+
+fn project_resources_active(
+    workspace_root: &Path, scope: ProjectTrustScope, roots: &[PathBuf], label: &str,
+) -> (bool, Option<String>) {
+    let fingerprint = match trust::fingerprint_directories(workspace_root, roots) {
+        Ok(Some(fingerprint)) => fingerprint,
+        Ok(None) => return (true, None),
+        Err(error) => {
+            return (
+                false,
+                Some(format!(
+                    "{label} are inactive because their trust state could not be inspected: {error}"
+                )),
+            );
+        }
+    };
+    match trust::project_trust(workspace_root, scope, &fingerprint) {
+        Ok(ProjectTrust::Trusted) => (true, None),
+        Ok(ProjectTrust::Untrusted) => (
+            false,
+            Some(format!(
+                "{label} are inactive because they have not been trusted; inspect with `thndrs trust status` and approve with `thndrs trust grant {}`",
+                scope.label()
+            )),
+        ),
+        Ok(ProjectTrust::Stale { .. }) => (
+            false,
+            Some(format!(
+                "{label} are inactive because they changed since they were trusted; inspect with `thndrs trust status` and approve with `thndrs trust grant {}`",
+                scope.label()
+            )),
+        ),
+        Err(error) => (
+            false,
+            Some(format!(
+                "{label} are inactive because their trust state could not be inspected: {error}"
+            )),
+        ),
+    }
 }
 
 pub fn load_skill(skill: &SkillMetadata) -> Result<LoadedSkill, SkillDiagnostic> {

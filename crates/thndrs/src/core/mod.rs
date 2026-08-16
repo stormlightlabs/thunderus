@@ -17,4 +17,5 @@ pub mod review;
 pub mod search;
 pub mod skills;
 pub mod tools;
+pub mod trust;
 pub mod utils;

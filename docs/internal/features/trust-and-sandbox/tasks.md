@@ -2,11 +2,11 @@
 
 ## SAFETY-1: Gate project runtime configuration on trust
 
-- [ ] Scope trust for project ACP, prompt templates, commands, hooks, skills,
+- [x] Scope trust for project ACP, prompt templates, commands, hooks, skills,
       and MCP.
-- [ ] Ignore untrusted project runtime configuration and show what was ignored.
-- [ ] Make decisions durable, inspectable, scoped, and revocable.
-- [ ] Prevent project resources from rewriting harness identity, direct
+- [x] Ignore untrusted project runtime configuration and show what was ignored.
+- [x] Make decisions durable, inspectable, scoped, and revocable.
+- [x] Prevent project resources from rewriting harness identity, direct
       instructions, tool schemas, provider boundaries, or safety policy.
 
 ## SAFETY-2: Define the sandbox execution boundary

@@ -21,7 +21,7 @@ pub use cli::{app, input, renderer};
 pub use prelude::*;
 pub use thndrs_core::{
     acp, artifacts, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, review, search,
-    skills, tools, utils,
+    skills, tools, trust, utils,
 };
 
 #[cfg(test)]
@@ -78,6 +78,7 @@ use cli::{
     commands::debug::DebugCommand,
     commands::mcp::McpCommand,
     commands::session::{SessionCommand, SessionDataFormat, SessionReportFormat},
+    commands::trust::{TrustCommand, TrustScopeArg},
 };
 use mcp::manager::McpManager;
 use prompt::PromptBundle;
@@ -320,6 +321,7 @@ fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
         Command::Acp { command } => run_acp_command(cli, command),
         Command::Mcp { command } => run_mcp_command(cli, command),
         Command::Skills { command } => commands::skills::run(cli, command),
+        Command::Trust { command } => run_trust_command(cli, command),
         Command::Run(command) => headless::run_command(cli, command),
         Command::Review(command) => review::run_command(cli, command),
         Command::Context(command) => run_context_command(cli, command),
@@ -340,6 +342,114 @@ fn load_mcp_manager_for_workspace(workspace: &Path) -> io::Result<Arc<McpManager
 fn load_effective_mcp_for_workspace(workspace: &Path) -> io::Result<mcp::config::EffectiveMcpConfig> {
     let env_vars: Vec<(String, String)> = std::env::vars().collect();
     mcp::config::load_effective_mcp(workspace, &env_vars).map_err(io::Error::other)
+}
+
+fn run_trust_command(cli: &Cli, command: &TrustCommand) -> io::Result<()> {
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    match command {
+        TrustCommand::Status => {
+            writeln!(writer, "project runtime trust")?;
+            writeln!(writer, "workspace: {}", workspace.display())?;
+            for scope in [
+                TrustScopeArg::Configuration,
+                TrustScopeArg::PromptTemplates,
+                TrustScopeArg::Skills,
+                TrustScopeArg::Commands,
+                TrustScopeArg::Mcp,
+                TrustScopeArg::Hooks,
+            ] {
+                match project_resource_fingerprint(&workspace, scope) {
+                    Ok(Some(hash)) => {
+                        let state = crate::trust::project_trust(&workspace, trust_scope(scope), &hash)?;
+                        writeln!(
+                            writer,
+                            "{}: {} ({hash})",
+                            trust_scope(scope).label(),
+                            trust_state_label(&state)
+                        )?;
+                    }
+                    Ok(None) => writeln!(writer, "{}: not found", trust_scope(scope).label())?,
+                    Err(error) => writeln!(writer, "{}: unavailable ({error})", trust_scope(scope).label())?,
+                }
+            }
+            writeln!(
+                writer,
+                "trust controls project resource loading; it does not grant tool or process authority"
+            )
+        }
+        TrustCommand::Grant { scope } => {
+            let hash = project_resource_fingerprint(&workspace, *scope)?.ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("no project {} resources found", trust_scope(*scope).label()),
+                )
+            })?;
+            crate::trust::trust_project(&workspace, trust_scope(*scope), &hash)?;
+            writeln!(writer, "trusted project {} resources", trust_scope(*scope).label())?;
+            writeln!(writer, "sha256: {hash}")?;
+            writeln!(writer, "scope: workspace={}", workspace.display())?;
+            writeln!(
+                writer,
+                "trust controls project resource loading; it does not grant tool or process authority"
+            )
+        }
+        TrustCommand::Revoke { scope } => {
+            if crate::trust::revoke_project_trust(&workspace, trust_scope(*scope))? {
+                writeln!(
+                    writer,
+                    "revoked project {} trust for {}",
+                    trust_scope(*scope).label(),
+                    workspace.display()
+                )
+            } else {
+                writeln!(
+                    writer,
+                    "project {} trust was not set for {}",
+                    trust_scope(*scope).label(),
+                    workspace.display()
+                )
+            }
+        }
+    }
+}
+
+fn trust_scope(scope: TrustScopeArg) -> crate::trust::ProjectTrustScope {
+    match scope {
+        TrustScopeArg::Configuration => crate::trust::ProjectTrustScope::Configuration,
+        TrustScopeArg::PromptTemplates => crate::trust::ProjectTrustScope::PromptTemplates,
+        TrustScopeArg::Skills => crate::trust::ProjectTrustScope::Skills,
+        TrustScopeArg::Commands => crate::trust::ProjectTrustScope::Commands,
+        TrustScopeArg::Mcp => crate::trust::ProjectTrustScope::Mcp,
+        TrustScopeArg::Hooks => crate::trust::ProjectTrustScope::Hooks,
+    }
+}
+
+fn trust_state_label(state: &crate::trust::ProjectTrust) -> &'static str {
+    match state {
+        crate::trust::ProjectTrust::Trusted => "trusted",
+        crate::trust::ProjectTrust::Untrusted => "blocked by trust",
+        crate::trust::ProjectTrust::Stale { .. } => "blocked; resources changed",
+    }
+}
+
+fn project_resource_fingerprint(workspace: &Path, scope: TrustScopeArg) -> io::Result<Option<String>> {
+    match scope {
+        TrustScopeArg::Configuration => crate::config::project_config_hash(workspace).map_err(io::Error::other),
+        TrustScopeArg::PromptTemplates => {
+            crate::trust::fingerprint_directories(workspace, &[workspace.join(".thndrs/prompts")])
+        }
+        TrustScopeArg::Skills => {
+            let roots = crate::skills::default_skill_dirs(workspace, &[])
+                .into_iter()
+                .filter_map(|(path, source)| (source == crate::skills::SkillSource::Project).then_some(path))
+                .collect::<Vec<_>>();
+            crate::trust::fingerprint_directories(workspace, &roots)
+        }
+        TrustScopeArg::Mcp => crate::mcp::config::project_mcp_config_hash(workspace).map_err(io::Error::other),
+        TrustScopeArg::Commands | TrustScopeArg::Hooks => Ok(None),
+    }
 }
 
 fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()> {
@@ -2857,6 +2967,7 @@ for line in sys.stdin:
                 path: None,
                 display_path: Some(".thndrs/config.toml".to_string()),
                 hash: Some("abc123".to_string()),
+                active: true,
             }],
             config_origins: origins,
             config_diagnostics: vec!["diagnostic with sk-secret".to_string()],
@@ -3809,6 +3920,7 @@ for line in sys.stdin:
                 path: None,
                 display_path: None,
                 hash: None,
+                active: true,
             }],
             ..Cli::default()
         };
@@ -3865,6 +3977,7 @@ for line in sys.stdin:
                 path: None,
                 display_path: None,
                 hash: None,
+                active: true,
             }],
             ..Cli::default()
         };
@@ -3904,6 +4017,7 @@ for line in sys.stdin:
                 path: None,
                 display_path: None,
                 hash: None,
+                active: true,
             }],
             ..Cli::default()
         };
