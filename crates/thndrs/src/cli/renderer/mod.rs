@@ -13,6 +13,7 @@ pub mod highlight;
 pub mod key_hint;
 pub mod layout;
 pub mod live;
+pub mod live_surface;
 pub mod path_display;
 pub mod row;
 mod status;

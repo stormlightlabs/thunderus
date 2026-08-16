@@ -11,21 +11,21 @@ or future sidebar-like view without consulting transcript history.
 
 **Acceptance criteria:**
 
-- [ ] Ratatui owns composer border, padding, wrapping layout, accessories, key
+- [x] Ratatui owns composer border, padding, wrapping layout, accessories, key
       hints, height, and cursor placement. `App` continues to own prompt state
       and editing behavior.
-- [ ] Multiline editing, word-boundary navigation, history navigation, queued
+- [x] Multiline editing, word-boundary navigation, history navigation, queued
       input, mention insertion, bracketed paste, and submit behavior match the
       current composer.
-- [ ] Pickers, permission/setup prompts, help, context/request details, and
+- [x] Pickers, permission/setup prompts, help, context/request details, and
       other current focused surfaces use the shared live-surface layout.
-- [ ] A new bounded sidebar-like view can be added without changing transcript
+- [x] A new bounded sidebar-like view can be added without changing transcript
       projection, transcript commits, or native history code.
-- [ ] Transcript rows enter the layout as projected rows. Ratatui components do
+- [x] Transcript rows enter the layout as projected rows. Ratatui components do
       not classify, rewrap, cache, navigate, or select transcript history.
-- [ ] The layout clips predictably at small terminal sizes and keeps the active
+- [x] The layout clips predictably at small terminal sizes and keeps the active
       composer cursor or focused control visible.
-- [ ] Composer and application views remain keyboard-driven so inline mode can
+- [x] Composer and application views remain keyboard-driven so inline mode can
       preserve native terminal selection and copy.
 
 **Verification:**

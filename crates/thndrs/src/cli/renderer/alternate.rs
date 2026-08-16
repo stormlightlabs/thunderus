@@ -30,6 +30,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::app::{Action, App, Entry, PromptAccessory, PromptState};
 
+use super::live_surface::LiveSurfaceLayout;
 use super::row::{Frame, Row};
 use super::style::{CellStyle, Color, Span};
 use super::view::{
@@ -491,7 +492,7 @@ impl AlternateViewport {
         let anchored = matches!(self.state, ViewportState::Anchored(_));
         let live = LiveView::build(app, width, height, &transcript, &semantic, anchored);
         let view = RendererView { semantic, transcript, live, width, height };
-        let chrome = build_chrome_frame(&view, anchored);
+        let chrome = LiveSurfaceLayout::build(&view.live, width, height).into_frame();
         let chrome_height = chrome.rows.len().min(height);
         let transcript_height = height.saturating_sub(chrome_height);
         let rows = &view.transcript.rows;
@@ -588,53 +589,6 @@ impl AlternateViewport {
                 .filter(|text| !text.is_empty());
         }
     }
-}
-
-/// Build the bottom-pinned prompt, focused surface, queue summary, and footer.
-fn build_chrome_frame(view: &RendererView, _anchored: bool) -> Frame {
-    let width = view.width;
-    let height = view.height;
-    let live = &view.live;
-    let min_prompt_chrome = live.prompt_rows.len() + 1;
-    let keep_prompt_gutters = height >= min_prompt_chrome + 3;
-
-    let mut footer = Vec::new();
-    footer.push(live.static_status.clone());
-    if keep_prompt_gutters {
-        footer.push(Row::blank(width, CellStyle::new()));
-    }
-    let prompt_gutter = keep_prompt_gutters.then(|| Row::blank(width, CellStyle::new()));
-    let accessory = if live.detail_pane.is_empty() { live.accessory_rows.clone() } else { live.detail_pane.clone() };
-    let queued: Vec<Row> = live.queued_summary.clone().into_iter().collect();
-    let reserved = footer.len() + live.prompt_rows.len() + usize::from(prompt_gutter.is_some());
-    let remaining = height.saturating_sub(reserved);
-    let accessory_budget = accessory.len().min(remaining);
-    let queued_budget = queued.len().min(remaining.saturating_sub(accessory_budget));
-
-    let mut frame = Frame::new(width);
-    frame.rows.extend(clip_from_top(queued, queued_budget));
-    frame.rows.extend(clip_from_top(accessory, accessory_budget));
-    if let Some(row) = prompt_gutter {
-        frame.push(row);
-    }
-    let prompt_offset = frame.len();
-    frame.rows.extend(live.prompt_rows.iter().cloned());
-    if let Some(mut cursor) = live.prompt_cursor {
-        cursor.row += prompt_offset;
-        frame.set_cursor(cursor);
-    }
-    frame.rows.extend(footer);
-    frame
-}
-
-fn clip_from_top(mut rows: Vec<Row>, budget: usize) -> Vec<Row> {
-    if budget == 0 {
-        return Vec::new();
-    }
-    if rows.len() > budget {
-        rows = rows.split_off(rows.len() - budget);
-    }
-    rows
 }
 
 fn transcript_positions(rows: &[Row]) -> Vec<TranscriptPosition> {
