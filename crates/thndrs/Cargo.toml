@@ -1,6 +1,6 @@
 [package]
 name = "thndrs"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 rust-version.workspace = true
 description = "Terminal AI pair programmer with local tools, sessions, MCP, and ACP support"
@@ -43,7 +43,7 @@ sha2.workspace = true
 syntect.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-thndrs-agent = { version = "0.1.0", path = "../thndrs-agent" }
+thndrs-agent = { version = "0.1.1", path = "../thndrs-agent" }
 tokio.workspace = true
 tokio-util.workspace = true
 toml.workspace = true

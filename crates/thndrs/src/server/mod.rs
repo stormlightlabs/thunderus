@@ -16,6 +16,7 @@ mod tests;
 use std::path::PathBuf;
 
 use crate::cli::{ReasoningEffort, ReasoningSummary};
+use crate::tools::ToolAuthority;
 use agent_client_protocol::Result;
 use thndrs_agent::context::ReductionConfig;
 
@@ -29,6 +30,8 @@ pub struct ServerConfig {
     pub model: String,
     /// Web search policy label selected for future harness turns.
     pub websearch: String,
+    /// Tool authority enforced for future harness turns.
+    pub authority: ToolAuthority,
     /// Optional base URL for the SearXNG backend.
     pub websearch_url: Option<String>,
     /// Default reasoning effort for ChatGPT Codex GPT-5.6 sessions.
@@ -48,6 +51,7 @@ impl ServerConfig {
             cwd,
             model,
             websearch,
+            authority: ToolAuthority::default(),
             websearch_url: None,
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
@@ -60,6 +64,12 @@ impl ServerConfig {
     pub fn with_reasoning(mut self, effort: ReasoningEffort, summary: ReasoningSummary) -> Self {
         self.reasoning_effort = effort;
         self.reasoning_summary = summary;
+        self
+    }
+
+    /// Apply the configured tool authority.
+    pub fn with_authority(mut self, authority: ToolAuthority) -> Self {
+        self.authority = authority;
         self
     }
 

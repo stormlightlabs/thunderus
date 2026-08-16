@@ -10,7 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/stormlightlabs/thunderus"
 
 [workspace.dependencies]
-agent-client-protocol = "1.0.1"
+agent-client-protocol = "=1.0.1"
 clap = { version = "4.6.1", features = ["derive"] }
 crossterm = "0.29.0"
 ctrlc = "3.4.8"

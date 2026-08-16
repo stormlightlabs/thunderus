@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-#![doc(html_root_url = "https://docs.rs/thndrs-agent/0.1.0")]
+#![doc(html_root_url = "https://docs.rs/thndrs-agent/0.1.1")]
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 

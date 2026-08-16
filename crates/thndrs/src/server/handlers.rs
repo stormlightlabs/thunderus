@@ -1363,6 +1363,7 @@ fn run_prompt_turn(
         .reasoning_summary
         .unwrap_or(state.config.reasoning_summary);
     let mut config = AgentRunConfig::new(session.cwd, model, websearch)
+        .with_authority(state.config.authority)
         .with_search_url(state.config.websearch_url.clone())
         .with_reasoning(effort, summary)
         .with_model_reduction(state.config.model_reduction.clone());

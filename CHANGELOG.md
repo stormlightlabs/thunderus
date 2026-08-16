@@ -41,6 +41,9 @@
   by default.
 - Export request and context timing, token, and transformation metrics through
   OpenTelemetry.
+- Run `thndrs acp serve` as an ACP v1 stdio agent with streamed updates, tool
+  permissions, cancellation, resumable local sessions, and the selected tool
+  authority.
 
 ### Changed
 

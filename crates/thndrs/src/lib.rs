@@ -1353,6 +1353,7 @@ fn run_acp_server(cli: &Cli) -> io::Result<()> {
         cli.websearch.label().to_string(),
         cli.session_dir.clone(),
     )
+    .with_authority(cli.authority)
     .with_search_url(cli.websearch_url.clone())
     .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
     .with_model_reduction(cli.context.reduction.clone());

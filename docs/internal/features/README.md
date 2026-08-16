@@ -14,17 +14,15 @@ ships; its durable decisions can then move to `../archive/`.
 
 | Order | Feature                                        | Current boundary                                                                                                          |
 | ----: | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-|     1 | [Runtime surfaces](runtime-surfaces/plan.md)   | Completes headless JSONL execution and packages the ACP surface on the shared application run path.                       |
-|     2 | [Trust and sandbox](trust-and-sandbox/plan.md) | Establishes shared authority, approval, and sandbox boundaries before more extension surfaces are added.                  |
-|     3 | [MCP](mcp/plan.md)                             | Project-server trust is complete. Resources, lifecycle controls, TUI management, configuration, and distribution remain.  |
-|     4 | [Lifecycle hooks](hooks/plan.md)               | Builds on the shared lifecycle model; project hooks also depend on project trust.                                         |
-|     5 | [Skills](skills/plan.md)                       | Diagnostics, supply-chain policy, and packaged discovery depend on stable trust and runtime boundaries.                   |
-|     6 | [Providers](providers/plan.md)                 | Adds native provider adapters and only then compatible endpoints and account-capacity work.                               |
-|     7 | [Image prompts](image-prompts/plan.md)         | Uses the provider capability model to route and validate image input.                                                     |
+|     1 | [Trust and sandbox](trust-and-sandbox/plan.md) | Establishes shared authority, approval, and sandbox boundaries before more extension surfaces are added.                  |
+|     2 | [MCP](mcp/plan.md)                             | Project-server trust is complete. Resources, lifecycle controls, TUI management, configuration, and distribution remain.  |
+|     3 | [Lifecycle hooks](hooks/plan.md)               | Builds on the shared lifecycle model; project hooks also depend on project trust.                                         |
+|     4 | [Skills](skills/plan.md)                       | Diagnostics, supply-chain policy, and packaged discovery depend on stable trust and runtime boundaries.                   |
+|     5 | [Providers](providers/plan.md)                 | Adds native provider adapters and only then compatible endpoints and account-capacity work.                               |
+|     6 | [Image prompts](image-prompts/plan.md)         | Uses the provider capability model to route and validate image input.                                                     |
 
 ### Task Index
 
-- [Runtime surfaces tasks](runtime-surfaces/tasks.md)
 - [Trust and sandbox tasks](trust-and-sandbox/tasks.md)
 - [MCP tasks](mcp/tasks.md)
 - [Lifecycle hooks tasks](hooks/tasks.md)
@@ -34,5 +32,4 @@ ships; its durable decisions can then move to `../archive/`.
 
 ## v0.2
 
-Will be cut **after runtime surfaces** so v0.2 includes documented headless
-JSONL behavior and a packaged ACP surface.
+Includes documented headless JSONL behavior and the packaged ACP surface.

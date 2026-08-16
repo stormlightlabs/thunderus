@@ -31,6 +31,7 @@ use crate::app::{AgentEvent, ToolStatus};
 use crate::providers::{ProviderContentBlock, ProviderMessageContent};
 use crate::server::ServerConfig;
 use crate::session::{SessionReader, SessionRecord};
+use crate::tools::ToolAuthority;
 use serde_json::Value;
 use thndrs_agent::CancelToken;
 
@@ -579,6 +580,34 @@ fn execute_prompt_uses_selected_config_options() {
             assert_eq!(config.search_mode, WebSearchMode::None);
             assert_eq!(config.reasoning_effort, ReasoningEffort::High);
             assert_eq!(config.reasoning_summary, ReasoningSummary::Auto);
+            HarnessTurn::fake(config, String::new()).start()
+        },
+    )
+    .expect("prompt succeeds");
+
+    assert_eq!(response.stop_reason, StopReason::EndTurn);
+}
+
+#[test]
+fn execute_prompt_preserves_server_authority() {
+    let workspace = tempdir().expect("temp workspace");
+    let state = ServerState::new(
+        ServerConfig::new(
+            workspace.path().to_path_buf(),
+            String::from("opencode/big-pickle"),
+            String::from("duckduckgo"),
+            None,
+        )
+        .with_authority(ToolAuthority::ReadOnly),
+    );
+    let session_id = state.create_session(workspace.path()).expect("session created");
+
+    let response = execute_prompt(
+        &state,
+        &PromptRequest::new(session_id, vec![ContentBlock::Text(TextContent::new("inspect files"))]),
+        |_intent| Ok(()),
+        |config, _messages, _expects_write, _prompt| {
+            assert_eq!(config.authority, ToolAuthority::ReadOnly);
             HarnessTurn::fake(config, String::new()).start()
         },
     )

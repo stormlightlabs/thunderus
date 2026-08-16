@@ -3324,7 +3324,7 @@ dependencies = [
 
 [[package]]
 name = "thndrs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agent-client-protocol",
  "clap",
@@ -3368,7 +3368,7 @@ dependencies = [
 
 [[package]]
 name = "thndrs-agent"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "divan",
  "serde",
