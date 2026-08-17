@@ -23,6 +23,18 @@ pub enum McpCommand {
         /// Configured MCP server name.
         name: String,
     },
+    /// List compact namespaced metadata for resources advertised by one MCP server.
+    Resources {
+        /// Configured MCP server name.
+        name: String,
+    },
+    /// Read one explicitly requested MCP resource as bounded JSON.
+    Resource {
+        /// Configured MCP server name.
+        server: String,
+        /// URI returned by the server's resource list.
+        uri: String,
+    },
     /// Call one MCP tool with JSON object arguments.
     Call {
         /// Configured MCP server name.

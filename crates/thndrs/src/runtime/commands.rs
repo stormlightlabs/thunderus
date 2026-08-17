@@ -45,6 +45,8 @@ pub(crate) fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()>
         McpCommand::Revoke => run_mcp_revoke(cli, &mut lock),
         McpCommand::Test { name } => run_mcp_test(cli, name, &mut lock),
         McpCommand::Tools { name } => run_mcp_tools(cli, name, &mut lock),
+        McpCommand::Resources { name } => run_mcp_resources(cli, name, &mut lock),
+        McpCommand::Resource { server, uri } => run_mcp_resource(cli, server, uri, &mut lock),
         McpCommand::Call { server, tool, json } => run_mcp_call(cli, server, tool, json, &mut lock),
     }
 }
@@ -843,28 +845,19 @@ pub(crate) fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Resul
         return Ok(());
     }
 
-    for (name, server) in &effective.config.servers {
-        let status = if server.enabled { "enabled" } else { "disabled" };
-        let source = effective
-            .server_sources
-            .get(name)
-            .map_or("unknown", |source| source.as_str());
+    for server in mcp::config::server_statuses(&effective) {
         let execution = match server.transport {
             mcp::config::McpTransport::Stdio => "execution=local-process\tpermissions=thndrs-process",
             mcp::config::McpTransport::StreamableHttp => "execution=remote-server\tpermissions=externally-owned",
         };
-        writeln!(
-            writer,
-            "{name}\t{status}\t{:?}\tsource={source}\t{execution}",
-            server.transport,
-        )?;
-    }
-    for (name, server) in &effective.blocked_project_servers {
         let precedence = if server.overrides_global { "\twould-override=global" } else { "" };
         writeln!(
             writer,
-            "{name}\tblocked-by-trust\t{:?}\tsource=project{precedence}",
-            server.transport
+            "{}\t{}\t{:?}\tsource={}\t{execution}{precedence}",
+            server.name,
+            server.state.label(),
+            server.transport,
+            server.source.as_str(),
         )?;
     }
     for diagnostic in effective.diagnostics {
@@ -944,6 +937,42 @@ pub(crate) fn run_mcp_tools<W: io::Write>(cli: &Cli, name: &str, writer: &mut W)
         writeln!(writer, "{}\t{}", tool.name, tool.description)?;
     }
     Ok(())
+}
+
+pub(crate) fn run_mcp_resources<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Result<()> {
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let effective = load_effective_mcp_for_workspace(&workspace)?;
+    let server = configured_mcp_server(&effective, name)?;
+    let client = mcp::manager::McpClient::connect(name.to_string(), &server).map_err(io::Error::other)?;
+    if !client.server_info().resources_available {
+        writeln!(writer, "MCP server `{name}` does not advertise resources")?;
+        return Ok(());
+    }
+    for resource in client.list_resources().map_err(io::Error::other)? {
+        let namespace = mcp::adapter::namespaced_resource_name(name);
+        let mime_type = resource.mime_type.as_deref().unwrap_or("unknown");
+        let size = resource
+            .size
+            .map_or_else(|| "unknown".to_string(), |size| size.to_string());
+        writeln!(
+            writer,
+            "{namespace}\tname={}\turi={}\tmime_type={mime_type}\tsize={size}",
+            resource.name, resource.uri
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn run_mcp_resource<W: io::Write>(
+    cli: &Cli, server_name: &str, uri: &str, writer: &mut W,
+) -> io::Result<()> {
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let effective = load_effective_mcp_for_workspace(&workspace)?;
+    let server = configured_mcp_server(&effective, server_name)?;
+    let client = mcp::manager::McpClient::connect(server_name.to_string(), &server).map_err(io::Error::other)?;
+    let resource = client.read_resource(uri).map_err(io::Error::other)?;
+    serde_json::to_writer(&mut *writer, &resource).map_err(io::Error::other)?;
+    writeln!(writer)
 }
 
 pub(crate) fn run_mcp_call<W: io::Write>(

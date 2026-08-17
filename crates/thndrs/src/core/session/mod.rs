@@ -126,10 +126,11 @@ fn mcp_tool_session_meta(name: &str) -> Option<McpToolSessionMeta> {
     if server_name.is_empty() || original_tool_name.is_empty() {
         return None;
     }
+    let capability = if original_tool_name == "resource_read" { "resource" } else { "tool" };
     Some(McpToolSessionMeta {
         server_name: server_name.to_string(),
         original_tool_name: original_tool_name.to_string(),
-        capability: "tool".to_string(),
+        capability: capability.to_string(),
         requested_authority: "external MCP server access with thndrs process permissions".to_string(),
     })
 }

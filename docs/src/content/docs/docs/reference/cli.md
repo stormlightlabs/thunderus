@@ -117,6 +117,10 @@ stdout is protocol-only; diagnostics go to stderr.
   `<server>\tready\t<N> tools`, followed by startup diagnostics.
 - `thndrs mcp tools <name>`: list provider-visible namespaced tools from one
   server as `<mcp__server__tool>\t<description>`.
+- `thndrs mcp resources <name>`: list compact namespaced metadata for resources
+  advertised by one server.
+- `thndrs mcp resource <server> <uri>`: explicitly read one server resource as
+  bounded JSON, preserving media type and distinguishing text from opaque binary data.
 - `thndrs mcp call <server> <tool> --json <args>`: call one original MCP tool
   name with JSON object arguments and print capped tool output lines.
 

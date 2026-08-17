@@ -1102,15 +1102,20 @@ fn unknown_slash_command_is_ignored() {
 #[test]
 fn slash_mcp_lists_empty_config() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let mut app = fresh_app();
-    app.runtime.cwd = temp.path().to_path_buf();
-    app.composer.input = PromptInput::from("/mcp");
+    let home = temp.path().join("home");
+    std::fs::create_dir_all(&home).expect("create home");
 
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    with_isolated_setup_env(&home, || {
+        let mut app = fresh_app();
+        app.runtime.cwd = temp.path().to_path_buf();
+        app.composer.input = PromptInput::from("/mcp");
 
-    assert!(
-        matches!(app.transcript.entries.last(), Some(Entry::Status { text }) if text.contains("no MCP servers configured"))
-    );
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+        assert!(
+            matches!(app.transcript.entries.last(), Some(Entry::Status { text }) if text.contains("no MCP servers configured"))
+        );
+    });
 }
 
 #[test]

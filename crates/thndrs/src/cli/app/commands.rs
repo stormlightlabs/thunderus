@@ -590,17 +590,26 @@ fn cancel_background_process(app: &mut App, id_text: &str) -> Option<Msg> {
 fn list_mcp_servers(app: &mut App) {
     let env_vars: Vec<(String, String)> = std::env::vars().collect();
     match mcp::config::load_effective_mcp(&app.runtime.cwd, &env_vars) {
-        Ok(effective) if effective.config.servers.is_empty() => {
+        Ok(effective) if effective.config.servers.is_empty() && effective.blocked_project_servers.is_empty() => {
             app.transcript
                 .entries
                 .push(Entry::Status { text: String::from("no MCP servers configured") });
         }
         Ok(effective) => {
-            let mut lines = Vec::new();
-            for (name, server) in &effective.config.servers {
-                let status = if server.enabled { "enabled" } else { "disabled" };
-                lines.push(format!("{name}\t{status}\t{:?}", server.transport));
-            }
+            let mut lines = mcp::config::server_statuses(&effective)
+                .into_iter()
+                .map(|server| {
+                    let precedence = if server.overrides_global { "\twould override global" } else { "" };
+                    format!(
+                        "{}\t{}\t{:?}\tsource={}{}",
+                        server.name,
+                        server.state.label(),
+                        server.transport,
+                        server.source.as_str(),
+                        precedence,
+                    )
+                })
+                .collect::<Vec<_>>();
             lines.extend(
                 effective
                     .diagnostics

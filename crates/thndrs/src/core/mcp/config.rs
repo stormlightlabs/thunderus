@@ -103,7 +103,58 @@ pub struct EffectiveMcpConfig {
     pub diagnostics: Vec<String>,
 }
 
-/// Safe metadata for one project MCP definition blocked by trust.
+/// MCP server lifecycle state used consistently by CLI and interactive status surfaces.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum McpLifecycleState {
+    /// The configuration explicitly disables the server.
+    Disabled,
+    /// The project configuration needs an explicit trust decision.
+    BlockedByTrust,
+    /// A client connection is being initialized.
+    Starting,
+    /// The server initialized and all advertised startup operations succeeded.
+    Ready,
+    /// The server initialized but reported a non-fatal diagnostic.
+    Degraded,
+    /// Initialization or a capability operation failed.
+    Failed,
+    /// The server is configured but no client is currently running.
+    Stopped,
+}
+
+impl McpLifecycleState {
+    /// Human-readable label for terminal and TUI status rows.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::BlockedByTrust => "blocked by trust",
+            Self::Starting => "starting",
+            Self::Ready => "ready",
+            Self::Degraded => "degraded",
+            Self::Failed => "failed",
+            Self::Stopped => "stopped",
+        }
+    }
+}
+
+/// Semantic status row for one effective or trust-blocked MCP definition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct McpServerStatus {
+    /// Configured server name.
+    pub name: String,
+    /// Configured transport.
+    pub transport: McpTransport,
+    /// Configuration scope that supplied this definition.
+    pub source: ConfigSource,
+    /// Current lifecycle state.
+    pub state: McpLifecycleState,
+    /// Whether an inactive project definition would replace a global one.
+    pub overrides_global: bool,
+}
+
+/// Project MCP definitions discovered but not activated because trust is absent or stale.
+///
+/// The data intentionally excludes commands, URLs, headers, and environment values.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BlockedMcpServer {
     pub transport: McpTransport,
@@ -231,6 +282,44 @@ pub fn load_effective_mcp(workspace: &Path, env_vars: &[(String, String)]) -> Re
         project_trust,
         diagnostics,
     })
+}
+
+/// Return the validated project MCP file hash, when a file is present.
+/// Project effective and blocked definitions into semantic status rows.
+///
+/// Enabled definitions are stopped until a normal discovery or call path starts
+/// a client. Runtime startup transitions are recorded by [`crate::mcp::manager`].
+pub fn server_statuses(effective: &EffectiveMcpConfig) -> Vec<McpServerStatus> {
+    let mut statuses = effective
+        .config
+        .servers
+        .iter()
+        .map(|(name, server)| McpServerStatus {
+            name: name.clone(),
+            transport: server.transport,
+            source: *effective.server_sources.get(name).unwrap_or(&ConfigSource::Default),
+            state: if server.enabled { McpLifecycleState::Stopped } else { McpLifecycleState::Disabled },
+            overrides_global: false,
+        })
+        .collect::<Vec<_>>();
+    statuses.extend(
+        effective
+            .blocked_project_servers
+            .iter()
+            .map(|(name, server)| McpServerStatus {
+                name: name.clone(),
+                transport: server.transport,
+                source: ConfigSource::ProjectFile,
+                state: McpLifecycleState::BlockedByTrust,
+                overrides_global: server.overrides_global,
+            }),
+    );
+    statuses.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.source.as_str().cmp(right.source.as_str()))
+    });
+    statuses
 }
 
 /// Return the validated project MCP file hash, when a file is present.
@@ -664,6 +753,33 @@ mod tests {
             diagnostics,
             vec!["mcp server `web` skipped: unresolved environment variable MISSING_TOKEN"]
         );
+    }
+
+    #[test]
+    fn status_projection_labels_disabled_and_blocked_servers() {
+        let mut effective = EffectiveMcpConfig {
+            config: McpConfig::default(),
+            layers: Vec::new(),
+            server_sources: BTreeMap::new(),
+            blocked_project_servers: BTreeMap::new(),
+            project_trust: Some(ProjectMcpTrust::Untrusted),
+            diagnostics: Vec::new(),
+        };
+        effective.config.servers.insert(
+            "disabled".to_string(),
+            McpServerConfig { enabled: false, command: "server".to_string(), ..McpServerConfig::default() },
+        );
+        effective.blocked_project_servers.insert(
+            "blocked".to_string(),
+            BlockedMcpServer { transport: McpTransport::Stdio, enabled: true, overrides_global: false },
+        );
+
+        let statuses = server_statuses(&effective);
+
+        assert_eq!(statuses[0].name, "blocked");
+        assert_eq!(statuses[0].state.label(), "blocked by trust");
+        assert_eq!(statuses[1].name, "disabled");
+        assert_eq!(statuses[1].state.label(), "disabled");
     }
 
     #[test]

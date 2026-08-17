@@ -17,24 +17,24 @@
 
 **Blocked by:** EXT-1.
 
-- [ ] List compact namespaced metadata only when a server advertises resources.
-- [ ] Fetch contents explicitly with URI, item, byte, timeout, and
+- [x] List compact namespaced metadata only when a server advertises resources.
+- [x] Fetch contents explicitly with URI, item, byte, timeout, and
       serialization limits.
-- [ ] Preserve media type and distinguish text from opaque binary data.
-- [ ] Apply trust, permission, cancellation, redaction, and auditing.
-- [ ] Isolate resource failures from unrelated servers and tools.
+- [x] Preserve media type and distinguish text from opaque binary data.
+- [x] Apply trust, permission, cancellation, redaction, and auditing.
+- [x] Isolate resource failures from unrelated servers and tools.
 
 ## EXT-3: Make MCP lifecycle and failures diagnosable
 
 **Blocked by:** EXT-1.
 
-- [ ] Use disabled, blocked by trust, starting, ready, degraded, failed, and
+- [x] Use disabled, blocked by trust, starting, ready, degraded, failed, and
       stopped consistently across commands and status surfaces.
-- [ ] Identify configuration scope and failure phase.
-- [ ] Bound and redact stderr and protocol diagnostics.
-- [ ] Isolate failed servers and settle their processes during cancellation and
+- [x] Identify configuration scope and failure phase.
+- [x] Bound and redact stderr and protocol diagnostics.
+- [x] Isolate failed servers and settle their processes during cancellation and
       shutdown.
-- [ ] Recommend only actions supported by the current CLI.
+- [x] Recommend only actions supported by the current CLI.
 
 ## EXT-7: Show blocked MCP configuration in the TUI
 
@@ -50,7 +50,7 @@ it available.
 - [ ] `/mcp` distinguishes active, disabled, and blocked project definitions
       with text labels, configuration scope, and transport.
 - [ ] A project file containing only blocked servers does not produce `no MCP
-      servers configured`.
+    servers configured`.
 - [ ] A blocked definition that would replace a global definition says so.
 - [ ] Blocked output gives the supported recovery command without exposing
       headers, environment values, or other secrets.
@@ -173,22 +173,22 @@ user, the workspace, or an MCP search result.
 
 **Acceptance criteria:**
 
-- [ ] The built-in tool catalog no longer advertises or dispatches
+- [x] The built-in tool catalog no longer advertises or dispatches
       `web_search`, and the DuckDuckGo and SearXNG search implementations are
       removed.
-- [ ] The web-search backend selector and URL are removed from CLI flags,
+- [x] The web-search backend selector and URL are removed from CLI flags,
       layered configuration, environment handling, prompts, runtime state,
       diagnostics, and ACP configuration options.
-- [ ] Existing session records containing historical web-search metadata still
+- [x] Existing session records containing historical web-search metadata still
       decode and can be inspected or resumed without enabling built-in search.
-- [ ] `read_url` retains public-network validation, redirect checks, response
+- [x] `read_url` retains public-network validation, redirect checks, response
       limits, readable extraction, cancellation, and audit behavior.
-- [ ] Namespaced MCP tools whose original names represent web search or fetch
+- [x] Namespaced MCP tools whose original names represent web search or fetch
       use the search or fetch transcript presentation instead of the generic MCP
       presentation. Other MCP tools remain generic.
-- [ ] With no search MCP server configured, the model is not offered a search
+- [x] With no search MCP server configured, the model is not offered a search
       tool and thndrs does not imply that search is available.
-- [ ] Public MCP documentation explains that web search requires a configured
+- [x] Public MCP documentation explains that web search requires a configured
       server, uses `xngmcp` as one example, and does not require its package or
       tool names.
 
@@ -198,8 +198,3 @@ user, the workspace, or an MCP search result.
   transcript classification tests.
 - Exercise one configured search MCP server from discovery through a tool call,
   then pass a returned URL to built-in `read_url`.
-- `cargo fmt`
-- `cargo clippy --workspace --fix --allow-dirty --allow-staged`
-- `cargo clippy --workspace`
-- `cargo test --workspace`
-- `pnpm --dir docs build` after updating public documentation.

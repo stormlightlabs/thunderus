@@ -392,7 +392,7 @@ pub fn dispatch_runtime_full_with_cancel_and_registry(
     if request.name.starts_with("mcp__")
         && let Some(manager) = mcp_manager
     {
-        return (manager.call_tool(request), None, None);
+        return (manager.call_tool(request, cancel), None, None);
     }
     dispatch_full_with_cancel_and_registry(request, root, cancel, process_registry, extra_read_roots)
 }

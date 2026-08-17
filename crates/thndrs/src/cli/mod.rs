@@ -1014,6 +1014,23 @@ mod tests {
             Some(Command::Mcp { command: commands::mcp::McpCommand::Tools { name: "docs".to_string() } })
         );
 
+        let resources = Cli::try_parse_from(["thndrs", "mcp", "resources", "docs"]).expect("parse");
+        assert_eq!(
+            resources.command,
+            Some(Command::Mcp { command: commands::mcp::McpCommand::Resources { name: "docs".to_string() } })
+        );
+
+        let resource = Cli::try_parse_from(["thndrs", "mcp", "resource", "docs", "memo://status"]).expect("parse");
+        assert_eq!(
+            resource.command,
+            Some(Command::Mcp {
+                command: commands::mcp::McpCommand::Resource {
+                    server: "docs".to_string(),
+                    uri: "memo://status".to_string()
+                }
+            })
+        );
+
         let call = Cli::try_parse_from(["thndrs", "mcp", "call", "docs", "echo", "--json", r#"{"text":"ok"}"#])
             .expect("parse");
         assert_eq!(

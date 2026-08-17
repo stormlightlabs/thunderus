@@ -139,6 +139,27 @@ thndrs mcp call docs search --json '{"query":"config"}'
 Session records keep both the configured server name and the original MCP tool
 name so exports remain inspectable.
 
+## Resources
+
+Resources are not added to the model context during startup. List the compact,
+namespaced metadata only when the server advertises resource support:
+
+```sh
+thndrs mcp resources docs
+```
+
+Each row names the `mcp__docs__resource` namespace, resource name, URI, media
+type, and reported size. Fetch one URI explicitly:
+
+```sh
+thndrs mcp resource docs 'memo://status'
+```
+
+The read result is bounded JSON. It preserves the returned URI and media type,
+labels text as `text` and base64 data as `opaque_binary`, and marks omitted
+items or data as truncated. Reads accept at most eight content items and 128
+KiB of serialized data; the server's configured timeout still applies.
+
 ## Diagnostics
 
 MCP commands surface configuration and server failures as diagnostics instead
@@ -152,15 +173,18 @@ thndrs mcp tools docs
 ```
 
 `mcp list` prints each configured or trust-blocked server, its source, status,
-and transport. Active entries also state that no enforcing sandbox is present.
-`mcp status` prints the project trust state and current configuration hash.
-`mcp test` initializes one server and prints readiness plus the tool count.
-`mcp tools` prints provider-visible tool names and descriptions.
+and transport. A configured server is `stopped` until a command or agent run
+starts it; lifecycle labels are `disabled`, `blocked by trust`, `starting`,
+`ready`, `degraded`, `failed`, and `stopped`. Active entries also state that no
+enforcing sandbox is present. `mcp status` prints the project trust state and
+current configuration hash. `mcp test` initializes one server and prints
+readiness plus the tool count. `mcp tools` prints provider-visible tool names
+and descriptions.
 
-Startup diagnostics include skipped servers with unresolved environment
-variables, disabled servers, initialize failures, `tools/list` failures,
-protocol-version mismatch notices, and bounded stderr captured from stdio
-servers.
+Startup diagnostics identify the failed phase, including skipped servers with
+unresolved environment variables, initialize failures, `tools/list` failures,
+`resources/list` and `resources/read` failures, protocol-version mismatch
+notices, and bounded, redacted stderr captured from stdio servers.
 
 ## Security Limits
 
@@ -174,11 +198,13 @@ endpoint and headers.
 MCP configuration cannot rewrite built-in tool schemas, prompt identity, or
 local tool policy.
 
-Agent-initiated MCP calls use the shared tool permission and execution path.
-Calls are timed out, output is capped, deterministic redaction is applied, and
-session records identify the server, tool, requested authority, decision, and
-result. Running `thndrs mcp call` is a direct user action and calls the server
-without an additional prompt.
+Agent-initiated MCP calls, including the `mcp__{server}__resource_read` tool
+available only from servers that advertise resources, use the shared tool
+permission and execution path. Calls are timed out, output is capped,
+deterministic redaction is applied, and session records identify the server,
+capability, requested authority, decision, and result. Running `thndrs mcp
+call` or `mcp resource` is a direct user action and calls the server without an
+additional prompt.
 
 Only configure MCP servers that you are willing to let the model call.
 

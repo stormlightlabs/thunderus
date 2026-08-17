@@ -325,7 +325,7 @@ for line in sys.stdin:
             "id": msg["id"],
             "result": {
                 "protocolVersion": "2025-06-18",
-                "capabilities": {"tools": {}},
+                "capabilities": {"tools": {}, "resources": {}},
                 "serverInfo": {"name": "fake", "version": "0.1.0"}
             }
         }), flush=True)
@@ -349,6 +349,18 @@ for line in sys.stdin:
             "jsonrpc": "2.0",
             "id": msg["id"],
             "result": {"content": [{"type": "text", "text": args.get("text", "")}], "isError": False}
+        }), flush=True)
+    elif method == "resources/list":
+        print(json.dumps({
+            "jsonrpc": "2.0",
+            "id": msg["id"],
+            "result": {"resources": [{"uri": "memo://status", "name": "status", "mimeType": "text/plain", "size": 5}]}
+        }), flush=True)
+    elif method == "resources/read":
+        print(json.dumps({
+            "jsonrpc": "2.0",
+            "id": msg["id"],
+            "result": {"contents": [{"uri": msg["params"]["uri"], "mimeType": "text/plain", "text": "ready"}]}
         }), flush=True)
 "#,
     )
@@ -1076,7 +1088,7 @@ fn mcp_list_tools_and_call_use_fake_server() {
         let mut blocked_output = Vec::new();
         run_mcp_list(&cli, &mut blocked_output).expect("list blocked mcp");
         let blocked = String::from_utf8(blocked_output).expect("utf8");
-        assert!(blocked.contains("blocked-by-trust"));
+        assert!(blocked.contains("blocked by trust"));
 
         let mut trust_output = Vec::new();
         run_mcp_trust(&cli, &mut trust_output).expect("trust mcp");
@@ -1097,6 +1109,19 @@ fn mcp_list_tools_and_call_use_fake_server() {
         run_mcp_call(&cli, "docs", "echo", r#"{"text":"hello"}"#, &mut call_output).expect("call mcp");
         let call = String::from_utf8(call_output).expect("utf8");
         assert!(call.contains("hello"));
+
+        let mut resources_output = Vec::new();
+        run_mcp_resources(&cli, "docs", &mut resources_output).expect("list resources");
+        let resources = String::from_utf8(resources_output).expect("utf8");
+        assert!(resources.contains("mcp__docs__resource"));
+        assert!(resources.contains("uri=memo://status"));
+
+        let mut resource_output = Vec::new();
+        run_mcp_resource(&cli, "docs", "memo://status", &mut resource_output).expect("read resource");
+        let resource: serde_json::Value = serde_json::from_slice(&resource_output).expect("resource JSON");
+        assert_eq!(resource["contents"][0]["kind"], "text");
+        assert_eq!(resource["contents"][0]["data"], "ready");
+        assert_eq!(resource["contents"][0]["mime_type"], "text/plain");
 
         let mut revoke_output = Vec::new();
         run_mcp_revoke(&cli, &mut revoke_output).expect("revoke mcp");

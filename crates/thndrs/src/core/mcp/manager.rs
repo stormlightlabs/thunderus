@@ -6,9 +6,13 @@
 
 use std::collections::BTreeMap;
 
-use super::adapter::{McpSdkClient, McpSdkError, McpToolDefinition, sdk_error_to_output};
-use super::config::{McpConfig, McpServerConfig, McpTransport};
+use super::adapter::{
+    McpSdkClient, McpSdkError, McpToolDefinition, namespaced_resource_read_name, resource_read_tool_definition,
+    sdk_error_to_output,
+};
+use super::config::{McpConfig, McpLifecycleState, McpServerConfig, McpTransport};
 use crate::tools::{MAX_LINE_LEN, MAX_OUTPUT_BYTES, ToolDefinition, ToolOutput, ToolUseRequest, shell};
+use thndrs_agent::CancelToken;
 
 const MAX_MCP_OUTPUT_LINES: usize = 100;
 
@@ -16,11 +20,11 @@ const MAX_MCP_OUTPUT_LINES: usize = 100;
 #[derive(Debug, thiserror::Error)]
 pub enum McpManagerError {
     /// The server initialized, but listing tools failed.
-    #[error("mcp server `{server}` failed to list tools: {source}")]
-    ListTools { server: String, source: McpSdkError },
+    #[error("mcp server `{server}` failed to list tools: {message}")]
+    ListTools { server: String, message: String },
     /// The server could not be initialized.
-    #[error("mcp server `{server}` failed to initialize: {source}")]
-    Initialize { server: String, source: McpSdkError },
+    #[error("mcp server `{server}` failed to initialize: {message}")]
+    Initialize { server: String, message: String },
 }
 
 /// Connected MCP client for one configured server.
@@ -35,11 +39,16 @@ impl McpClient {
     /// Initialize a server and cache its tool definitions.
     pub fn connect(name: impl Into<String>, config: &McpServerConfig) -> Result<Self, McpManagerError> {
         let name = name.into();
-        let sdk = McpSdkClient::connect(config)
-            .map_err(|source| McpManagerError::Initialize { server: name.clone(), source })?;
+        let sdk = McpSdkClient::connect(config).map_err(|source| McpManagerError::Initialize {
+            server: name.clone(),
+            message: shell::redact_secrets(&source.to_string()),
+        })?;
         let tools = sdk
             .list_tool_definitions(&name)
-            .map_err(|source| McpManagerError::ListTools { server: name.clone(), source })?;
+            .map_err(|source| McpManagerError::ListTools {
+                server: name.clone(),
+                message: shell::redact_secrets(&source.to_string()),
+            })?;
         let tool_routes = tools
             .iter()
             .map(|tool| (tool.definition.name.to_string(), tool.original_tool_name.clone()))
@@ -50,7 +59,35 @@ impl McpClient {
 
     /// Cached tool definitions for this server.
     pub fn tool_definitions(&self) -> Vec<ToolDefinition> {
-        self.tools.iter().map(|tool| tool.definition.clone()).collect()
+        let mut definitions = self
+            .tools
+            .iter()
+            .map(|tool| tool.definition.clone())
+            .collect::<Vec<_>>();
+        let resource_read_name = namespaced_resource_read_name(&self.name);
+        if self.sdk.server_info().resources_available
+            && !definitions
+                .iter()
+                .any(|definition| definition.name == resource_read_name)
+        {
+            definitions.push(resource_read_tool_definition(&self.name));
+        }
+        definitions
+    }
+
+    /// Server metadata captured during initialization.
+    pub fn server_info(&self) -> &super::adapter::McpServerInfo {
+        self.sdk.server_info()
+    }
+
+    /// List bounded resource metadata from a server that advertises resources.
+    pub fn list_resources(&self) -> Result<Vec<super::adapter::McpResourceMetadata>, McpSdkError> {
+        self.sdk.list_resources()
+    }
+
+    /// Read one explicitly requested resource from a server that advertises resources.
+    pub fn read_resource(&self, uri: &str) -> Result<super::adapter::McpResourceRead, McpSdkError> {
+        self.sdk.read_resource(uri)
     }
 
     /// Current startup and stderr diagnostics for this server.
@@ -69,6 +106,14 @@ impl McpClient {
 
     /// Call a namespaced MCP tool through this client.
     pub fn call_tool(&self, request: &ToolUseRequest) -> ToolOutput {
+        self.call_tool_with_cancel(request, &CancelToken::new())
+    }
+
+    /// Call a namespaced MCP tool while honoring cooperative cancellation.
+    pub fn call_tool_with_cancel(&self, request: &ToolUseRequest, cancel: &CancelToken) -> ToolOutput {
+        if request.name == namespaced_resource_read_name(&self.name) {
+            return self.call_resource(request, cancel);
+        }
         let Some(original_name) = self.original_tool_name(&request.name) else {
             return ToolOutput::failed(&request.name, format!("unknown MCP tool: {}", request.name));
         };
@@ -78,10 +123,40 @@ impl McpClient {
         };
 
         self.sdk
-            .call_tool(&request.name, original_name, arguments)
+            .call_tool_with_cancel(&request.name, original_name, arguments, cancel)
             .map(sanitize_mcp_output)
             .unwrap_or_else(|err| sdk_error_to_output(&request.name, "call", &err))
     }
+
+    fn call_resource(&self, request: &ToolUseRequest, cancel: &CancelToken) -> ToolOutput {
+        let uri = serde_json::from_str::<serde_json::Value>(&request.arguments)
+            .ok()
+            .and_then(|value| value.get("uri").and_then(serde_json::Value::as_str).map(str::to_string));
+        let Some(uri) = uri.filter(|uri| !uri.trim().is_empty()) else {
+            return ToolOutput::failed(
+                &request.name,
+                "MCP resource reads require a non-empty `uri`".to_string(),
+            );
+        };
+        match self.sdk.read_resource_with_cancel(&uri, cancel) {
+            Ok(resource) => match serde_json::to_string(&resource) {
+                Ok(output) => ToolOutput::ok(&request.name, vec![output]),
+                Err(error) => ToolOutput::failed(&request.name, format!("failed to serialize MCP resource: {error}")),
+            },
+            Err(error) => sdk_error_to_output(&request.name, "resources/read", &error),
+        }
+    }
+}
+
+/// Runtime lifecycle status for one MCP server.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct McpRuntimeStatus {
+    /// Configured server name.
+    pub name: String,
+    /// Current lifecycle state.
+    pub state: McpLifecycleState,
+    /// Failed protocol phase, when known.
+    pub failure_phase: Option<&'static str>,
 }
 
 /// Manager for configured MCP servers.
@@ -89,6 +164,7 @@ pub struct McpManager {
     clients: BTreeMap<String, McpClient>,
     tool_routes: BTreeMap<String, String>,
     diagnostics: Vec<String>,
+    statuses: Vec<McpRuntimeStatus>,
 }
 
 impl std::fmt::Debug for McpManager {
@@ -97,6 +173,7 @@ impl std::fmt::Debug for McpManager {
             .field("clients", &self.clients.keys().collect::<Vec<_>>())
             .field("tool_routes", &self.tool_routes)
             .field("diagnostics", &self.diagnostics)
+            .field("statuses", &self.statuses)
             .finish()
     }
 }
@@ -107,12 +184,23 @@ impl McpManager {
         let mut clients = BTreeMap::new();
         let mut tool_routes = BTreeMap::new();
         let mut diagnostics = Vec::new();
+        let mut statuses = Vec::new();
 
         for (name, server) in &config.servers {
             if !server.enabled {
                 diagnostics.push(format!("mcp server `{name}` disabled"));
+                statuses.push(McpRuntimeStatus {
+                    name: name.clone(),
+                    state: McpLifecycleState::Disabled,
+                    failure_phase: None,
+                });
                 continue;
             }
+            statuses.push(McpRuntimeStatus {
+                name: name.clone(),
+                state: McpLifecycleState::Starting,
+                failure_phase: None,
+            });
 
             let execution = match server.transport {
                 McpTransport::Stdio => "starts as a child process with thndrs process permissions",
@@ -122,17 +210,33 @@ impl McpManager {
 
             match McpClient::connect(name.clone(), server) {
                 Ok(client) => {
-                    for tool in &client.tools {
-                        tool_routes.insert(tool.definition.name.to_string(), name.clone());
+                    for tool in client.tool_definitions() {
+                        tool_routes.insert(tool.name.to_string(), name.clone());
                     }
+                    let state = if client.diagnostics().is_empty() {
+                        McpLifecycleState::Ready
+                    } else {
+                        McpLifecycleState::Degraded
+                    };
                     diagnostics.extend(client.diagnostics());
+                    if let Some(status) = statuses.last_mut() {
+                        status.state = state;
+                    }
+                    diagnostics.push(format!("mcp server `{name}` {}", state.label()));
                     clients.insert(name.clone(), client);
                 }
-                Err(err) => diagnostics.push(err.to_string()),
+                Err(err) => {
+                    diagnostics.push(err.to_string());
+                    if let Some(status) = statuses.last_mut() {
+                        status.state = McpLifecycleState::Failed;
+                        status.failure_phase = Some(error_phase(&err));
+                    }
+                    diagnostics.push(format!("mcp server `{name}` failed during {}", error_phase(&err)));
+                }
             }
         }
 
-        Self { clients, tool_routes, diagnostics }
+        Self { clients, tool_routes, diagnostics, statuses }
     }
 
     /// Cached MCP tool definitions for provider prompt assembly.
@@ -145,13 +249,18 @@ impl McpManager {
         &self.diagnostics
     }
 
+    /// Lifecycle transitions observed while initializing configured servers.
+    pub fn statuses(&self) -> &[McpRuntimeStatus] {
+        &self.statuses
+    }
+
     /// Append loader diagnostics to this manager.
     pub fn extend_diagnostics(&mut self, diagnostics: impl IntoIterator<Item = String>) {
         self.diagnostics.extend(diagnostics);
     }
 
     /// Route a namespaced tool request to the correct MCP client.
-    pub fn call_tool(&self, request: &ToolUseRequest) -> ToolOutput {
+    pub fn call_tool(&self, request: &ToolUseRequest, cancel: &CancelToken) -> ToolOutput {
         let Some(server_name) = self.tool_routes.get(&request.name) else {
             return ToolOutput::failed(&request.name, format!("unknown MCP tool: {}", request.name));
         };
@@ -159,7 +268,14 @@ impl McpManager {
             return ToolOutput::failed(&request.name, format!("MCP server `{server_name}` is not available"));
         };
 
-        client.call_tool(request)
+        client.call_tool_with_cancel(request, cancel)
+    }
+}
+
+fn error_phase(error: &McpManagerError) -> &'static str {
+    match error {
+        McpManagerError::Initialize { .. } => "initialize",
+        McpManagerError::ListTools { .. } => "tools/list",
     }
 }
 
@@ -234,13 +350,24 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect();
 
-        assert_eq!(names, vec!["mcp__alpha__echo", "mcp__beta__echo"]);
+        assert_eq!(
+            names,
+            vec![
+                "mcp__alpha__echo",
+                "mcp__alpha__resource_read",
+                "mcp__beta__echo",
+                "mcp__beta__resource_read",
+            ]
+        );
 
-        let output = manager.call_tool(&ToolUseRequest::new(
-            "mcp__beta__echo".to_string(),
-            json!({ "text": "from beta" }).to_string(),
-            "toolu_1".to_string(),
-        ));
+        let output = manager.call_tool(
+            &ToolUseRequest::new(
+                "mcp__beta__echo".to_string(),
+                json!({ "text": "from beta" }).to_string(),
+                "toolu_1".to_string(),
+            ),
+            &CancelToken::new(),
+        );
 
         assert_eq!(output, ToolOutput::ok("mcp__beta__echo", vec!["from beta".to_string()]));
     }
@@ -268,13 +395,21 @@ mod tests {
 
     #[test]
     fn manager_returns_stable_failure_for_unknown_tool() {
-        let manager = McpManager { clients: BTreeMap::new(), tool_routes: BTreeMap::new(), diagnostics: Vec::new() };
+        let manager = McpManager {
+            clients: BTreeMap::new(),
+            tool_routes: BTreeMap::new(),
+            diagnostics: Vec::new(),
+            statuses: Vec::new(),
+        };
 
-        let output = manager.call_tool(&ToolUseRequest::new(
-            "mcp__missing__echo".to_string(),
-            "{}".to_string(),
-            "toolu_1".to_string(),
-        ));
+        let output = manager.call_tool(
+            &ToolUseRequest::new(
+                "mcp__missing__echo".to_string(),
+                "{}".to_string(),
+                "toolu_1".to_string(),
+            ),
+            &CancelToken::new(),
+        );
 
         assert_eq!(output.status, ToolStatus::Failed);
         assert_eq!(output.error.as_deref(), Some("unknown MCP tool: mcp__missing__echo"));
@@ -320,6 +455,13 @@ mod tests {
                 .expect("mcp schema")["input_schema"]["properties"]["text"]["type"],
             "string"
         );
+        assert!(
+            schemas
+                .as_array()
+                .expect("schemas")
+                .iter()
+                .any(|schema| schema["name"] == "mcp__docs__resource_read")
+        );
     }
 
     fn server_config(script: &Path) -> McpServerConfig {
@@ -359,7 +501,7 @@ for line in sys.stdin:
             "id": msg["id"],
             "result": {{
                 "protocolVersion": "2025-06-18",
-                "capabilities": {{"tools": {{}}}},
+                "capabilities": {{"tools": {{}}, "resources": {{}}}},
                 "serverInfo": {{"name": "fake", "version": "0.1.0"}}
             }}
         }}), flush=True)

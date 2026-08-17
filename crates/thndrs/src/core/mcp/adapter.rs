@@ -11,19 +11,26 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use http::{HeaderName, HeaderValue};
-use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, ContentBlock, ReadResourceRequestParams, ResourceContents, Tool,
+};
 use rmcp::service::{RoleClient, RunningService, ServiceExt};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
+use serde::Serialize;
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::runtime::{Builder, Runtime};
 
 use super::config::{McpServerConfig, McpTransport};
-use crate::tools::{ToolDefinition, ToolOutput};
+use crate::tools::{ToolDefinition, ToolOutput, shell};
+use thndrs_agent::CancelToken;
 
 const MAX_STDERR_BYTES: usize = 8 * 1024;
+const MAX_RESOURCE_ITEMS: usize = 100;
+const MAX_RESOURCE_CONTENT_ITEMS: usize = 8;
+const MAX_RESOURCE_BYTES: usize = 128 * 1024;
 const SUPPORTED_PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// Errors surfaced by the MCP SDK adapter.
@@ -37,6 +44,12 @@ pub enum McpSdkError {
     Initialize(String),
     #[error("failed to list MCP tools: {0}")]
     ListTools(String),
+    #[error("failed to list MCP resources: {0}")]
+    ListResources(String),
+    #[error("failed to read MCP resource: {0}")]
+    ReadResource(String),
+    #[error("MCP server did not advertise `{capability}` capability")]
+    CapabilityNotAdvertised { capability: &'static str },
     #[error("failed to call MCP tool `{tool}`: {message}")]
     CallTool { tool: String, message: String },
     #[error("MCP {operation} timed out after {timeout_secs}s{stderr}")]
@@ -47,6 +60,8 @@ pub enum McpSdkError {
     },
     #[error("MCP tool arguments must be a JSON object")]
     ArgumentsNotObject,
+    #[error("MCP operation cancelled")]
+    Cancelled,
     #[error("MCP client is closed")]
     Closed,
 }
@@ -62,8 +77,52 @@ pub struct McpServerInfo {
     pub version: String,
     /// Optional server instructions.
     pub instructions: Option<String>,
+    /// Whether the server advertised the resources capability.
+    pub resources_available: bool,
+    /// Whether the server advertised the tools capability.
+    pub tools_available: bool,
     /// Non-fatal diagnostics from initialization.
     pub diagnostics: Vec<String>,
+}
+
+/// Compact metadata for a resource advertised by an MCP server.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct McpResourceMetadata {
+    /// MCP URI used to fetch the resource.
+    pub uri: String,
+    /// Server-provided resource name.
+    pub name: String,
+    /// Server-provided media type, when known.
+    pub mime_type: Option<String>,
+    /// Server-provided content size, when known.
+    pub size: Option<u64>,
+}
+
+/// Serialization-safe content returned from an MCP resource read.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct McpResourceContent {
+    /// URI returned by the server for this content item.
+    pub uri: String,
+    /// Server-provided media type, when known.
+    pub mime_type: Option<String>,
+    /// `text` or `opaque_binary`.
+    pub kind: &'static str,
+    /// Text or base64 data, when it fits within the configured byte limit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+    /// Size of the serialized source data before capping.
+    pub byte_count: usize,
+    /// Whether the source data was omitted because it exceeded a limit.
+    pub truncated: bool,
+}
+
+/// Bounded result returned from an MCP resource read.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct McpResourceRead {
+    /// Content items returned by the server, capped at a small fixed count.
+    pub contents: Vec<McpResourceContent>,
+    /// Whether items or data were omitted to enforce limits.
+    pub truncated: bool,
 }
 
 /// An MCP tool converted into the local registry definition shape.
@@ -131,6 +190,8 @@ impl McpSdkClient {
                 name: "unknown".to_string(),
                 version: "unknown".to_string(),
                 instructions: None,
+                resources_available: false,
+                tools_available: false,
                 diagnostics: vec!["mcp initialize completed without server info".to_string()],
             });
 
@@ -169,6 +230,8 @@ impl McpSdkClient {
                 name: "unknown".to_string(),
                 version: "unknown".to_string(),
                 instructions: None,
+                resources_available: false,
+                tools_available: false,
                 diagnostics: vec!["mcp initialize completed without server info".to_string()],
             });
 
@@ -187,6 +250,9 @@ impl McpSdkClient {
 
     /// List tools and convert them to local registry definitions.
     pub fn list_tool_definitions(&self, server_name: &str) -> Result<Vec<McpToolDefinition>, McpSdkError> {
+        if !self.server_info.tools_available {
+            return Ok(Vec::new());
+        }
         let client = self.client.as_ref().ok_or(McpSdkError::Closed)?;
         let tools = match self.runtime.block_on(async {
             tokio::time::timeout(Duration::from_secs(self.timeout_secs), client.list_all_tools()).await
@@ -206,23 +272,100 @@ impl McpSdkClient {
             .collect())
     }
 
+    /// List bounded metadata for resources advertised by this server.
+    pub fn list_resources(&self) -> Result<Vec<McpResourceMetadata>, McpSdkError> {
+        if !self.server_info.resources_available {
+            return Ok(Vec::new());
+        }
+        let client = self.client.as_ref().ok_or(McpSdkError::Closed)?;
+        let resources = match self.runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(self.timeout_secs), client.list_all_resources()).await
+        }) {
+            Ok(result) => result.map_err(|err| McpSdkError::ListResources(shell::redact_secrets(&err.to_string())))?,
+            Err(_) => {
+                return Err(McpSdkError::Timeout {
+                    operation: "resources/list",
+                    timeout_secs: self.timeout_secs,
+                    stderr: stderr_error_suffix(&self.stderr),
+                });
+            }
+        };
+        Ok(resources
+            .into_iter()
+            .take(MAX_RESOURCE_ITEMS)
+            .map(|resource| McpResourceMetadata {
+                uri: resource.uri,
+                name: resource.name,
+                mime_type: resource.mime_type,
+                size: resource.size,
+            })
+            .collect())
+    }
+
+    /// Read one explicitly requested resource with bounded serialization.
+    pub fn read_resource(&self, uri: &str) -> Result<McpResourceRead, McpSdkError> {
+        self.read_resource_with_cancel(uri, &CancelToken::new())
+    }
+
+    /// Read one explicitly requested resource while honoring cooperative cancellation.
+    pub fn read_resource_with_cancel(&self, uri: &str, cancel: &CancelToken) -> Result<McpResourceRead, McpSdkError> {
+        if !self.server_info.resources_available {
+            return Err(McpSdkError::CapabilityNotAdvertised { capability: "resources" });
+        }
+        let client = self.client.as_ref().ok_or(McpSdkError::Closed)?;
+        let cancel = cancel.clone();
+        let result = match self.runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(self.timeout_secs), async {
+                tokio::select! {
+                    result = client.read_resource(ReadResourceRequestParams::new(uri)) => {
+                        result.map_err(|err| McpSdkError::ReadResource(shell::redact_secrets(&err.to_string())))
+                    }
+                    () = wait_for_cancellation(cancel) => Err(McpSdkError::Cancelled),
+                }
+            })
+            .await
+        }) {
+            Ok(result) => result?,
+            Err(_) => {
+                return Err(McpSdkError::Timeout {
+                    operation: "resources/read",
+                    timeout_secs: self.timeout_secs,
+                    stderr: stderr_error_suffix(&self.stderr),
+                });
+            }
+        };
+        Ok(bound_resource_contents(result.contents))
+    }
+
     /// Call an MCP tool and convert the result into unified local tool output.
     pub fn call_tool(
         &self, namespaced_tool_name: &str, original_tool_name: &str, arguments: serde_json::Value,
     ) -> Result<ToolOutput, McpSdkError> {
+        self.call_tool_with_cancel(namespaced_tool_name, original_tool_name, arguments, &CancelToken::new())
+    }
+
+    /// Call an MCP tool while honoring cooperative cancellation.
+    pub fn call_tool_with_cancel(
+        &self, namespaced_tool_name: &str, original_tool_name: &str, arguments: serde_json::Value, cancel: &CancelToken,
+    ) -> Result<ToolOutput, McpSdkError> {
         let client = self.client.as_ref().ok_or(McpSdkError::Closed)?;
         let arguments = json_object_arguments(arguments)?;
+        let cancel = cancel.clone();
         let result = match self.runtime.block_on(async {
-            tokio::time::timeout(
-                Duration::from_secs(self.timeout_secs),
-                client.call_tool(CallToolRequestParams::new(original_tool_name.to_string()).with_arguments(arguments)),
-            )
+            tokio::time::timeout(Duration::from_secs(self.timeout_secs), async {
+                tokio::select! {
+                    result = client.call_tool(CallToolRequestParams::new(original_tool_name.to_string()).with_arguments(arguments)) => {
+                        result.map_err(|err| McpSdkError::CallTool {
+                            tool: original_tool_name.to_string(),
+                            message: shell::redact_secrets(&err.to_string()),
+                        })
+                    }
+                    () = wait_for_cancellation(cancel) => Err(McpSdkError::Cancelled),
+                }
+            })
             .await
         }) {
-            Ok(result) => result.map_err(|err| McpSdkError::CallTool {
-                tool: original_tool_name.to_string(),
-                message: err.to_string(),
-            })?,
+            Ok(result) => result?,
             Err(_) => {
                 return Err(McpSdkError::Timeout {
                     operation: "tools/call",
@@ -317,6 +460,8 @@ fn server_info_from_sdk(info: &rmcp::model::ServerInfo) -> McpServerInfo {
         name: info.server_info.name.clone(),
         version: info.server_info.version.clone(),
         instructions: info.instructions.clone(),
+        resources_available: info.capabilities.resources.is_some(),
+        tools_available: info.capabilities.tools.is_some(),
         diagnostics,
     }
 }
@@ -335,6 +480,30 @@ pub enum McpToolPresentation {
 /// Build the provider-visible namespaced MCP tool name.
 pub fn namespaced_tool_name(server_name: &str, tool_name: &str) -> String {
     format!("mcp__{server_name}__{tool_name}")
+}
+
+/// Build the compact namespace used to identify MCP resources.
+pub fn namespaced_resource_name(server_name: &str) -> String {
+    format!("mcp__{server_name}__resource")
+}
+
+/// Build the provider-visible tool name for explicit MCP resource reads.
+pub fn namespaced_resource_read_name(server_name: &str) -> String {
+    format!("mcp__{server_name}__resource_read")
+}
+
+/// Build the tool definition used for one explicit MCP resource read.
+pub fn resource_read_tool_definition(server_name: &str) -> ToolDefinition {
+    ToolDefinition::new(
+        namespaced_resource_read_name(server_name),
+        format!("Read one explicitly requested MCP resource from server `{server_name}`."),
+        serde_json::json!({
+            "type": "object",
+            "properties": { "uri": { "type": "string", "description": "The MCP resource URI to read." } },
+            "required": ["uri"],
+            "additionalProperties": false,
+        }),
+    )
 }
 
 /// Classify a namespaced MCP tool from its server-reported original name.
@@ -404,11 +573,56 @@ fn call_result_lines(result: &CallToolResult) -> Vec<String> {
     lines
 }
 
+fn bound_resource_contents(contents: Vec<ResourceContents>) -> McpResourceRead {
+    let mut remaining_bytes = MAX_RESOURCE_BYTES;
+    let mut bounded = Vec::new();
+    let mut truncated = false;
+
+    for content in contents {
+        if bounded.len() >= MAX_RESOURCE_CONTENT_ITEMS {
+            truncated = true;
+            break;
+        }
+        let (uri, mime_type, kind, source) = match content {
+            ResourceContents::TextResourceContents { uri, mime_type, text, .. } => {
+                (uri, mime_type, "text", shell::redact_secrets(&text))
+            }
+            ResourceContents::BlobResourceContents { uri, mime_type, blob, .. } => {
+                (uri, mime_type, "opaque_binary", blob)
+            }
+            _ => continue,
+        };
+        let byte_count = source.len();
+        let item_truncated = byte_count > remaining_bytes;
+        if item_truncated {
+            truncated = true;
+        } else {
+            remaining_bytes -= byte_count;
+        }
+        bounded.push(McpResourceContent {
+            uri,
+            mime_type,
+            kind,
+            data: (!item_truncated).then_some(source),
+            byte_count,
+            truncated: item_truncated,
+        });
+    }
+
+    McpResourceRead { contents: bounded, truncated }
+}
+
 fn json_object_arguments(arguments: serde_json::Value) -> Result<rmcp::model::JsonObject, McpSdkError> {
     match arguments {
         serde_json::Value::Object(object) => Ok(object),
         serde_json::Value::Null => Ok(serde_json::Map::new()),
         _ => Err(McpSdkError::ArgumentsNotObject),
+    }
+}
+
+async fn wait_for_cancellation(cancel: CancelToken) {
+    while !cancel.is_cancelled() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
@@ -434,7 +648,8 @@ fn append_stderr(capture: &Arc<Mutex<BoundedStderr>>, chunk: &[u8]) {
 
 fn stderr_text(capture: &Arc<Mutex<BoundedStderr>>) -> Option<String> {
     let capture = capture.lock().expect("stderr capture lock poisoned");
-    let text = String::from_utf8_lossy(&capture.bytes).trim().to_string();
+    let text = shell::redact_secrets(&String::from_utf8_lossy(&capture.bytes));
+    let text = text.trim().to_string();
     if text.is_empty() {
         None
     } else if capture.truncated {
@@ -514,6 +729,38 @@ mod tests {
     }
 
     #[test]
+    fn resource_contents_preserve_media_type_and_bound_serialization() {
+        let result = bound_resource_contents(vec![
+            ResourceContents::TextResourceContents {
+                uri: "memo://secret".to_string(),
+                mime_type: Some("text/plain".to_string()),
+                text: "api_key=super-secret-value".to_string(),
+                meta: None,
+            },
+            ResourceContents::BlobResourceContents {
+                uri: "memo://binary".to_string(),
+                mime_type: Some("application/octet-stream".to_string()),
+                blob: "AAEC".to_string(),
+                meta: None,
+            },
+            ResourceContents::TextResourceContents {
+                uri: "memo://large".to_string(),
+                mime_type: None,
+                text: "x".repeat(MAX_RESOURCE_BYTES),
+                meta: None,
+            },
+        ]);
+
+        assert_eq!(result.contents[0].kind, "text");
+        assert_eq!(result.contents[0].mime_type.as_deref(), Some("text/plain"));
+        assert_eq!(result.contents[0].data.as_deref(), Some("api_key=[REDACTED]"));
+        assert_eq!(result.contents[1].kind, "opaque_binary");
+        assert_eq!(result.contents[1].data.as_deref(), Some("AAEC"));
+        assert!(result.contents[2].truncated);
+        assert!(result.truncated);
+    }
+
+    #[test]
     fn rejects_non_object_tool_arguments() {
         let err = json_object_arguments(json!("bad")).expect_err("non-object rejected");
 
@@ -558,6 +805,26 @@ mod tests {
             .call_tool("mcp__docs__echo", "echo", json!({ "text": "ok" }))
             .expect("call echo");
         assert_eq!(output, ToolOutput::ok("mcp__docs__echo", vec!["ok".to_string()]));
+    }
+
+    #[test]
+    fn stdio_client_lists_and_reads_advertised_resources() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let script = write_fake_server(temp.path(), FakeServerMode::Normal);
+        let server = McpServerConfig {
+            command: "python3".to_string(),
+            args: vec![script.display().to_string()],
+            ..McpServerConfig::default()
+        };
+
+        let client = McpSdkClient::connect_stdio(&server).expect("connect fake MCP server");
+        let resources = client.list_resources().expect("list resources");
+        assert_eq!(resources[0].uri, "memo://status");
+        assert_eq!(resources[0].mime_type.as_deref(), Some("text/plain"));
+
+        let resource = client.read_resource("memo://status").expect("read resource");
+        assert_eq!(resource.contents[0].kind, "text");
+        assert_eq!(resource.contents[0].data.as_deref(), Some("ready"));
     }
 
     #[test]
@@ -728,6 +995,27 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_tool_call_returns_cancelled_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let script = write_fake_server(temp.path(), FakeServerMode::SlowCall);
+        let server = McpServerConfig {
+            command: "python3".to_string(),
+            args: vec![script.display().to_string()],
+            timeout_secs: 5,
+            ..McpServerConfig::default()
+        };
+        let client = McpSdkClient::connect_stdio(&server).expect("connect fake MCP server");
+        let cancel = CancelToken::new();
+        cancel.cancel();
+
+        let error = client
+            .call_tool_with_cancel("mcp__docs__echo", "echo", json!({ "text": "ok" }), &cancel)
+            .expect_err("cancelled call should fail");
+
+        assert!(matches!(error, McpSdkError::Cancelled));
+    }
+
+    #[test]
     fn server_process_exit_becomes_list_error() {
         let temp = tempfile::tempdir().expect("tempdir");
         let script = write_fake_server(temp.path(), FakeServerMode::ExitAfterInitialize);
@@ -805,7 +1093,7 @@ for line in sys.stdin:
             "id": msg["id"],
             "result": {{
                 "protocolVersion": "2024-11-05" if old_protocol else "2025-06-18",
-                "capabilities": {{"tools": {{}}}},
+                "capabilities": {{"tools": {{}}, "resources": {{}}}},
                 "serverInfo": {{"name": "fake", "version": "0.1.0"}}
             }}
         }}), flush=True)
@@ -834,6 +1122,18 @@ for line in sys.stdin:
             "jsonrpc": "2.0",
             "id": msg["id"],
             "result": {{"content": [{{"type": "text", "text": args.get("text", "")}}], "isError": False}}
+        }}), flush=True)
+    elif method == "resources/list":
+        print(json.dumps({{
+            "jsonrpc": "2.0",
+            "id": msg["id"],
+            "result": {{"resources": [{{"uri": "memo://status", "name": "status", "mimeType": "text/plain", "size": 5}}]}}
+        }}), flush=True)
+    elif method == "resources/read":
+        print(json.dumps({{
+            "jsonrpc": "2.0",
+            "id": msg["id"],
+            "result": {{"contents": [{{"uri": msg["params"]["uri"], "mimeType": "text/plain", "text": "ready"}}]}}
         }}), flush=True)
 "#
             ),
