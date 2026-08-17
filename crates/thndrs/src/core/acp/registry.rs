@@ -2,14 +2,15 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use toml_edit::{Item, Table, value};
 
-use crate::config::validate_acp_agent_name;
+use crate::config::{self, validate_acp_agent_name};
 
 /// Official ACP Registry JSON endpoint.
 pub const DEFAULT_REGISTRY_URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
@@ -18,7 +19,6 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_REGISTRY_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_FIELD_CHARS: usize = 300;
 const CONFIG_BLOCK_START: &str = "# thndrs acp registry install:";
-const CONFIG_BLOCK_END: &str = "# /thndrs acp registry install:";
 
 #[derive(Clone, Debug, Deserialize)]
 struct RegistryDocument {
@@ -262,7 +262,6 @@ pub fn install(workspace: &Path, request: &InstallRequest) -> Result<InstallOutc
 
     let config_path = workspace.join(".thndrs").join("config.toml");
     let metadata_path = workspace.join(".thndrs").join("acp-installed.toml");
-    let block = config_block(&name, &distribution);
     let config = read_optional_string(&config_path)?;
     if config.contains(&format!("[acp_agents.{name}]")) && !has_managed_block(&config, &name) {
         return Err(format!(
@@ -270,8 +269,7 @@ pub fn install(workspace: &Path, request: &InstallRequest) -> Result<InstallOutc
         ));
     }
 
-    let updated_config = upsert_managed_block(&config, &name, &block);
-    write_string(&config_path, &updated_config)?;
+    write_managed_config(&config_path, &name, &distribution)?;
 
     let mut installed = read_installed_agents(&metadata_path)?;
     installed.agents.insert(
@@ -415,23 +413,25 @@ fn validate_acp_name(name: &str) -> Result<(), String> {
     validate_acp_agent_name(name).map_err(|err| err.to_string())
 }
 
-fn config_block(name: &str, distribution: &InstallDistribution) -> String {
+fn write_managed_config(path: &Path, name: &str, distribution: &InstallDistribution) -> Result<(), String> {
     let (command, args) = command_and_args(distribution);
-    let mut block = String::new();
-    block.push_str(&format!("{CONFIG_BLOCK_START} {name}\n"));
-    block.push_str(&format!("[acp_agents.{name}]\n"));
-    block.push_str(&format!("command = {}\n", toml_string(&command)));
-    block.push_str("args = [");
-    for (index, arg) in args.iter().enumerate() {
-        if index > 0 {
-            block.push_str(", ");
+    config::edit_config(path, |document| {
+        if document.get("acp_agents").is_none() {
+            document["acp_agents"] = Item::Table(Table::new());
         }
-        block.push_str(&toml_string(arg));
-    }
-    block.push_str("]\n");
-    block.push_str("enabled = true\n");
-    block.push_str(&format!("{CONFIG_BLOCK_END} {name}\n"));
-    block
+        let agents = document
+            .get_mut("acp_agents")
+            .and_then(Item::as_table_like_mut)
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "`acp_agents` must be a table"))?;
+        let mut agent = Table::new();
+        agent.decor_mut().set_prefix(format!("\n{CONFIG_BLOCK_START} {name}\n"));
+        agent["command"] = value(command.clone());
+        agent["args"] = Item::Value(args.iter().collect());
+        agent["enabled"] = value(true);
+        agents.insert(name, Item::Table(agent));
+        Ok(())
+    })
+    .map_err(|err| format!("failed to write `{}`: {err}", path.display()))
 }
 
 fn command_and_args(distribution: &InstallDistribution) -> (String, Vec<String>) {
@@ -449,10 +449,6 @@ fn command_and_args(distribution: &InstallDistribution) -> (String, Vec<String>)
     }
 }
 
-fn toml_string(value: &str) -> String {
-    toml::Value::String(value.to_string()).to_string()
-}
-
 fn read_optional_string(path: &Path) -> Result<String, String> {
     match fs::read_to_string(path) {
         Ok(content) => Ok(content),
@@ -463,46 +459,6 @@ fn read_optional_string(path: &Path) -> Result<String, String> {
 
 fn has_managed_block(config: &str, name: &str) -> bool {
     config.contains(&format!("{CONFIG_BLOCK_START} {name}"))
-}
-
-fn upsert_managed_block(config: &str, name: &str, block: &str) -> String {
-    let start_marker = format!("{CONFIG_BLOCK_START} {name}");
-    let end_marker = format!("{CONFIG_BLOCK_END} {name}");
-    let Some(start) = config.find(&start_marker) else {
-        let mut updated = config.trim_end().to_string();
-        if !updated.is_empty() {
-            updated.push_str("\n\n");
-        }
-        updated.push_str(block);
-        return updated;
-    };
-    let Some(relative_end) = config[start..].find(&end_marker) else {
-        return config.to_string();
-    };
-    let end = start + relative_end + end_marker.len();
-    let mut updated = String::new();
-    updated.push_str(config[..start].trim_end());
-    if !updated.is_empty() {
-        updated.push_str("\n\n");
-    }
-    updated.push_str(block.trim_end());
-    updated.push('\n');
-    updated.push_str(config[end..].trim_start_matches(['\r', '\n']));
-    updated
-}
-
-fn write_string(path: &Path, content: &str) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| format!("failed to create `{}`: {err}", parent.display()))?;
-    }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(path)
-        .map_err(|err| format!("failed to write `{}`: {err}", path.display()))?;
-    file.write_all(content.as_bytes())
-        .map_err(|err| format!("failed to write `{}`: {err}", path.display()))
 }
 
 fn read_installed_agents(path: &Path) -> Result<InstalledAgentsFile, String> {
@@ -517,7 +473,8 @@ fn read_installed_agents(path: &Path) -> Result<InstalledAgentsFile, String> {
 fn write_installed_agents(path: &Path, installed: &InstalledAgentsFile) -> Result<(), String> {
     let content = toml::to_string_pretty(installed)
         .map_err(|err| format!("failed to encode installed ACP metadata `{}`: {err}", path.display()))?;
-    write_string(path, &content)
+    config::write_toml_file(path, "ACP installed-agent metadata", &content)
+        .map_err(|err| format!("failed to write `{}`: {err}", path.display()))
 }
 
 fn installed_record(

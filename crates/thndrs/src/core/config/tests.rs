@@ -311,7 +311,7 @@ fn write_project_model_creates_project_config() {
 }
 
 #[test]
-fn write_project_reasoning_effort_preserves_model_and_nested_keys() {
+fn write_project_reasoning_effort_preserves_model_and_agent_config() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let path = tmp.path().join(".thndrs").join("config.toml");
     fs::create_dir_all(path.parent().expect("config parent")).expect("create config parent");
@@ -320,7 +320,7 @@ fn write_project_reasoning_effort_preserves_model_and_nested_keys() {
         r#"model = "chatgpt-codex/gpt-5.6-terra"
 
 [acp_agents.local]
-reasoning_effort = "low"
+command = "agent"
 "#,
     )
     .expect("seed config");
@@ -331,16 +331,16 @@ reasoning_effort = "low"
     assert_eq!(
         fs::read_to_string(path).expect("read config"),
         r#"model = "chatgpt-codex/gpt-5.6-terra"
-
 reasoning_effort = "max"
+
 [acp_agents.local]
-reasoning_effort = "low"
+command = "agent"
 "#
     );
 }
 
 #[test]
-fn write_model_config_replaces_top_level_model_only() {
+fn write_model_config_replaces_model_and_preserves_agent_config() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let path = tmp.path().join("config.toml");
     fs::write(
@@ -349,7 +349,6 @@ fn write_model_config_replaces_top_level_model_only() {
 
 [acp_agents.local]
 command = "agent"
-model = "nested-model"
 "#,
     )
     .expect("seed config");
@@ -362,7 +361,6 @@ model = "nested-model"
 
 [acp_agents.local]
 command = "agent"
-model = "nested-model"
 "#
     );
 }
@@ -385,9 +383,9 @@ command = "agent"
 
     assert_eq!(
         fs::read_to_string(path).expect("read config"),
-        r#"# Project config
+        r#"model = "chatgpt-codex/gpt-5.5"
+# Project config
 
-model = "chatgpt-codex/gpt-5.5"
 [acp_agents.local]
 command = "agent"
 "#
@@ -401,6 +399,19 @@ fn write_model_config_reports_existing_read_errors() {
     let err = write_model_config(tmp.path(), "chatgpt-codex/gpt-5.5").expect_err("directory read should fail");
 
     assert_ne!(err.kind(), std::io::ErrorKind::NotFound);
+}
+
+#[test]
+fn write_model_config_rejects_invalid_existing_configuration() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let path = tmp.path().join("config.toml");
+    let original = "[acp_agents.local]\nmodel = \"invalid\"\n";
+    fs::write(&path, original).expect("seed config");
+
+    let error = write_model_config(&path, "chatgpt-codex/gpt-5.5").expect_err("invalid config rejected");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert_eq!(fs::read_to_string(path).expect("read config"), original);
 }
 
 #[test]
@@ -419,13 +430,13 @@ fn write_model_config_if_missing_does_not_replace_existing_top_level_model() {
 }
 
 #[test]
-fn write_model_config_if_missing_ignores_nested_model_keys() {
+fn write_model_config_if_missing_preserves_existing_agent_config() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let path = tmp.path().join("config.toml");
     fs::write(
         &path,
         r#"[acp_agents.local]
-model = "nested-model"
+command = "agent"
 "#,
     )
     .expect("seed config");
@@ -437,7 +448,7 @@ model = "nested-model"
         fs::read_to_string(path).expect("read config"),
         r#"model = "chatgpt-codex/gpt-5.5"
 [acp_agents.local]
-model = "nested-model"
+command = "agent"
 "#
     );
 }

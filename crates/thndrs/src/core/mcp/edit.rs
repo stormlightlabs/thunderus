@@ -1,10 +1,11 @@
 //! Atomic, comment-preserving MCP configuration edits.
 
-use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use toml_edit::{DocumentMut, Item, Table, value};
+
+use crate::config::edit_toml_file;
 
 use super::config::{
     McpConfig, McpServerConfig, McpTransport, global_mcp_config_path, project_mcp_config_path, validate_mcp_config,
@@ -91,28 +92,13 @@ fn config_path(workspace: &Path, target: McpConfigTarget) -> io::Result<PathBuf>
 }
 
 fn edit_config(path: &Path, edit: impl FnOnce(&mut DocumentMut) -> io::Result<()>) -> io::Result<()> {
-    let source = match fs::read_to_string(path) {
-        Ok(source) => source,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
-        Err(source) => {
-            return Err(io::Error::new(
-                source.kind(),
-                format!("failed to read MCP configuration {}: {source}", path.display()),
-            ));
-        }
-    };
-    validate_config_text(path, &source)?;
-    let mut document = source.parse::<DocumentMut>().map_err(|source| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("failed to parse MCP configuration {}: {source}", path.display()),
-        )
-    })?;
-
-    edit(&mut document)?;
-    let rendered = document.to_string();
-    validate_config_text(path, &rendered)?;
-    replace_atomically(path, rendered.as_bytes())
+    edit_toml_file(
+        path,
+        "MCP configuration",
+        |source| validate_config_text(path, source),
+        |document| edit(document).map(Some),
+    )
+    .map(|_| ())
 }
 
 fn validate_config_text(path: &Path, source: &str) -> io::Result<()> {
@@ -125,23 +111,10 @@ fn validate_config_text(path: &Path, source: &str) -> io::Result<()> {
     validate_mcp_config(&config).map_err(io::Error::other)
 }
 
-fn replace_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
-    let parent = path.parent().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("MCP configuration path {} has no parent directory", path.display()),
-        )
-    })?;
-    fs::create_dir_all(parent)?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary.write_all(contents)?;
-    temporary.as_file().sync_all()?;
-    temporary.persist(path).map_err(|error| error.error)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     fn stdio(command: &str) -> McpServerConfig {

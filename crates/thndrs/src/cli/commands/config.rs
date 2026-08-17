@@ -124,7 +124,7 @@ fn run_config_edit<W: Write>(cli: &Cli, command: &ConfigEditCommand, writer: &mu
     ensure_parent_directory(command, &path, &mut input, writer)?;
 
     if !path.exists() {
-        fs::write(&path, "").map_err(|error| {
+        config::write_toml_file(&path, "configuration", "").map_err(|error| {
             io::Error::new(
                 error.kind(),
                 format!("failed to create {} config file {}: {error}", scope, path.display()),
