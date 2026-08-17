@@ -1131,6 +1131,110 @@ fn mcp_list_tools_and_call_use_fake_server() {
 }
 
 #[test]
+fn mcp_add_and_remove_write_scoped_configuration_without_trusting_or_starting_servers() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let home = tmp.path().join("home");
+    let workspace = tmp.path().join("workspace");
+    std::fs::create_dir_all(workspace.join(".thndrs")).expect("create workspace config");
+    let project_path = workspace.join(".thndrs/mcp.toml");
+    std::fs::write(
+        &project_path,
+        "# Keep this comment.\n[servers.keep]\ncommand = \"keep-mcp\"\n\n[servers.docs]\ncommand = \"old-mcp\"\n",
+    )
+    .expect("write project config");
+    let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
+
+    with_home(&home, || {
+        let mut project_output = Vec::new();
+        run_mcp_add(
+            &cli,
+            "docs",
+            crate::cli::commands::mcp::McpConfigScope::Project,
+            Some("npx"),
+            &["-y".to_string(), "@vendor/docs".to_string()],
+            None,
+            &mut project_output,
+        )
+        .expect("add project stdio server");
+        let project_output = String::from_utf8(project_output).expect("utf8");
+        assert!(project_output.contains("thndrs mcp status"));
+        assert!(project_output.contains("thndrs mcp trust"));
+        let project = std::fs::read_to_string(&project_path).expect("read project config");
+        assert!(project.contains("# Keep this comment."));
+        assert!(project.contains("[servers.keep]"));
+        assert!(project.contains("command = \"npx\""));
+        assert!(project.contains("args = [\"-y\", \"@vendor/docs\"]"));
+        let effective = mcp::config::load_effective_mcp(&workspace, &[]).expect("load project config");
+        assert!(!effective.config.servers.contains_key("keep"));
+        assert!(effective.blocked_project_servers.contains_key("docs"));
+        assert!(effective.blocked_project_servers.contains_key("keep"));
+
+        let mut global_output = Vec::new();
+        run_mcp_add(
+            &cli,
+            "search",
+            crate::cli::commands::mcp::McpConfigScope::Global,
+            None,
+            &[],
+            Some("https://mcp.example.test/mcp"),
+            &mut global_output,
+        )
+        .expect("add global HTTP server");
+        assert!(!String::from_utf8(global_output).expect("utf8").contains("mcp trust"));
+        let global = std::fs::read_to_string(home.join(".thndrs/mcp.toml")).expect("read global config");
+        assert!(global.contains("transport = \"streamable_http\""));
+        assert!(global.contains("url = \"https://mcp.example.test/mcp\""));
+
+        let mut remove_output = Vec::new();
+        run_mcp_remove(
+            &cli,
+            "docs",
+            crate::cli::commands::mcp::McpConfigScope::Project,
+            &mut remove_output,
+        )
+        .expect("remove project server");
+        assert!(
+            String::from_utf8(remove_output)
+                .expect("utf8")
+                .contains("removed MCP server `docs`")
+        );
+        let project = std::fs::read_to_string(project_path).expect("read project config");
+        assert!(project.contains("[servers.keep]"));
+        assert!(!project.contains("[servers.docs]"));
+    });
+}
+
+#[test]
+fn mcp_add_rejects_invalid_transport_and_name() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let cli = Cli { cwd: tmp.path().to_path_buf(), ..Cli::default() };
+
+    let transport_error = run_mcp_add(
+        &cli,
+        "docs",
+        crate::cli::commands::mcp::McpConfigScope::Project,
+        None,
+        &[],
+        None,
+        &mut Vec::new(),
+    )
+    .expect_err("missing transport rejected");
+    assert_eq!(transport_error.kind(), io::ErrorKind::InvalidInput);
+
+    let name_error = run_mcp_add(
+        &cli,
+        "bad/name",
+        crate::cli::commands::mcp::McpConfigScope::Project,
+        Some("docs-mcp"),
+        &[],
+        None,
+        &mut Vec::new(),
+    )
+    .expect_err("invalid name rejected");
+    assert_eq!(name_error.kind(), io::ErrorKind::Other);
+}
+
+#[test]
 fn clear_resets_application_and_render_surface() {
     let cli = Cli::default();
     let mut app = App::from_cli(&cli);

@@ -106,6 +106,12 @@ stdout is protocol-only; diagnostics go to stderr.
 
 ### MCP (Model Context Protocol)
 
+- `thndrs mcp add <name> --scope <global|project> --command <command> [--arg <arg>]...`:
+  add or replace a stdio definition without installing or starting it.
+- `thndrs mcp add <name> --scope <global|project> --url <url>`: add or replace
+  a Streamable HTTP definition without contacting it.
+- `thndrs mcp remove <name> --scope <global|project>`: remove one definition
+  from the selected file.
 - `thndrs mcp list`: list configured and trust-blocked MCP servers with their
   status, transport, configuration source, precedence, and containment.
 - `thndrs mcp status`: show whether the current project MCP file is trusted and

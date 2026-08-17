@@ -39,6 +39,10 @@ pub(crate) fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()>
     let stdout = io::stdout();
     let mut lock = stdout.lock();
     match command {
+        McpCommand::Add { name, scope, command, args, url } => {
+            run_mcp_add(cli, name, *scope, command.as_deref(), args, url.as_deref(), &mut lock)
+        }
+        McpCommand::Remove { name, scope } => run_mcp_remove(cli, name, *scope, &mut lock),
         McpCommand::List => run_mcp_list(cli, &mut lock),
         McpCommand::Status => run_mcp_status(cli, &mut lock),
         McpCommand::Trust => run_mcp_trust(cli, &mut lock),
@@ -835,6 +839,56 @@ pub(crate) fn newest_log_file(dir: &Path) -> Option<PathBuf> {
         right_time.cmp(&left_time).then_with(|| right.cmp(left))
     });
     files.into_iter().next()
+}
+
+pub(crate) fn run_mcp_add<W: io::Write>(
+    cli: &Cli, name: &str, scope: crate::cli::commands::mcp::McpConfigScope, command: Option<&str>, args: &[String],
+    url: Option<&str>, writer: &mut W,
+) -> io::Result<()> {
+    let server = match (command, url) {
+        (Some(command), None) if !command.trim().is_empty() => mcp::config::McpServerConfig {
+            command: command.to_string(),
+            args: args.to_vec(),
+            ..mcp::config::McpServerConfig::default()
+        },
+        (None, Some(url)) if !url.trim().is_empty() => mcp::config::McpServerConfig {
+            transport: mcp::config::McpTransport::StreamableHttp,
+            url: Some(url.to_string()),
+            ..mcp::config::McpServerConfig::default()
+        },
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "mcp add requires exactly one of --command or --url",
+            ));
+        }
+    };
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let target = mcp_config_target(scope);
+    let path = mcp::edit::add_server(&workspace, target, name, server)?;
+    writeln!(writer, "added MCP server `{name}` to {}", path.display())?;
+    if scope == crate::cli::commands::mcp::McpConfigScope::Project {
+        writeln!(
+            writer,
+            "Review the project MCP configuration, inspect it with `thndrs mcp status`, then run `thndrs mcp trust` to activate it."
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn run_mcp_remove<W: io::Write>(
+    cli: &Cli, name: &str, scope: crate::cli::commands::mcp::McpConfigScope, writer: &mut W,
+) -> io::Result<()> {
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let path = mcp::edit::remove_server(&workspace, mcp_config_target(scope), name)?;
+    writeln!(writer, "removed MCP server `{name}` from {}", path.display())
+}
+
+fn mcp_config_target(scope: crate::cli::commands::mcp::McpConfigScope) -> mcp::edit::McpConfigTarget {
+    match scope {
+        crate::cli::commands::mcp::McpConfigScope::Global => mcp::edit::McpConfigTarget::Global,
+        crate::cli::commands::mcp::McpConfigScope::Project => mcp::edit::McpConfigTarget::Project,
+    }
 }
 
 pub(crate) fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {

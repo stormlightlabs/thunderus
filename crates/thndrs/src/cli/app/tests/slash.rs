@@ -1119,6 +1119,42 @@ fn slash_mcp_lists_empty_config() {
 }
 
 #[test]
+fn slash_mcp_lists_trust_blocked_project_overrides() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(home.join(".thndrs")).expect("create global config directory");
+    std::fs::create_dir_all(workspace.join(".thndrs")).expect("create project config directory");
+    std::fs::write(
+        home.join(".thndrs/mcp.toml"),
+        "[servers.docs]\ncommand = \"global-mcp\"\n",
+    )
+    .expect("write global config");
+    std::fs::write(
+        workspace.join(".thndrs/mcp.toml"),
+        "[servers.docs]\ncommand = \"project-mcp\"\n",
+    )
+    .expect("write project config");
+
+    with_isolated_setup_env(&home, || {
+        let mut app = fresh_app();
+        app.runtime.cwd = workspace;
+        app.composer.input = PromptInput::from("/mcp");
+
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+        let Entry::Status { text } = app.transcript.entries.last().expect("MCP status") else {
+            panic!("MCP status should be a transcript status entry");
+        };
+        assert!(text.contains("blocked by trust"));
+        assert!(text.contains("source=project"));
+        assert!(text.contains("would override global"));
+        assert!(text.contains("thndrs mcp trust"));
+        assert!(!text.contains("no MCP servers configured"));
+    });
+}
+
+#[test]
 fn slash_mcp_tools_requires_name() {
     let mut app = fresh_app();
     app.composer.input = PromptInput::from("/mcp tools ");

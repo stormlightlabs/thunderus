@@ -47,14 +47,14 @@ it available.
 
 **Acceptance criteria:**
 
-- [ ] `/mcp` distinguishes active, disabled, and blocked project definitions
+- [x] `/mcp` distinguishes active, disabled, and blocked project definitions
       with text labels, configuration scope, and transport.
-- [ ] A project file containing only blocked servers does not produce `no MCP
+- [x] A project file containing only blocked servers does not produce `no MCP
     servers configured`.
-- [ ] A blocked definition that would replace a global definition says so.
-- [ ] Blocked output gives the supported recovery command without exposing
+- [x] A blocked definition that would replace a global definition says so.
+- [x] Blocked output gives the supported recovery command without exposing
       headers, environment values, or other secrets.
-- [ ] CLI and TUI status rows come from one semantic projection of effective MCP
+- [x] CLI and TUI status rows come from one semantic projection of effective MCP
       state rather than separate state rules.
 
 **Verification:**
@@ -106,19 +106,19 @@ connection; it does not download, install, or start an MCP server.
 
 **Acceptance criteria:**
 
-- [ ] The add command requires an explicit global or project scope and accepts
+- [x] The add command requires an explicit global or project scope and accepts
       either a stdio command with arguments or a Streamable HTTP URL.
-- [ ] The remove command requires the same explicit scope and names the server
+- [x] The remove command requires the same explicit scope and names the server
       definition it will remove.
-- [ ] Writes preserve unrelated server definitions and comments, validate the
+- [x] Writes preserve unrelated server definitions and comments, validate the
       complete result, and replace the destination file atomically.
-- [ ] Commands reject invalid names, conflicting transport options, and secret
+- [x] Commands reject invalid names, conflicting transport options, and secret
       values supplied directly through command-line flags.
-- [ ] Adding project configuration does not grant trust. Output names the file
+- [x] Adding project configuration does not grant trust. Output names the file
       changed and tells the user to review it, inspect status, and trust it.
-- [ ] Configuration commands never run package-manager commands or connect to
+- [x] Configuration commands never run package-manager commands or connect to
       the server as a side effect.
-- [ ] Public MCP usage and CLI documentation show the guided flow while keeping
+- [x] Public MCP usage and CLI documentation show the guided flow while keeping
       manual TOML configuration available.
 
 **Verification:**

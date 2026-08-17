@@ -44,3 +44,4 @@
 
 - [ ] we need a herdr plugin/integration such that it recognizes thndrs as an
       agent
+- [ ] `toml_edit` for the rest of the config would be nice

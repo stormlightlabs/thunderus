@@ -9,9 +9,35 @@ the model. It supports local stdio servers and remote Streamable HTTP servers.
 
 `thndrs` does not provide an MCP package installer. Install a local server using
 the command supplied by its publisher, or get the URL and credentials for a
-hosted server. Then add the launch command or URL to an MCP config file. The
-configuration step does not launch the server; a package runner such as `npx`
-may download or cache it later when `thndrs` starts that command.
+hosted server. Then add its launch command or URL with `mcp add`. The command
+writes configuration only. It does not install, start, or contact the server.
+
+Choose a scope every time:
+
+```sh
+# A local stdio server available in every workspace.
+thndrs mcp add docs --scope global --command npx --arg -y --arg @vendor/server
+
+# A hosted Streamable HTTP server for the current workspace.
+thndrs mcp add search --scope project --url https://mcp.example.test/mcp
+```
+
+Use `--arg` once for each stdio argument. `mcp add` accepts either `--command`
+with optional `--arg` values or `--url`, never both. It does not accept header,
+environment, or token flags, so credentials do not enter shell history. Remove
+a definition with the same scope:
+
+```sh
+thndrs mcp remove docs --scope global
+```
+
+The commands preserve unrelated definitions and comments, validate the whole
+file, then replace it atomically. A project addition does not grant trust. The
+command prints the changed path and the next `mcp status` and `mcp trust`
+commands to run after review.
+
+Manual TOML configuration remains available. The guided commands use these
+files:
 
 - Global: `~/.thndrs/mcp.toml`
 - Project: `.thndrs/mcp.toml`

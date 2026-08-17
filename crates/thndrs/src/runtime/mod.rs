@@ -205,10 +205,10 @@ mod tests;
 pub(crate) use commands::{
     SessionPruneRequest, SessionPurgeRequest, render_acp_inspect, render_acp_list, run_acp_close_session,
     run_acp_install, run_acp_list_sessions, run_acp_load_session, run_acp_logout, run_acp_registry,
-    run_acp_resume_session, run_acp_smoke, run_acp_update, run_debug_session_log, run_mcp_call, run_mcp_list,
-    run_mcp_resource, run_mcp_resources, run_mcp_revoke, run_mcp_tools, run_mcp_trust, run_session_export,
-    run_session_inspect, run_session_latest, run_session_list, run_session_prune, run_session_purge,
-    run_session_rename, run_session_show, run_session_storage, run_session_titles,
+    run_acp_resume_session, run_acp_smoke, run_acp_update, run_debug_session_log, run_mcp_add, run_mcp_call,
+    run_mcp_list, run_mcp_remove, run_mcp_resource, run_mcp_resources, run_mcp_revoke, run_mcp_tools, run_mcp_trust,
+    run_session_export, run_session_inspect, run_session_latest, run_session_list, run_session_prune,
+    run_session_purge, run_session_rename, run_session_show, run_session_storage, run_session_titles,
 };
 pub(crate) use commands::{load_effective_mcp_for_workspace, load_mcp_manager_for_workspace, run_command};
 pub(crate) use interactive::*;

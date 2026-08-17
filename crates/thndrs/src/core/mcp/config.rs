@@ -330,11 +330,11 @@ pub fn project_mcp_config_hash(workspace: &Path) -> Result<Option<String>, Confi
         .transpose()
 }
 
-fn global_mcp_config_path() -> Option<PathBuf> {
+pub(crate) fn global_mcp_config_path() -> Option<PathBuf> {
     utils::home_dir().map(|home| home.join(".thndrs").join("mcp.toml"))
 }
 
-fn project_mcp_config_path(workspace: &Path) -> PathBuf {
+pub(crate) fn project_mcp_config_path(workspace: &Path) -> PathBuf {
     workspace.join(".thndrs").join("mcp.toml")
 }
 
@@ -363,7 +363,7 @@ fn load_mcp_file(path: &Path) -> Result<(McpConfig, String), ConfigError> {
     Ok((config, hash))
 }
 
-fn validate_mcp_config(config: &McpConfig) -> Result<(), ConfigError> {
+pub(crate) fn validate_mcp_config(config: &McpConfig) -> Result<(), ConfigError> {
     for (name, server) in &config.servers {
         validate_mcp_server_name(name)?;
         if server.timeout_secs == 0 {
@@ -384,6 +384,18 @@ fn validate_mcp_config(config: &McpConfig) -> Result<(), ConfigError> {
                     key: format!("mcp.servers.{name}.url"),
                     message: "url is required for streamable_http transport".to_string(),
                 });
+            }
+            McpTransport::StreamableHttp => {
+                let url = server.url.as_deref().unwrap_or_default();
+                let valid_url = url::Url::parse(url)
+                    .ok()
+                    .is_some_and(|parsed| matches!(parsed.scheme(), "http" | "https"));
+                if !valid_url {
+                    return Err(ConfigError::InvalidConfig {
+                        key: format!("mcp.servers.{name}.url"),
+                        message: "url must be an absolute HTTP or HTTPS URL".to_string(),
+                    });
+                }
             }
             _ => {}
         }

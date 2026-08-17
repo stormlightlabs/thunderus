@@ -1002,6 +1002,46 @@ mod tests {
             Some(Command::Mcp { command: commands::mcp::McpCommand::List })
         );
 
+        let add = Cli::try_parse_from([
+            "thndrs",
+            "mcp",
+            "add",
+            "docs",
+            "--scope",
+            "project",
+            "--command",
+            "npx",
+            "--arg",
+            "-y",
+            "--arg",
+            "@vendor/docs",
+        ])
+        .expect("parse add");
+        assert_eq!(
+            add.command,
+            Some(Command::Mcp {
+                command: commands::mcp::McpCommand::Add {
+                    name: "docs".to_string(),
+                    scope: commands::mcp::McpConfigScope::Project,
+                    command: Some("npx".to_string()),
+                    args: vec!["-y".to_string(), "@vendor/docs".to_string()],
+                    url: None,
+                }
+            })
+        );
+
+        let remove =
+            Cli::try_parse_from(["thndrs", "mcp", "remove", "docs", "--scope", "global"]).expect("parse remove");
+        assert_eq!(
+            remove.command,
+            Some(Command::Mcp {
+                command: commands::mcp::McpCommand::Remove {
+                    name: "docs".to_string(),
+                    scope: commands::mcp::McpConfigScope::Global,
+                }
+            })
+        );
+
         let test = Cli::try_parse_from(["thndrs", "mcp", "test", "docs"]).expect("parse");
         assert_eq!(
             test.command,

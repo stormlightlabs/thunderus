@@ -275,10 +275,17 @@ so editing `.thndrs/mcp.toml` blocks its servers until the new contents are
 trusted. Use `thndrs mcp status` to inspect the decision and `thndrs mcp revoke`
 to remove it.
 
-`thndrs` reads MCP configuration but does not install server packages. Install
-local server executables using their publisher's instructions, then set
-`command` and `args` to the resulting launch command. Server names must match
-`[A-Za-z0-9_-]+`.
+`thndrs` reads MCP configuration but does not install server packages. Use
+`thndrs mcp add <name> --scope <global|project> --command <command>` for a
+stdio connection, adding one `--arg <arg>` for each argument, or use `--url`
+for a Streamable HTTP connection. The command writes configuration only; it
+does not install, start, or contact the server. Use `thndrs mcp remove <name>
+--scope <global|project>` to remove a definition.
+
+The guided commands do not accept headers, environment values, or tokens.
+Configure credentials through environment references in manual TOML instead.
+They preserve unrelated definitions and comments, validate the complete file,
+and replace it atomically. Server names must match `[A-Za-z0-9_-]+`.
 
 Example stdio server:
 
