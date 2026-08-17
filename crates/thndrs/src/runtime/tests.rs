@@ -51,7 +51,6 @@ fn snapshot_bundle() -> PromptBundle {
         environment: prompt::EnvironmentMetadata {
             cwd: "/repo".to_string(),
             model: "opencode/big-pickle".to_string(),
-            search_mode: WebSearchMode::DuckDuckGo,
             date: "2026-06-29".to_string(),
         },
         project_context: vec![source],
@@ -404,8 +403,6 @@ fn render_print_prompt_config_includes_effective_config_metadata() {
     );
     let cli = Cli {
         model: "opencode/gpt-5.6-luna".to_string(),
-        websearch: WebSearchMode::Searxng,
-        websearch_url: Some("http://127.0.0.1:8080".to_string()),
         session_dir: Some(PathBuf::from("/repo/custom-sessions")),
         config_layers: vec![config::LoadedConfigLayer {
             source: config::ConfigSource::ProjectFile,
@@ -424,7 +421,7 @@ fn render_print_prompt_config_includes_effective_config_metadata() {
     assert!(output.contains("=== Effective Config ==="));
     assert!(output.contains("provider: opencode-zen"));
     assert!(output.contains("model: opencode/gpt-5.6-luna"));
-    assert!(output.contains("search: searxng"));
+    assert!(!output.contains("search:"));
     assert!(output.contains("workspace: /repo"));
     assert!(output.contains("session_dir: /repo/custom-sessions"));
     assert!(output.contains("project .thndrs/config.toml abc123"));
@@ -437,7 +434,6 @@ fn render_print_prompt_config_includes_effective_config_metadata() {
 === Effective Config ===
   provider: opencode-zen
   model: opencode/gpt-5.6-luna
-  search: searxng
   workspace: /repo
   session_dir: /repo/custom-sessions
   files:

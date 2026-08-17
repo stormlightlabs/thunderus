@@ -321,9 +321,39 @@ fn server_info_from_sdk(info: &rmcp::model::ServerInfo) -> McpServerInfo {
     }
 }
 
+/// Transcript presentation for a namespaced MCP tool.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum McpToolPresentation {
+    /// A tool whose original name identifies web search.
+    Search,
+    /// A tool whose original name identifies web retrieval.
+    Fetch,
+    /// Any other MCP tool.
+    Generic,
+}
+
 /// Build the provider-visible namespaced MCP tool name.
 pub fn namespaced_tool_name(server_name: &str, tool_name: &str) -> String {
     format!("mcp__{server_name}__{tool_name}")
+}
+
+/// Classify a namespaced MCP tool from its server-reported original name.
+///
+/// The namespace preserves the original name after its second `__`, so this
+/// remains independent of any particular MCP server package or configuration.
+pub fn tool_presentation(namespaced_tool_name: &str) -> McpToolPresentation {
+    let Some((_, original_name)) = namespaced_tool_name
+        .strip_prefix("mcp__")
+        .and_then(|name| name.split_once("__"))
+    else {
+        return McpToolPresentation::Generic;
+    };
+
+    match original_name.to_ascii_lowercase().as_str() {
+        "search" | "web_search" | "search_web" | "websearch" => McpToolPresentation::Search,
+        "fetch" | "web_fetch" | "fetch_url" | "read_url" => McpToolPresentation::Fetch,
+        _ => McpToolPresentation::Generic,
+    }
 }
 
 /// Convert one SDK tool definition to the local registry definition shape.
@@ -447,6 +477,22 @@ mod tests {
         assert_eq!(converted.definition.description, "Echo input");
         assert_eq!(converted.definition.input_schema["type"], "object");
         assert_eq!(converted.original_tool_name, "echo");
+    }
+
+    #[test]
+    fn namespaced_web_tools_keep_search_and_fetch_presentation() {
+        assert_eq!(
+            tool_presentation("mcp__research__web_search"),
+            McpToolPresentation::Search
+        );
+        assert_eq!(
+            tool_presentation("mcp__research__web_fetch"),
+            McpToolPresentation::Fetch
+        );
+        assert_eq!(
+            tool_presentation("mcp__research__database_query"),
+            McpToolPresentation::Generic
+        );
     }
 
     #[test]

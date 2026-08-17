@@ -18,8 +18,6 @@ still override environment variables.
 | Variable                   | Value                                                                        |
 | -------------------------- | ---------------------------------------------------------------------------- |
 | `THNDRS_MODEL`             | Completion model string.                                                     |
-| `THNDRS_WEBSEARCH`         | `duckduckgo`, `searxng`, or `none`.                                           |
-| `THNDRS_WEBSEARCH_URL`     | HTTP(S) SearXNG base URL; required when `THNDRS_WEBSEARCH=searxng`.           |
 | `THNDRS_REASONING_EFFORT`  | Model-specific reasoning control:                                            |
 |                            | `auto`, `on`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. |
 | `THNDRS_REASONING_SUMMARY` | `off` or `auto` for GPT-5.6 summaries.                                       |
@@ -34,8 +32,6 @@ Examples:
 
 ```sh
 export THNDRS_MODEL=opencode/big-pickle
-export THNDRS_WEBSEARCH=duckduckgo
-export THNDRS_WEBSEARCH_URL=http://127.0.0.1:8080
 export THNDRS_VERBOSE=on
 export THNDRS_SESSION_DIR="$HOME/.local/share/thndrs/sessions"
 ```

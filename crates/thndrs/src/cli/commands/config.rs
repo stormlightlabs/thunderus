@@ -9,7 +9,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::cli::{Cli, WebSearchMode};
+use crate::cli::Cli;
 
 /// Config file inspection and editing commands.
 #[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
@@ -249,11 +249,6 @@ fn launch_editor(editor: &str, path: &Path) -> io::Result<()> {
 
 fn write_config<W: Write>(config: &config::Config, writer: &mut W) -> io::Result<()> {
     writeln!(writer, "  model: {}", config.model.as_deref().unwrap_or("<unset>"))?;
-    writeln!(
-        writer,
-        "  websearch: {}",
-        config.websearch.unwrap_or(WebSearchMode::DuckDuckGo).label()
-    )?;
     writeln!(
         writer,
         "  reasoning_effort: {}",

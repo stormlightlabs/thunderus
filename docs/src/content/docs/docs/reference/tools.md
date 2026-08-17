@@ -73,20 +73,11 @@ Inputs:
 
 Prefer targeted ranges over reading large files.
 
-## `web_search`
+## MCP web tools
 
-Search the web for current information when the workspace does not contain the
-answer.
-
-Inputs:
-
-- `query`: search query.
-- `max_results`: optional result cap.
-
-Search uses the configured application-owned backend (`duckduckgo`, `searxng`,
-or `none`). Results are capped, normalized, and followed by best-effort
-Lectito extraction of public result URLs. Private result URLs are reported as
-per-result extraction failures.
+Web search comes from configured MCP servers. `thndrs` does not advertise a
+built-in search tool. See [Web search and URL reading](/docs/usage/web-search/) for
+setup.
 
 ## `read_url`
 

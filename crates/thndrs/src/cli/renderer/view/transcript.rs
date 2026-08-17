@@ -155,10 +155,12 @@ fn activity_projection(
             continue;
         };
         let base_name = name.split('#').next().unwrap_or(name);
-        match base_name {
-            "read_file_range" | "read_url" | "sawk" => reads += 1,
-            "find_files" | "list_searchable_files" | "search_text" | "web_search" => searches += 1,
-            _ => {}
+        if is_fetch_tool(base_name) || matches!(base_name, "read_file_range" | "sawk") {
+            reads += 1;
+        } else if is_search_tool(base_name)
+            || matches!(base_name, "find_files" | "list_searchable_files" | "search_text")
+        {
+            searches += 1;
         }
         running |= *status == ToolStatus::Running;
         latest = summarize_tool_invocation(base_name, arguments, &app.runtime.cwd);
@@ -256,9 +258,11 @@ fn single_activity_summary(
         kind,
         importance: ActivityImportance::Significant,
         calls: 1,
-        reads: usize::from(kind == ActivityKind::Explore && matches!(name, "read_file_range" | "read_url" | "sawk")),
+        reads: usize::from(
+            kind == ActivityKind::Explore && (is_fetch_tool(name) || matches!(name, "read_file_range" | "sawk")),
+        ),
         searches: usize::from(
-            kind == ActivityKind::Explore && !matches!(name, "read_file_range" | "read_url" | "sawk"),
+            kind == ActivityKind::Explore && !(is_fetch_tool(name) || matches!(name, "read_file_range" | "sawk")),
         ),
         running: status == ToolStatus::Running,
         failed: status == ToolStatus::Failed,
@@ -286,10 +290,7 @@ fn activity_marker(app: &App, status: ToolStatus) -> String {
 
 fn exploration_label(name: &str, target: &str) -> String {
     let target = target.split_once(": ").map_or(target, |(_, value)| value);
-    let verb = if matches!(
-        name,
-        "find_files" | "list_searchable_files" | "search_text" | "web_search"
-    ) {
+    let verb = if is_search_tool(name) || matches!(name, "find_files" | "list_searchable_files" | "search_text") {
         "Searching"
     } else {
         "Exploring"
@@ -507,10 +508,21 @@ fn is_edit_tool(name: &str) -> bool {
 }
 
 fn is_routine_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "find_files" | "list_searchable_files" | "search_text" | "read_file_range" | "sawk" | "web_search" | "read_url"
-    )
+    is_search_tool(name)
+        || is_fetch_tool(name)
+        || matches!(
+            name,
+            "find_files" | "list_searchable_files" | "search_text" | "read_file_range" | "sawk"
+        )
+}
+
+fn is_search_tool(name: &str) -> bool {
+    crate::mcp::adapter::tool_presentation(name) == crate::mcp::adapter::McpToolPresentation::Search
+}
+
+fn is_fetch_tool(name: &str) -> bool {
+    matches!(name, "read_url")
+        || crate::mcp::adapter::tool_presentation(name) == crate::mcp::adapter::McpToolPresentation::Fetch
 }
 
 fn same_exploration_group(entries: &[Entry], left: usize, right: usize) -> bool {
@@ -524,15 +536,6 @@ fn is_routine_exploration(entry: &Entry) -> bool {
     let Entry::Tool { name, status, .. } = entry else {
         return false;
     };
-    matches!(status, ToolStatus::Running | ToolStatus::Ok)
-        && matches!(
-            name.split('#').next().unwrap_or(name),
-            "find_files"
-                | "list_searchable_files"
-                | "search_text"
-                | "read_file_range"
-                | "sawk"
-                | "web_search"
-                | "read_url"
-        )
+    let name = name.split('#').next().unwrap_or(name);
+    matches!(status, ToolStatus::Running | ToolStatus::Ok) && is_routine_tool(name)
 }

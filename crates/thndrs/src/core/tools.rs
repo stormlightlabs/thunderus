@@ -30,7 +30,6 @@ mod sawk;
 pub mod search;
 mod state_identity;
 mod subproc;
-mod web_search;
 mod write_patch;
 
 use std::path::{Path, PathBuf};
@@ -41,9 +40,8 @@ use thndrs_agent::CancelToken;
 
 #[cfg(test)]
 use crate::app::ToolStatus;
-use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
+use crate::cli::{ReasoningEffort, ReasoningSummary};
 use crate::mcp::manager::McpManager;
-use crate::search::SearchConfig;
 
 /// Default maximum number of results from a search or list operation.
 pub const MAX_RESULTS: usize = 100;
@@ -124,10 +122,6 @@ pub struct AgentRunConfig {
     pub extra_read_roots: Vec<PathBuf>,
     /// Selected model name.
     pub model: String,
-    /// Web search mode.
-    pub search_mode: WebSearchMode,
-    /// Optional SearXNG base URL used by the application-owned web search tool.
-    pub search_url: Option<String>,
     /// Reasoning effort requested for supporting provider models.
     ///
     /// TODO: Route this through every provider/model family that supports
@@ -154,14 +148,12 @@ pub struct AgentRunConfig {
 }
 
 impl AgentRunConfig {
-    pub fn new(root: PathBuf, model: String, search_mode: WebSearchMode) -> Self {
+    pub fn new(root: PathBuf, model: String) -> Self {
         AgentRunConfig {
             root,
             authority: ToolAuthority::default(),
             extra_read_roots: Vec::new(),
             model,
-            search_mode,
-            search_url: None,
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
             mcp_manager: None,
@@ -186,23 +178,12 @@ impl AgentRunConfig {
         self
     }
 
-    /// Apply the configured SearXNG base URL for this run.
-    pub fn with_search_url(mut self, search_url: Option<String>) -> Self {
-        self.search_url = search_url;
-        self
-    }
-
     /// Allow reads from application-discovered skill roots.
     pub fn with_extra_read_roots(mut self, mut roots: Vec<PathBuf>) -> Self {
         roots.sort();
         roots.dedup();
         self.extra_read_roots = roots;
         self
-    }
-
-    /// Build the application-owned search configuration for this run.
-    pub fn search_config(&self) -> SearchConfig {
-        SearchConfig::from_parts(self.search_mode, self.search_url.clone())
     }
 
     /// Attach an MCP manager to this run.
@@ -339,7 +320,7 @@ pub fn runtime_tool_definitions_for(authority: ToolAuthority, mcp_manager: Optio
 fn is_read_only_tool(name: &str) -> bool {
     matches!(
         name,
-        "find_files" | "list_searchable_files" | "search_text" | "read_file_range" | "sawk" | "web_search" | "read_url"
+        "find_files" | "list_searchable_files" | "search_text" | "read_file_range" | "sawk" | "read_url"
     )
 }
 
@@ -379,96 +360,45 @@ pub fn sorted_json_value(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
-/// Dispatch a provider tool-use request, returning the tool output, an optional
-/// file-write result, and an optional shell-execution result.
-///
-/// This is the unified entry point for the agent loop, returning all structured
-/// side effects alongside the [`ToolOutput`].
+/// Dispatch a provider tool-use request, returning the tool output and structured side effects.
 pub fn dispatch_full(
     request: &ToolUseRequest, root: &Path,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
-    dispatch_full_with_search(request, root, &SearchConfig::default())
-}
-
-/// Dispatch a provider tool-use request with the active search backend.
-pub fn dispatch_full_with_search(
-    request: &ToolUseRequest, root: &Path, search: &SearchConfig,
-) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
-    let context = registry::ToolContext::with_search(root, search);
-    let execution = registry::execute(request, &context);
+    let execution = registry::execute(request, &registry::ToolContext::new(root));
     (execution.output, execution.write_result, execution.shell_result)
 }
 
-/// Dispatch a request with cancellation and the active search backend.
-pub fn dispatch_full_with_cancel_and_search(
-    request: &ToolUseRequest, root: &Path, cancel: &CancelToken, search: &SearchConfig,
-) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
-    dispatch_full_with_cancel_and_search_and_registry(request, root, cancel, search, None, &[])
-}
-
-/// Dispatch a request with cancellation, search settings, and an optional
-/// application-owned background-process registry.
-pub fn dispatch_full_with_cancel_and_search_and_registry(
-    request: &ToolUseRequest, root: &Path, cancel: &CancelToken, search: &SearchConfig,
-    process_registry: Option<&shell::ProcessRegistry>, extra_read_roots: &[PathBuf],
+/// Dispatch a request with cancellation and an optional application-owned process registry.
+pub fn dispatch_full_with_cancel_and_registry(
+    request: &ToolUseRequest, root: &Path, cancel: &CancelToken, process_registry: Option<&shell::ProcessRegistry>,
+    extra_read_roots: &[PathBuf],
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     let execution = if request.name == shell::NAME {
         shell::execute_request_with_cancel_and_registry(request, root, cancel, process_registry)
     } else {
-        let context = registry::ToolContext::with_search(root, search).with_extra_read_roots(extra_read_roots);
-        registry::execute(request, &context)
+        registry::execute(
+            request,
+            &registry::ToolContext::new(root).with_extra_read_roots(extra_read_roots),
+        )
     };
     (execution.output, execution.write_result, execution.shell_result)
 }
 
 /// Dispatch through MCP first when a namespaced MCP tool is available.
-pub fn dispatch_runtime_full(
-    request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>,
-) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
-    if request.name.starts_with("mcp__")
-        && let Some(manager) = mcp_manager
-    {
-        return (manager.call_tool(request), None, None);
-    }
-    dispatch_full(request, root)
-}
-
-/// Dispatch through MCP or built-ins with the active search backend.
-pub fn dispatch_runtime_full_with_search(
-    request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>, search: &SearchConfig,
-) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
-    if request.name.starts_with("mcp__")
-        && let Some(manager) = mcp_manager
-    {
-        return (manager.call_tool(request), None, None);
-    }
-    dispatch_full_with_search(request, root, search)
-}
-
-/// Dispatch through MCP or built-ins with cancellation and search settings.
-pub fn dispatch_runtime_full_with_cancel_and_search(
+pub fn dispatch_runtime_full_with_cancel_and_registry(
     request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>, cancel: &CancelToken,
-    search: &SearchConfig,
-) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
-    dispatch_runtime_full_with_cancel_and_search_and_registry(request, root, mcp_manager, cancel, search, None, &[])
-}
-
-/// Dispatch through MCP or built-ins with cancellation, search settings, and
-/// an optional application-owned background-process registry.
-pub fn dispatch_runtime_full_with_cancel_and_search_and_registry(
-    request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>, cancel: &CancelToken,
-    search: &SearchConfig, process_registry: Option<&shell::ProcessRegistry>, extra_read_roots: &[PathBuf],
+    process_registry: Option<&shell::ProcessRegistry>, extra_read_roots: &[PathBuf],
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     if request.name.starts_with("mcp__")
         && let Some(manager) = mcp_manager
     {
         return (manager.call_tool(request), None, None);
     }
-    dispatch_full_with_cancel_and_search_and_registry(request, root, cancel, search, process_registry, extra_read_roots)
+    dispatch_full_with_cancel_and_registry(request, root, cancel, process_registry, extra_read_roots)
 }
 
 /// Dispatch a request after enforcing the run's authority.
-pub fn dispatch_authorized_runtime_full_with_cancel_and_search_and_registry(
+pub fn dispatch_authorized_runtime_full_with_cancel_and_registry(
     request: &ToolUseRequest, config: &AgentRunConfig, cancel: &CancelToken,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     if config.authority == ToolAuthority::ReadOnly && !is_read_only_tool(&request.name) {
@@ -481,13 +411,11 @@ pub fn dispatch_authorized_runtime_full_with_cancel_and_search_and_registry(
             None,
         );
     }
-    let search = config.search_config();
-    dispatch_runtime_full_with_cancel_and_search_and_registry(
+    dispatch_runtime_full_with_cancel_and_registry(
         request,
         &config.root,
         config.mcp_manager.as_deref(),
         cancel,
-        &search,
         config.process_registry.as_ref(),
         &config.extra_read_roots,
     )
@@ -567,13 +495,10 @@ mod tests {
             serde_json::json!({ "path": "forbidden.txt", "content": "must not exist" }).to_string(),
             "call_1",
         );
-        let config = AgentRunConfig::new(dir.path().to_path_buf(), "test-model".to_string(), WebSearchMode::None)
+        let config = AgentRunConfig::new(dir.path().to_path_buf(), "test-model".to_string())
             .with_authority(ToolAuthority::ReadOnly);
-        let (output, write, process) = dispatch_authorized_runtime_full_with_cancel_and_search_and_registry(
-            &request,
-            &config,
-            &CancelToken::new(),
-        );
+        let (output, write, process) =
+            dispatch_authorized_runtime_full_with_cancel_and_registry(&request, &config, &CancelToken::new());
 
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_deref().is_some_and(|error| error.contains("read-only")));
@@ -599,7 +524,7 @@ mod tests {
         let started = std::time::Instant::now();
 
         let (output, _, process) =
-            dispatch_runtime_full_with_cancel_and_search(&request, dir.path(), None, &cancel, &SearchConfig::default());
+            dispatch_runtime_full_with_cancel_and_registry(&request, dir.path(), None, &cancel, None, &[]);
 
         stopper.join().expect("cancellation thread");
         let process = process.expect("shell process result");
@@ -741,7 +666,6 @@ mod tests {
                 "search_text",
                 "read_file_range",
                 "sawk",
-                "web_search",
                 "read_url",
                 "create_file",
                 "replace_range",

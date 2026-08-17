@@ -32,7 +32,7 @@ impl SessionWriter {
         reason = "session metadata is written as a flat JSONL record"
     )]
     pub fn create(
-        dir: &Path, session_id: &str, cwd: &str, title: &str, provider: &str, model: &str, websearch: &str,
+        dir: &Path, session_id: &str, cwd: &str, title: &str, provider: &str, model: &str, _historical_websearch: &str,
         app_version: &str, config: Option<SessionConfigMeta>,
     ) -> std::io::Result<Self> {
         std::fs::create_dir_all(dir)?;
@@ -48,7 +48,7 @@ impl SessionWriter {
             title: title.to_string(),
             provider: provider.to_string(),
             model: model.to_string(),
-            websearch: websearch.to_string(),
+            websearch: String::new(),
             app_version: app_version.to_string(),
             config,
         };

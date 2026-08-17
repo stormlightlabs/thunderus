@@ -54,7 +54,6 @@ fn write_fixture_config(workspace: &Path, script: &str) {
         config_dir.join("config.toml"),
         format!(
             r#"model = "acp:local"
-websearch = "none"
 session_dir = "sessions"
 
 [acp_agents.local]

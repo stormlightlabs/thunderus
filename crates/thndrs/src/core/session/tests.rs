@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use super::*;
-use crate::cli::WebSearchMode;
 use crate::context::ContextSource;
 use crate::prompt::PromptBundle;
 use crate::skills::SkillActivation;
@@ -24,7 +23,6 @@ fn bundle_with_context() -> PromptBundle {
     PromptBundle::new(
         Path::new("/repo"),
         "opencode/big-pickle",
-        WebSearchMode::DuckDuckGo,
         &[source],
         &[],
         "explain this repo",
@@ -88,11 +86,10 @@ fn compaction_audit(trigger: CompactionTrigger) -> CompactionAudit {
 }
 
 #[test]
-fn from_bundle_captures_model_and_search_mode() {
+fn from_bundle_captures_model() {
     let bundle = bundle_with_context();
     let meta = PromptMetadata::from_bundle(&bundle);
     assert_eq!(meta.model, "opencode/big-pickle");
-    assert_eq!(meta.search_mode, "duckduckgo");
 }
 
 #[test]
@@ -162,7 +159,6 @@ fn from_bundle_captures_transcript_tail_size_and_user_turn() {
     let bundle = PromptBundle::new(
         Path::new("/repo"),
         "opencode/big-pickle",
-        WebSearchMode::DuckDuckGo,
         &[],
         &transcript,
         "next question",
@@ -174,14 +170,7 @@ fn from_bundle_captures_transcript_tail_size_and_user_turn() {
 
 #[test]
 fn from_bundle_empty_user_turn_records_false() {
-    let bundle = PromptBundle::new(
-        Path::new("/repo"),
-        "opencode/big-pickle",
-        WebSearchMode::DuckDuckGo,
-        &[],
-        &[],
-        "",
-    );
+    let bundle = PromptBundle::new(Path::new("/repo"), "opencode/big-pickle", &[], &[], "");
     let meta = PromptMetadata::from_bundle(&bundle);
     assert!(!meta.has_user_turn);
 }
@@ -219,14 +208,7 @@ fn json_round_trip_truncated_context() {
         truncated: true,
         byte_count: 40_000,
     };
-    let bundle = PromptBundle::new(
-        Path::new("/repo"),
-        "opencode/gpt-5.6-luna",
-        WebSearchMode::Searxng,
-        &[source],
-        &[],
-        "explain",
-    );
+    let bundle = PromptBundle::new(Path::new("/repo"), "opencode/gpt-5.6-luna", &[source], &[], "explain");
     let meta = PromptMetadata::from_bundle(&bundle);
     let json = serde_json::to_string(&meta).expect("serialize");
     let restored: PromptMetadata = serde_json::from_str(&json).expect("deserialize");
@@ -296,6 +278,26 @@ fn session_record_json_round_trip_session_meta() {
     let restored = SessionRecord::from_json(&json).expect("deserialize");
     assert_eq!(record, restored);
     assert!(json.contains("\"type\":\"session_meta\""));
+}
+
+#[test]
+fn new_session_metadata_omits_retired_websearch() {
+    let record = SessionRecord::SessionMeta {
+        schema_version: 1,
+        seq: 0,
+        time: "2026-06-29T12:00:00Z".to_string(),
+        session_id: "test-1".to_string(),
+        cwd: "/repo".to_string(),
+        title: "scratch".to_string(),
+        provider: "opencode-zen".to_string(),
+        model: "opencode/big-pickle".to_string(),
+        websearch: String::new(),
+        app_version: "0.1.0".to_string(),
+        config: None,
+    };
+    let json = record.to_json().expect("serialize");
+    assert!(!json.contains("websearch"));
+    assert_eq!(SessionRecord::from_json(&json).expect("deserialize"), record);
 }
 
 #[test]

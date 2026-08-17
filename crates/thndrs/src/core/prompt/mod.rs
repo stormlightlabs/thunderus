@@ -37,7 +37,6 @@ use std::path::Path;
 
 use crate::app::Entry;
 use crate::app::ToolStatus;
-use crate::cli::WebSearchMode;
 use crate::context::ContextSource;
 use crate::internals;
 use crate::providers::ProviderMessage;
@@ -96,7 +95,7 @@ pub struct PromptBundle {
     /// Ordered prompt fragments: base identity, communication style, action
     /// model, edit guidance, action safety, self-knowledge, web/source guidance.
     pub fragments: Vec<PromptFragment>,
-    /// Environment: cwd, model, search mode, rounded date.
+    /// Environment: cwd, model, and rounded date.
     pub environment: EnvironmentMetadata,
     /// Loaded AGENTS.md context sources.
     pub project_context: Vec<ContextSource>,
@@ -133,22 +132,21 @@ pub struct PromptBundle {
 impl PromptBundle {
     /// Build a [`PromptBundle`] from app state and context.
     pub fn new(
-        cwd: &Path, model: &str, mode: WebSearchMode, context_sources: &[ContextSource], transcript: &[Entry],
-        user_turn: &str,
+        cwd: &Path, model: &str, context_sources: &[ContextSource], transcript: &[Entry], user_turn: &str,
     ) -> PromptBundle {
-        PromptBundle::new_with_skills(cwd, model, mode, context_sources, &[], transcript, user_turn)
+        PromptBundle::new_with_skills(cwd, model, context_sources, &[], transcript, user_turn)
     }
 
     /// Build a [`PromptBundle`] including discovered Agent Skills metadata.
     pub fn new_with_skills(
-        cwd: &Path, model: &str, mode: WebSearchMode, context_sources: &[ContextSource],
-        available_skills: &[SkillMetadata], transcript: &[Entry], user_turn: &str,
+        cwd: &Path, model: &str, context_sources: &[ContextSource], available_skills: &[SkillMetadata],
+        transcript: &[Entry], user_turn: &str,
     ) -> PromptBundle {
         let tool_catalog = tools::tool_definitions();
         let transcript_tail = project_transcript_tail(transcript);
         PromptBundle {
             fragments: default_fragments(),
-            environment: EnvironmentMetadata::new(cwd, model, mode),
+            environment: EnvironmentMetadata::new(cwd, model),
             project_context: context_sources.to_vec(),
             tool_catalog,
             available_skills: available_skills.to_vec(),
@@ -183,8 +181,6 @@ pub struct EnvironmentMetadata {
     pub cwd: String,
     /// Selected model name.
     pub model: String,
-    /// Web search mode selected for this turn.
-    pub search_mode: WebSearchMode,
     /// Rounded current date (YYYY-MM-DD) for cache stability.
     /// The exact timestamp stays in session JSONL when needed for audit.
     pub date: String,
@@ -193,13 +189,8 @@ pub struct EnvironmentMetadata {
 impl EnvironmentMetadata {
     /// Build environment metadata from app state, rounding the date to the
     /// day for prompt-cache stability.
-    pub fn new(cwd: &Path, model: &str, search_mode: WebSearchMode) -> Self {
-        EnvironmentMetadata {
-            cwd: cwd.display().to_string(),
-            model: model.to_string(),
-            search_mode,
-            date: datetime::rounded_date(),
-        }
+    pub fn new(cwd: &Path, model: &str) -> Self {
+        EnvironmentMetadata { cwd: cwd.display().to_string(), model: model.to_string(), date: datetime::rounded_date() }
     }
 }
 
@@ -256,12 +247,10 @@ pub fn render_system_prompt(bundle: &PromptBundle) -> String {
         r#"<environment>
   <workspace><![CDATA[{}]]></workspace>
   <model><![CDATA[{}]]></model>
-  <search>{}</search>
   <date>{}</date>
 </environment>"#,
         cdata(&bundle.environment.cwd),
         cdata(&bundle.environment.model),
-        bundle.environment.search_mode.label(),
         bundle.environment.date
     ));
 

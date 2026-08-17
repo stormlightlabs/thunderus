@@ -164,16 +164,11 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::cli::WebSearchMode;
     use crate::tools::AgentRunConfig;
 
     #[test]
     fn fake_turn_starts_and_finishes_without_app() {
-        let config = AgentRunConfig::new(
-            PathBuf::from("."),
-            String::from("fake-agent"),
-            WebSearchMode::DuckDuckGo,
-        );
+        let config = AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"));
         let handle = HarnessTurn::fake(config, String::new()).start();
         let mut events = Vec::new();
 

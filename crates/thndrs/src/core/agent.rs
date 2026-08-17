@@ -26,7 +26,6 @@ use std::time::Duration;
 
 use ureq::http::Response;
 
-use crate::WebSearchMode;
 use crate::app::{AgentEvent, ToolStatus};
 use crate::cli::{ReasoningEffort, ReasoningSummary};
 use crate::providers::{

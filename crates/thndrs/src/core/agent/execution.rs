@@ -75,7 +75,7 @@ pub(crate) fn dispatch_tool_request(
     {
         return output;
     }
-    tools::dispatch_authorized_runtime_full_with_cancel_and_search_and_registry(request, &handle.config, cancel)
+    tools::dispatch_authorized_runtime_full_with_cancel_and_registry(request, &handle.config, cancel)
 }
 
 pub(crate) fn approve_tool_request(

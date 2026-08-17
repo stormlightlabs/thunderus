@@ -105,7 +105,7 @@ fn stream_anthropic_response(
         if !state.provider_content_blocks.is_empty() {
             let blocks = state.provider_content_blocks.join(", ");
             return Err(format!(
-                "provider returned only provider-side content blocks ({blocks}) and no assistant text or tool calls; retry with --websearch none"
+                "provider returned only provider-side content blocks ({blocks}) and no assistant text or tool calls"
             ));
         }
         return Err(format!(

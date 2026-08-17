@@ -94,8 +94,6 @@ def launch_server(args, model):
             args.cwd,
             "--model",
             model,
-            "--websearch",
-            "none",
             *args.server_arg,
         ],
         stdin=subprocess.PIPE,

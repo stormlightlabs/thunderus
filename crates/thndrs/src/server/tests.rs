@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
+use crate::cli::{ReasoningEffort, ReasoningSummary};
 use crate::harness::{HarnessHandle, HarnessTurn};
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
@@ -19,7 +19,7 @@ use tempfile::tempdir;
 
 use super::config_options::{
     ConfigOptionValue, MODEL_CONFIG_OPTION_ID, REASONING_EFFORT_CONFIG_OPTION_ID, REASONING_SUMMARY_CONFIG_OPTION_ID,
-    WEBSEARCH_CONFIG_OPTION_ID, initial_config_option_ids, initial_config_options, validate_config_option,
+    initial_config_option_ids, initial_config_options, validate_config_option,
 };
 use super::events::{SessionUpdateIntent, ToolCallKind, ToolStatusIntent, classify_tool, map_agent_event};
 use super::handlers::{ServerState, acp_mcp_config, execute_prompt, initialize, set_config_option};
@@ -412,44 +412,24 @@ fn concurrent_turn_guard_blocks_second_turn_and_allows_after_end() {
 }
 
 #[test]
-fn config_options_have_stable_ids_and_validate_values() {
+fn config_options_expose_model_and_reasoning_controls() {
     assert_eq!(
         initial_config_option_ids(),
         &[
             MODEL_CONFIG_OPTION_ID,
-            WEBSEARCH_CONFIG_OPTION_ID,
             REASONING_EFFORT_CONFIG_OPTION_ID,
-            REASONING_SUMMARY_CONFIG_OPTION_ID,
+            REASONING_SUMMARY_CONFIG_OPTION_ID
         ]
     );
     let option_ids: Vec<&str> = initial_config_options().iter().map(|option| option.id).collect();
     assert!(option_ids.contains(&MODEL_CONFIG_OPTION_ID));
-    assert!(option_ids.contains(&WEBSEARCH_CONFIG_OPTION_ID));
     assert!(option_ids.contains(&REASONING_EFFORT_CONFIG_OPTION_ID));
     assert!(option_ids.contains(&REASONING_SUMMARY_CONFIG_OPTION_ID));
-
-    let model = validate_config_option(MODEL_CONFIG_OPTION_ID, "claude-3-opus").expect("model");
-    assert!(matches!(model, ConfigOptionValue::Model(model) if model == "claude-3-opus"));
-
-    let ws = validate_config_option(WEBSEARCH_CONFIG_OPTION_ID, "searxng").expect("websearch");
-    assert!(matches!(ws, ConfigOptionValue::WebSearch(WebSearchMode::Searxng)));
     assert!(matches!(
         validate_config_option(REASONING_EFFORT_CONFIG_OPTION_ID, "xhigh"),
         Ok(ConfigOptionValue::ReasoningEffort(ReasoningEffort::Xhigh))
     ));
-    assert!(matches!(
-        validate_config_option(REASONING_SUMMARY_CONFIG_OPTION_ID, "auto"),
-        Ok(ConfigOptionValue::ReasoningSummary(ReasoningSummary::Auto))
-    ));
-
-    assert!(validate_config_option(MODEL_CONFIG_OPTION_ID, "").is_err());
-    assert!(validate_config_option("missing", "x").is_err());
-    assert!(validate_config_option(WEBSEARCH_CONFIG_OPTION_ID, "bad").is_err());
-    assert!(matches!(
-        validate_config_option(REASONING_EFFORT_CONFIG_OPTION_ID, "max"),
-        Ok(ConfigOptionValue::ReasoningEffort(ReasoningEffort::Max))
-    ));
-    assert!(validate_config_option(REASONING_EFFORT_CONFIG_OPTION_ID, "unbounded").is_err());
+    assert!(validate_config_option("websearch", "bad").is_err());
 }
 
 #[test]
@@ -465,23 +445,17 @@ fn session_metadata_placeholder_is_set_and_updatable() {
         LocalSessionMetadata {
             local_session_id: "local-meta".to_string(),
             model: None,
-            websearch: None,
             reasoning_effort: None,
             reasoning_summary: None,
         }
     );
 
     store
-        .update_session_metadata(
-            session_id.as_str(),
-            Some("model-x".to_string()),
-            Some(WebSearchMode::Searxng),
-        )
+        .update_session_metadata(session_id.as_str(), Some("model-x".to_string()))
         .expect("update metadata");
 
     let session = store.session(session_id.as_str()).expect("session");
     assert_eq!(session.metadata.model.as_deref(), Some("model-x"));
-    assert_eq!(session.metadata.websearch, Some(WebSearchMode::Searxng));
 }
 
 #[test]
@@ -502,17 +476,6 @@ fn set_config_option_updates_model_and_refreshes_options() {
             .contains("\"currentValue\":\"chatgpt-codex/gpt-5.6-sol\"")
     );
     assert!(json.to_string().contains("\"configOptions\""));
-
-    let response = set_config_option(
-        &state,
-        &SetSessionConfigOptionRequest::new(session_id.clone(), WEBSEARCH_CONFIG_OPTION_ID, "none"),
-    )
-    .expect("set websearch");
-    let json = serde_json::to_value(&response).expect("serialize response");
-    let text = json.to_string();
-
-    assert!(text.contains("\"currentValue\":\"chatgpt-codex/gpt-5.6-sol\""));
-    assert!(text.contains("\"currentValue\":\"none\""));
 
     let response = set_config_option(
         &state,
@@ -540,7 +503,7 @@ fn set_config_option_rejects_invalid_ids_and_values() {
 
     let invalid = set_config_option(
         &state,
-        &SetSessionConfigOptionRequest::new(session_id, WEBSEARCH_CONFIG_OPTION_ID, "invalid"),
+        &SetSessionConfigOptionRequest::new(session_id, REASONING_EFFORT_CONFIG_OPTION_ID, "invalid"),
     );
     assert!(matches!(invalid, Err(error) if error.contains("must be one of")));
 }
@@ -555,11 +518,6 @@ fn execute_prompt_uses_selected_config_options() {
         &SetSessionConfigOptionRequest::new(session_id.clone(), MODEL_CONFIG_OPTION_ID, "chatgpt-codex/gpt-5.6-sol"),
     )
     .expect("set model");
-    set_config_option(
-        &state,
-        &SetSessionConfigOptionRequest::new(session_id.clone(), WEBSEARCH_CONFIG_OPTION_ID, "none"),
-    )
-    .expect("set websearch");
     set_config_option(
         &state,
         &SetSessionConfigOptionRequest::new(session_id.clone(), REASONING_EFFORT_CONFIG_OPTION_ID, "high"),
@@ -577,7 +535,6 @@ fn execute_prompt_uses_selected_config_options() {
         |_intent| Ok(()),
         |config, _messages, _expects_write, _prompt| {
             assert_eq!(config.model, "chatgpt-codex/gpt-5.6-sol");
-            assert_eq!(config.search_mode, WebSearchMode::None);
             assert_eq!(config.reasoning_effort, ReasoningEffort::High);
             assert_eq!(config.reasoning_summary, ReasoningSummary::Auto);
             HarnessTurn::fake(config, String::new()).start()
@@ -595,7 +552,6 @@ fn execute_prompt_preserves_server_authority() {
         ServerConfig::new(
             workspace.path().to_path_buf(),
             String::from("opencode/big-pickle"),
-            String::from("duckduckgo"),
             None,
         )
         .with_authority(ToolAuthority::ReadOnly),
@@ -663,12 +619,7 @@ fn acp_mcp_config_rejects_unsupported_transport_without_leaking_env() {
 }
 
 fn state_for_tests(cwd: PathBuf, session_dir: Option<PathBuf>) -> ServerState {
-    ServerState::new(ServerConfig::new(
-        cwd,
-        String::from("opencode/big-pickle"),
-        String::from("duckduckgo"),
-        session_dir,
-    ))
+    ServerState::new(ServerConfig::new(cwd, String::from("opencode/big-pickle"), session_dir))
 }
 
 #[test]

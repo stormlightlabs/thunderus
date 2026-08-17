@@ -418,49 +418,6 @@ impl RunHandle {
             }
         }
 
-        if self.config.search_mode != WebSearchMode::None {
-            let search_id = fake_tool_id(&self.config, "search-0");
-            let search_req = ToolUseRequest::new(
-                String::from("web_search"),
-                serde_json::json!({ "query": "rust terminal coding harness" }).to_string(),
-                search_id.clone(),
-            );
-            match send(
-                tx,
-                ToolStarted {
-                    id: search_id.clone(),
-                    name: search_req.name.clone(),
-                    arguments: search_req.arguments.clone(),
-                },
-                cancel,
-            ) {
-                None => return,
-                Some(_) => step(),
-            }
-
-            let search_config = self.config.search_config();
-            let (search_output, _, _) =
-                tools::dispatch_full_with_search(&search_req, &self.config.root, &search_config);
-            let search_status = search_output.status;
-            let search_display_output = search_output.display_lines();
-            match send(
-                tx,
-                ToolFinished {
-                    id: search_id,
-                    output: search_display_output,
-                    status: search_status,
-                    write_result: None,
-                    shell_result: None,
-                },
-                cancel,
-            ) {
-                None => return,
-                Some(_) => {
-                    step();
-                }
-            }
-        }
-
         let tool_id = fake_tool_id(&self.config, "0");
         let tool_req = ToolUseRequest::new(
             String::from("read_file_range"),

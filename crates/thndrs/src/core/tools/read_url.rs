@@ -1,12 +1,12 @@
 //! Public URL read tool boundary.
 //!
-//! The executor delegates to [`crate::search::fetch_url`], which owns URL scheme
+//! The executor delegates to [`crate::url_reader::fetch_url`], which owns URL scheme
 //! validation, private-network rejection, redirect checks, content-type
 //! allow-listing, response caps, timeout handling, and truncation metadata.
 
-use crate::search;
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::tools::{ToolDefinition, ToolOutput, ToolUseRequest};
+use crate::url_reader;
 
 const NAME: &str = "read_url";
 
@@ -24,8 +24,8 @@ pub fn definition() -> ToolDefinition {
 
 Fetch a public HTTP/HTTPS URL and extract readable text.
 
-Use to read a page found via web_search or referenced in the workspace. Prefer
-local files when available. HTML is extracted to Markdown with Lectito; JSON,
+Use a public URL from the user, workspace, or an MCP result. Prefer local
+files when available. HTML is extracted to Markdown with Lectito; JSON,
 XML, plain text, feeds, and YAML are returned raw. Binary content is rejected.
 Private targets, redirects, and non-http(s) schemes are rejected. Size,
 redirects, and timeouts are capped; output may truncate."#,
@@ -60,7 +60,7 @@ pub fn execute_request(request: &ToolUseRequest, _ctx: &ToolContext<'_>) -> Tool
 }
 
 fn exec_input(input: &ReadUrlInput) -> ToolOutput {
-    match search::fetch_url(&input.url) {
+    match url_reader::fetch_url(&input.url) {
         Ok(content) => {
             let mut lines = vec![
                 format!("title: {}", content.title),

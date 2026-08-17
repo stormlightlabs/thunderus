@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
+use crate::cli::{ReasoningEffort, ReasoningSummary};
 use crate::mcp::config::McpConfig;
 use crate::session::SessionWriter;
 
@@ -28,8 +28,6 @@ pub struct LocalSessionMetadata {
     pub local_session_id: String,
     /// Current model label selected for this ACP session.
     pub model: Option<String>,
-    /// Current web-search mode selected for this ACP session.
-    pub websearch: Option<WebSearchMode>,
     /// Current reasoning effort selected for this ACP session.
     pub reasoning_effort: Option<ReasoningEffort>,
     /// Current reasoning-summary policy selected for this ACP session.
@@ -145,7 +143,6 @@ impl AcpSessionStore {
             metadata: LocalSessionMetadata {
                 local_session_id: local_session_id.clone(),
                 model: None,
-                websearch: None,
                 reasoning_effort: None,
                 reasoning_summary: None,
             },
@@ -184,7 +181,6 @@ impl AcpSessionStore {
             metadata: LocalSessionMetadata {
                 local_session_id: local_session_id.clone(),
                 model: None,
-                websearch: None,
                 reasoning_effort: None,
                 reasoning_summary: None,
             },
@@ -251,17 +247,16 @@ impl AcpSessionStore {
 
     /// Update local metadata placeholders for a session.
     pub fn update_session_metadata(
-        &mut self, acp_session_id: &str, model: Option<String>, websearch: Option<WebSearchMode>,
+        &mut self, acp_session_id: &str, model: Option<String>,
     ) -> Result<(), AcpSessionError> {
         let Some(session) = self.sessions.get_mut(acp_session_id) else {
             return Err(AcpSessionError::MissingSession { acp_session_id: acp_session_id.to_string() });
         };
         session.metadata.model = model;
-        session.metadata.websearch = websearch;
         Ok(())
     }
 
-    /// Update reasoning controls without changing model or web-search metadata.
+    /// Update reasoning controls without changing model metadata.
     pub fn update_session_reasoning(
         &mut self, acp_session_id: &str, effort: Option<ReasoningEffort>, summary: Option<ReasoningSummary>,
     ) -> Result<(), AcpSessionError> {

@@ -62,11 +62,6 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
 ",
         bundle.environment.model
     ));
-    out.push_str(&format!(
-        "  search: {}
-",
-        bundle.environment.search_mode.label()
-    ));
     out.push_str(
         "  date: [date]
 ",
@@ -190,7 +185,6 @@ pub(crate) fn run_print_prompt(cli: &Cli) -> io::Result<()> {
     let bundle = PromptBundle::new_with_skills(
         &workspace_root,
         &cli.model,
-        cli.websearch,
         &context_sources,
         &skill_inventory.skills,
         &[],
@@ -227,11 +221,6 @@ pub(crate) fn render_print_prompt_config(cli: &Cli, workspace_root: &Path) -> St
         "  model: {}
 ",
         cli.model
-    ));
-    out.push_str(&format!(
-        "  search: {}
-",
-        cli.websearch.label()
     ));
     out.push_str(&format!(
         "  workspace: {}

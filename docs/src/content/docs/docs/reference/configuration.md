@@ -54,8 +54,6 @@ provider-specific names.
 | Key                 | Type                               | Default                             | Description                                                               |
 | ------------------- | ---------------------------------- | ----------------------------------- | ------------------------------------------------------------------------- |
 | `model`             | string                             | set by setup                        | Completion model override.                                                |
-| `websearch`         | `duckduckgo`, `searxng`, or `none` | `duckduckgo`                        | Application-owned web-search backend.                                    |
-| `websearch_url`     | HTTP(S) URL                        | unset                               | Required SearXNG base URL; loopback/private hosts are allowed.            |
 | `reasoning_effort`  | model-specific:    | `auto`                              | Reasoning control; unsupported choices fail locally.                      |
 |                     | `auto`, `on`,      |                                     | Supported providers expose model-specific effort levels.                 |
 |                     | `none`, `minimal`, |                                     |                                                                           |
@@ -85,9 +83,6 @@ entries, then CLI `--skill-dir` entries.
 ```toml
 # Setup records the initial provider and model. Uncomment to override it.
 # model = "opencode/big-pickle"
-websearch = "duckduckgo"
-# Required when websearch = "searxng".
-# websearch_url = "http://127.0.0.1:8080"
 reasoning_effort = "auto"
 reasoning_summary = "off"
 tick_rate_ms = 33
@@ -257,24 +252,14 @@ By default, sessions are written under the selected workspace:
 
 Set `session_dir` to use another directory. Session metadata records safe
 configuration metadata such as loaded config file paths, SHA-256 hashes, key
-origins, effective model, web-search backend, configured SearXNG URL origin,
-workspace, and session directory.
+origins, effective model, workspace, and session directory.
 It does not persist provider API keys or raw provider-private state.
 
-## Web Search
+## Web search
 
-Set `websearch` to choose the application-owned backend:
-
-- `duckduckgo`: use DuckDuckGo HTML search (the default).
-- `searxng`: use the JSON API at `websearch_url`.
-- `none`: disable application-owned web search.
-
-`websearch_url` must be an HTTP(S) base URL without a query or fragment when
-`websearch = "searxng"`. The application appends `/search`, `q`, and
-`format=json`.
-
-Repository file discovery is not configured through `websearch`; it is an
-implementation detail of local read-only tools.
+Configure web search through an MCP server. The normal configuration file holds
+MCP connection settings separately from provider settings; see
+[Web search and URL reading](/docs/usage/web-search/).
 
 ## MCP Servers
 

@@ -79,7 +79,7 @@ use crate::cli::commands::auth::CredentialScope;
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::cli::git::{self, GitStatusSummary};
 use crate::cli::input::history::{INPUT_HISTORY_LIMIT, InputHistoryStore};
-use crate::cli::{Cli, MIN_TICK_RATE_MS, ReasoningEffort, Theme, WebSearchMode};
+use crate::cli::{Cli, MIN_TICK_RATE_MS, ReasoningEffort, Theme};
 use crate::input::{PromptInput, TerminalInput};
 use crate::providers::{codex, opencode};
 use crate::thndrs_core::auth;
@@ -1248,7 +1248,6 @@ pub struct RuntimeState {
     pub cli: Cli,
     pub cwd: PathBuf,
     pub model: String,
-    pub websearch: WebSearchMode,
     pub theme: Theme,
     pub verbose: bool,
     pub user_label: String,
@@ -1405,7 +1404,7 @@ impl App {
                     "scratch",
                     provider_label(&value.model),
                     &value.model,
-                    value.websearch.label(),
+                    "",
                     env!("CARGO_PKG_VERSION"),
                     config_meta,
                 )
@@ -1480,7 +1479,6 @@ impl App {
                 cli: cli_snapshot,
                 cwd: workspace_root.clone(),
                 model: value.model.clone(),
-                websearch: value.websearch,
                 theme: value.theme,
                 verbose: value.verbose,
                 user_label: default_user_label(),
@@ -1768,11 +1766,7 @@ impl App {
     /// Build the compact self-knowledge snapshot used by the startup display.
     pub fn self_knowledge_snapshot(&self) -> internals::SelfKnowledgeSnapshot {
         let tools = tools::tool_definitions();
-        let provider = internals::ProviderSnapshot::new(
-            provider_label(&self.runtime.model),
-            &self.runtime.model,
-            self.runtime.websearch,
-        );
+        let provider = internals::ProviderSnapshot::new(provider_label(&self.runtime.model), &self.runtime.model);
         let runtime = internals::RuntimeSnapshot::new(
             provider,
             self.runtime.cwd.display().to_string(),
@@ -1857,11 +1851,10 @@ impl App {
             .as_ref()
             .map_or_else(|| "unavailable".to_string(), GitStatusSummary::display);
         format!(
-            "state: {}\nmodel: {}\nreasoning: {}\nsearch: {}\naccount capacity: {}\ngit: {}\nworkspace: {}",
+            "state: {}\nmodel: {}\nreasoning: {}\naccount capacity: {}\ngit: {}\nworkspace: {}",
             self.status_label(),
             codex::display_model_id(&self.runtime.model),
             self.runtime.cli.reasoning_effort.label(),
-            self.runtime.websearch.label(),
             account_capacity,
             git,
             self.runtime.cwd.display()

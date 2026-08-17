@@ -165,27 +165,7 @@ expression: json
     "name": "sawk"
   },
   {
-    "description": "web_search\n\nSearch the web for current information.\n\nUse this when the workspace does not contain the answer and you need external\ndocumentation, API specs, or current facts. Prefer reading local files and\nsearching the workspace first. Results are normalized and their public URLs are\nread with Lectito when possible; private result URLs are rejected. The backend\nis configured as duckduckgo, searxng, or none. Capped at 10 results.",
-    "input_schema": {
-      "properties": {
-        "max_results": {
-          "description": "Maximum number of results to return (capped at 10).",
-          "type": "integer"
-        },
-        "query": {
-          "description": "The search query.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "query"
-      ],
-      "type": "object"
-    },
-    "name": "web_search"
-  },
-  {
-    "description": "read_url\n\nFetch a public HTTP/HTTPS URL and extract readable text.\n\nUse to read a page found via web_search or referenced in the workspace. Prefer\nlocal files when available. HTML is extracted to Markdown with Lectito; JSON,\nXML, plain text, feeds, and YAML are returned raw. Binary content is rejected.\nPrivate targets, redirects, and non-http(s) schemes are rejected. Size,\nredirects, and timeouts are capped; output may truncate.",
+    "description": "read_url\n\nFetch a public HTTP/HTTPS URL and extract readable text.\n\nUse a public URL from the user, workspace, or an MCP result. Prefer local\nfiles when available. HTML is extracted to Markdown with Lectito; JSON,\nXML, plain text, feeds, and YAML are returned raw. Binary content is rejected.\nPrivate targets, redirects, and non-http(s) schemes are rejected. Size,\nredirects, and timeouts are capped; output may truncate.",
     "input_schema": {
       "properties": {
         "url": {

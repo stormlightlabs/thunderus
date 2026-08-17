@@ -622,14 +622,13 @@ fn retrying_provider_discards_partial_output_without_restoring_input() {
 fn tui_update_path_handles_fake_provider_turn() {
     let mut app = fresh_app();
     std::fs::write(app.runtime.cwd.join("Cargo.toml"), "[package]\nname = \"fake\"\n").expect("write fake Cargo.toml");
-    app.runtime.websearch = WebSearchMode::None;
     app.composer.input = PromptInput::from("inspect project");
     let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     if let Some(message) = follow {
         update(&mut app, &message);
     }
 
-    let config = AgentRunConfig::new(app.runtime.cwd.clone(), String::from("fake-agent"), WebSearchMode::None);
+    let config = AgentRunConfig::new(app.runtime.cwd.clone(), String::from("fake-agent"));
     let handle = HarnessTurn::fake(config, String::from("inspect project")).start();
     while let Ok(event) = handle.events.recv() {
         update(&mut app, &Msg::Agent(event));

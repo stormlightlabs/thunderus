@@ -3345,7 +3345,6 @@ dependencies = [
  "ratatui",
  "regex-lite",
  "rmcp",
- "scraper",
  "serde",
  "serde_json",
  "serde_yaml_ng",

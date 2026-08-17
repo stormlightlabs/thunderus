@@ -13,7 +13,6 @@ fn test_bundle() -> PromptBundle {
         environment: EnvironmentMetadata {
             cwd: "/repo".to_string(),
             model: "opencode/big-pickle".to_string(),
-            search_mode: WebSearchMode::DuckDuckGo,
             date: "2026-06-29".to_string(),
         },
         project_context: Vec::new(),
@@ -121,21 +120,9 @@ fn self_knowledge_fragment_points_to_local_truth() {
 
 #[test]
 fn environment_metadata_rounds_date() {
-    let env = EnvironmentMetadata::new(Path::new("/repo"), "opencode/big-pickle", WebSearchMode::DuckDuckGo);
+    let env = EnvironmentMetadata::new(Path::new("/repo"), "opencode/big-pickle");
     assert_eq!(env.date.len(), 10, "date should be YYYY-MM-DD");
     assert!(env.date.starts_with("20"), "date should be in the 2000s");
-}
-
-#[test]
-fn environment_metadata_search_mode_labels() {
-    let duckduckgo = EnvironmentMetadata::new(Path::new("."), "m", WebSearchMode::DuckDuckGo);
-    assert_eq!(duckduckgo.search_mode.label(), "duckduckgo");
-
-    let searxng = EnvironmentMetadata::new(Path::new("."), "m", WebSearchMode::Searxng);
-    assert_eq!(searxng.search_mode.label(), "searxng");
-
-    let none = EnvironmentMetadata::new(Path::new("."), "m", WebSearchMode::None);
-    assert_eq!(none.search_mode.label(), "none");
 }
 
 #[test]
@@ -189,7 +176,7 @@ fn system_prompt_includes_stable_self_description_and_docs_map() {
     assert!(prompt.contains("<name>opencode-zen</name>"));
     assert!(prompt.contains("<model>opencode/big-pickle</model>"));
     assert!(prompt.contains("<workspace>/repo</workspace>"));
-    assert!(prompt.contains("<mode>duckduckgo</mode>"));
+    assert!(!prompt.contains("<search>"));
     assert!(prompt.contains("<url_reader>read_url fetches public HTTP(S) and extracts HTML with Lectito</url_reader>"));
     assert!(prompt.contains("<renderer_mode>direct-inline</renderer_mode>"));
     assert!(prompt.contains("<path>docs/src/content/docs/docs/reference/tools.md</path>"));
@@ -552,7 +539,6 @@ fn build_prompt_bundle_assembles_all_parts() {
     let bundle = PromptBundle::new(
         Path::new("/repo"),
         "opencode/big-pickle",
-        WebSearchMode::DuckDuckGo,
         &[],
         &[Entry::User { text: "test".to_string() }],
         "hello",

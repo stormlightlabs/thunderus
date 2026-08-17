@@ -51,19 +51,13 @@ pub(crate) fn interactive_loop<S: InteractiveSurface>(
         session = %app.session.id,
         cwd = %workspace_root.display(),
         model = %cli.model,
-        websearch = %cli.websearch.label(),
         "starting thndrs (ratatui renderer)"
     );
     append_daily_log(
         &observability,
         &app.session.id,
         "session_start",
-        &format!(
-            "cwd={} model={} websearch={}",
-            workspace_root.display(),
-            cli.model,
-            cli.websearch.label()
-        ),
+        &format!("cwd={} model={}", workspace_root.display(), cli.model),
     );
 
     let mut agent: Option<AgentSlot> = None;
@@ -328,9 +322,8 @@ pub(crate) fn spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>, request:
     let prompt = active_provider_prompt(app);
     let cli = app.runtime.cli.clone();
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
-    let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch)
+    let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone())
         .with_authority(cli.authority)
-        .with_search_url(cli.websearch_url.clone())
         .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
         .with_extra_read_roots(app.transcript.skills.iter().map(|skill| skill.root.clone()).collect())
         .with_model_reduction(app.effective_model_reduction())
@@ -369,8 +362,6 @@ pub(crate) fn spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>, request:
     tracing::info!(
         cwd = %config.root.display(),
         model = %config.model,
-        requested_websearch = %cli.websearch.label(),
-        search_backend = %config.search_mode.label(),
         "spawning agent run"
     );
 
@@ -381,7 +372,6 @@ pub(crate) fn spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>, request:
     let bundle = PromptBundle::new_with_skills(
         &config.root,
         &config.model,
-        config.search_mode,
         &app.transcript.context_sources,
         &app.transcript.skills,
         &app.transcript.entries,

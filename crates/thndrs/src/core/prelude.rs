@@ -5,7 +5,6 @@
 //! other.
 
 pub use crate::app::{AgentEvent, ToolStatus};
-pub use crate::cli::WebSearchMode;
 pub use crate::harness::{HarnessHandle, HarnessTurn};
 pub use crate::providers::ProviderMessage;
 pub use crate::tools::AgentRunConfig;

@@ -1,65 +1,34 @@
 ---
-title: "Web Search"
+title: "Web search and URL reading"
 ---
 
-## Search Backends
+`thndrs` discovers pages through configured MCP servers. It does not include a
+web-search backend or a search tool by default. If no configured server exposes
+a search tool, the agent can read a URL it already has but cannot discover new
+pages.
 
-`thndrs` owns web search and exposes three backend settings through
-`--websearch` or the `websearch` config key:
+## Configure a search server
 
-- `duckduckgo` (the default): query DuckDuckGo's HTML endpoint.
-- `searxng`: query a configured SearXNG instance using its JSON API.
-- `none`: disable the `web_search` tool.
+Add an MCP server with a search capability to your global or project MCP
+configuration, then review and trust project configuration before using it. The
+server chooses its own tool names and authentication. `thndrs` namespaces the
+tools it discovers and sends them to the model with the rest of the tool
+catalog.
 
-The selected backend is part of runtime and session metadata. Search is never
-inferred from prompt wording and no provider-specific search header is sent.
+[xngmcp](https://github.com/stormlightlabs/xngmcp), backed by a local SearXNG
+instance, is one option. You can use any MCP server that provides the search
+service you need; `thndrs` does not require xngmcp or any particular package or
+tool name.
 
-## SearXNG
+See [MCP](/docs/usage/mcp/) for configuration, trust, and diagnostics.
 
-SearXNG requires an HTTP(S) base URL. Configure it with `--websearch-url`,
-`websearch_url`, or `THNDRS_WEBSEARCH_URL`:
+## Read returned URLs
 
-```sh
-thndrs --websearch searxng --websearch-url http://127.0.0.1:8080
-```
+`read_url` remains built in. Use it for a public URL supplied by the user, found
+in the workspace, or returned from an MCP search result. It accepts only HTTP
+and HTTPS URLs that resolve to public addresses. Each redirect is checked, and
+response size, redirect count, and total request time are capped.
 
-The application requests `/search?q=...&format=json` and normalizes the
-returned title, URL, and snippet fields. The configured SearXNG host may be
-loopback or private because it is an explicit local service. SearXNG result
-URLs remain untrusted and are fetched only through the public URL policy.
-
-## Result handling
-
-Results are capped at ten per call (five by default), then each selected public
-URL is fetched through the bounded Lectito-backed extraction path. Results keep
-their original order; an extraction failure is reported next to that result so
-later results can still be used. Search and extraction output includes
-truncation and transport diagnostics when relevant.
-
-Search results should usually be paired with `read_url` before making claims
-about page content.
-
-## Local Extraction
-
-Extraction follows the same read-only posture as the repository tools.
-
-HTML and XHTML pages are extracted with Lectito into readable Markdown and plain
-text. Other allowed text-like content types, such as JSON, XML, plain text, feeds,
-YAML, CSV, and JavaScript, are returned as raw text. Binary content is rejected.
-
-## Public URL Safety
-
-Local URL reads only accept public `http` and `https` URLs. Private-network targets
-are rejected before fetching and again after redirects. Redirect count, content type,
-response size, and total request time are bounded.
-
-This policy also applies to result URLs returned by SearXNG.
-
-## Truncation Metadata
-
-Search and extraction results carry truncation metadata so the transcript can
-show when output was capped.
-
-## Search Transcript Entries
-
-Search activity renders through normal tool transcript entries and remains provider-neutral.
+HTML is extracted to readable Markdown with Lectito. Plain text, JSON, XML,
+feeds, YAML, CSV, and JavaScript are returned as text. Binary content is
+rejected. The result records its final URL and retrieval diagnostics.

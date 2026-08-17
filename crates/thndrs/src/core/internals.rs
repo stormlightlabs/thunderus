@@ -4,7 +4,6 @@
 //! knows about itself for the current run.
 
 use crate::agent::ProviderKind;
-use crate::cli::WebSearchMode;
 use crate::context::ContextSource;
 use crate::prompt::PromptBundle;
 use crate::skills::SkillMetadata;
@@ -36,7 +35,7 @@ const CAPABILITIES: &[&str] = &[
     "provider-native tool schemas",
     "agent skills metadata",
     "append-only JSONL sessions",
-    "application-owned web search backends",
+    "MCP-configured web search",
     "URL/article reading",
     "direct inline terminal renderer",
 ];
@@ -99,38 +98,19 @@ impl Default for AppIdentitySnapshot {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SearchSnapshot {
-    pub mode: String,
-    pub backend: String,
-    pub local_search: String,
-    pub url_reader: String,
-}
-
-impl From<WebSearchMode> for SearchSnapshot {
-    fn from(mode: WebSearchMode) -> Self {
-        Self {
-            mode: mode.label().to_string(),
-            backend: match mode {
-                WebSearchMode::DuckDuckGo => "duckduckgo: DuckDuckGo HTML search".to_string(),
-                WebSearchMode::Searxng => "searxng: configured SearXNG JSON search".to_string(),
-                WebSearchMode::None => "none: application-owned web search disabled".to_string(),
-            },
-            local_search: "web_search normalizes results and fetches public pages".to_string(),
-            url_reader: "read_url fetches public HTTP(S) and extracts HTML with Lectito".to_string(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderSnapshot {
     pub provider: String,
     pub model: String,
-    pub search: SearchSnapshot,
+    pub url_reader: String,
 }
 
 impl ProviderSnapshot {
-    pub fn new(provider: impl Into<String>, model: impl Into<String>, search_mode: WebSearchMode) -> Self {
-        Self { provider: provider.into(), model: model.into(), search: search_mode.into() }
+    pub fn new(provider: impl Into<String>, model: impl Into<String>) -> Self {
+        Self {
+            provider: provider.into(),
+            model: model.into(),
+            url_reader: "read_url fetches public HTTP(S) and extracts HTML with Lectito".to_string(),
+        }
     }
 }
 
@@ -202,7 +182,6 @@ impl From<&PromptBundle> for SelfKnowledgeSnapshot {
         let provider = ProviderSnapshot::new(
             ProviderKind::for_model(&bundle.environment.model).label(),
             &bundle.environment.model,
-            bundle.environment.search_mode,
         );
         let runtime = RuntimeSnapshot::new(
             provider,
@@ -272,12 +251,7 @@ impl SelfKnowledgeSnapshot {
         out.push_str("    <provider>\n");
         element(&mut out, 6, "name", &self.runtime.provider.provider);
         element(&mut out, 6, "model", &self.runtime.provider.model);
-        out.push_str("      <search>\n");
-        element(&mut out, 8, "mode", &self.runtime.provider.search.mode);
-        element(&mut out, 8, "backend", &self.runtime.provider.search.backend);
-        element(&mut out, 8, "local_search", &self.runtime.provider.search.local_search);
-        element(&mut out, 8, "url_reader", &self.runtime.provider.search.url_reader);
-        out.push_str("      </search>\n");
+        element(&mut out, 6, "url_reader", &self.runtime.provider.url_reader);
         out.push_str("    </provider>\n");
 
         out.push_str("    <tools>\n");
@@ -337,22 +311,13 @@ impl SelfKnowledgeSnapshot {
                 vec![
                     format!("provider = \"{}\"", self.runtime.provider.provider),
                     format!("model = \"{}\"", self.runtime.provider.model),
-                    format!("search = \"{}\"", self.runtime.provider.search.mode),
                 ],
             ),
             StartupSection::new(
                 "Context",
                 context_startup_lines(&self.inventory.prompt_context.context_sources),
             ),
-            StartupSection::new(
-                "Search",
-                vec![format!(
-                    "{}; {}; {}",
-                    self.runtime.provider.search.backend,
-                    self.runtime.provider.search.local_search,
-                    self.runtime.provider.search.url_reader
-                )],
-            ),
+            StartupSection::new("Web", vec![self.runtime.provider.url_reader.clone()]),
             StartupSection::new("Skills", {
                 let names = self
                     .inventory
@@ -434,10 +399,10 @@ mod tests {
     }
 
     fn test_snapshot(
-        model: &str, search_mode: WebSearchMode, prompt_fragments: Vec<String>, context_sources: &[ContextSource],
-        tools: &[ToolDefinition], skills: &[SkillMetadata], diagnostics: &[SkillDiagnostic],
+        model: &str, prompt_fragments: Vec<String>, context_sources: &[ContextSource], tools: &[ToolDefinition],
+        skills: &[SkillMetadata], diagnostics: &[SkillDiagnostic],
     ) -> SelfKnowledgeSnapshot {
-        let provider = ProviderSnapshot::new("opencode-zen", model, search_mode);
+        let provider = ProviderSnapshot::new("opencode-zen", model);
         let runtime = RuntimeSnapshot::new(
             provider,
             "/repo",
@@ -464,7 +429,6 @@ mod tests {
         let diagnostic = SkillDiagnostic { path: "/repo/bad/SKILL.md".into(), message: "invalid".to_string() };
         let snapshot = test_snapshot(
             "test-model",
-            WebSearchMode::DuckDuckGo,
             vec!["base_identity".to_string(), "self_knowledge".to_string()],
             &[source],
             &crate::tools::tool_definitions(),
@@ -489,15 +453,7 @@ mod tests {
 
     #[test]
     fn startup_sections_use_compact_labels() {
-        let snapshot = test_snapshot(
-            "test-model",
-            WebSearchMode::None,
-            vec!["base_identity".to_string()],
-            &[],
-            &[],
-            &[],
-            &[],
-        );
+        let snapshot = test_snapshot("test-model", vec!["base_identity".to_string()], &[], &[], &[], &[]);
         let sections = snapshot.startup_sections();
         assert!(sections.iter().any(|section| section.heading == "Runtime"));
         let context = sections

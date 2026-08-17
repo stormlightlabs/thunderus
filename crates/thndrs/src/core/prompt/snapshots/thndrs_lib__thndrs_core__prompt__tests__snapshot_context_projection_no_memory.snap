@@ -187,7 +187,6 @@ expression: prompt
 <environment>
   <workspace><![CDATA[/repo]]></workspace>
   <model><![CDATA[opencode/big-pickle]]></model>
-  <search>duckduckgo</search>
   <date>2026-06-29</date>
 </environment>
 
@@ -201,7 +200,7 @@ expression: prompt
       <capability>provider-native tool schemas</capability>
       <capability>agent skills metadata</capability>
       <capability>append-only JSONL sessions</capability>
-      <capability>application-owned web search backends</capability>
+      <capability>MCP-configured web search</capability>
       <capability>URL/article reading</capability>
       <capability>direct inline terminal renderer</capability>
     </capabilities>
@@ -270,12 +269,7 @@ expression: prompt
     <provider>
       <name>opencode-zen</name>
       <model>opencode/big-pickle</model>
-      <search>
-        <mode>duckduckgo</mode>
-        <backend>duckduckgo: DuckDuckGo HTML search</backend>
-        <local_search>web_search normalizes results and fetches public pages</local_search>
-        <url_reader>read_url fetches public HTTP(S) and extracts HTML with Lectito</url_reader>
-      </search>
+      <url_reader>read_url fetches public HTTP(S) and extracts HTML with Lectito</url_reader>
     </provider>
     <tools>
       <tool>find_files</tool>
@@ -283,7 +277,6 @@ expression: prompt
       <tool>search_text</tool>
       <tool>read_file_range</tool>
       <tool>sawk</tool>
-      <tool>web_search</tool>
       <tool>read_url</tool>
       <tool>create_file</tool>
       <tool>replace_range</tool>

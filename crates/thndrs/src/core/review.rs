@@ -131,7 +131,6 @@ pub fn run_command(cli: &Cli, command: &ReviewCommand) -> io::Result<()> {
     let prompt = review_prompt(&resolved);
     let mut review_cli = cli.clone();
     review_cli.authority = ToolAuthority::ReadOnly;
-    review_cli.websearch = crate::cli::WebSearchMode::None;
     let response = crate::headless::run_prompt_capture(&review_cli, &prompt)?;
     let provider = parse_provider_review(&response)?;
     let result = validate_result(provider, resolved, &root)?;

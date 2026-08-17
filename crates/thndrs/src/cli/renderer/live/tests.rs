@@ -6,7 +6,7 @@ use crate::app::{
 };
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::cli::git::GitStatusSummary;
-use crate::cli::{Cli, Theme, WebSearchMode};
+use crate::cli::{Cli, Theme};
 use crate::renderer::layout::truncate_spans;
 use crate::renderer::row::Frame;
 use crate::thndrs_core::auth::ChatGptCodexDeviceCode;
@@ -17,8 +17,6 @@ fn test_app() -> App {
     let mut app = App::from_cli(&Cli {
         cwd: PathBuf::from("."),
         model: "test-model".to_string(),
-        websearch: WebSearchMode::DuckDuckGo,
-        websearch_url: None,
         reasoning_effort: Default::default(),
         reasoning_summary: Default::default(),
         tick_rate_ms: 100,

@@ -38,23 +38,6 @@ pub enum Theme {
     CatppuccinMocha,
 }
 
-/// Web search policy for a turn.
-#[derive(ValueEnum, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum WebSearchMode {
-    /// Search through DuckDuckGo's HTML endpoint.
-    #[default]
-    #[value(name = "duckduckgo")]
-    #[serde(rename = "duckduckgo")]
-    DuckDuckGo,
-    /// Search through a configured SearXNG instance.
-    #[value(name = "searxng")]
-    #[serde(rename = "searxng")]
-    Searxng,
-    /// Disable the application-owned web search tool.
-    None,
-}
-
 /// Requested reasoning control for a provider model.
 ///
 /// The exact choices are model-specific. [`Auto`](Self::Auto) delegates to the
@@ -250,17 +233,6 @@ pub enum Command {
     },
 }
 
-impl WebSearchMode {
-    /// Display/config label for this mode.
-    pub fn label(self) -> &'static str {
-        match self {
-            WebSearchMode::DuckDuckGo => "duckduckgo",
-            WebSearchMode::Searxng => "searxng",
-            WebSearchMode::None => "none",
-        }
-    }
-}
-
 /// Runtime configuration after defaults, TOML, env, and flags are merged.
 #[derive(Parser, Clone, Debug)]
 #[command(version, about = "agentic pair programmer")]
@@ -274,12 +246,6 @@ pub struct Cli {
     /// coding workspace becomes usable.
     #[arg(long, default_value = "")]
     pub model: String,
-    /// Application-owned web search backend.
-    #[arg(long, value_enum, default_value = "duckduckgo")]
-    pub websearch: WebSearchMode,
-    /// Base URL for the SearXNG web search backend.
-    #[arg(long = "websearch-url")]
-    pub websearch_url: Option<String>,
     /// Configured reasoning effort for supporting provider models.
     ///
     /// TODO: Route this through every provider/model family that supports
@@ -353,8 +319,6 @@ impl Default for Cli {
         Cli {
             cwd: PathBuf::from("."),
             model: String::new(),
-            websearch: WebSearchMode::DuckDuckGo,
-            websearch_url: None,
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
             tick_rate_ms: DEFAULT_TICK_RATE_MS,
@@ -456,14 +420,6 @@ impl Cli {
             config.model = Some(self.model.clone());
             insert_cli_origin(&mut origins, "model", "--model");
         }
-        if is_command_line(matches, "websearch") {
-            config.websearch = Some(self.websearch);
-            insert_cli_origin(&mut origins, "websearch", "--websearch");
-        }
-        if is_command_line(matches, "websearch_url") {
-            config.websearch_url = self.websearch_url.clone();
-            insert_cli_origin(&mut origins, "websearch_url", "--websearch-url");
-        }
         if is_command_line(matches, "tick_rate_ms") {
             config.tick_rate_ms = Some(self.tick_rate_ms);
             insert_cli_origin(&mut origins, "tick_rate_ms", "--tick-rate-ms");
@@ -496,8 +452,6 @@ impl Cli {
             config.default_workspace.unwrap_or(defaults.cwd)
         };
         self.model = config.model.unwrap_or(defaults.model);
-        self.websearch = config.websearch.unwrap_or(defaults.websearch);
-        self.websearch_url = config.websearch_url.or(defaults.websearch_url);
         self.reasoning_effort = config.reasoning_effort.unwrap_or(defaults.reasoning_effort);
         self.reasoning_summary = config.reasoning_summary.unwrap_or(defaults.reasoning_summary);
         self.tick_rate_ms = config.tick_rate_ms.unwrap_or(defaults.tick_rate_ms);
@@ -548,7 +502,6 @@ mod tests {
         let cli = Cli::try_parse_from(["thndrs"]).expect("default parse");
         assert_eq!(cli.cwd, PathBuf::from("."));
         assert!(cli.model.is_empty());
-        assert_eq!(cli.websearch, WebSearchMode::DuckDuckGo);
         assert_eq!(cli.tick_rate_ms, DEFAULT_TICK_RATE_MS);
         assert!(!cli.verbose);
         assert_eq!(cli.theme, Theme::EldritchMinimal);
@@ -628,7 +581,7 @@ mod tests {
         fs::create_dir_all(workspace.join(".thndrs")).expect("create .thndrs dir");
         fs::write(
             workspace.join(".thndrs").join("config.toml"),
-            "model = \"config-model\"\nwebsearch = \"duckduckgo\"\ntick_rate_ms = 250\nverbose = false\ntheme = \"eldritch-minimal\"\n",
+            "model = \"config-model\"\ntick_rate_ms = 250\nverbose = false\ntheme = \"eldritch-minimal\"\n",
         )
         .expect("write config");
 
@@ -645,7 +598,6 @@ mod tests {
         let cli = cli.with_effective(effective, &matches);
 
         assert_eq!(cli.model, "cli-model");
-        assert_eq!(cli.websearch, WebSearchMode::DuckDuckGo);
         assert_eq!(cli.tick_rate_ms, 250);
         assert!(cli.config_diagnostics.is_empty());
         assert!(cli.verbose);
@@ -727,22 +679,9 @@ mod tests {
     }
 
     #[test]
-    // TODO: this should be a table drive test
-    fn websearch_explicit_values_parse() {
-        let duckduckgo = Cli::try_parse_from(["thndrs", "--websearch", "duckduckgo"]).unwrap();
-        assert_eq!(duckduckgo.websearch, WebSearchMode::DuckDuckGo);
-
-        let searxng = Cli::try_parse_from(["thndrs", "--websearch", "searxng"]).unwrap();
-        assert_eq!(searxng.websearch, WebSearchMode::Searxng);
-
-        let none = Cli::try_parse_from(["thndrs", "--websearch", "none"]).unwrap();
-        assert_eq!(none.websearch, WebSearchMode::None);
-    }
-
-    #[test]
-    fn invalid_websearch_is_rejected() {
-        let result = Cli::try_parse_from(["thndrs", "--websearch", "totally-bogus"]);
-        assert!(result.is_err(), "invalid websearch mode should be rejected");
+    fn retired_websearch_flags_are_rejected() {
+        assert!(Cli::try_parse_from(["thndrs", "--websearch", "none"]).is_err());
+        assert!(Cli::try_parse_from(["thndrs", "--websearch-url", "https://example.com"]).is_err());
     }
 
     #[test]
@@ -1053,13 +992,6 @@ mod tests {
     fn print_prompt_defaults_false() {
         let cli = Cli::try_parse_from(["thndrs"]).expect("parse");
         assert!(!cli.print_prompt);
-    }
-
-    #[test]
-    fn websearch_labels_are_application_backends() {
-        assert_eq!(WebSearchMode::DuckDuckGo.label(), "duckduckgo");
-        assert_eq!(WebSearchMode::Searxng.label(), "searxng");
-        assert_eq!(WebSearchMode::None.label(), "none");
     }
 
     #[test]

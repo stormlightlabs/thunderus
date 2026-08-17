@@ -32,6 +32,7 @@ pub enum SessionRecord {
         title: String,
         provider: String,
         model: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
         websearch: String,
         app_version: String,
         /// Effective config metadata: loaded config files, key origins, and
@@ -637,8 +638,6 @@ pub struct PromptMetadata {
     /// Selected provider label.
     #[serde(default)]
     pub provider: String,
-    /// Application-owned web-search backend label.
-    pub search_mode: String,
     /// Renderer mode label.
     #[serde(default)]
     pub renderer_mode: String,
@@ -680,7 +679,7 @@ pub struct PromptMetadata {
 impl PromptMetadata {
     /// Extract prompt metadata from a [`PromptBundle`] for session storage.
     ///
-    /// This captures the structural metadata of the turn — model, search backend,
+    /// This captures the structural metadata of the turn — model,
     /// context sources (hashes and truncation, not content), tool count, and
     /// transcript tail size. It does not store prompt text, AGENTS.md content,
     /// or provider request/response bodies.
@@ -690,7 +689,6 @@ impl PromptMetadata {
         PromptMetadata {
             model: environment.model.clone(),
             provider: snapshot.runtime.provider.provider,
-            search_mode: environment.search_mode.label().to_string(),
             renderer_mode: snapshot.runtime.renderer_mode,
             date: environment.date.clone(),
             cwd: environment.cwd.clone(),

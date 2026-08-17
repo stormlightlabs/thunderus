@@ -119,13 +119,11 @@ fn assert_snapshot(name: &str, contents: &str) {
 }
 
 fn test_app() -> App {
-    use crate::cli::{Cli, Theme, WebSearchMode};
+    use crate::cli::{Cli, Theme};
 
     let mut app = App::from_cli(&Cli {
         cwd: PathBuf::from("."),
         model: "test-model".to_string(),
-        websearch: WebSearchMode::DuckDuckGo,
-        websearch_url: None,
         reasoning_effort: Default::default(),
         reasoning_summary: Default::default(),
         tick_rate_ms: 100,

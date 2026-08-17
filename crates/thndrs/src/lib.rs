@@ -20,8 +20,8 @@ pub use cli::{app, input, renderer};
 
 pub use prelude::*;
 pub use thndrs_core::{
-    acp, artifacts, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, review, search,
-    skills, tools, trust, utils,
+    acp, artifacts, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, review, skills, tools,
+    trust, url_reader, utils,
 };
 
 #[cfg(test)]

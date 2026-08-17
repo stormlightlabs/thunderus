@@ -1,16 +1,11 @@
 use super::*;
 use crate::app::ToolStatus;
-use crate::cli::WebSearchMode;
 use crate::providers;
 use crate::tools::{self, AgentRunConfig};
 use std::path::{Path, PathBuf};
 
 fn config() -> AgentRunConfig {
-    AgentRunConfig::new(
-        PathBuf::from("."),
-        String::from("fake-agent"),
-        WebSearchMode::DuckDuckGo,
-    )
+    AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"))
 }
 
 struct MetadataErrorProvider {
@@ -170,48 +165,6 @@ fn fake_stream_tool_ids_are_scoped_to_the_turn() {
 
     assert_ne!(fake_tool_id(&first, "0"), fake_tool_id(&second, "0"));
     assert_eq!(fake_tool_id(&first, "search-0"), "turn-1-search-0");
-}
-
-#[test]
-fn fake_stream_with_duckduckgo_search_emits_search_tool_event() {
-    let mut cfg = config();
-    cfg.search_mode = WebSearchMode::DuckDuckGo;
-    let handle = RunHandle::fake(cfg, String::new());
-    let rx = handle.spawn();
-
-    let mut events = Vec::new();
-    while let Ok(event) = rx.recv() {
-        events.push(event);
-    }
-
-    let has_search = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ToolStarted { name, .. } if name == "web_search"));
-    assert!(has_search, "DuckDuckGo search should emit web_search tool event");
-}
-
-#[test]
-fn fake_stream_with_none_search_skips_search_and_returns_assistant_text() {
-    let mut cfg = config();
-    cfg.search_mode = WebSearchMode::None;
-    let handle = RunHandle::fake(cfg, String::new());
-    let rx = handle.spawn();
-
-    let mut events = Vec::new();
-    while let Ok(event) = rx.recv() {
-        events.push(event);
-    }
-
-    let has_search = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ToolStarted { name, .. } if name == "web_search"));
-    assert!(!has_search, "none search should not emit web_search tool event");
-
-    assert!(
-        events.iter().any(|e| matches!(e, AgentEvent::AssistantDelta(_))),
-        "search-disabled prompt should still return assistant text"
-    );
-    assert_eq!(events.last(), Some(&AgentEvent::Finished));
 }
 
 /// Drop the receiver immediately; the thread should exit without panic.
@@ -939,10 +892,10 @@ fn dispatch_read_url_rejects_non_public_scheme() {
 }
 
 #[test]
-fn tool_definitions_include_web_search_and_read_url() {
+fn tool_definitions_include_read_url_without_built_in_search() {
     let defs = tools::tool_definitions();
     let names = defs.iter().map(|d| d.name.as_ref()).collect::<Vec<&str>>();
-    assert!(names.contains(&"web_search"));
+    assert!(!names.contains(&"web_search"));
     assert!(names.contains(&"read_url"));
     assert!(names.contains(&"run_shell"), "tool catalog should include run_shell");
 }
@@ -988,7 +941,7 @@ fn dispatch_run_shell_missing_program_fails() {
 fn agent_dispatch_cancellation_stops_run_shell() {
     let dir = tempfile::tempdir().expect("temp dir");
     let handle = RunHandle::fake(
-        AgentRunConfig::new(dir.path().to_path_buf(), "fake-agent".to_string(), WebSearchMode::None),
+        AgentRunConfig::new(dir.path().to_path_buf(), "fake-agent".to_string()),
         String::new(),
     );
     let request = ToolUseRequest::new(

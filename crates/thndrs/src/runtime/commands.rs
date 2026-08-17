@@ -1064,11 +1064,9 @@ pub(crate) fn run_acp_server(cli: &Cli) -> io::Result<()> {
     let server_config = server::ServerConfig::new(
         config::resolve_cli_path(&cli.cwd),
         cli.model.clone(),
-        cli.websearch.label().to_string(),
         cli.session_dir.clone(),
     )
     .with_authority(cli.authority)
-    .with_search_url(cli.websearch_url.clone())
     .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
     .with_model_reduction(cli.context.reduction.clone());
     let _ = tracing_subscriber::fmt()

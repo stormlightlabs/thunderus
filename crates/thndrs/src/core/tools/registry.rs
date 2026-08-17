@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use super::{ToolDefinition, ToolOutput, ToolUseRequest, WriteResult, shell};
-use crate::search::SearchConfig;
 
 const BUILTIN_TOOLS: &[ToolEntry] = &[
     ToolEntry {
@@ -48,12 +47,6 @@ const BUILTIN_TOOLS: &[ToolEntry] = &[
         definition: super::sawk::definition,
         execute: super::sawk::execute_request,
         example_input: r#"{"action":"sed_print","path":"Cargo.toml","start_line":1,"end_line":3}"#,
-    },
-    ToolEntry {
-        name: "web_search",
-        definition: super::web_search::definition,
-        execute: super::web_search::execute_request,
-        example_input: r#"{"query":"Rust serde documentation","max_results":3}"#,
     },
     ToolEntry {
         name: "read_url",
@@ -104,8 +97,6 @@ pub struct ToolContext<'a> {
     pub extra_read_roots: Vec<PathBuf>,
     /// Workspace root used for containment and relative paths.
     pub root: &'a Path,
-    /// Application-owned web-search configuration.
-    pub search: SearchConfig,
     /// Shared owner for background shell children, when running inside the
     /// interactive application.
     pub process_registry: Option<shell::ProcessRegistry>,
@@ -114,12 +105,7 @@ pub struct ToolContext<'a> {
 impl<'a> ToolContext<'a> {
     /// Create a tool context for a workspace root.
     pub fn new(root: &'a Path) -> Self {
-        Self { extra_read_roots: Vec::new(), root, search: SearchConfig::default(), process_registry: None }
-    }
-
-    /// Create a tool context with the active application-owned search backend.
-    pub fn with_search(root: &'a Path, search: &SearchConfig) -> Self {
-        Self { extra_read_roots: Vec::new(), root, search: search.clone(), process_registry: None }
+        Self { extra_read_roots: Vec::new(), root, process_registry: None }
     }
 
     /// Allow reads from additional application-discovered roots.

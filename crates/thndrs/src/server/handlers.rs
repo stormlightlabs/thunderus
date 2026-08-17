@@ -16,7 +16,6 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use crate::agent::prompt_expects_workspace_write;
 use crate::agent::{ToolExecutionHook, ToolPermissionDecision, ToolPermissionHook};
 use crate::app::AgentEvent;
-use crate::cli::WebSearchMode;
 use crate::harness::HarnessHandle;
 use crate::mcp::config::{McpConfig, McpServerConfig, McpTransport};
 use crate::mcp::manager::McpManager;
@@ -79,11 +78,7 @@ impl ServerState {
             .map_err(|err| err.to_string())?;
         inner
             .sessions
-            .update_session_metadata(
-                &session_id,
-                Some(self.config.model.clone()),
-                websearch_mode(&self.config.websearch),
-            )
+            .update_session_metadata(&session_id, Some(self.config.model.clone()))
             .map_err(|err| err.to_string())?;
         inner
             .sessions
@@ -102,7 +97,7 @@ impl ServerState {
                 "acp session",
                 "thndrs",
                 &self.config.model,
-                &self.config.websearch,
+                "",
                 env!("CARGO_PKG_VERSION"),
                 None,
             )
@@ -173,11 +168,6 @@ impl ServerState {
     fn config_options_for_session(&self, session_id: &str) -> Result<Vec<SessionConfigOption>, String> {
         let session = self.session(session_id)?;
         let model = session.metadata.model.unwrap_or_else(|| self.config.model.clone());
-        let websearch = session
-            .metadata
-            .websearch
-            .or_else(|| websearch_mode(&self.config.websearch))
-            .unwrap_or(WebSearchMode::DuckDuckGo);
         let effort = session
             .metadata
             .reasoning_effort
@@ -186,7 +176,7 @@ impl ServerState {
             .metadata
             .reasoning_summary
             .unwrap_or(self.config.reasoning_summary);
-        Ok(acp_config_options(&model, websearch, effort, summary))
+        Ok(acp_config_options(&model, effort, summary))
     }
 
     fn set_config_option(&self, session_id: &str, option: &ConfigOptionValue) -> Result<(), String> {
@@ -210,19 +200,11 @@ impl ServerState {
         }
         let model = match option {
             ConfigOptionValue::Model(model) => Some(model.clone()),
-            ConfigOptionValue::WebSearch(_)
-            | ConfigOptionValue::ReasoningEffort(_)
-            | ConfigOptionValue::ReasoningSummary(_) => session.metadata.model,
-        };
-        let websearch = match option {
-            ConfigOptionValue::Model(_)
-            | ConfigOptionValue::ReasoningEffort(_)
-            | ConfigOptionValue::ReasoningSummary(_) => session.metadata.websearch,
-            ConfigOptionValue::WebSearch(mode) => Some(*mode),
+            ConfigOptionValue::ReasoningEffort(_) | ConfigOptionValue::ReasoningSummary(_) => session.metadata.model,
         };
         inner
             .sessions
-            .update_session_metadata(session_id, model, websearch)
+            .update_session_metadata(session_id, model)
             .map_err(|error| error.to_string())?;
         let effort = match option {
             ConfigOptionValue::ReasoningEffort(effort) => Some(*effort),
@@ -342,11 +324,7 @@ impl ServerState {
             .map_err(|error| error.to_string())?;
         inner
             .sessions
-            .update_session_metadata(
-                session_id,
-                Some(self.config.model.clone()),
-                websearch_mode(&self.config.websearch),
-            )
+            .update_session_metadata(session_id, Some(self.config.model.clone()))
             .map_err(|error| error.to_string())?;
         inner
             .sessions
@@ -1347,11 +1325,6 @@ fn run_prompt_turn(
     run_harness: impl FnOnce(AgentRunConfig, Vec<ProviderMessage>, bool, String) -> HarnessHandle,
 ) -> Result<PromptResponse, String> {
     let session = state.session(session_id)?;
-    let websearch = session
-        .metadata
-        .websearch
-        .or_else(|| websearch_mode(&state.config.websearch))
-        .unwrap_or(WebSearchMode::DuckDuckGo);
     let model = session.metadata.model.unwrap_or_else(|| state.config.model.clone());
 
     let effort = session
@@ -1362,9 +1335,8 @@ fn run_prompt_turn(
         .metadata
         .reasoning_summary
         .unwrap_or(state.config.reasoning_summary);
-    let mut config = AgentRunConfig::new(session.cwd, model, websearch)
+    let mut config = AgentRunConfig::new(session.cwd, model)
         .with_authority(state.config.authority)
-        .with_search_url(state.config.websearch_url.clone())
         .with_reasoning(effort, summary)
         .with_model_reduction(state.config.model_reduction.clone());
     if let Some(store) = state.artifact_store(session_id) {
@@ -1373,7 +1345,7 @@ fn run_prompt_turn(
     if let Some(mcp_config) = session.mcp_config {
         config = config.with_mcp_manager(Arc::new(McpManager::from_config(&mcp_config)));
     }
-    let bundle = prompt::PromptBundle::new(&config.root, &config.model, config.search_mode, &[], &[], "");
+    let bundle = prompt::PromptBundle::new(&config.root, &config.model, &[], &[], "");
     let mut messages = crate::prompt::lower_to_provider_messages(&bundle);
     if !prompt.provider_blocks.is_empty() {
         messages.push(ProviderMessage::user_blocks(prompt.provider_blocks.clone()));
@@ -1706,15 +1678,6 @@ fn json_text_or_value(raw: String) -> serde_json::Value {
     serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::Value::String(raw))
 }
 
-fn websearch_mode(value: &str) -> Option<WebSearchMode> {
-    match value {
-        "duckduckgo" => Some(WebSearchMode::DuckDuckGo),
-        "searxng" => Some(WebSearchMode::Searxng),
-        "none" => Some(WebSearchMode::None),
-        _ => None,
-    }
-}
-
 fn eof_signaling_lines<R>(
     reader: R, eof_tx: oneshot::Sender<()>,
 ) -> impl Stream<Item = std::io::Result<String>> + Send + 'static
@@ -1756,7 +1719,6 @@ mod tests {
         ServerState::new(ServerConfig::new(
             PathBuf::from("/tmp/workspace"),
             String::from("opencode/big-pickle"),
-            String::from("duckduckgo"),
             None,
         ))
     }
@@ -1926,7 +1888,6 @@ mod tests {
         let state = ServerState::new(ServerConfig::new(
             workspace_path.clone(),
             "opencode/big-pickle".to_string(),
-            "duckduckgo".to_string(),
             Some(session_dir.path().to_path_buf()),
         ));
 
@@ -1999,7 +1960,6 @@ mod tests {
         let state = ServerState::new(ServerConfig::new(
             workspace_path.clone(),
             "opencode/big-pickle".to_string(),
-            "duckduckgo".to_string(),
             Some(session_dir.path().to_path_buf()),
         ));
 

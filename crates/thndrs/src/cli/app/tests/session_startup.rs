@@ -240,16 +240,10 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
         "model".to_string(),
         ConfigOrigin { source: ConfigSource::Environment, detail: "THNDRS_MODEL".to_string() },
     );
-    origins.insert(
-        "websearch".to_string(),
-        ConfigOrigin { source: ConfigSource::ProjectFile, detail: ".thndrs/config.toml".to_string() },
-    );
 
     let cli = Cli {
         cwd: dir.path().to_path_buf(),
         model: "env-model".to_string(),
-        websearch: crate::cli::WebSearchMode::DuckDuckGo,
-        websearch_url: None,
         session_dir: Some(session_dir.clone()),
         config_layers: vec![LoadedConfigLayer {
             source: ConfigSource::ProjectFile,
@@ -281,7 +275,7 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
     let workspace_root = discover_workspace_root(dir.path());
     assert_eq!(cwd, &workspace_root.display().to_string());
     assert_eq!(model, "env-model");
-    assert_eq!(websearch, "duckduckgo");
+    assert!(websearch.is_empty());
     assert_eq!(config.session_dir.as_deref(), Some(session_dir_display.as_str()));
     assert_eq!(config.files[0].path, ".thndrs/config.toml");
     assert_eq!(config.files[0].source, "project");

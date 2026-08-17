@@ -38,17 +38,11 @@ Built-in provider model prefixes include:
 ChatGPT Codex and OpenCode are the supported built-in workflows. Configured
 ACP agents remain available as advanced integrations.
 
-## Web Searching
+## Web searching
 
-Use `--websearch` to choose the web-search policy.
-
-```sh
-thndrs --websearch duckduckgo
-thndrs --websearch searxng --websearch-url http://127.0.0.1:8080
-thndrs --websearch none
-```
-
-`duckduckgo` is the default. `none` disables application-owned web search.
+Configure an MCP server that provides search when the agent needs to discover
+pages. `read_url` can read a known public URL without a search server. See
+[Web search and URL reading](/docs/usage/web-search/).
 
 ## Prompt Inspection
 

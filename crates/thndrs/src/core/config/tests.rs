@@ -1,5 +1,5 @@
 use super::*;
-use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
+use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme};
 use std::path::PathBuf;
 
 fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
@@ -25,22 +25,12 @@ fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
 
 #[test]
 fn config_merge_overrides_only_present_values() {
-    let base = Config {
-        model: Some("base".to_string()),
-        websearch: Some(WebSearchMode::DuckDuckGo),
-        verbose: Some(false),
-        ..Config::default()
-    };
-    let over = Config { websearch: Some(WebSearchMode::Searxng), ..Config::default() };
+    let base = Config { model: Some("base".to_string()), verbose: Some(false), ..Config::default() };
+    let over = Config::default();
 
     assert_eq!(
         base.merge(over),
-        Config {
-            model: Some("base".to_string()),
-            websearch: Some(WebSearchMode::Searxng),
-            verbose: Some(false),
-            ..Config::default()
-        }
+        Config { model: Some("base".to_string()), verbose: Some(false), ..Config::default() }
     );
 }
 
@@ -134,11 +124,16 @@ fn rejects_unknown_status_line_fields() {
 }
 
 #[test]
+fn retired_websearch_config_keys_are_rejected() {
+    let error = toml::from_str::<Config>("websearch = \"none\"").expect_err("retired key");
+    assert!(error.to_string().contains("websearch"));
+}
+
+#[test]
 fn parses_known_config_fields() {
     let config: Config = toml::from_str(
         r#"
         model = "umans-glm-5.2"
-        websearch = "searxng"
         reasoning_effort = "xhigh"
         reasoning_summary = "auto"
         tick_rate_ms = 250
@@ -158,7 +153,6 @@ fn parses_known_config_fields() {
     .expect("config parses");
 
     assert_eq!(config.model.as_deref(), Some("umans-glm-5.2"));
-    assert_eq!(config.websearch, Some(WebSearchMode::Searxng));
     assert_eq!(config.reasoning_effort, Some(ReasoningEffort::Xhigh));
     assert_eq!(config.reasoning_summary, Some(ReasoningSummary::Auto));
     assert_eq!(config.tick_rate_ms, Some(250));
@@ -580,32 +574,6 @@ fn env_rejects_cli_only_keys() {
 }
 
 #[test]
-fn env_loads_websearch() {
-    let mut o = BTreeMap::new();
-    let mut d = Vec::new();
-    let config = load_env(
-        &[("THNDRS_WEBSEARCH".to_string(), "searxng".to_string())],
-        &mut o,
-        &mut d,
-    )
-    .unwrap();
-    assert_eq!(config.websearch, Some(WebSearchMode::Searxng));
-}
-
-#[test]
-fn env_rejects_invalid_websearch() {
-    let mut o = BTreeMap::new();
-    let mut d = Vec::new();
-    let err = load_env(
-        &[("THNDRS_WEBSEARCH".to_string(), "google".to_string())],
-        &mut o,
-        &mut d,
-    )
-    .unwrap_err();
-    assert!(matches!(err, ConfigError::InvalidEnv { name, .. } if name == "THNDRS_WEBSEARCH"));
-}
-
-#[test]
 fn env_loads_skill_dirs_path_list() {
     let mut o = BTreeMap::new();
     let mut d = Vec::new();
@@ -682,7 +650,6 @@ fn effective_config_defaults_when_no_files() {
 
     assert!(effective.layers.is_empty(), "no config files should produce no layers");
     assert_eq!(effective.config.model, None);
-    assert_eq!(effective.config.websearch, Some(WebSearchMode::DuckDuckGo));
     assert_eq!(effective.config.tick_rate_ms, Some(DEFAULT_TICK_RATE_MS));
     assert_eq!(effective.config.verbose, Some(false));
     assert_eq!(effective.config.theme, Some(Theme::EldritchMinimal));
@@ -1098,7 +1065,7 @@ fn effective_config_snapshot() {
     fs::create_dir_all(workspace.join(".thndrs")).unwrap();
     fs::write(
         workspace.join(".thndrs").join("config.toml"),
-        "model = \"project-model\"\nwebsearch = \"searxng\"\nsession_dir = \"sessions\"\n",
+        "model = \"project-model\"\nsession_dir = \"sessions\"\n",
     )
     .unwrap();
 
@@ -1106,9 +1073,8 @@ fn effective_config_snapshot() {
         load_effective(&workspace, &[("THNDRS_VERBOSE".to_string(), "on".to_string())]).unwrap()
     });
     let snapshot = format!(
-        "model={:?}\nwebsearch={:?}\nverbose={:?}\nsession_dir_suffix={}\nlayers={:?}\norigins={:?}",
+        "model={:?}\nverbose={:?}\nsession_dir_suffix={}\nlayers={:?}\norigins={:?}",
         effective.config.model,
-        effective.config.websearch,
         effective.config.verbose,
         effective
             .config
@@ -1131,10 +1097,9 @@ fn effective_config_snapshot() {
 
     insta::assert_snapshot!(snapshot, @r###"
 model=Some("project-model")
-websearch=Some(Searxng)
 verbose=Some(true)
 session_dir_suffix=.thndrs/sessions
 layers=[("project", ".thndrs/config.toml")]
-origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("session_retention", "default", "default"), ("skill_dirs", "default", "default"), ("status_line", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml"), ("websearch_url", "default", "default")]
+origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("session_retention", "default", "default"), ("skill_dirs", "default", "default"), ("status_line", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE")]
 "###);
 }

@@ -87,10 +87,15 @@ impl OperationKind {
 
     /// Classify a tool from its structured action and argument payload.
     pub(crate) fn for_tool(action: &str, arguments: &str) -> Self {
+        match crate::mcp::adapter::tool_presentation(action) {
+            crate::mcp::adapter::McpToolPresentation::Search => return Self::Search,
+            crate::mcp::adapter::McpToolPresentation::Fetch => return Self::Fetch,
+            crate::mcp::adapter::McpToolPresentation::Generic => {}
+        }
         match action {
             "run_shell" => Self::Run,
             "find_files" | "list_searchable_files" => Self::Explore,
-            "search_text" | "web_search" => Self::Search,
+            "search_text" => Self::Search,
             "read_file_range" | "sawk" => Self::Read,
             "read_url" => Self::Fetch,
             "explore" => Self::Explore,
@@ -405,6 +410,16 @@ mod tests {
             ("search_text", r#"{"pattern":"needle"}"#, OperationKind::Search),
             ("read_file_range", r#"{"path":"src/lib.rs"}"#, OperationKind::Read),
             ("read_url", r#"{"url":"https://example.com"}"#, OperationKind::Fetch),
+            (
+                "mcp__research__web_search",
+                r#"{"query":"needle"}"#,
+                OperationKind::Search,
+            ),
+            (
+                "mcp__research__web_fetch",
+                r#"{"url":"https://example.com"}"#,
+                OperationKind::Fetch,
+            ),
             ("explore", "{}", OperationKind::Explore),
             ("create_file", r#"{"path":"new.rs"}"#, OperationKind::Create),
             ("replace_range", r#"{"path":"lib.rs"}"#, OperationKind::Edit),

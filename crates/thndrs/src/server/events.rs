@@ -140,11 +140,16 @@ pub const fn requires_permission(kind: ToolCallKind) -> bool {
 
 /// Classify a tool call name into a limited UX/permission taxonomy.
 pub fn classify_tool(name: &str) -> ToolCallKind {
+    match crate::mcp::adapter::tool_presentation(name) {
+        crate::mcp::adapter::McpToolPresentation::Search => return ToolCallKind::Search,
+        crate::mcp::adapter::McpToolPresentation::Fetch => return ToolCallKind::Fetch,
+        crate::mcp::adapter::McpToolPresentation::Generic => {}
+    }
     match name {
         "find_files" | "list_searchable_files" | "read_file_range" | "read" | "sawk" | "acp.fs.read_text_file" => {
             ToolCallKind::Read
         }
-        "search_text" | "web_search" => ToolCallKind::Search,
+        "search_text" => ToolCallKind::Search,
         "create_file" | "replace_range" | "write_patch" | "acp.fs.write_text_file" => ToolCallKind::Edit,
         "run_shell" | "acp.terminal" => ToolCallKind::Execute,
         "read_url" | "fetch_url" | "http_request" => ToolCallKind::Fetch,

@@ -112,6 +112,14 @@ Use absolute paths or commands available on the `PATH` used to launch
 configured `env` values. Values such as `${PROJECT_ROOT}` only work when that
 variable exists in the environment that launches `thndrs`.
 
+## Web search
+
+Web search requires a configured MCP server. `thndrs` has no built-in search
+backend, so a workspace with no search-capable server can only read public URLs
+it already has. [xngmcp](https://github.com/stormlightlabs/xngmcp) is one
+example; any MCP search server can work, and no server package or tool name is
+required.
+
 ## Tool Names
 
 Provider-visible MCP tool names are always namespaced:

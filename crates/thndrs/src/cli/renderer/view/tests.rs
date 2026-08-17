@@ -3,7 +3,7 @@ use crate::app::{
     App, BlockContentState, Entry, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, PromptAccessory,
     QueueTarget, RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlockKind, VISIBLE_ROWS,
 };
-use crate::cli::{Cli, Theme, WebSearchMode, commands::setup::SetupProviderArg};
+use crate::cli::{Cli, Theme, commands::setup::SetupProviderArg};
 use crate::renderer;
 use crate::renderer::view::{
     FocusedSurfaceView, PromptStatusView, PromptSuggestionKind, RendererView, TranscriptRowKind, TruncationPolicy,
@@ -15,8 +15,6 @@ fn test_app() -> App {
     let mut app = App::from_cli(&Cli {
         cwd: PathBuf::from("."),
         model: "test-model".to_string(),
-        websearch: WebSearchMode::DuckDuckGo,
-        websearch_url: None,
         reasoning_effort: Default::default(),
         reasoning_summary: Default::default(),
         tick_rate_ms: 100,
