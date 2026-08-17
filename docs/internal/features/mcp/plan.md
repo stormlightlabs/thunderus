@@ -12,6 +12,35 @@ namespaced; fetching is explicit and bounded. Every configured server exposes
 the same lifecycle vocabulary so failures identify their configuration scope
 and phase without exposing secrets.
 
+## Web access
+
+Web search belongs behind MCP. `thndrs` discovers whichever search tools the
+user configures instead of selecting and maintaining DuckDuckGo, SearXNG, or
+another search backend. Users may configure Brave, Tavily,
+[xngmcp](https://github.com/stormlightlabs/xngmcp) backed by a local SearXNG
+instance, or another implementation without application-specific integration.
+Documentation may use one server as an example, but application code must not
+depend on its package or tool names.
+
+Keep `read_url` as a built-in tool. Reading a public URL is useful when the user
+or the workspace already supplies the URL, and it gives MCP search tools a
+provider-independent fetch path. The application continues to own URL scheme
+validation, private-network and redirect rejection, response limits, readable
+text extraction, cancellation, and audit behavior for this tool. MCP servers
+may also expose their own fetch tools; users can choose either path.
+
+A setup without a search MCP server can read known URLs but cannot discover
+pages. Tool discovery and the system prompt must make that state clear rather
+than implying that web search is always available. Namespaced MCP search and
+fetch tools should retain the transcript presentation used for built-in web
+operations when their original tool names identify those operations.
+
+Removing application-owned search also removes its backend selector, backend
+URL, CLI flags, configuration keys, environment handling, prompt metadata, and
+ACP configuration option. Existing session records that contain web-search
+metadata remain readable; the value is historical and does not restore a
+built-in search tool.
+
 ## Setup and installation
 
 `thndrs` configures MCP connections. The configuration flow does not download

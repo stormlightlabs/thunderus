@@ -162,3 +162,44 @@ before implementation tickets are added.
   managers proposed for support.
 - Threat-model a malicious catalog entry, a compromised package version, a
   changed project config, and an interrupted install or upgrade.
+
+## EXT-11: Move web search to MCP
+
+**What to build:** Remove application-owned web search and use configured MCP
+servers for search. Keep `read_url` available for public URLs supplied by the
+user, the workspace, or an MCP search result.
+
+**Blocked by:** EXT-1.
+
+**Acceptance criteria:**
+
+- [ ] The built-in tool catalog no longer advertises or dispatches
+      `web_search`, and the DuckDuckGo and SearXNG search implementations are
+      removed.
+- [ ] The web-search backend selector and URL are removed from CLI flags,
+      layered configuration, environment handling, prompts, runtime state,
+      diagnostics, and ACP configuration options.
+- [ ] Existing session records containing historical web-search metadata still
+      decode and can be inspected or resumed without enabling built-in search.
+- [ ] `read_url` retains public-network validation, redirect checks, response
+      limits, readable extraction, cancellation, and audit behavior.
+- [ ] Namespaced MCP tools whose original names represent web search or fetch
+      use the search or fetch transcript presentation instead of the generic MCP
+      presentation. Other MCP tools remain generic.
+- [ ] With no search MCP server configured, the model is not offered a search
+      tool and thndrs does not imply that search is available.
+- [ ] Public MCP documentation explains that web search requires a configured
+      server, uses `xngmcp` as one example, and does not require its package or
+      tool names.
+
+**Verification:**
+
+- Focused tool-catalog, configuration, session compatibility, prompt, ACP, and
+  transcript classification tests.
+- Exercise one configured search MCP server from discovery through a tool call,
+  then pass a returned URL to built-in `read_url`.
+- `cargo fmt`
+- `cargo clippy --workspace --fix --allow-dirty --allow-staged`
+- `cargo clippy --workspace`
+- `cargo test --workspace`
+- `pnpm --dir docs build` after updating public documentation.
