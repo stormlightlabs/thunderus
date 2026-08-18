@@ -20,7 +20,7 @@ pub struct ReviewCommand {
     /// Review a Git range written as BASE..HEAD.
     #[arg(long, value_name = "BASE..HEAD")]
     pub range: Option<String>,
-    /// Review the bounded, redacted record of one local session.
+    /// Review the redacted record of one local session.
     #[arg(long, value_name = "SESSION_ID")]
     pub session: Option<String>,
     /// Emit one deterministic structured result as JSON Lines.

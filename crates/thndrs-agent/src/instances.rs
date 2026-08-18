@@ -1,6 +1,6 @@
 //! Provider-neutral contracts for supervised harness instances.
 //!
-//! These types describe a bounded child process without exposing provider wire
+//! These types describe a child process without exposing provider wire
 //! payloads, credentials, or its transcript. Application adapters own process
 //! creation, storage, and provider-specific lowering.
 
@@ -75,7 +75,7 @@ pub enum InstanceContractError {
     /// A percentage was outside the inclusive zero-to-one-hundred range.
     #[error("capacity percentage must not exceed 100")]
     InvalidPercentage,
-    /// A settled result had too many bounded entries.
+    /// A settled result had too many entries.
     #[error("{field} must not contain more than {maximum} entries")]
     TooManyEntries {
         /// Name of the rejected collection.
@@ -97,7 +97,7 @@ pub enum InstanceContractError {
 pub struct InstanceId(String);
 
 impl InstanceId {
-    /// Build a bounded opaque instance identifier.
+    /// Build an opaque instance identifier.
     pub fn new(value: impl Into<String>) -> Result<Self, InstanceContractError> {
         Ok(Self(validate_text("instance id", value.into(), 128)?))
     }
@@ -114,7 +114,7 @@ impl InstanceId {
 pub struct SessionHandle(String);
 
 impl SessionHandle {
-    /// Build a bounded opaque session handle.
+    /// Build an opaque session handle.
     pub fn new(value: impl Into<String>) -> Result<Self, InstanceContractError> {
         Ok(Self(validate_text("session handle", value.into(), 256)?))
     }
@@ -131,7 +131,7 @@ impl SessionHandle {
 pub struct ChangeHandle(String);
 
 impl ChangeHandle {
-    /// Build a bounded opaque change handle.
+    /// Build an opaque change handle.
     pub fn new(value: impl Into<String>) -> Result<Self, InstanceContractError> {
         Ok(Self(validate_text("change handle", value.into(), 256)?))
     }
@@ -198,7 +198,7 @@ impl InstanceModel {
         }
     }
 
-    /// Validate bounded model and configured-agent identifiers.
+    /// Validate model and configured-agent identifiers.
     pub fn validate(&self) -> Result<(), InstanceContractError> {
         let _ = validate_text("model", self.model().to_string(), 256)?;
         if let Self::ConfiguredAcp { agent, .. } = self {
@@ -276,7 +276,7 @@ pub struct InstanceSettings {
 }
 
 impl InstanceSettings {
-    /// Validate all bounded settings.
+    /// Validate all settings.
     pub fn validate(self) -> Result<(), InstanceContractError> {
         self.search.validate()
     }
@@ -487,7 +487,7 @@ pub enum CapacityProvider {
 }
 
 impl CapacityProvider {
-    /// Validate bounded configured ACP names.
+    /// Validate configured ACP names.
     pub fn validate(&self) -> Result<(), InstanceContractError> {
         if let Self::ConfiguredAcp { agent } = self {
             let _ = validate_text("ACP agent", agent.clone(), 128)?;
@@ -548,7 +548,7 @@ pub struct AccountCapacityWindow {
 }
 
 impl AccountCapacityWindow {
-    /// Validate bounded names and percentage values.
+    /// Validate names and percentage values.
     pub fn validate(&self) -> Result<(), InstanceContractError> {
         let _ = validate_text("capacity window name", self.name.clone(), 64)?;
         if let Some(field) = &self.used_percent {
@@ -608,17 +608,17 @@ impl AccountCapacitySnapshot {
     }
 }
 
-/// Bounded semantic verification evidence included in a settled result.
+/// Semantic verification evidence included in a settled result.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SemanticEvidence {
     /// Short semantic classification, such as `test` or `diff`.
     pub kind: String,
-    /// Redacted bounded semantic detail, never a raw transcript or credential.
+    /// Redacted semantic detail, never a raw transcript or credential.
     pub detail: String,
 }
 
 impl SemanticEvidence {
-    /// Build bounded, redacted semantic evidence.
+    /// Build redacted semantic evidence.
     pub fn new(kind: impl Into<String>, detail: impl Into<String>) -> Result<Self, InstanceContractError> {
         let detail = detail.into();
         Ok(Self {
@@ -627,7 +627,7 @@ impl SemanticEvidence {
         })
     }
 
-    /// Validate bounded, canonically redacted semantic evidence.
+    /// Validate canonically redacted semantic evidence.
     pub fn validate(&self) -> Result<(), InstanceContractError> {
         let _ = validate_text("evidence kind", self.kind.clone(), 64)?;
         validate_canonical_redaction("evidence detail", &self.detail, 4_096)
@@ -673,12 +673,12 @@ pub enum InstanceOutcome {
     Cancelled,
 }
 
-/// Bounded result retained after an instance reaches a terminal lifecycle state.
+/// Result retained after an instance reaches a terminal lifecycle state.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SettledInstanceResult {
     /// Terminal outcome for the child.
     pub outcome: InstanceOutcome,
-    /// Redacted bounded semantic summary, never the transcript.
+    /// Redacted semantic summary, never the transcript.
     pub summary: String,
     /// Optional application-owned durable session handle.
     pub session: Option<SessionHandle>,
@@ -686,14 +686,14 @@ pub struct SettledInstanceResult {
     pub changes: Option<ChangeHandle>,
     /// Changed path metadata, ordered and deduplicated.
     pub changed_paths: Vec<ChangedPath>,
-    /// Bounded semantic verification evidence, ordered by kind and detail.
+    /// Semantic verification evidence, ordered by kind and detail.
     pub verification: Vec<SemanticEvidence>,
-    /// Bounded redacted failure diagnostics when the outcome is failed.
+    /// Redacted failure diagnostics when the outcome is failed.
     pub diagnostics: Vec<SemanticEvidence>,
 }
 
 impl SettledInstanceResult {
-    /// Build a bounded result with deterministic metadata ordering.
+    /// Build a result with deterministic metadata ordering.
     pub fn new(
         outcome: InstanceOutcome, summary: impl Into<String>, session: Option<SessionHandle>,
         changes: Option<ChangeHandle>, mut changed_paths: Vec<ChangedPath>, mut verification: Vec<SemanticEvidence>,
@@ -730,7 +730,7 @@ impl SettledInstanceResult {
     }
 }
 
-/// Bounded status projection for an active or settled instance.
+/// Status projection for an active or settled instance.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct InstanceStatus {
     /// Identity and hierarchy metadata.

@@ -26,6 +26,21 @@ states.
 The renderer suite also exercises normal, tiny-height, Unicode, long-line, clipping,
 and monochrome-equivalent fallbacks, including surface priority and secret masking.
 
+## Real-terminal TUI checks
+
+Snapshots do not cover terminal reflow, cursor restoration, native scrollback, or
+input timing. A real pseudo-terminal is the integration check for those behaviors:
+it lets the application receive actual key and resize events while the terminal
+owns cursor movement, line wrapping, and scrollback. For changes to the inline
+surface, run the current binary in a dedicated tmux session as described in the
+[development workflow](/docs/development/workflow/).
+
+Capture bounded pane output with `tmux capture-pane -p -e -N`. Preserve ANSI
+colors with `-e` and trailing styled cells with `-N`. Exercise the affected state
+and its transitions, including streaming, picker open/close, narrow and short
+resizes, multiline input, and cleanup. Inspect the capture for stale rows,
+mid-word wrapping, blank gaps, cursor displacement, and transcript loss.
+
 ## Fixtures
 
 ### Providers

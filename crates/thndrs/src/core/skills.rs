@@ -1,4 +1,4 @@
-//! Agent Skills discovery and bounded loading.
+//! Agent Skills discovery and loading.
 //!
 //! Skills are filesystem packages. Startup discovery reads only `SKILL.md`
 //! frontmatter, so the prompt can expose compact routing metadata without

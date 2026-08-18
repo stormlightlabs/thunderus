@@ -12,7 +12,7 @@ const MAX_RENDERED_LINE_BYTES: usize = 512;
 const MAX_DETAIL_ITEMS: usize = 8;
 const MAX_RENDERED_OUTPUT_BYTES: usize = 36 * 1024;
 
-/// A bounded, content-free history of request snapshots and context actions.
+/// A content-free history of request snapshots and context actions.
 #[derive(Clone, Debug, Default)]
 pub struct ContextHistory {
     records: Vec<ContextHistoryRecord>,

@@ -1733,7 +1733,7 @@ fn push_markdown_spans(
             .into_iter()
             .map(|text| vec![Span::styled(text, span.style)])
             .collect(),
-        _ => super::layout::wrap_spans(&spans, content_width),
+        _ => super::layout::wrap_spans_wordwise(&spans, content_width),
     };
     for (index, mut wrapped) in wrapped_rows.into_iter().enumerate() {
         if index > 0 {

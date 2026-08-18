@@ -5,9 +5,10 @@ use super::*;
 /// Build the provider-native tool result from the independent model projection.
 ///
 /// The display projection and structured evidence remain owned by `output`.
-/// An explicit applied reducer configuration adds only the bounded aggregate
-/// dashboard to the model result; shadow-only measurement leaves the model
-/// request unchanged.
+/// An explicit applied reducer configuration adds only the aggregate
+/// dashboard to the model result.
+///
+/// Shadow-only measurement leaves the model request unchanged.
 pub(crate) fn model_tool_result(
     tool_id: &str, output: &ToolOutput, shell_result: Option<&ProcessResult>,
     config: &thndrs_agent::context::ReductionConfig,
@@ -97,8 +98,9 @@ pub(crate) fn model_tool_result(
 }
 
 /// Replace a failed non-command tool's oversized argument body only after the
-/// bounded artifact store has returned a recovery handle. Shell argv remains
-/// untouched: command-aware reduction projects output, never a user command.
+/// artifact store has returned a recovery handle.
+///
+/// For shell argv, command-aware reduction projects output, never a user command.
 pub(crate) fn project_failed_tool_input(
     request: &ToolUseRequest, output: &ToolOutput, config: &thndrs_agent::context::ReductionConfig,
 ) -> (serde_json::Value, Option<thndrs_agent::ContextReductionReceipt>) {

@@ -130,6 +130,7 @@ pub(crate) struct RatatuiSurface<W: io::Write> {
     terminal: Option<Terminal<CrosstermBackend<SharedWriter<W>>>>,
     scrollback: ScrollbackCommitter,
     live_height: u16,
+    terminal_size: Option<(u16, u16)>,
     pub(crate) terminal_session: InlineTerminalSession,
 }
 
@@ -140,36 +141,61 @@ impl<W: io::Write> RatatuiSurface<W> {
             terminal: None,
             scrollback: ScrollbackCommitter::default(),
             live_height: 1,
+            terminal_size: None,
             terminal_session,
         }
     }
 
-    fn terminal_mut(&mut self, height: u16) -> io::Result<&mut Terminal<CrosstermBackend<SharedWriter<W>>>> {
+    fn terminal_mut(
+        &mut self, height: u16, width: u16, screen_height: u16, rebuild_scrollback: bool,
+    ) -> io::Result<&mut Terminal<CrosstermBackend<SharedWriter<W>>>> {
         let height = height.max(1);
-        if self.terminal.is_none() || self.live_height != height {
+        let size = (width, screen_height);
+        let size_changed = self.terminal_size.is_some() && self.terminal_size != Some(size);
+        if self.terminal.is_none() || self.live_height != height || self.terminal_size != Some(size) {
             // Ratatui fixes an inline viewport's height at construction. Clear
             // only the old mutable pane before replacing it so stale composer,
             // picker, or streaming rows cannot become transcript history.
             // `Terminal::clear` would erase the screen below the old viewport,
             // including visible native history.
-            if let Some(terminal) = self.terminal.as_mut() {
-                clear_live_viewport(terminal)?;
+            if size_changed && rebuild_scrollback {
+                self.terminal.take();
+                purge_terminal_scrollback(&self.writer, screen_height.saturating_sub(height.min(screen_height)))?;
+            } else if let Some(terminal) = self.terminal.as_mut() {
+                prepare_inline_viewport_replacement(terminal, height)?;
             }
             self.terminal = Some(Terminal::with_options(
                 CrosstermBackend::new(self.writer.clone()),
                 TerminalOptions { viewport: Viewport::Inline(height) },
             )?);
             self.live_height = height;
+            self.terminal_size = Some(size);
         }
         // The branch above guarantees the terminal is present.
         Ok(self.terminal.as_mut().expect("inline terminal is initialized"))
     }
-
     /// Leave a blank terminal row for the shell after the live inline surface.
     pub(crate) fn finish(&mut self) -> io::Result<()> {
         let height = self.live_height;
-        finish_inline_viewport(self.terminal_mut(height)?)
+        let (width, screen_height) = crossterm::terminal::size()?;
+        finish_inline_viewport(self.terminal_mut(height, width, screen_height, false)?)
     }
+}
+
+/// Purge the terminal's visible screen and native history before replaying
+/// application-owned transcript rows at a new width.
+fn purge_terminal_scrollback<W: Write>(writer: &SharedWriter<W>, cursor_row: u16) -> io::Result<()> {
+    let mut writer = writer
+        .0
+        .try_borrow_mut()
+        .map_err(|_| io::Error::other("terminal writer is already borrowed"))?;
+    execute!(
+        writer,
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::Purge),
+        crossterm::cursor::MoveTo(0, cursor_row)
+    )?;
+    writer.flush()
 }
 
 /// Scroll the fully rendered live surface out of the shell's input row.
@@ -179,12 +205,67 @@ impl<W: io::Write> RatatuiSurface<W> {
 /// composer when the application exits.
 fn clear_live_viewport<B: Backend>(terminal: &mut Terminal<B>) -> Result<(), B::Error> {
     let area = terminal.get_frame().area();
+    let size = terminal.backend_mut().size()?;
     let cursor = terminal.backend_mut().get_cursor_position()?;
-    for y in area.top()..area.bottom() {
-        terminal.backend_mut().set_cursor_position(Position::new(area.x, y))?;
-        terminal.backend_mut().clear_region(ClearType::CurrentLine)?;
+    if area.bottom() >= size.height && area.top() < size.height {
+        // A width change can reflow one old logical row into several physical
+        // rows. Clearing each remembered row would leave wrapped fragments
+        // behind, so clear from the old pane origin through the bottom. The
+        // old pane can itself have moved upward by the newly wrapped rows.
+        let wrap_factor = if size.width == 0 { 1 } else { area.width.saturating_add(size.width - 1) / size.width };
+        let wrapped_rows = area.height.saturating_mul(wrap_factor.saturating_sub(1));
+        let clear_top = area.top().saturating_sub(wrapped_rows);
+        terminal
+            .backend_mut()
+            .set_cursor_position(Position::new(area.x, clear_top))?;
+        terminal.backend_mut().clear_region(ClearType::AfterCursor)?;
+    } else {
+        for y in area.top()..area.bottom().min(size.height) {
+            terminal.backend_mut().set_cursor_position(Position::new(area.x, y))?;
+            terminal.backend_mut().clear_region(ClearType::CurrentLine)?;
+        }
     }
     terminal.backend_mut().set_cursor_position(cursor)
+}
+
+/// Clear the old live pane and leave the terminal cursor at the top of the
+/// replacement pane.
+///
+/// Inline viewports are anchored to the backend cursor when Ratatui creates
+/// them. The rendered cursor sits in the composer, not at the pane's bottom,
+/// so recreating a viewport from that cursor makes a shorter pane float above
+/// the shell row. Growing a pane has the opposite problem: its new rows would
+/// overwrite visible native history unless those rows are first scrolled into
+/// native scrollback. Re-anchor at the bottom explicitly, scrolling only the
+/// blank rows that are gained or released by the replacement.
+fn prepare_inline_viewport_replacement<B: Backend>(
+    terminal: &mut Terminal<B>, requested_height: u16,
+) -> Result<(), B::Error> {
+    let area = terminal.get_frame().area();
+    let size = terminal.backend_mut().size()?;
+    let old_height = area.height.min(size.height);
+    let next_height = requested_height.max(1).min(size.height.max(1));
+    clear_live_viewport(terminal)?;
+
+    let growth = next_height.saturating_sub(old_height);
+    if growth > 0 {
+        terminal
+            .backend_mut()
+            .set_cursor_position(Position::new(0, size.height.saturating_sub(1)))?;
+        terminal.backend_mut().append_lines(growth)?;
+    }
+
+    let shrink = old_height.saturating_sub(next_height);
+    if shrink > 0 && area.bottom() >= size.height {
+        // The old pane was cleared first, so rows discarded at the bottom are
+        // blank. Scrolling the full screen down closes the released gap while
+        // preserving the visible native history above it.
+        terminal.backend_mut().scroll_region_down(0..size.height, shrink)?;
+    }
+
+    terminal
+        .backend_mut()
+        .set_cursor_position(Position::new(0, size.height.saturating_sub(next_height)))
 }
 
 fn finish_inline_viewport<B: Backend>(terminal: &mut Terminal<B>) -> Result<(), B::Error> {
@@ -200,22 +281,28 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
     fn draw(&mut self, app: &mut App, full_repaint: bool) -> io::Result<()> {
         let projection_started = Instant::now();
         renderer::style::set_theme(app.runtime.theme);
-        let (width, _) = crossterm::terminal::size()?;
+        let (width, screen_height) = crossterm::terminal::size()?;
         let plan = self.scrollback.newly_stable(app, width as usize);
         let mutable_tail = self.scrollback.mutable_tail_rows(app, width as usize);
         let logical = bottom_pane_frame(app, width as usize, mutable_tail);
         let desired_height = logical.rows.len().clamp(1, u16::MAX as usize) as u16;
+        let size = (width, screen_height);
+        let resized = self.terminal_size.is_some() && self.terminal_size != Some(size);
+        let replay_rows = if resized { self.scrollback.replayable_rows(app, width as usize) } else { Vec::new() };
         let projection_elapsed = projection_started.elapsed();
-        let terminal = self.terminal_mut(desired_height)?;
+        let terminal = self.terminal_mut(desired_height, width, screen_height, resized)?;
 
         if full_repaint {
             terminal.clear()?;
         }
-        let committed_rows = plan
-            .commits
-            .iter()
-            .flat_map(|commit| commit.rows.iter().cloned())
-            .collect::<Vec<_>>();
+        let committed_rows = if resized {
+            replay_rows
+        } else {
+            plan.commits
+                .iter()
+                .flat_map(|commit| commit.rows.iter().cloned())
+                .collect::<Vec<_>>()
+        };
         if !committed_rows.is_empty() {
             terminal.insert_before(committed_rows.len() as u16, |buffer| {
                 render_rows_to_buffer(&committed_rows, buffer);
@@ -238,7 +325,8 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
     fn clear(&mut self) -> io::Result<()> {
         self.scrollback.clear();
         let height = self.live_height;
-        self.terminal_mut(height)?.clear()
+        let (width, screen_height) = crossterm::terminal::size()?;
+        self.terminal_mut(height, width, screen_height, false)?.clear()
     }
 
     fn suspend(&mut self) -> io::Result<()> {
@@ -246,7 +334,8 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
         // child process takes over. Committed transcript blocks stay in native
         // history and are never hydrated or replayed on resume.
         let height = self.live_height;
-        self.terminal_mut(height)?.clear()?;
+        let (width, screen_height) = crossterm::terminal::size()?;
+        self.terminal_mut(height, width, screen_height, false)?.clear()?;
         self.terminal_session.suspend()?;
         let status = std::process::Command::new("kill")
             .args(["-TSTP", &std::process::id().to_string()])
@@ -517,6 +606,52 @@ mod tests {
     }
 
     #[test]
+    fn growing_a_replaced_inline_viewport_scrolls_only_displaced_history() {
+        let mut backend = TestBackend::with_lines(["history 0", "history 1", "history 2", "live 0", "live 1", "shell"]);
+        backend
+            .set_cursor_position(Position::new(0, 4))
+            .expect("position cursor in old composer");
+        let mut terminal = Terminal::with_options(backend, TerminalOptions { viewport: Viewport::Inline(2) })
+            .expect("inline terminal");
+
+        let next_height = 4;
+        prepare_inline_viewport_replacement(&mut terminal, next_height).expect("prepare replacement");
+
+        terminal.backend().assert_buffer_lines([
+            "history 2",
+            "live 0   ",
+            "         ",
+            "         ",
+            "         ",
+            "         ",
+        ]);
+        terminal.backend().assert_scrollback_lines(["history 0", "history 1"]);
+        assert_eq!(terminal.backend().cursor_position(), Position::new(0, 2));
+    }
+
+    #[test]
+    fn shrinking_a_replaced_inline_viewport_closes_the_released_gap() {
+        let mut backend = TestBackend::with_lines(["history 0", "history 1", "live 0", "live 1", "live 2", "live 3"]);
+        backend
+            .set_cursor_position(Position::new(0, 2))
+            .expect("position cursor in old composer");
+        let mut terminal = Terminal::with_options(backend, TerminalOptions { viewport: Viewport::Inline(4) })
+            .expect("inline terminal");
+
+        prepare_inline_viewport_replacement(&mut terminal, 2).expect("prepare replacement");
+
+        terminal.backend().assert_buffer_lines([
+            "         ",
+            "         ",
+            "history 0",
+            "history 1",
+            "         ",
+            "         ",
+        ]);
+        assert_eq!(terminal.backend().cursor_position(), Position::new(0, 4));
+    }
+
+    #[test]
     fn clearing_a_replaced_live_viewport_preserves_visible_history() {
         let mut terminal = Terminal::with_options(
             TestBackend::with_lines(["history", "live 0", "live 1", "shell"]),
@@ -529,6 +664,21 @@ mod tests {
         terminal
             .backend()
             .assert_buffer_lines(["history", "       ", "       ", "shell  "]);
+    }
+
+    #[test]
+    fn clearing_a_bottom_aligned_live_viewport_handles_wrapped_rows() {
+        let mut terminal = Terminal::with_options(
+            TestBackend::with_lines(["history", "live 0", "live 1", "live 2"]),
+            TerminalOptions { viewport: Viewport::Fixed(ratatui::layout::Rect::new(0, 2, 7, 2)) },
+        )
+        .expect("fixed terminal");
+
+        clear_live_viewport(&mut terminal).expect("clear live viewport");
+
+        terminal
+            .backend()
+            .assert_buffer_lines(["history", "live 0", "       ", "       "]);
     }
 
     #[test]

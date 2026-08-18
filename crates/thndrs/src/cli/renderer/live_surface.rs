@@ -1,4 +1,4 @@
-//! Ratatui-owned layout for the mutable composer and bounded application views.
+//! Ratatui-owned layout for the mutable composer and application views.
 //!
 //! This module accepts only [`super::view::LiveView`]. It deliberately has no
 //! transcript input: transcript projection and navigation remain outside the
@@ -9,7 +9,7 @@ use super::row::{CursorCoord, Frame};
 use super::style::CellStyle;
 use super::view::LiveView;
 
-/// Bottom-pinned layout for the composer and every bounded focused surface.
+/// Bottom-pinned layout for the composer and every focused surface.
 ///
 /// The result is a logical frame so Ratatui remains the terminal-cell writer,
 /// while wrapping and cursor coordinates can be tested without a terminal.
@@ -22,7 +22,7 @@ impl LiveSurfaceLayout {
     /// Lay out the composer, focused surface, queue summary, and status footer.
     ///
     /// The containing terminal coordinator reserves exactly this many rows.
-    /// Focused content is already bounded by the view projection, so this
+    /// Focused content is already restrained by the view projection, so this
     /// layout never needs to know about terminal scrollback or a fixed viewport.
     pub fn build(live: &LiveView, width: usize) -> Self {
         let accessory =
@@ -54,7 +54,7 @@ impl LiveSurfaceLayout {
         self.frame.cursor
     }
 
-    /// Borrow the Ratatui-ready rows for this bounded surface.
+    /// Borrow the Ratatui-ready rows for this surface.
     pub fn frame(&self) -> &Frame {
         &self.frame
     }

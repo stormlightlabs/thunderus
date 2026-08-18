@@ -301,7 +301,7 @@ struct VersionedJsonEvent<'a> {
     event: JsonEvent<'a>,
 }
 
-/// Stable, bounded evidence metadata returned when a JSONL run settles.
+/// Stable evidence metadata returned when a JSONL run settles.
 #[derive(Serialize)]
 struct JsonEvidence<'a> {
     tool_call_id: &'a str,
@@ -360,7 +360,7 @@ pub fn run_command(cli: &Cli, command: &RunCommand) -> io::Result<()> {
 ///
 /// The interactive command continues to support configured defaults. Machine
 /// callers instead name every input that can otherwise be implicit: a
-/// canonical workspace, persistence policy, authority, deadline, and bounded
+/// canonical workspace, persistence policy, authority, deadline, and
 /// request/evidence allocation. Validation happens before [`App::from_cli`]
 /// can start provider work or create a durable session.
 fn validate_jsonl_request(cli: &mut Cli, command: &RunCommand) -> Result<Option<Duration>> {
@@ -446,7 +446,7 @@ pub fn run_prompt_capture(cli: &Cli, prompt: &str) -> io::Result<String> {
     String::from_utf8(stdout).map_err(|_| io::Error::other("provider response was not valid UTF-8"))
 }
 
-/// Resolve the prompt from an optional argument and bounded piped input.
+/// Resolve the prompt from an optional argument and piped input.
 ///
 /// Interactive standard input is intentionally never read: without a prompt,
 /// callers must pipe data instead.

@@ -1,4 +1,4 @@
-//! Pure presentation for bounded focused surfaces.
+//! Pure presentation for focused surfaces.
 //!
 //! Semantic surface state is projected into the shared [`Row`] contract.
 //! Ratatui remains the sole terminal-cell renderer.
@@ -52,7 +52,7 @@ impl SurfaceLine {
     }
 }
 
-/// Project a semantic focused surface into bounded presentation rows.
+/// Project a semantic focused surface into presentation rows.
 pub fn render_surface(input: &SurfaceRenderInput<'_>) -> Vec<Row> {
     if input.width == 0 || input.height == 0 {
         return Vec::new();
@@ -166,7 +166,7 @@ fn queue_rows(queue: &QueueView, width: usize, height: usize, theme: &SurfaceThe
     )
 }
 
-/// Render a bounded transcript/detail lens.
+/// Render a transcript/detail lens.
 pub fn transcript_lens_rows(title: &str, body: &[String], width: usize, height: usize) -> Vec<Row> {
     if width == 0 || height == 0 {
         return Vec::new();

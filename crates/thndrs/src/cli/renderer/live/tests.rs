@@ -155,6 +155,11 @@ fn frame_prompt_rows_adds_rounded_border_and_offsets_cursor() {
     assert_eq!(cursor, Some(CursorCoord::new(2, 13)));
     let content_column = rows[0].text().find("test-session").expect("session label");
     assert_eq!(rows[1].text().find('╭'), Some(2));
+    let border_text = rows[1].text();
+    let right_corner = border_text.find('╮').expect("right composer corner");
+    let right_corner_column = crate::utils::text_width(&border_text[..right_corner]);
+    assert_eq!(right_corner_column, 77, "composer border should leave two right cells");
+    assert_eq!(crate::utils::text_width(&border_text) - right_corner_column - 1, 2);
     let input_row = rows[2].text();
     let icon_byte = input_row.find('❯').expect("prompt icon");
     assert_eq!(crate::utils::text_width(&input_row[..icon_byte]), 5);

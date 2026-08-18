@@ -17,7 +17,7 @@ pub struct ListSearchableFilesInput {
 
 /// List searchable files in a directory tree.
 ///
-/// Backed by `fd --type f` with `rg --files` and a bounded in-process fallback. Respects
+/// Backed by `fd --type f` with `rg --files` and an in-process fallback. Respects
 /// ignore rules when the selected backend supports them and skips hidden files
 /// by default. Enforces containment, result-count, output-byte, and timeout caps.
 pub fn exec(root: &Path, glob: Option<&str>, max_results: usize, include_hidden: bool) -> ToolOutput {

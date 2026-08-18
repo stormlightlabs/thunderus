@@ -128,7 +128,7 @@ impl App {
         })
     }
 
-    /// Project the context ledger into bounded table data owned by the renderer.
+    /// Project the context ledger into table data owned by the renderer.
     pub fn render_context_table(&self) -> TableView {
         let Some(ledger) = &self.transcript.context_ledger else {
             return TableView {

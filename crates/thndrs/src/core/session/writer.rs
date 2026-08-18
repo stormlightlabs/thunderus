@@ -134,7 +134,7 @@ impl SessionWriter {
         Ok(())
     }
 
-    /// Append a finalized transcript entry with bounded artifact metadata.
+    /// Append a finalized transcript entry with artifact metadata.
     pub fn append_entry_with_artifact(
         &mut self, entry: &Entry, turn_id: &str, artifact: Option<ArtifactMetadata>,
     ) -> std::io::Result<()> {

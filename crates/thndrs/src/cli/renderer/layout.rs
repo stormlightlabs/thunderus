@@ -191,6 +191,123 @@ pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Vec<Span>> {
     rows
 }
 
+/// Word-wrap styled prose while retaining each span's style.
+///
+/// Spaces are kept when they fit at the end of a line, but leading spaces on a
+/// continuation are discarded so a paragraph never breaks through the middle
+/// of a word merely because its styling was split across spans. Overlong words
+/// still split at grapheme boundaries.
+pub fn wrap_spans_wordwise(spans: &[Span], width: usize) -> Vec<Vec<Span>> {
+    let width = width.max(1);
+    let mut rows = Vec::new();
+    let mut current = Vec::new();
+    let mut current_width = 0;
+    let mut pending_space = Vec::new();
+    let mut word = Vec::new();
+
+    for span in spans {
+        for grapheme in span.text.graphemes(true) {
+            if grapheme.contains('\n') {
+                append_word(
+                    &mut rows,
+                    &mut current,
+                    &mut current_width,
+                    &mut pending_space,
+                    &mut word,
+                    width,
+                );
+                rows.push(std::mem::take(&mut current));
+                current_width = 0;
+                continue;
+            }
+
+            if grapheme.chars().all(char::is_whitespace) {
+                append_word(
+                    &mut rows,
+                    &mut current,
+                    &mut current_width,
+                    &mut pending_space,
+                    &mut word,
+                    width,
+                );
+                if !current.is_empty() {
+                    pending_space.push(StyledGrapheme { text: grapheme.to_string(), style: span.style });
+                }
+            } else {
+                word.push(StyledGrapheme { text: grapheme.to_string(), style: span.style });
+            }
+        }
+    }
+    append_word(
+        &mut rows,
+        &mut current,
+        &mut current_width,
+        &mut pending_space,
+        &mut word,
+        width,
+    );
+
+    if !current.is_empty() || rows.is_empty() {
+        rows.push(current);
+    }
+    rows
+}
+
+#[derive(Clone)]
+struct StyledGrapheme {
+    text: String,
+    style: CellStyle,
+}
+
+fn append_word(
+    rows: &mut Vec<Vec<Span>>, current: &mut Vec<Span>, current_width: &mut usize,
+    pending_space: &mut Vec<StyledGrapheme>, word: &mut Vec<StyledGrapheme>, width: usize,
+) {
+    if word.is_empty() {
+        return;
+    }
+
+    let space_width = pending_space
+        .iter()
+        .map(|part| utils::text_width(&part.text))
+        .sum::<usize>();
+    let word_width = word.iter().map(|part| utils::text_width(&part.text)).sum::<usize>();
+    if !current.is_empty() && *current_width + space_width + word_width > width {
+        rows.push(std::mem::take(current));
+        *current_width = 0;
+        pending_space.clear();
+    }
+
+    if word_width <= width {
+        for part in pending_space.drain(..).chain(word.drain(..)) {
+            *current_width += append_styled_grapheme(current, part);
+        }
+        return;
+    }
+
+    pending_space.clear();
+    for part in word.drain(..) {
+        let part_width = utils::text_width(&part.text);
+        if *current_width > 0 && *current_width + part_width > width {
+            rows.push(std::mem::take(current));
+            *current_width = 0;
+        }
+        *current_width += append_styled_grapheme(current, part);
+    }
+}
+
+fn append_styled_grapheme(row: &mut Vec<Span>, part: StyledGrapheme) -> usize {
+    let width = utils::text_width(&part.text);
+    if let Some(last) = row.last_mut()
+        && last.style == part.style
+    {
+        last.text.push_str(&part.text);
+    } else {
+        row.push(Span { text: part.text, style: part.style });
+    }
+    width
+}
+
 /// Left-pad a row's spans with `count` cells using `pad_style`.
 pub fn pad_left(spans: Vec<Span>, count: usize, pad_style: CellStyle) -> Vec<Span> {
     if count == 0 {
@@ -392,6 +509,23 @@ mod tests {
         assert_eq!(rows[0].len(), 2);
         assert_eq!(rows[0][0].text, "red");
         assert_eq!(rows[0][1].text, "blue");
+    }
+
+    #[test]
+    fn wrap_spans_wordwise_prefers_word_boundaries_across_styles() {
+        let spans = vec![
+            Span::styled("alpha ", CellStyle::new().fg(Color::Red)),
+            Span::styled("beta gamma", CellStyle::new().fg(Color::Blue)),
+        ];
+        let rows = wrap_spans_wordwise(&spans, 10);
+        let text = rows
+            .iter()
+            .map(|row| row.iter().map(|span| span.text.as_str()).collect::<String>())
+            .collect::<Vec<_>>();
+
+        assert_eq!(text, vec!["alpha beta", "gamma"]);
+        assert_eq!(rows[0][0].style.fg, Color::Red);
+        assert_eq!(rows[1][0].style.fg, Color::Blue);
     }
 
     #[test]

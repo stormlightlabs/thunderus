@@ -449,7 +449,7 @@ pub struct TableCellView {
     pub width: ColumnWidthPolicy,
 }
 
-/// Adapter input for a bounded focused surface renderer.
+/// Adapter input for a focused surface renderer.
 pub struct SurfaceRenderInput<'a> {
     pub surface: &'a FocusedSurfaceView,
     pub theme: &'a SurfaceThemeView,
@@ -463,7 +463,7 @@ impl<'a> SurfaceRenderInput<'a> {
     }
 }
 
-/// Semantic theme roles available to bounded surface adapters.
+/// Semantic theme roles available to surface adapters.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SurfaceThemeView {
     pub primary: ThemeRole,

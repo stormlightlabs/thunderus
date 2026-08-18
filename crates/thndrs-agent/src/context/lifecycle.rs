@@ -60,7 +60,7 @@ pub enum ContextProtectionReason {
     PendingPermission,
     /// The user explicitly pinned this item.
     UserPin,
-    /// Bounded evidence or recovery metadata is still available for this item.
+    /// Evidence or recovery metadata is still available for this item.
     RecoveryMetadata,
     /// A failed operation or diagnostic must remain available for review.
     FailureEvidence,
@@ -170,8 +170,7 @@ pub enum ContextLifecycleAction {
         /// Optional archive relation naming the destination or handle.
         relation: Option<ContextRelation>,
     },
-    /// Restore an archived source and record where the bounded recovery came
-    /// from.
+    /// Restore an archived source and record where the recovery came from.
     Recover {
         /// Applied recovery relation naming the source or artifact handle.
         relation: ContextRelation,
@@ -284,7 +283,7 @@ impl ContextProtection {
     }
 }
 
-/// Explicit relation between two context ids or bounded recovery handles.
+/// Explicit relation between two context ids or recovery handles.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ContextRelation {
     /// Stable relation id, suitable for review commands.

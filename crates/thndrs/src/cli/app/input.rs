@@ -577,7 +577,7 @@ pub enum PromptAccessory {
     ReasoningEffort,
     Skills,
     Sessions,
-    /// Bounded inspection of the current context ledger.
+    /// Inspection of the current context ledger.
     Context,
 }
 

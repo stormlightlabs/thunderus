@@ -78,7 +78,7 @@ struct TransformationItem {
     detail: String,
 }
 
-/// Build a bounded, redacted export projection from persisted session data.
+/// Build a redacted export projection from persisted session data.
 pub fn export_session(path: &Path, session_id: &str) -> io::Result<SessionExport> {
     let all_records = SessionReader::read_redacted_records(path);
     let truncated = all_records.len() > MAX_EXPORT_RECORDS;

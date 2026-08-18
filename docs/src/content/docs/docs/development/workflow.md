@@ -150,6 +150,51 @@ tmux capture-pane -p -t "$worker_pane" -S -200
 tmux kill-pane -t "$worker_pane"
 ```
 
+#### Interactive TUI checks
+
+A TUI needs a real pseudo-terminal for input timing, cursor placement, native
+scrollback, and resize events. A dedicated tmux session provides that terminal
+without taking over the developer's active pane, and lets you send keys, change
+the dimensions, and inspect bounded captures from one repeatable scenario. Use
+`--ephemeral` for these checks so the QA run does not add session artifacts.
+
+Use a named, dedicated session and keep the size explicit so a resize can be
+repeated and compared:
+
+```sh
+cargo build -p thndrs
+qa_session="thndrs-qa-$$"
+tmux new-session -d -x 100 -y 30 -s "$qa_session" \
+  "./target/debug/thndrs --model <model> --ephemeral --tick-rate-ms 100"
+```
+
+Exercise the state transition in the same pane:
+
+```sh
+tmux send-keys -t "$qa_session":0.0 'hello' Enter
+sleep 2
+tmux capture-pane -p -e -N -t "$qa_session":0.0 | tail -30
+tmux resize-window -t "$qa_session":0 -x 80 -y 30
+tmux capture-pane -p -e -N -t "$qa_session":0.0 | nl -ba | tail -30
+tmux send-keys -t "$qa_session":0.0 '/model'
+tmux capture-pane -p -e -N -t "$qa_session":0.0 | tail -30
+tmux send-keys -t "$qa_session":0.0 Escape
+```
+
+Check streaming output, word wrapping, stale rows, composer anchoring, picker
+open/close, and a short-height resize. `capture-pane -e` keeps ANSI colors;
+`-N` keeps trailing styled spaces that affect full-cell backgrounds. Bound the
+captured output with `tail` or `-S` rather than dumping the whole pane.
+
+Stop the application and remove the session when the check is complete:
+
+```sh
+tmux send-keys -t "$qa_session":0.0 C-d
+sleep 0.2
+tmux send-keys -t "$qa_session":0.0 C-d || true
+tmux kill-session -t "$qa_session" 2>/dev/null || true
+```
+
 Send text and `Enter` separately for programs with their own input editor. Do
 not synchronize agent panes.
 

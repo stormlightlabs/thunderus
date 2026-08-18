@@ -709,7 +709,7 @@ fn record_successful_skill_read(app: &mut App, call_id: &str, status: ToolStatus
     record_skill_read(app, &name, &arguments);
 }
 
-/// Persist the identified tool block with its bounded artifact metadata.
+/// Persist the identified tool block with its artifact metadata.
 fn persist_tool_entry_with_artifact(app: &mut App, call_id: &str, artifact: Option<artifacts::ArtifactMetadata>) {
     if let Some(ref mut writer) = app.session.writer
         && let Some(entry) = app.transcript.entries.tool_entry(call_id)

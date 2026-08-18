@@ -1,4 +1,4 @@
-//! Bounded, redacted local artifacts for recoverable tool evidence.
+//! Redacted local artifacts for recoverable tool evidence.
 //!
 //! The artifact store is an application boundary: it owns filesystem effects,
 //! redaction, retention, and recovery diagnostics. Handles and metadata are
@@ -28,7 +28,7 @@ const TRUNCATION_MARKER: &str = "...[truncated]";
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
-    /// Bounded output from an application-owned tool execution.
+    /// Output from an application-owned tool execution.
     ToolEvidence,
 }
 
@@ -44,7 +44,7 @@ pub enum ArtifactRetentionState {
     Corrupt,
 }
 
-/// Durable metadata for one bounded redacted artifact.
+/// Durable metadata for one redacted artifact.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ArtifactMetadata {
     /// Schema version for this metadata file.
@@ -55,7 +55,7 @@ pub struct ArtifactMetadata {
     pub kind: ArtifactKind,
     /// Stable opaque handle used by tool results and context items.
     pub handle: String,
-    /// SHA-256 hash of the bounded redacted body.
+    /// SHA-256 hash of the redacted body.
     pub content_hash: String,
     /// Bytes supplied before redaction and bounding.
     pub original_byte_count: usize,
@@ -82,7 +82,7 @@ pub struct ArtifactMetadata {
 pub struct ArtifactWrite {
     /// Persisted metadata.
     pub metadata: ArtifactMetadata,
-    /// Bounded redacted lines suitable for display or compatibility records.
+    /// Redacted lines suitable for display or compatibility records.
     pub bounded_lines: Vec<String>,
 }
 
@@ -91,7 +91,7 @@ pub struct ArtifactWrite {
 pub struct ArtifactRecovery {
     /// Metadata recovered from the artifact sidecar.
     pub metadata: ArtifactMetadata,
-    /// Bounded redacted body, when it is present and valid.
+    /// Redacted body, when it is present and valid.
     pub content: Option<String>,
     /// Explicit diagnostic for missing, expired, or corrupt evidence.
     pub diagnostic: Option<ArtifactDiagnostic>,
@@ -106,7 +106,7 @@ pub struct ArtifactDiagnostic {
     pub message: String,
 }
 
-/// Application-owned bounded artifact store.
+/// Application-owned artifact store.
 #[derive(Clone, Debug)]
 pub struct ArtifactStore {
     root: PathBuf,
@@ -180,7 +180,7 @@ impl ArtifactStore {
         serde_json::from_slice(&bytes).map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
     }
 
-    /// Recover a bounded redacted body and preserve metadata on failure.
+    /// Recover a redacted body and preserve metadata on failure.
     pub fn recover(&self, handle: &str) -> std::io::Result<ArtifactRecovery> {
         let mut metadata = self.metadata(handle)?;
         if Self::is_expired(&metadata) {

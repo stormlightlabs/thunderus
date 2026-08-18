@@ -50,28 +50,28 @@ appear above the prompt and can be accepted with `Tab` or completed with
 
 Supported command families include:
 
-| Command                       | Purpose                                               |
-| ----------------------------- | ----------------------------------------------------- |
-| `clear`                       | Clear the visible transcript.                         |
-| `help`                        | Open help.                                            |
-| `bg`                          | List background processes.                            |
-| `bg cancel <id>`              | Cancel one owned background process.                 |
-| `model`                       | Open the model picker.                                |
-| `skills`                      | Browse loaded skills.                                 |
-| `context`                     | Inspect the bounded active context working set.       |
-| `compact`                     | Summarize older conversation for continuation.        |
-| `context item <id>`           | Inspect one context item and its recovery state.      |
-| `context pin <id-or-path>`    | Keep one context item visible across turn rebuilds.   |
-| `context drop <id>`           | Exclude one item until it is recovered or reset.      |
-| `context recover <id>`        | Recover and pin bounded omitted evidence.             |
-| `context verify ...`          | Propose, review, or release a verification relation.  |
-| `context review <approve \| reject>` | Resolve a pending compaction review.                  |
-| `context export <path>`       | Export the bounded redacted model projection.         |
-| `context drop --reset`        | Clear all explicit context drops.                     |
-| `doctor`                      | Show setup, context, and budget health.               |
-| `auth status`                 | Show credential source/status without values.         |
-| `config path` / `config show` | Inspect config paths or redacted effective config.    |
-| `setup`, `login`, `logout`    | Choose a provider/model or recover a credential.      |
+| Command                              | Purpose                                              |
+| ------------------------------------ | ---------------------------------------------------- |
+| `clear`                              | Clear the visible transcript.                        |
+| `help`                               | Open help.                                           |
+| `bg`                                 | List background processes.                           |
+| `bg cancel <id>`                     | Cancel one owned background process.                 |
+| `model`                              | Open the model picker.                               |
+| `skills`                             | Browse loaded skills.                                |
+| `context`                            | Inspect the bounded active context working set.      |
+| `compact`                            | Summarize older conversation for continuation.       |
+| `context item <id>`                  | Inspect one context item and its recovery state.     |
+| `context pin <id-or-path>`           | Keep one context item visible across turn rebuilds.  |
+| `context drop <id>`                  | Exclude one item until it is recovered or reset.     |
+| `context recover <id>`               | Recover and pin bounded omitted evidence.            |
+| `context verify ...`                 | Propose, review, or release a verification relation. |
+| `context review <approve \| reject>` | Resolve a pending compaction review.                 |
+| `context export <path>`              | Export the bounded redacted model projection.        |
+| `context drop --reset`               | Clear all explicit context drops.                    |
+| `doctor`                             | Show setup, context, and budget health.              |
+| `auth status`                        | Show credential source/status without values.        |
+| `config path` / `config show`        | Inspect config paths or redacted effective config.   |
+| `setup`, `login`, `logout`           | Choose a provider/model or recover a credential.     |
 
 Slash command forms such as `/model` and `/skills` remain accepted for
 compatibility, but `:` command mode is the interactive command entry path.
@@ -82,7 +82,7 @@ for file locations, MiniJinja variables, arguments, and bundled commands.
 
 ## Context Controls
 
-`/context` opens a bounded ledger of the current working set. See the
+`/context` opens a ledger of the current working set. See the
 [Context guide](/docs/usage/context/) for item states, verification, release,
 compaction review, and export.
 
@@ -126,8 +126,8 @@ the path text in the draft while suggestions are open.
 ## Focused Surfaces
 
 Help, command suggestions, file/model/skill pickers, setup/recovery surfaces,
-and detail panes are bounded focused surfaces inside the live shell. `Esc`
-closes the active surface before it affects the prompt.
+and detail panes are focused surfaces inside the live shell. `Esc` closes the
+active surface before it affects the prompt.
 
 `Ctrl+O` opens the highest-priority available detail: failed tool output,
 truncated tool output, latest edit/diff detail, then latest warning or error.

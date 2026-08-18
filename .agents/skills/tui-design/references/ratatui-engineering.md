@@ -78,6 +78,8 @@ Bracketed paste must produce paste semantics and be disabled on exit. Preserve n
 
 Ratatui's buffer diff already limits cell writes. Do not add dirty rectangles until profiling proves that state projection or buffer construction, rather than terminal I/O, is the problem.
 
+For a normal-screen inline viewport, a terminal resize can reflow old native-history cells at character boundaries and can move wrapped live rows outside their remembered rectangle. Rebuild app-owned transcript rows at the new width after purging the app's visible/history surface; clear only the mutable pane for height-only changes, and keep prose wrapping word-aware before painting.
+
 ## Text, Unicode, and ANSI
 
 Terminal layout uses display cells:

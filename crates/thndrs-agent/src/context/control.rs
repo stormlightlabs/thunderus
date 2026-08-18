@@ -440,7 +440,7 @@ pub struct ContextItem {
     pub scope: String,
     /// Content hash of the full original content, when applicable.
     pub content_hash: Option<u64>,
-    /// Stable handle for bounded redacted recovery, when this item has one.
+    /// Stable handle for redacted recovery, when this item has one.
     pub artifact_handle: Option<String>,
     /// Original byte count of the source content.
     pub byte_count: usize,

@@ -21,8 +21,7 @@ templates replace bundled prompt templates. Application commands such as
 `/clear`, `/model`, and `/quit` cannot be replaced by a prompt template.
 
 Each template and rendered prompt is limited to 256 KiB. Rendering also has a
-bounded MiniJinja instruction budget. Discovery does not descend into nested
-directories.
+MiniJinja instruction budget. Discovery does not descend into nested directories.
 
 ## Template format
 

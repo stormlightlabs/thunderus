@@ -242,7 +242,7 @@ impl ProcessResult {
     }
 }
 
-/// A bounded snapshot of output retained for an active process.
+/// A snapshot of output retained for an active process.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProcessOutput {
     /// Redacted, line-capped stdout retained so far.
@@ -268,7 +268,7 @@ pub struct ActiveProcess {
     pub started: Instant,
     /// Current lifecycle status.
     pub status: ProcessStatus,
-    /// Bounded output retained so far.
+    /// Output retained so far.
     pub output: ProcessOutput,
     control: Option<Arc<ProcessControl>>,
 }

@@ -90,7 +90,7 @@ pub enum TruncationPolicy {
     EllipsizeEnd,
 }
 
-/// Focused bounded surface semantic state.
+/// Focused surface semantic state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FocusedSurfaceView {
     None,

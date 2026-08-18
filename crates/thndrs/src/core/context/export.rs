@@ -1,4 +1,4 @@
-//! Versioned, bounded context inspection and export projections.
+//! Versioned context inspection and export projections.
 //!
 //! The export model is application-owned because artifact storage and
 //! redaction belong to the host. It contains context metadata and the selected
@@ -20,7 +20,7 @@ use crate::tools::shell::redact_secrets;
 
 /// Version of the user-facing context export contract.
 pub const CONTEXT_EXPORT_SCHEMA_VERSION: &str = "context-export-v1";
-/// Version of the bounded export redaction/cap policy.
+/// Version of the export redaction/cap policy.
 pub const CONTEXT_EXPORT_POLICY_VERSION: &str = "redacted-bounded-v1";
 /// Maximum bytes in one exported text field after redaction.
 pub const EXPORT_FIELD_MAX_BYTES: usize = 16 * 1024;

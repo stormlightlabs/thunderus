@@ -1,4 +1,4 @@
-//! Independent, deterministic reductions for bounded model projections.
+//! Independent, deterministic reductions for model projections.
 //!
 //! Reducers in this module operate on an owned copy of already-bounded lines.
 //! They never receive or mutate durable tool evidence. Every proposed or
@@ -22,7 +22,7 @@ pub const BLANK_RUN_REDUCER_VERSION: &str = "blank-run-normalization-v1";
 /// Version of exact repeated-line collapse.
 pub const REPEATED_LINE_REDUCER_VERSION: &str = "exact-repeated-line-collapse-v1";
 
-/// Default maximum size of a bounded projection passed to a reducer.
+/// Default maximum size of a projection passed to a reducer.
 pub const DEFAULT_PROJECTION_MAX_BYTES: usize = 128 * 1024;
 /// Maximum configurable blank-run limit.
 pub const MAX_BLANK_LINES: usize = 64;
@@ -83,7 +83,7 @@ impl ReducerKind {
 /// Configuration error returned before a reducer can run.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ReductionConfigError {
-    /// A blank-run limit above the bounded safety cap was requested.
+    /// A blank-run limit above the safety cap was requested.
     #[error("max_blank_lines {value} exceeds the maximum {MAX_BLANK_LINES}")]
     BlankRunTooLarge {
         /// Invalid configured limit.
@@ -122,8 +122,8 @@ pub struct ReductionConfig {
     #[serde(alias = "command_results")]
     pub command_result: bool,
     /// Remove oversized failed non-command tool arguments from the active
-    /// request only after the application has persisted bounded recovery
-    /// evidence for that call.
+    /// request only after the application has persisted recovery evidence
+    /// for that call.
     #[serde(alias = "failed_tool_inputs")]
     pub failed_tool_input: bool,
     /// Maximum consecutive blank lines retained when [`Self::blank_run`] is on.
@@ -182,7 +182,7 @@ impl ReductionConfig {
     }
 }
 
-/// An owned, bounded model projection supplied to the reducer pipeline.
+/// An owned model projection supplied to the reducer pipeline.
 ///
 /// The constructor applies the byte cap before any reducer runs. The optional
 /// required fragments are semantic preservation gates supplied by the caller;
@@ -220,12 +220,12 @@ impl BoundedProjection {
         self
     }
 
-    /// Return the bounded lines without exposing durable source content.
+    /// Return the lines without exposing source content.
     pub fn lines(&self) -> &[String] {
         &self.lines
     }
 
-    /// Consume the projection and return its bounded lines.
+    /// Consume the projection and return its lines.
     pub fn into_lines(self) -> Vec<String> {
         self.lines
     }
@@ -248,7 +248,7 @@ pub struct ReductionDiagnostic {
     pub reducer: Option<ReducerKind>,
     /// Stable diagnostic code.
     pub code: String,
-    /// Bounded human-readable explanation.
+    /// Human-readable explanation.
     pub message: String,
 }
 
@@ -282,7 +282,7 @@ pub struct ReductionDashboard {
 /// Result of shadowing or applying independently configured reducers.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReductionResult {
-    /// Final bounded model projection; baseline when any applied invariant fails.
+    /// Final model projection; baseline when any applied invariant fails.
     pub lines: Vec<String>,
     /// Reduction receipts for shadow, applied, or fallback decisions.
     pub receipts: Vec<ContextReductionReceipt>,
@@ -305,7 +305,7 @@ impl ReductionResult {
     }
 }
 
-/// Reduce a bounded projection with independent shadow/applied switches.
+/// Reduce a projection with independent shadow/applied switches.
 pub fn reduce_projection(item_id: &str, projection: &BoundedProjection, config: &ReductionConfig) -> ReductionResult {
     let baseline = projection.lines.clone();
     let mut active = baseline.clone();
@@ -361,7 +361,7 @@ pub fn reduce_projection(item_id: &str, projection: &BoundedProjection, config: 
     result(&baseline, active, receipts, diagnostics)
 }
 
-/// Reduce raw bounded lines using [`DEFAULT_PROJECTION_MAX_BYTES`].
+/// Reduce raw lines using [`DEFAULT_PROJECTION_MAX_BYTES`].
 pub fn reduce_lines(item_id: &str, lines: Vec<String>, config: &ReductionConfig) -> ReductionResult {
     reduce_projection(item_id, &BoundedProjection::from_lines(lines), config)
 }

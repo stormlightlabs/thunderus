@@ -142,7 +142,7 @@ pub struct AgentRunConfig {
     pub accounting_context: Vec<thndrs_agent::ContextItemSnapshot>,
     /// Independent model-projection reducer configuration.
     pub model_reduction: thndrs_agent::context::ReductionConfig,
-    /// Application-owned bounded artifact store used before a lossy projection
+    /// Application-owned artifact store used before a lossy projection
     /// can replace recoverable tool evidence.
     pub artifact_store: Option<crate::artifacts::ArtifactStore>,
 }
@@ -213,7 +213,7 @@ impl AgentRunConfig {
         self
     }
 
-    /// Attach the application-owned store used for bounded tool-evidence recovery.
+    /// Attach the application-owned store used for tool-evidence recovery.
     pub fn with_artifact_store(mut self, store: crate::artifacts::ArtifactStore) -> Self {
         self.artifact_store = Some(store);
         self

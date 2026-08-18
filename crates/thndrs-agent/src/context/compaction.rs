@@ -19,7 +19,7 @@ pub struct RangeSource {
     pub id: String,
     /// Application-computed hash of the rendered source content.
     pub content_hash: u64,
-    /// Handle for bounded redacted recovery of the original source.
+    /// Handle for redacted recovery of the original source.
     pub recovery_handle: String,
 }
 

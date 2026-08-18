@@ -105,7 +105,7 @@ Reference files are loaded on demand from paths relative to the skill root. A
 skill can declare default activation references in frontmatter, for example
 `references: [workers, pages, d1]`. Reference paths must be non-empty relative
 paths that stay inside the skill directory.
-Reference traversal is bounded by depth, total bytes, per-file bytes, file
+Reference traversal is restrained by depth, total bytes, per-file bytes, file
 count, and cycle detection. When traversal stops early, `thndrs` surfaces a
 diagnostic instead of silently expanding more context.
 

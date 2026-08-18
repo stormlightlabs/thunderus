@@ -8,13 +8,13 @@
   conservative token estimates, provider-reported usage, cache components,
   and explicit measurement provenance.
 - Separate durable-evidence, user-display, and model-projection contracts for
-  tool results, with bounded redacted artifacts and recovery handles.
+  tool results, with redacted artifacts and recovery handles.
 - Inspectable context lifecycle, protection, verification, reduction receipts,
   and deterministic JSON and Markdown exports.
 - Preservation-tested terminal, repetition, duplicate-evidence, and command
   result reducers with frozen replay fixtures and projection benchmarks.
 - Review-gated range compression with source provenance, protected-fact
-  preservation, atomic rejection, and bounded recovery.
+  preservation, atomic rejection, and recovery.
 - Context compaction through `/compact` or automatic budget thresholds, with
   anchored summaries, a retained recent turn-aligned tail, and configurable
   mode, review policy, threshold, and tail size.
@@ -48,7 +48,7 @@
 ### Changed
 
 - Keep recent session history visible when the inline TUI starts, while
-  preserving native terminal scrollback and room for bounded overlays.
+  preserving native terminal scrollback and room for overlays.
 - Make headless cancellation output deterministic, with one canonical result
   and no late provider diagnostics after cancellation begins.
 - Refined the TUI with responsive content rails, a quieter conversation

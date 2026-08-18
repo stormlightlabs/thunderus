@@ -81,7 +81,7 @@ impl ToolLifecycleState {
     }
 }
 
-/// Whether a bounded projection has semantic content to show.
+/// Whether a projection has semantic content to show.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockContentState {

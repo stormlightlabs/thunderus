@@ -1,4 +1,4 @@
-//! Versioned, bounded exports of persisted context semantics.
+//! Versioned exports of persisted context semantics.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
@@ -87,7 +87,7 @@ pub struct RequestAccountingRecord {
     pub accounting: ProviderRequestAccounting,
 }
 
-/// Sanitized, bounded tool evidence exposed only under an opted-in policy.
+/// Sanitized tool evidence exposed only under an opted-in policy.
 #[derive(Clone, Debug, Serialize)]
 pub struct CapturedArtifactContent {
     pub turn_id: String,

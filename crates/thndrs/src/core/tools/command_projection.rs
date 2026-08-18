@@ -1,8 +1,8 @@
-//! Bounded, application-owned projections for completed command results.
+//! Application-owned projections for completed command results.
 //!
 //! The provider-neutral reducer layer intentionally cannot interpret shell
 //! process metadata. This module does so only after a command has completed,
-//! retaining operational facts and a bounded recovery reference without
+//! retaining operational facts and a recovery reference without
 //! changing the command that was executed.
 
 use std::collections::BTreeSet;

@@ -226,7 +226,7 @@ pub enum Command {
         #[command(subcommand)]
         command: commands::session::SessionCommand,
     },
-    /// Read bounded, redacted local diagnostic logs.
+    /// Read redacted local diagnostic logs.
     Debug {
         #[command(subcommand)]
         command: commands::debug::DebugCommand,
@@ -281,7 +281,7 @@ pub struct Cli {
     /// `--no-session` is an alias for this flag.
     #[arg(long, global = true, visible_alias = "no-session")]
     pub ephemeral: bool,
-    /// Retain sanitized, bounded request and artifact content for this run.
+    /// Retain sanitized request and artifact content for this run.
     #[arg(long, global = true, conflicts_with = "ephemeral")]
     pub capture_context_content: bool,
     /// Config diagnostics from effective config loading.

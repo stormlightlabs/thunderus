@@ -41,7 +41,7 @@ pub struct GitStatusItem {
     pub status: GitStatusKind,
 }
 
-/// Bounded semantic summary of the workspace git state.
+/// Semantic summary of the workspace git state.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct GitStatusSummary {
     pub branch: Option<String>,

@@ -38,8 +38,8 @@ pub struct FindFiles<'a> {
 impl FindFiles<'_> {
     /// Find files by name pattern.
     ///
-    /// Backed by `fd` with a bounded in-process fallback. Uses argv arrays, never shell strings.
-    /// Respects ignore rules and skips hidden files by default; both are opt-in.
+    /// Backed by `fd` with an in-process fallback. Uses argv arrays, never shell strings.
+    /// Respects ignore rules and skips hidden files by default. Both are opt-in.
     ///
     /// Enforces workspace-root containment, result-count, output-byte, and timeout caps.
     pub fn run(&self) -> ToolOutput {

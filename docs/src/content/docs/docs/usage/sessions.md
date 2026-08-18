@@ -94,10 +94,10 @@ thndrs sessions export session-20260710 --format html > session.html
 `inspect` produces a stable renderer-independent projection, including the
 versioned metadata-only context history. `export` supports:
 
-- `jsonl`: redacted valid records in append-only sequence order;
-- `json`: one JSON document;
-- `markdown`: a bounded human review copy;
-- `html`: a self-contained bounded review copy.
+- `jsonl`: redacted valid records in append-only sequence order
+- `json`: one JSON document
+- `markdown`: a human review copy
+- `html`: a self-contained review copy
 
 Human review exports organize messages, tool and shell activity, artifacts,
 request accounting, context transformations, compactions, and lineage. Session
@@ -211,7 +211,7 @@ Missing or malformed sidecars, missing bodies, orphan state, unreferenced
 artifacts, damaged records, and invalid lineage become diagnostics. Valid
 sessions remain available when another session is damaged.
 
-Read bounded redacted logs with:
+Read redacted logs with:
 
 ```sh
 thndrs debug tail --lines 100

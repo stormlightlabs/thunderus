@@ -165,6 +165,25 @@ impl ScrollbackCommitter {
         plan
     }
 
+    /// Reproject every stable block for a fresh terminal width.
+    ///
+    /// Native terminal history cannot reflow at word boundaries after it has
+    /// been painted. A resize therefore purges and rebuilds the app-owned
+    /// history instead of asking the terminal to wrap old cells.
+    pub fn replayable_rows(&self, app: &App, width: usize) -> Vec<Row> {
+        let mut rows = Vec::new();
+        let mut waiting_for_stable = false;
+
+        for (index, block) in app.transcript.entries.blocks().enumerate() {
+            if !waiting_for_stable && block_is_stable(app, &block) {
+                rows.extend(project_inline_block(app, index, width));
+            } else {
+                waiting_for_stable = true;
+            }
+        }
+        rows
+    }
+
     /// Project the incomplete ordered suffix that Ratatui still owns.
     pub fn mutable_tail_rows(&self, app: &App, width: usize) -> Vec<Row> {
         let mut tail = Vec::new();
@@ -254,7 +273,26 @@ fn project_inline_block(app: &App, entry_index: usize, width: usize) -> Vec<Row>
         }
         _ => {}
     }
+    trim_transcript_row_padding(&mut rows);
     rows
+}
+
+/// Avoid copying renderer-only trailing cells as part of native transcript
+/// history. The row width remains terminal-wide so later live rendering still
+/// clears the complete line.
+fn trim_transcript_row_padding(rows: &mut [Row]) {
+    for row in rows {
+        while let Some(last) = row.spans.last_mut() {
+            let trimmed = last.text.trim_end_matches(' ');
+            if trimmed.len() == last.text.len() {
+                break;
+            }
+            last.text.truncate(trimmed.len());
+            if last.text.is_empty() {
+                row.spans.pop();
+            }
+        }
+    }
 }
 
 /// Inline projection always starts a standalone tool block, whose header
@@ -435,6 +473,28 @@ mod tests {
         app.session.id = "resumed-session".to_string();
         let resumed = committer.newly_stable(&app, 80);
         assert_eq!(resumed.commits.len(), 1, "block identities may repeat after /resume");
+    }
+
+    #[test]
+    fn replayable_rows_rewrap_stable_history_at_the_new_width() {
+        let mut app = app();
+        app.transcript
+            .entries
+            .push(Entry::Agent { text: "alpha beta gamma delta epsilon zeta".to_string(), streaming: false });
+        let mut committer = ScrollbackCommitter::default();
+        let initial = committer.newly_stable(&app, 80);
+        committer.mark_committed(&initial.commits);
+
+        let rows = committer.replayable_rows(&app, 24);
+        let text = rows.iter().map(Row::text).collect::<Vec<_>>();
+
+        assert!(text.iter().any(|row| row.contains("alpha beta gamma")));
+        assert!(text.iter().any(|row| row.contains("delta epsilon")));
+        assert!(text.iter().all(|row| crate::utils::text_width(row) <= 24));
+        assert!(
+            text.iter().all(|row| !row.ends_with(' ')),
+            "history rows should not carry copy padding"
+        );
     }
 
     #[test]

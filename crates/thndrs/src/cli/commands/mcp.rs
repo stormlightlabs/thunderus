@@ -211,7 +211,7 @@ pub enum McpCommand {
         /// Configured MCP server name.
         name: String,
     },
-    /// Read one explicitly requested MCP resource as bounded JSON.
+    /// Read one explicitly requested MCP resource as JSON.
     Resource {
         /// Configured MCP server name.
         server: String,

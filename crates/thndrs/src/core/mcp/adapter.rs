@@ -116,7 +116,7 @@ pub struct McpResourceContent {
     pub truncated: bool,
 }
 
-/// Bounded result returned from an MCP resource read.
+/// Result returned from an MCP resource read.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct McpResourceRead {
     /// Content items returned by the server, capped at a small fixed count.
@@ -272,7 +272,7 @@ impl McpSdkClient {
             .collect())
     }
 
-    /// List bounded metadata for resources advertised by this server.
+    /// List  metadata for resources advertised by this server.
     pub fn list_resources(&self) -> Result<Vec<McpResourceMetadata>, McpSdkError> {
         if !self.server_info.resources_available {
             return Ok(Vec::new());
@@ -302,7 +302,7 @@ impl McpSdkClient {
             .collect())
     }
 
-    /// Read one explicitly requested resource with bounded serialization.
+    /// Read one explicitly requested resource with serialization.
     pub fn read_resource(&self, uri: &str) -> Result<McpResourceRead, McpSdkError> {
         self.read_resource_with_cancel(uri, &CancelToken::new())
     }

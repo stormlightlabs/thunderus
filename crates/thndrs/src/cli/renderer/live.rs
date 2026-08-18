@@ -23,7 +23,7 @@ pub const MAX_ACCESSORY_ROWS: usize = 8;
 /// Height of the permanent inline live region: the composer at its largest
 /// (including border chrome), the status footer, and one blank gutter row.
 ///
-/// Setup/auth and bounded detail surfaces clip within this region instead of
+/// Setup/auth and detail surfaces clip within this region instead of
 /// expanding it.
 pub const LIVE_REGION_HEIGHT: usize = MAX_PROMPT_ROWS + 3;
 

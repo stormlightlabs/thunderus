@@ -61,7 +61,7 @@ pub struct ContextItemMeta {
     /// Hash of the source content, when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<u64>,
-    /// Stable handle for bounded redacted recovery, when available.
+    /// Stable handle for redacted recovery, when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_handle: Option<String>,
     /// Source byte size.

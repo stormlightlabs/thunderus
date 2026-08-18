@@ -47,7 +47,7 @@ pub struct TranscriptCandidate {
     pub label: String,
     /// Estimated UTF-8 byte size of the rendered entry content.
     pub bytes: usize,
-    /// Stable handle for bounded redacted recovery of this transcript item.
+    /// Stable handle for redacted recovery of this transcript item.
     pub artifact_handle: Option<String>,
     /// Whether the entry is UI-only (status/error rows) or live-only (streaming).
     pub ui_only: bool,
@@ -109,7 +109,7 @@ pub struct PinnedCandidate {
     pub scope: String,
     /// Content hash when applicable.
     pub content_hash: Option<u64>,
-    /// Stable handle for bounded redacted recovery, when this pin is evidence.
+    /// Stable handle for redacted recovery, when this pin is evidence.
     pub artifact_handle: Option<String>,
     /// Estimated UTF-8 byte size of the pinned content.
     pub bytes: usize,

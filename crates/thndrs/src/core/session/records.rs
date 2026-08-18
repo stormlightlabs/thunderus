@@ -221,7 +221,7 @@ pub enum SessionRecord {
         call_id: String,
         status: ToolStatus,
         output: Vec<String>,
-        /// Metadata and handle for bounded redacted recoverable evidence.
+        /// Metadata and handle for redacted recoverable evidence.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         artifact: Option<ArtifactMetadata>,
         /// MCP metadata when this tool came from an MCP server.
@@ -462,7 +462,7 @@ impl SessionRecord {
         Self::from_entry_with_artifact(entry, seq, time, turn_id, None)
     }
 
-    /// Convert a transcript entry while attaching bounded artifact metadata.
+    /// Convert a transcript entry while attaching artifact metadata.
     pub fn from_entry_with_artifact(
         entry: &Entry, seq: u64, time: &str, turn_id: &str, artifact: Option<ArtifactMetadata>,
     ) -> Option<SessionRecord> {

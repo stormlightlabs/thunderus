@@ -165,7 +165,6 @@ impl RunHandle {
                 thndrs_agent::ToolBudgetDecision::Continue => {}
                 thndrs_agent::ToolBudgetDecision::ContinueAfterBudgetMessage
                 | thndrs_agent::ToolBudgetDecision::Exhausted { .. } => {
-                    // Invariant: an unbounded budget never returns a boundary decision.
                     unreachable!("the primary agent uses an unbounded tool budget");
                 }
             }

@@ -1,4 +1,4 @@
-//! State-aware deduplication for bounded model projections.
+//! State-aware deduplication for model projections.
 //!
 //! Applications supply opaque, tool-specific identities. This module only
 //! compares the logical source and its observed state fingerprint; it never
@@ -45,12 +45,12 @@ impl StateProjectionIdentity {
     }
 }
 
-/// One bounded projection considered for state-aware reduction.
+/// One projection considered for state-aware reduction.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StateProjectionCandidate {
     /// Stable item or tool-call id.
     pub id: String,
-    /// Bounded model-facing lines after any lossless per-result reductions.
+    /// Model-facing lines after any lossless per-result reductions.
     pub lines: Vec<String>,
     /// Opaque application-defined source/state identity.
     pub identity: Option<StateProjectionIdentity>,

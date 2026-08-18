@@ -45,7 +45,7 @@ pub fn collect_if_due(
     collect_now(sessions_dir, workspace_root, policy, active_session_id).map(Some)
 }
 
-/// Run one idempotent best-effort collection pass and record its bounded audit.
+/// Run one idempotent best-effort collection pass and record its audit.
 pub fn collect_now(
     sessions_dir: &Path, workspace_root: &Path, policy: &SessionRetentionPolicy, active_session_id: Option<&str>,
 ) -> io::Result<CollectionReport> {

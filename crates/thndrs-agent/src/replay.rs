@@ -181,7 +181,7 @@ pub enum ReplayScenario {
     ProtectedEvidence,
     /// Recorded provider cache components.
     CacheComponents,
-    /// Bounded artifact recovery.
+    /// Artifact recovery.
     Recovery,
 }
 
@@ -224,15 +224,15 @@ pub struct ReplayItem {
     pub kind: ReplayItemKind,
     /// Human-readable source label; it is not used as a required fact.
     pub label: String,
-    /// Provider-neutral bounded projection text for this item.
+    /// Provider-neutral projection text for this item.
     pub content: String,
-    /// Original evidence size when the bounded fixture content is a sample.
+    /// Original evidence size when the fixture content is a sample.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub original_bytes: Option<u64>,
     /// Required fact ids supported by this item.
     #[serde(default)]
     pub fact_ids: Vec<String>,
-    /// Opaque bounded recovery handle, when this item is recoverable.
+    /// Opaque recovery handle, when this item is recoverable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery_handle: Option<String>,
     /// Whether this item is protected evidence.

@@ -2,7 +2,7 @@
 //!
 //! `App` holds the mutable session and prompt state. `Msg` represents input,
 //! provider, tool, permission, and lifecycle events. [`update`] applies one
-//! message and returns pure follow-up messages plus bounded effects for the
+//! message and returns pure follow-up messages plus effects for the
 //! application adapter to execute.
 //!
 //! The root module declares the shared state and message vocabulary. The child
@@ -432,7 +432,7 @@ pub struct QueueItem {
 }
 
 impl QueueItem {
-    /// A single-line, bounded, display-safe summary. The full text remains in
+    /// A single-line, display-safe summary. The full text remains in
     /// the queue and session journal, never in status or tracing output.
     pub fn preview(&self, max_chars: usize) -> String {
         let normalized = self.text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -542,7 +542,7 @@ impl DetailPane {
     }
 }
 
-/// One bounded semantic transcript match. Byte offsets always lie on UTF-8
+/// One semantic transcript match. Byte offsets always lie on UTF-8
 /// boundaries in the entry's searchable projection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TranscriptMatch {
@@ -839,7 +839,7 @@ pub struct TranscriptState {
     pub prompt_templates: Vec<prompt::templates::PromptTemplate>,
     /// Prompt-template discovery diagnostics.
     pub prompt_template_diagnostics: Vec<prompt::templates::PromptTemplateDiagnostic>,
-    /// Tool-call ids mapped to bounded redacted recovery handles.
+    /// Tool-call ids mapped to redacted recovery handles.
     pub tool_artifacts: HashMap<String, String>,
     /// State-aware model-projection decisions indexed by tool-call id.
     pub tool_projection_decisions: HashMap<String, agent_context::StateProjectionDecision>,
@@ -1759,7 +1759,7 @@ impl App {
         self.transcript.pending_manual_compaction.is_some()
     }
 
-    /// Return the local bounded artifact store when this run persists a session.
+    /// Return the local  artifact store when this run persists a session.
     ///
     /// The store is deliberately separate from JSONL so session records carry
     /// metadata and handles without making artifact bodies part of replay truth.

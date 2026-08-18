@@ -1,4 +1,4 @@
-//! Bounded, redacted diagnostic log command definitions.
+//! Redacted diagnostic log command definitions.
 
 use clap::Subcommand;
 

@@ -216,12 +216,12 @@ impl ProviderUsage {
     }
 }
 
-/// One bounded provider-neutral message in the model-facing request projection.
+/// One provider-neutral message in the model-facing request projection.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ModelProjectionMessage {
     /// Message role at the provider-neutral boundary.
     pub role: String,
-    /// Bounded rendered content. Structured content is represented as JSON.
+    /// Rendered content. Structured content is represented as JSON.
     pub content: String,
 }
 
@@ -244,7 +244,7 @@ pub struct ContextReductionReceipt {
     /// of the baseline projection.
     #[serde(default)]
     pub mode: ContextReductionMode,
-    /// Bounded diagnostic when a preservation gate rejected the candidate.
+    /// Diagnostic when a preservation gate rejected the candidate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<String>,
 }
@@ -278,7 +278,7 @@ impl ContextReductionMode {
 pub struct ContextItemSnapshot {
     /// Stable context item id.
     pub id: String,
-    /// Stable handle for bounded redacted recovery, when available.
+    /// Stable handle for redacted recovery, when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_handle: Option<String>,
     /// State at the request boundary.
@@ -356,7 +356,7 @@ pub struct ProviderRequestAccounting {
     /// In-memory model projection for the selected request.
     ///
     /// This is not durable session data and is skipped during serialization;
-    /// the application may use it to build an explicit bounded export.
+    /// the application may use it to build an explicit export.
     #[serde(skip)]
     pub model_projection: Vec<ModelProjectionMessage>,
     /// Whether the in-memory model projection exceeded its byte bound.
@@ -426,7 +426,7 @@ impl ProviderRequestAccounting {
             .collect()
     }
 
-    /// Attach a bounded in-memory model projection without changing durable
+    /// Attach an in-memory model projection without changing durable
     /// accounting or provider request bytes.
     pub fn with_model_projection(mut self, projection: Vec<ModelProjectionMessage>) -> Self {
         let mut bytes = 0usize;

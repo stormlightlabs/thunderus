@@ -2,7 +2,7 @@
 title: "Tools"
 ---
 
-`thndrs` exposes typed, bounded tools to the model. The model does not receive
+`thndrs` exposes typed tools to the model. The model does not receive
 raw shell-string access.
 
 The visible tool list comes from the built-in registry. Each registered tool has
@@ -28,7 +28,7 @@ search. It uses `fd --type file`, `rg --files`, or `find`, in that order.
 
 ### File Range Reads
 
-`read_file_range` reads a bounded line range from a file using Rust-native file
+`read_file_range` reads a line range from a file using Rust-native file
 I/O. Paths must stay inside the selected workspace.
 
 ## Text Search

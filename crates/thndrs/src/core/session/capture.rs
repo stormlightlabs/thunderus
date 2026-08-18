@@ -21,7 +21,7 @@ pub enum ContextCaptureMode {
     /// Persist accounting and transformations, but no request or artifact bodies.
     #[default]
     MetadataOnly,
-    /// Persist sanitized, bounded provider-neutral request and artifact content.
+    /// Persist sanitized provider-neutral request and artifact content.
     RetainedContent,
 }
 

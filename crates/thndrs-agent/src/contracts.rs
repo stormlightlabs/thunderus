@@ -41,7 +41,7 @@ impl ToolStatus {
     }
 }
 
-/// The kind of bounded evidence associated with a tool execution.
+/// The kind of evidence associated with a tool execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ToolEvidenceKind {
     /// The normal result produced by a tool execution.
@@ -171,7 +171,7 @@ impl ToolUseRequest {
     }
 }
 
-/// Bounded, provider-neutral metadata about durable tool evidence.
+/// Provider-neutral metadata about durable tool evidence.
 ///
 /// `byte_count` describes the UTF-8, newline-joined compatibility rendering
 /// when constructed by [`ToolOutput::ok`] or [`ToolOutput::failed`]. Custom
@@ -187,7 +187,7 @@ pub struct ToolEvidenceMetadata {
     pub byte_count: usize,
     /// Optional application-computed content hash.
     pub content_hash: Option<String>,
-    /// Optional opaque handle for bounded redacted recovery.
+    /// Optional opaque handle for redacted recovery.
     pub artifact_handle: Option<String>,
 }
 
@@ -204,7 +204,7 @@ impl ToolEvidenceMetadata {
     }
 }
 
-/// User-facing bounded projection of a tool result.
+/// User-facing projection of a tool result.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ToolDisplayProjection {
     /// Lines rendered by the CLI, TUI, or ACP adapter.
@@ -218,7 +218,7 @@ impl ToolDisplayProjection {
     }
 }
 
-/// Model-facing bounded projection of a tool result.
+/// Model-facing projection of a tool result.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ToolModelProjection {
     /// Lines lowered into the next provider request.
@@ -239,7 +239,7 @@ pub struct ToolOutput {
     pub name: String,
     /// Execution status.
     pub status: ToolStatus,
-    /// Metadata for bounded redacted evidence retained by the application.
+    /// Metadata for redacted evidence retained by the application.
     pub evidence: ToolEvidenceMetadata,
     /// User-facing projection. This is the source for UI and ACP surfaces.
     pub display: ToolDisplayProjection,
@@ -280,7 +280,7 @@ impl ToolOutput {
     ///
     /// The hash describes application evidence rather than provider-visible
     /// content. Applications use it with a tool-specific source key when they
-    /// need to prove that two bounded projections observed the same state.
+    /// need to prove that two projections observed the same state.
     pub fn with_evidence_content_hash(mut self, content_hash: impl Into<String>) -> Self {
         self.evidence.content_hash = Some(content_hash.into());
         self
@@ -338,7 +338,7 @@ impl AgentTurn {
     }
 }
 
-/// Bounded exponential retry policy for provider requests.
+/// Exponential retry policy for provider requests.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RetryPolicy {
     /// Number of retry attempts after the initial request.

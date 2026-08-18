@@ -80,7 +80,7 @@ impl McpClient {
         self.sdk.server_info()
     }
 
-    /// List bounded resource metadata from a server that advertises resources.
+    /// List resource metadata from a server that advertises resources.
     pub fn list_resources(&self) -> Result<Vec<super::adapter::McpResourceMetadata>, McpSdkError> {
         self.sdk.list_resources()
     }
@@ -179,7 +179,7 @@ impl std::fmt::Debug for McpManager {
 }
 
 impl McpManager {
-    /// Initialize all enabled servers with bounded startup and cache their tools.
+    /// Initialize all enabled servers with startup and cache their tools.
     pub fn from_config(config: &McpConfig) -> Self {
         let mut clients = BTreeMap::new();
         let mut tool_routes = BTreeMap::new();

@@ -246,7 +246,7 @@ pub(crate) fn execute_effect<S: InteractiveSurface>(
     }
 }
 
-/// Drain a bounded burst of agent events through the shared update path.
+/// Drain a burst of agent events through the shared update path.
 pub(crate) fn drain_agent_events<S: InteractiveSurface>(
     app: &mut App, agent: &mut Option<AgentSlot>, surface: &mut S, observability: &Option<Observability>,
 ) -> io::Result<bool> {

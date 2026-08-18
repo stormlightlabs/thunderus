@@ -49,7 +49,7 @@ pub struct PendingCompactionReview {
 }
 
 impl App {
-    /// Recover bounded redacted evidence for a context item or artifact handle.
+    /// Recover redacted evidence for a context item or artifact handle.
     ///
     /// The recovery action is appended even when the body is missing or
     /// expired, so the item's audit metadata remains useful across resume.
@@ -186,7 +186,7 @@ impl App {
     ///
     /// The caller owns discovery, transcript projection, and persistence. The
     /// agent library receives only typed candidates and returns the policy
-    /// result. This method also stores the latest ledger for bounded inspection.
+    /// result. This method also stores the latest ledger for inspection.
     pub fn refresh_context_ledger(&mut self, user_turn: Option<&str>) -> agent_context::ContextLedger {
         let pinned_paths = self
             .transcript
@@ -348,14 +348,14 @@ impl App {
         ledger
     }
 
-    /// Open the bounded context inspection surface.
+    /// Open the context inspection surface.
     pub fn open_context_surface(&mut self) {
         self.refresh_context_ledger(None);
         self.overlay.show_context();
         self.composer.input.clear();
     }
 
-    /// Build the current bounded context export.
+    /// Build the current context export.
     pub fn build_context_export(&mut self, include_artifacts: bool) -> ContextExport {
         self.ensure_context_ledger();
         let ledger = self
@@ -396,7 +396,7 @@ impl App {
         ContextExport::from_parts(self.session.id.clone(), &ledger, accounting, artifacts, diagnostics)
     }
 
-    /// Render and atomically write a bounded context export.
+    /// Render and atomically write a context export.
     pub fn write_context_export(
         &mut self, path: &Path, format: ContextExportFormat, include_artifacts: bool,
     ) -> Result<(), String> {

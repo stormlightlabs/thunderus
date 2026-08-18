@@ -87,7 +87,7 @@ impl<Event> AgentRun<Event> {
 
     /// Request cancellation and relinquish the worker without blocking the caller.
     ///
-    /// This is reserved for a bounded UI shutdown path after the worker has not
+    /// This is reserved for a UI shutdown path after the worker has not
     /// settled within its cancellation grace period. The worker must still
     /// honor cancellation or its own operation deadlines; dropping the join
     /// handle only prevents an uncooperative worker from freezing its caller.

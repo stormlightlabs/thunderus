@@ -74,8 +74,8 @@ impl SessionReader {
 
     /// Read only the trailing portion of a session file.
     ///
-    /// If the bounded read starts in the middle of a JSONL record, that first
-    /// partial record is discarded. This is suitable for bounded input recall,
+    /// If the read starts in the middle of a JSONL record, that first
+    /// partial record is discarded. This is suitable for input recall,
     /// where recent turns matter more than a full historical reconstruction.
     pub fn read_records_from_tail(path: &Path, max_bytes: usize) -> Vec<SessionRecord> {
         use std::io::{Read, Seek};

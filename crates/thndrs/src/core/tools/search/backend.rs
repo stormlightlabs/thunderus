@@ -1,4 +1,4 @@
-//! Search backend selection and bounded filesystem fallback support.
+//! Search backend selection and filesystem fallback support.
 
 use std::env;
 use std::fs;
@@ -55,7 +55,7 @@ impl SearchPrograms {
     }
 }
 
-/// Prepend stable implementation metadata to a bounded tool projection.
+/// Prepend stable implementation metadata to a tool projection.
 pub fn with_implementation_line(label: &str, mut lines: Vec<String>) -> Vec<String> {
     lines.insert(0, format!("[implementation: {label}]"));
     lines
