@@ -4,15 +4,18 @@ title: "ACP"
 
 `thndrs` can act as an Agent Client Protocol client for an external ACP agent.
 The external agent owns its model loop, while `thndrs` owns the terminal UI,
-workspace boundary, permission prompts, cancellation, and session records.
+workspace checks for ACP callbacks, permission prompts, cancellation, and
+session records.
 
 ACP agents are configured in normal `thndrs` TOML config and selected with the
 model id form `acp:<name>`.
 
 `thndrs` can also act as an ACP agent server through `thndrs acp serve`. In
 that mode an editor or IDE launches `thndrs`, sends ACP requests over stdio,
-and receives streamed session updates while the normal `thndrs` harness,
-providers, tools, project context, and session records do the work.
+and receives streamed session updates while the shared `thndrs` harness,
+providers, tools, MCP connections, and optional session records do the work.
+The server prompt path does not run the TUI's context-ledger or skill-selection
+flow.
 
 ## Configuration
 
@@ -50,7 +53,8 @@ or an explicit wrapper command outside `thndrs` TOML.
 
 ACP currently supports stdio agents only. The configured command is launched as
 a local child process and must speak ACP JSON-RPC over stdin/stdout. Use stderr
-for agent logs.
+for agent logs. The child process runs with the user's normal process
+permissions; callback restrictions do not sandbox capabilities it uses itself.
 
 ## Selecting An Agent
 
@@ -84,8 +88,8 @@ exits when stdin closes or the ACP connection shuts down.
 
 Supported flags:
 
-- `--cwd <path>`: default workspace when the client does not provide a more
-  specific session cwd.
+- `--cwd <path>`: workspace path supplied to the server process. Each
+  `session/new` request still supplies the absolute cwd used by that session.
 - `--model <model>`: provider model for new ACP sessions.
 - `--session-dir <path>`: directory for append-only local session JSONL files.
 
@@ -101,9 +105,10 @@ exact key names vary by client, but the shape should be:
 { "agents": { "thndrs": { "command": "thndrs", "args": ["--cwd", "/path/to/project", "acp", "serve"] } } }
 ```
 
-For per-project use, prefer an absolute `--cwd` and keep provider credentials in
-the parent process environment or the workspace `.env` file. Do not wrap the
-server in commands that print banners or progress text to stdout.
+For per-project use, configure the editor to send an absolute session cwd and
+keep provider credentials in the parent process environment or the workspace
+`.env` file. Do not wrap the server in commands that print banners or progress
+text to stdout.
 
 ## Server Capabilities
 
@@ -118,10 +123,9 @@ server in commands that print banners or progress text to stdout.
 - Session config options for model and reasoning controls.
 - Tool-call updates for read, search, edit, fetch, shell, thinking, and other
   tools.
-- Permission requests before local file writes and shell commands.
-- Client filesystem callbacks when the client advertises `fs/read_text_file` or
-  `fs/write_text_file`.
-- Client terminal callbacks when the client advertises `terminal`.
+- Permission requests before workspace writes, shell commands, and MCP calls.
+- Client terminal callbacks for `run_shell` when the client advertises
+  `terminal`; otherwise the server uses its normal shell path.
 - Stdio MCP server config passed through `session/new`; HTTP and SSE MCP
   transports are rejected.
 
@@ -142,11 +146,11 @@ Permission request and outcome metadata are written to the local session record.
 Credentials and raw protocol stdio lines are not stored.
 
 When `thndrs acp serve` is the agent, the direction is reversed:
-`thndrs acp serve` asks the editor client for permission before file writes and
-shell commands. The initial options are allow once and reject once. Blanket
-approvals are not persisted. If the client rejects the request, cancels it, or
-disconnects before answering, the tool operation is rejected or the active prompt
-is cancelled.
+`thndrs acp serve` asks the editor client for permission before workspace writes,
+shell commands, and MCP calls. The initial options are allow once and reject
+once. Blanket approvals are not persisted. If the client rejects the request,
+cancels it, or disconnects before answering, the tool operation is rejected or
+the active prompt is cancelled.
 
 ## Server Session Mapping
 
@@ -158,7 +162,8 @@ When `--session-dir` is configured, each ACP-created session writes an
 `acp_session` metadata record containing the ACP session id, local session id,
 agent/server name, protocol version, and client info from `initialize`.
 Permission request and outcome records are written to the same local session
-log.
+log. `session/delete` removes in-memory state but does not delete a persisted
+JSONL file; it reports an error when that file exists.
 
 ## Supported Capabilities
 
@@ -175,9 +180,11 @@ log.
 - Terminal callbacks that reject requested working directories outside the
   workspace, cap and redact output, show visible tool rows, clean up, and write
   session audit records.
-- Effective user-plus-project MCP server config passed through `session/new`
-  when the agent advertises MCP support and the server fits ACP's stable
-  `mcpServers` shape.
+- Effective user-plus-project MCP server config offered through
+  `session/new`. Enabled stdio servers are passed directly. Streamable HTTP
+  servers are passed only when the agent advertises HTTP MCP support; other
+  servers are skipped with a diagnostic. `thndrs` does not proxy MCP
+  connections that the external process starts independently.
 - Agent-owned session commands when the agent advertises support:
   `session/list`, `session/load`, `session/resume`, and `session/close`.
 - Agent-owned logout when the agent advertises support.
@@ -187,8 +194,6 @@ command failure:
 
 - Remote, Streamable HTTP, WebSocket, or custom ACP transports.
 - A `thndrs`-provided MCP self-proxy.
-- ACP agents choosing arbitrary MCP servers outside the effective `thndrs` MCP
-  config.
 - ACP registry install or update.
 - Client-owned ACP credential storage.
 - Unsaved editor buffer access.

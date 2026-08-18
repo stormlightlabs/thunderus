@@ -274,8 +274,10 @@ name so exports remain inspectable.
 
 ## Resources
 
-Resources are not added to the model context during startup. List the compact,
-namespaced metadata only when the server advertises resource support:
+Resource contents are not copied into the model context during startup. When a
+server advertises resources, thndrs adds a namespaced
+`mcp__{server}__resource_read` tool so the model can request one URI on demand.
+List the compact, namespaced metadata with:
 
 ```sh
 thndrs mcp resources docs

@@ -44,7 +44,7 @@ locations used by later pages.
 - [ ] Update `internals/terminal-ui.md`: complete Responsibilities, Semantic
   Views, Terminal Lifecycle, Boundaries, Key Types, Source Map, and Related;
   verify the Mental Model, transcript/live-surface split, and Invariants.
-- [ ] Update `internals/acp.md`: complete Mental Model, Responsibilities, Shared
+- [x] Update `internals/acp.md`: complete Mental Model, Responsibilities, Shared
   Runtime, Transport and Session Handling, Request and Event Flow, Boundaries,
   Key Types, Invariants, Source Map, and Related. Distinguish shared runtime
   behavior from ACP-only transport behavior.
