@@ -7,7 +7,10 @@
 
 use std::collections::HashSet;
 
-use crate::app::{App, Entry, ToolLifecycleState, ToolStatus, TranscriptBlock, TranscriptBlockId, TranscriptBlockKind};
+use crate::app::{
+    App, Entry, PromptAccessory, ToolLifecycleState, ToolStatus, TranscriptBlock, TranscriptBlockId,
+    TranscriptBlockKind,
+};
 use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Color, Span};
 use crate::renderer::transcript::{ACTIVITY_RAIL, TranscriptRowContext, summarize_tool_invocation};
@@ -166,6 +169,11 @@ impl InlineTranscript {
 
         if app.transcript.entries.is_empty() {
             plan.live_rows = app.render_banner_rows(width);
+            if !matches!(app.overlay.accessory(), PromptAccessory::None) {
+                // Keep the welcome identity visible above a focused surface,
+                // but give the surface the rest of the fixed inline viewport.
+                plan.live_rows.truncate(1);
+            }
         }
         plan
     }

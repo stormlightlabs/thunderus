@@ -343,7 +343,9 @@ impl LiveView {
             clip_prompt_rows_around_cursor(prompt_rows, prompt_cursor, prompt_body_budget);
         let (prompt_rows, prompt_cursor) = super::live::frame_prompt_rows(app, width, prompt_rows, prompt_cursor);
         let min_prompt_chrome = prompt_rows.len() + 1;
-        let keep_prompt_gutters = height >= min_prompt_chrome + 3;
+        let keep_prompt_gutters = !transcript.live_rows.is_empty()
+            && matches!(&semantic.focused_surface, FocusedSurfaceView::None)
+            && height >= min_prompt_chrome + 3;
         let reserved_chrome = prompt_rows.len() + if keep_prompt_gutters { 3 } else { 1 };
         let accessory_limit = super::live::MAX_ACCESSORY_ROWS;
         let accessory_height = accessory_limit.min(height.saturating_sub(reserved_chrome));

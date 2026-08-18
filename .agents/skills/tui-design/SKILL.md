@@ -29,7 +29,7 @@ For a narrow correction, keep this pass short. For a redesign, cover the whole s
 - Keep labels short, specific, and visually subordinate to the user's draft and current work. Show one primary elapsed-time measure instead of competing operation and aggregate timers.
 - Use one dominant accent plus semantic success, warning, and error roles. Make every state legible without color.
 - Keep live updates spatially stable. Streaming, spinners, status changes, and popup dismissal must not make unrelated content jump.
-- Design empty, busy, failed, cancelled, permission, long-content, and tiny-terminal states with the same care as the ideal screenshot.
+- Design empty, busy, failed, cancelled, permission, long-content, and tiny-terminal states with the same care as the ideal screenshot. When a focused picker or help surface replaces the empty state, reclaim decorative gutters and hide the startup banner so the focused content gets the live viewport.
 
 Read [references/harness-patterns.md](references/harness-patterns.md) for the visual audit, component patterns, polish rubric, and lessons from Codex, Grok Build, Amp, and Factory Droid.
 

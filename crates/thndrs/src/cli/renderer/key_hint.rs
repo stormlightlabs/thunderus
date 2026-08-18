@@ -30,7 +30,7 @@ impl KeyHint {
 pub fn render_key_hints(hints: &[KeyHint], width: usize) -> Row {
     let p = style::palette();
     let normal = CellStyle::new();
-    let key_style = CellStyle::new().fg(p.primary).bg(p.selection).bold();
+    let key_style = CellStyle::new().fg(p.primary).bg(p.selection);
     let action_style = CellStyle::new().fg(p.secondary);
     let frame_padding = width.min(ROW_INSET * 2);
     let mut remaining = width.saturating_sub(frame_padding);

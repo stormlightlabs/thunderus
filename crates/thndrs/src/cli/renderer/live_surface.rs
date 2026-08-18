@@ -24,7 +24,13 @@ impl LiveSurfaceLayout {
     /// focused surface first, retaining the active composer and its cursor.
     pub fn build(live: &LiveView, width: usize, height: usize) -> Self {
         let min_prompt_chrome = live.prompt_rows.len() + 1;
-        let keep_prompt_gutters = height >= min_prompt_chrome + 3;
+        // Focused accessories need the two normally decorative gutters. Keeping
+        // them while a picker is open leaves only a couple of useful rows in
+        // the fixed inline viewport, especially on a fresh session.
+        let keep_prompt_gutters = !live.live_tail.is_empty()
+            && live.accessory_rows.is_empty()
+            && live.detail_pane.is_empty()
+            && height >= min_prompt_chrome + 3;
 
         let mut footer = vec![live.static_status.clone()];
         if keep_prompt_gutters {
@@ -164,8 +170,12 @@ mod tests {
             .expect("render live surface");
 
         let buffer = terminal.backend().buffer();
+        let cursor = layout.cursor().expect("cursor");
+        let source_start = layout.frame().rows.len().saturating_sub(6);
+        let destination_start = 6usize.saturating_sub(layout.frame().rows.len().min(6));
+        let painted_row = cursor.row.saturating_sub(source_start) + destination_start;
         let painted = (0..16)
-            .map(|x| buffer[(x, layout.cursor().expect("cursor").row as u16)].symbol())
+            .map(|x| buffer[(x, painted_row as u16)].symbol())
             .collect::<String>();
         assert!(
             painted.contains("draft"),

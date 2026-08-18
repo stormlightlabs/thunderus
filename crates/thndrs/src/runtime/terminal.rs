@@ -126,11 +126,11 @@ impl<W: io::Write> RatatuiSurface<W> {
 /// row and appending a line keeps the next shell prompt separate from that
 /// composer when the application exits.
 fn finish_inline_viewport<B: Backend>(terminal: &mut Terminal<B>) -> Result<(), B::Error> {
-    let area = terminal.size()?;
+    let area = terminal.get_frame().area();
     if area.height == 0 {
         return Ok(());
     }
-    terminal.set_cursor_position(Position::new(0, area.height - 1))?;
+    terminal.set_cursor_position(Position::new(area.x, area.bottom() - 1))?;
     terminal.backend_mut().append_lines(1)
 }
 
@@ -203,14 +203,20 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
 
 fn inline_frame(app: &App, width: usize, height: usize, plan: &InlineTranscriptPlan) -> Frame {
     let semantic = SemanticUiView::from(app);
+    let chrome_height =
+        if app.transcript.entries.is_empty() { height.saturating_sub(plan.live_rows.len()) } else { height };
     let transcript = TranscriptView {
         rows: Vec::new(),
         banner_rows: Vec::new(),
         stable_rows: Vec::new(),
-        live_rows: plan.live_rows.clone(),
+        // The startup banner is drawn before the live chrome, but it should
+        // not make the empty-state composer reserve transcript gutters.
+        live_rows: (!app.transcript.entries.is_empty())
+            .then(|| plan.live_rows.clone())
+            .unwrap_or_default(),
     };
-    let live = LiveView::build(app, width, height, &transcript, &semantic);
-    let chrome = LiveSurfaceLayout::build(&live, width, height).into_frame();
+    let live = LiveView::build(app, width, chrome_height, &transcript, &semantic);
+    let chrome = LiveSurfaceLayout::build(&live, width, chrome_height).into_frame();
 
     let mut frame = Frame::new(width);
     frame.rows.extend(plan.live_rows.iter().cloned());
@@ -329,7 +335,7 @@ mod tests {
         app.overlay.close();
         app.show_status_toast("Press CTRL+D again to quit.", crate::app::StatusToastKind::Warning);
         let plan = InlineTranscript::default().plan(&app, 80);
-        let frame = inline_frame(&app, 80, 12, &plan);
+        let frame = inline_frame(&app, 80, INLINE_VIEWPORT_HEIGHT as usize, &plan);
         let text = frame.rows.iter().map(|row| row.text()).collect::<Vec<_>>().join("\n");
 
         assert!(
@@ -338,6 +344,34 @@ mod tests {
         );
         assert!(text.contains("thndrs / ready"));
         assert!(text.contains("Press CTRL+D again to quit."));
+    }
+
+    #[test]
+    fn empty_picker_keeps_welcome_identity_and_surface_room() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session.writer = None;
+        app.transcript.entries.clear();
+        app.overlay
+            .show_picker(
+                crate::app::PromptAccessory::Models,
+                crate::app::PickerState::new(
+                    vec![
+                        crate::app::PickerItem::new("model/a", "first"),
+                        crate::app::PickerItem::new("model/b", "second"),
+                    ],
+                    10,
+                ),
+            )
+            .expect("model picker opens");
+
+        let plan = InlineTranscript::default().plan(&app, 80);
+        let frame = inline_frame(&app, 80, INLINE_VIEWPORT_HEIGHT as usize, &plan);
+        let text = frame.rows.iter().map(|row| row.text()).collect::<Vec<_>>().join("\n");
+
+        assert!(text.contains("thndrs / ready"));
+        assert!(text.contains("MODELS"));
+        assert!(text.contains("model/a"));
+        assert!(text.contains("model/b"));
     }
 
     #[test]

@@ -2,11 +2,11 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│     COMMANDS                                                        option 1/9    # [-]=   [-]=   [fg=#f1fc79 b]=COMMANDS [-]=                                                         [fg=#abb4da]=option 1/9 [-]=  
+│     COMMANDS                                                       option 1/14    # [-]=   [-]=   [fg=#f1fc79 b]=COMMANDS [-]=                                                        [fg=#abb4da]=option 1/14 [-]=  
 │     filter: c                                                                     # [-]=   [-]=   [fg=#abb4da]=filter: c [-]=                                                                  [-]=  
-│     ❯ clear  clear transcript                                                     # [-]=   [-]=   [fg=#ebfafa b]=❯ clear  clear transcript [-]=                                                  [-]=  
-│       context  inspect context lifecycle                                          # [-]=   [-]=   [fg=#ebfafa]=  context  inspect context lifecycle [-]=                                       [-]=  
-│       context request  inspect a provider request                                 # [-]=   [-]=   [fg=#ebfafa]=  context request  inspect a provider request [-]=                              [-]=  
-│       context verify  review a verification relation                              # [-]=   [-]=   [fg=#ebfafa]=  context verify  review a verification relation [-]=                           [-]=  
-│     … 5 rows below                                                                # [-]=   [-]=   [fg=#abb4da]=… 5 rows below [-]=                                                             [-]=  
-│    ↑↓  navigate   enter  select   esc  close                                      # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=navigate [-]=   [fg=#ebfafa bg=#292e42 b]= enter  [-]=  [fg=#abb4da]=select [-]=   [fg=#ebfafa bg=#292e42 b]= esc  [-]=  [fg=#abb4da]=close [-]=                                   [-]=
+│     ❯ changelog-audit  [release-or-range] — Audit unre…                           # [-]=   [-]=   [fg=#ebfafa b]=❯ changelog-audit  [release-or-range] — Audit unre… [-]=                        [-]=  
+│       clear  clear transcript                                                     # [-]=   [-]=   [fg=#ebfafa]=  clear  clear transcript [-]=                                                  [-]=  
+│       commit  [focus] — Draft a Conventional …                                    # [-]=   [-]=   [fg=#ebfafa]=  commit  [focus] — Draft a Conventional … [-]=                                 [-]=  
+│       config path  show config paths                                              # [-]=   [-]=   [fg=#ebfafa]=  config path  show config paths [-]=                                           [-]=  
+│     … 10 rows below                                                               # [-]=   [-]=   [fg=#abb4da]=… 10 rows below [-]=                                                            [-]=  
+│    ↑↓  navigate   enter  select   esc  close                                      # [-]=   [fg=#ebfafa bg=#292e42]= ↑↓  [-]=  [fg=#abb4da]=navigate [-]=   [fg=#ebfafa bg=#292e42]= enter  [-]=  [fg=#abb4da]=select [-]=   [fg=#ebfafa bg=#292e42]= esc  [-]=  [fg=#abb4da]=close [-]=                                   [-]=

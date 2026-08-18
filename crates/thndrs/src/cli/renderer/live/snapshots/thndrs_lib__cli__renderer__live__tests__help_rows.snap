@@ -1,21 +1,20 @@
 ---
 source: crates/thndrs/src/cli/renderer/live/tests.rs
-assertion_line: 603
 expression: frame.render_styled()
 ---
-│   help · focus: keyboard                                                          # [bg=#212337]=   [fg=#04d1f9 bg=#212337]=help · focus: keyboard [bg=#212337]=                                                       [bg=#212337]=  
-│   ── Navigation ──                                                                # [bg=#212337]=   [fg=#37f499 bg=#212337]=── Navigation ── [bg=#212337]=                                                             [bg=#212337]=  
-│   Ctrl+O          open output, diff, warning, or error detail                     # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+O          open output, diff, warning, or error detail [bg=#212337]=                  [bg=#212337]=  
-│   Enter           accept highlighted item                                         # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Enter           accept highlighted item [bg=#212337]=                                      [bg=#212337]=  
-│   Escape          close help, paths, or commands                                  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Escape          close help, paths, or commands [bg=#212337]=                               [bg=#212337]=  
-│   Up/Down         move cursor or recall history                                   # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Up/Down         move cursor or recall history [bg=#212337]=                                [bg=#212337]=  
-│   Ctrl+P          open workspace path picker                                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+P          open workspace path picker [bg=#212337]=                                   [bg=#212337]=  
-│   Ctrl+Shift+F    search transcript                                               # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+Shift+F    search transcript [bg=#212337]=                                            [bg=#212337]=  
-│   Ctrl+Q          inspect queued input                                            # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+Q          inspect queued input [bg=#212337]=                                         [bg=#212337]=  
-│   Ctrl+T          transpose characters                                            # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+T          transpose characters [bg=#212337]=                                         [bg=#212337]=  
-│   Shift+Tab       cycle reasoning effort                                          # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Shift+Tab       cycle reasoning effort [bg=#212337]=                                       [bg=#212337]=  
-│   ── Editing ──                                                                   # [bg=#212337]=   [fg=#37f499 bg=#212337]=── Editing ── [bg=#212337]=                                                                [bg=#212337]=  
-│   Shift+Enter     insert newline                                                  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Shift+Enter     insert newline [bg=#212337]=                                               [bg=#212337]=  
-│   Ctrl+A/E        move to start/end of line                                       # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Ctrl+A/E        move to start/end of line [bg=#212337]=                                    [bg=#212337]=  
-│   … 14 rows below                                                                 # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 14 rows below [bg=#212337]=                                                              [bg=#212337]=  
-│    ↑↓  scroll   esc  close                                                        # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=scroll [-]=   [fg=#ebfafa bg=#292e42 b]= esc  [-]=  [fg=#abb4da]=close [-]=                                                     [-]=
+│   help · focus: keyboard                                                          # [-]=   [fg=#04d1f9]=help · focus: keyboard [-]=                                                       [-]=  
+│   ── Navigation ──                                                                # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=── Navigation ── [bg=#292e42]=                                                             [bg=#292e42]=  
+│   Ctrl+O          open output, diff, warning, or error detail                     # [-]=   [fg=#ebfafa]=Ctrl+O          open output, diff, warning, or error detail [-]=                  [-]=  
+│   Enter           accept highlighted item                                         # [-]=   [fg=#ebfafa]=Enter           accept highlighted item [-]=                                      [-]=  
+│   Escape          close help, paths, or commands                                  # [-]=   [fg=#ebfafa]=Escape          close help, paths, or commands [-]=                               [-]=  
+│   Up/Down         move cursor or recall history                                   # [-]=   [fg=#ebfafa]=Up/Down         move cursor or recall history [-]=                                [-]=  
+│   Ctrl+P          open workspace path picker                                      # [-]=   [fg=#ebfafa]=Ctrl+P          open workspace path picker [-]=                                   [-]=  
+│   Ctrl+Shift+F    search transcript                                               # [-]=   [fg=#ebfafa]=Ctrl+Shift+F    search transcript [-]=                                            [-]=  
+│   Ctrl+Q          inspect queued input                                            # [-]=   [fg=#ebfafa]=Ctrl+Q          inspect queued input [-]=                                         [-]=  
+│   Ctrl+T          transpose characters                                            # [-]=   [fg=#ebfafa]=Ctrl+T          transpose characters [-]=                                         [-]=  
+│   Shift+Tab       cycle reasoning effort                                          # [-]=   [fg=#ebfafa]=Shift+Tab       cycle reasoning effort [-]=                                       [-]=  
+│   ── Editing ──                                                                   # [-]=   [fg=#37f499]=── Editing ── [-]=                                                                [-]=  
+│   Shift+Enter     insert newline                                                  # [-]=   [fg=#ebfafa]=Shift+Enter     insert newline [-]=                                               [-]=  
+│   Ctrl+A/E        move to start/end of line                                       # [-]=   [fg=#ebfafa]=Ctrl+A/E        move to start/end of line [-]=                                    [-]=  
+│   … 14 rows below                                                                 # [-]=   [fg=#abb4da]=… 14 rows below [-]=                                                              [-]=  
+│    ↑↓  scroll   esc  close                                                        # [-]=   [fg=#ebfafa bg=#292e42]= ↑↓  [-]=  [fg=#abb4da]=scroll [-]=   [fg=#ebfafa bg=#292e42]= esc  [-]=  [fg=#abb4da]=close [-]=                                                     [-]=

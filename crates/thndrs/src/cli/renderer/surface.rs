@@ -279,15 +279,17 @@ fn help_rows(help: &HelpView, width: usize, height: usize, theme: &SurfaceThemeV
     let body = help
         .bindings
         .iter()
-        .map(|binding| {
-            if binding.description.is_empty() {
+        .enumerate()
+        .map(|(index, binding)| {
+            let line = if binding.description.is_empty() {
                 SurfaceLine::new(binding.key.clone(), ThemeRole::Accent)
             } else {
                 SurfaceLine::text(format!("{:<16}{}", binding.key, binding.description))
-            }
+            };
+            if index == help.scroll { SurfaceLine::selected(line.text) } else { line }
         })
         .collect();
-    render_bounded_view(
+    render_bounded_view_with_background(
         &ViewContent {
             title: "help".to_string(),
             status: "focus: keyboard".to_string(),
@@ -299,6 +301,7 @@ fn help_rows(help: &HelpView, width: usize, height: usize, theme: &SurfaceThemeV
         width,
         height,
         theme,
+        style::Color::Reset,
     )
 }
 
@@ -600,12 +603,16 @@ fn transcript_lens_surface_rows(
 }
 
 fn render_bounded_view(content: &ViewContent, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
+    render_bounded_view_with_background(content, width, height, theme, style::palette().surface)
+}
+
+fn render_bounded_view_with_background(
+    content: &ViewContent, width: usize, height: usize, theme: &SurfaceThemeView, background: style::Color,
+) -> Vec<Row> {
     if width == 0 || height == 0 {
         return Vec::new();
     }
 
-    let palette = style::palette();
-    let background = palette.surface;
     let header = format!("{} · {}", content.title, content.status);
     let hint_height = usize::from(!content.hints.is_empty() && height > 1);
     let max_body_height = height.saturating_sub(1 + hint_height);

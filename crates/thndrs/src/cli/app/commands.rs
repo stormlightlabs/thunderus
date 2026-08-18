@@ -294,30 +294,34 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
 
 pub fn command_suggestions_for_app(app: &App) -> Vec<CommandSuggestion> {
     let query = super::input::command_query(app);
-    let mut suggestions = COMMANDS
+    let mut details = COMMANDS
         .iter()
-        .filter(|(command, _)| command.starts_with(&query))
-        .map(|(command, description)| CommandSuggestion {
-            name: (*command).to_string(),
-            detail: (*description).to_string(),
-        })
+        .map(|(command, description)| ((*command).to_string(), (*description).to_string()))
         .collect::<Vec<_>>();
-    suggestions.extend(
+    details.extend(
         app.transcript
             .prompt_templates
             .iter()
-            .filter(|template| {
-                template.name.starts_with(&query) && !COMMANDS.iter().any(|(command, _)| *command == template.name)
-            })
+            .filter(|template| !COMMANDS.iter().any(|(command, _)| *command == template.name))
             .map(|template| {
                 let detail = template.argument_hint.as_ref().map_or_else(
                     || template.description.clone(),
                     |hint| format!("{hint} — {}", template.description),
                 );
-                CommandSuggestion { name: template.name.clone(), detail }
+                (template.name.clone(), detail)
             }),
     );
-    suggestions
+
+    let names = details.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
+    crate::fuzzy::fuzzy_filter(&names, &query, names.len())
+        .into_iter()
+        .filter_map(|(name, _)| {
+            details
+                .iter()
+                .find(|(candidate, _)| candidate == &name)
+                .map(|(_, detail)| CommandSuggestion { name, detail: detail.clone() })
+        })
+        .collect()
 }
 
 /// Handle a slash command submitted while the agent is working.
