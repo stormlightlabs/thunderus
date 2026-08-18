@@ -129,39 +129,114 @@ connection; it does not download, install, or start an MCP server.
 - `cargo test -p thndrs mcp` or the narrowest matching command-test filter.
 - `pnpm --dir docs build` after updating the public documentation.
 
-## EXT-10: Design trusted MCP package distribution
+## EXT-10A: Search configurable MCP catalogs
 
-**What to build:** Decide whether thndrs should discover, install, upgrade, or
-remove MCP server packages. Produce an approved security and portability design
-before implementation tickets are added.
+**What to build:** Let users search and inspect MCP server metadata from a
+global set of catalogs. Include the official MCP Registry as a built-in preview,
+uncurated source without treating its entries as trusted software.
 
 **Blocked by:** None - can start immediately.
 
 **Acceptance criteria:**
 
-- [ ] The design names supported package sources and package managers, or
-      explains why installation remains external to thndrs.
-- [ ] It treats the official MCP Registry as preview discovery metadata, not an
-      artifact host or a catalog that host applications should consume
-      directly, unless the upstream model changes.
-- [ ] It defines provenance, integrity verification, version pinning, update and
-      removal behavior, install scope, and user approval before commands run.
-- [ ] It separates package installation authority from project MCP trust and
-      tool-call permissions.
-- [ ] It covers offline behavior, cross-platform launch commands, secret
-      handling, audit records, and recovery from partial installation.
-- [ ] It defines what a registry or catalog entry may assert and what thndrs
-      verifies independently, including artifact identity and hashes where the
-      package format provides them.
-- [ ] Follow-up implementation work is split into independently verifiable
-      tickets after the design is approved.
+- [ ] Search and detail commands identify the source catalog, claimed
+      publisher, available transports, package origins, versions, platform
+      constraints, and curation claims without launching a server.
+- [ ] The official registry endpoint is enabled by default, clearly labelled as
+      preview and uncurated, and can be disabled.
+- [ ] Users can add and remove global API-compatible catalog sources; project
+      configuration cannot select or replace catalog endpoints.
+- [ ] Catalog responses are bounded, validated, and isolated so one unavailable
+      or malformed source does not hide results from another source.
+- [ ] A bounded cache supports offline search of the last successful metadata
+      snapshot and shows when it was retrieved. Catalog failure never affects
+      configured MCP servers.
+- [ ] Output does not present publisher identity, curation labels, versions, or
+      supplied hashes as a thndrs security verdict.
+- [ ] Internal and public MCP documentation explain catalog configuration,
+      preview status, caching, and the discovery-only security boundary.
 
 **Verification:**
 
-- Review the design against at least the MCP Registry model and the package
-  managers proposed for support.
-- Threat-model a malicious catalog entry, a compromised package version, a
-  changed project config, and an interrupted install or upgrade.
+- Focused client and command tests with deterministic catalog fixtures for
+  search, detail, pagination, multiple sources, invalid data, response limits,
+  disabled sources, unavailable sources, and offline cache fallback.
+- `cargo test -p thndrs mcp` or the narrowest matching test filters.
+- `pnpm --dir docs build` after updating public documentation.
+
+## EXT-10B: Configure a server from catalog metadata
+
+**What to build:** Turn a selected catalog result into an exact local launch
+recipe or Streamable HTTP definition through the guided MCP configuration flow.
+Show the resolved command, origin, and authority boundary before writing it.
+
+**Blocked by:** EXT-9 and EXT-10A.
+
+**Acceptance criteria:**
+
+- [ ] Resolution selects only a transport and package variant compatible with
+      the current platform, or reports why no variant can run.
+- [ ] Local package recipes contain an exact version and reject `latest` or an
+      unversioned package. The preview states when the launcher may download
+      code during later MCP startup.
+- [ ] Before approval, the command shows the catalog, claimed publisher,
+      artifact registry or remote host, exact version, supplied digest, complete
+      command or URL, environment variable names, destination scope, and path.
+- [ ] Approval writes the server definition and its catalog provenance through
+      the validated atomic configuration path. Cancellation changes no files.
+- [ ] Catalog metadata cannot supply literal secret values, hidden command
+      arguments, catalog endpoints, project trust, startup approval, or
+      tool-call permission.
+- [ ] Recorded hashes and identity labels distinguish catalog assertions from
+      values enforced by the selected launcher. thndrs does not claim to verify
+      an artifact it did not download.
+- [ ] Configuration does not contact the remote server, execute the launch
+      command, invoke a package manager, or modify an external package cache.
+
+**Verification:**
+
+- Focused resolution and command tests for remote servers, each supported local
+  recipe shape, incompatible platforms, ambiguous variants, unpinned versions,
+  secret-bearing metadata, approval, cancellation, and interrupted writes.
+- Verify that a catalog-derived project definition remains blocked until its
+  exact configuration hash is trusted through the existing MCP trust flow.
+- `cargo test -p thndrs mcp` or the narrowest matching test filters.
+
+## EXT-10C: Review and update catalog-derived configuration
+
+**What to build:** Let users inspect the provenance of a catalog-derived MCP
+definition and replace it with a newer exact recipe after reviewing the full
+configuration diff. Keep external package state outside thndrs ownership.
+
+**Blocked by:** EXT-10B.
+
+**Acceptance criteria:**
+
+- [ ] Inspection reports the stored catalog URL, entry identity and metadata
+      version, retrieval time, package or remote origin, exact version, supplied
+      digest, and generated transport configuration.
+- [ ] A manual change to generated transport fields is visible and prevents
+      thndrs from presenting the old projection as current catalog provenance.
+- [ ] Update resolves one new exact recipe and shows source, version, digest,
+      command, environment-name, and transport changes before approval.
+- [ ] Cancellation and resolution failure preserve the current definition;
+      approval uses validated atomic replacement and causes project trust to
+      become stale when the project configuration hash changes.
+- [ ] Update never executes the server or package manager. Removal deletes the
+      definition and its provenance without uninstalling packages or clearing
+      external caches.
+- [ ] Offline mode can inspect stored provenance and configuration but cannot
+      claim that a newer version is available without current catalog data.
+
+**Verification:**
+
+- Focused tests for unchanged, newer, removed, malformed, and unavailable
+  catalog entries; manual configuration drift; approval and cancellation;
+  stale project trust; atomic-write failure; and provenance cleanup on removal.
+- Confirm that update and removal leave representative npm, Python, container,
+  and MCPB caches untouched.
+- `cargo test -p thndrs mcp` or the narrowest matching test filters.
+- `pnpm --dir docs build` after updating public documentation.
 
 ## EXT-11: Move web search to MCP
 

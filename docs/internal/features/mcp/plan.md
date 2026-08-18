@@ -61,25 +61,79 @@ Do not accept secret values as command-line arguments. The initial guided flow
 may accept environment variable names or leave authentication for manual
 editing, but it must not put tokens in shell history or command output.
 
-Package discovery, installation, upgrades, and removal need a separate
-supply-chain design. That design must settle provenance, integrity and version
-pinning, supported package managers, install authority, and what thndrs can
-verify before any command executes.
+### Catalog discovery
 
-The reference model does not collapse discovery and installation. The official
-MCP Registry is a preview metadata repository that points to packages in npm,
-PyPI, NuGet, OCI registries, or MCPB release artifacts; it does not host those
-artifacts. Its guidance also directs host applications toward downstream
-catalogs rather than direct registry consumption. A future thndrs catalog must
-therefore make its source and curation policy explicit and independently verify
-the artifact it installs. OpenCode's current flow is a useful configuration
-baseline: users add either a local launch command or a remote URL, select
-project or global scope, and configure credentials separately.
+`thndrs` supports configurable MCP catalogs and guided configuration, but does
+not install, upgrade, or remove package-manager artifacts. npm, PyPI, NuGet,
+OCI, and MCPB remain external distribution systems. This avoids a second
+package manager inside `thndrs` and makes partial package installation,
+install-script execution, and package cache recovery the responsibility of the
+tool that owns those operations.
+
+The official MCP Registry is the built-in discovery source at
+`https://registry.modelcontextprotocol.io`. Label it as preview and uncurated.
+It supplies metadata that points to packages or hosted servers; it does not
+host artifacts, scan their code, or attest that a server is safe. Users can
+disable this source or add API-compatible downstream catalogs. Catalog source
+configuration is global: project configuration cannot add a catalog or change
+where metadata is resolved.
+
+Catalog availability cannot affect configured servers. Cache bounded search
+metadata with its retrieval time so users can search the last successful
+snapshot offline. A missing, stale, or malformed catalog entry prevents a new
+resolution but does not alter an existing server definition. Search results
+identify their catalog and any curation claims that catalog supplies.
+
+Adding a search result resolves it to either a Streamable HTTP endpoint or a
+local launch recipe supported on the current platform. Before writing, show:
+
+- the catalog, claimed publisher, and artifact registry or remote host;
+- the exact package version, digest when supplied, command, arguments, and
+  whether the command may download code when it starts;
+- required environment variable names, with no secret values; and
+- the destination scope and configuration path.
+
+The user approves that complete projection before `thndrs` writes it. Local
+package recipes must use an exact version; `latest` and unversioned recipes are
+not generated. A supplied digest is recorded as a catalog assertion unless the
+selected launcher can enforce it. TLS validates transport to a hosted server,
+not its publisher or behavior. `thndrs` must not claim to have verified an
+artifact it did not download.
+
+Catalog provenance is stored with the generated server definition: catalog
+URL, entry identity and metadata version, retrieval time, package or remote
+origin, exact version, supplied digest, and generated transport configuration.
+This source metadata is an audit record, not execution authority. Manual edits
+remain possible and invalidate claims that depend on the previous projection.
+
+Package updates are configuration updates. `thndrs` may resolve a newer exact
+recipe, show the provenance and command diff, and replace the definition after
+approval. It does not run the package manager or clear its cache. Removing a
+catalog-derived server removes its definition and provenance only. Interrupted
+writes use the same validated atomic replacement as manual guided
+configuration, so no package installation needs recovery.
+
+Catalog access, configuration approval, project trust, server startup, and
+tool-call permission are separate decisions. Adding a project definition does
+not trust it. Adding either scope does not start the server, approve its tools,
+or grant authority to a later package download. Normal MCP startup and shared
+permission policy continue to enforce those decisions.
+
+Claude Code and Codex use explicit MCP configuration and can distribute MCP
+definitions through plugins. VS Code provides a gallery that writes user or
+workspace configuration, then asks for server trust separately. These systems
+support the same boundary: discovery can propose a connection, while starting
+the resulting server remains a distinct decision.
 
 Reviewed references:
 
 - [MCP Registry overview](https://modelcontextprotocol.io/registry/about)
+- [MCP Registry aggregator guidance](https://modelcontextprotocol.io/registry/registry-aggregators)
 - [MCP Registry package types](https://modelcontextprotocol.io/registry/package-types)
+- [Claude Code MCP configuration](https://code.claude.com/docs/en/mcp)
+- [Claude Code plugin marketplaces](https://code.claude.com/docs/en/plugin-marketplaces)
+- [Codex MCP configuration](https://developers.openai.com/codex/mcp)
+- [VS Code MCP server management](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
 - [OpenCode MCP server configuration](https://opencode.ai/v2/docs/mcp-servers)
 
 ## TUI status and trust
