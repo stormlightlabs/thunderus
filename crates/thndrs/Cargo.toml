@@ -32,7 +32,7 @@ opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
 opentelemetry-stdout.workspace = true
 process-wrap.workspace = true
-ratatui = { workspace = true, features = ["crossterm"] }
+ratatui = { workspace = true, features = ["crossterm", "scrolling-regions"] }
 regex-lite.workspace = true
 rmcp.workspace = true
 serde.workspace = true

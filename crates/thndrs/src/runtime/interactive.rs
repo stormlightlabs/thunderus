@@ -10,15 +10,7 @@ pub(crate) fn run_inline(tick: Duration, cli: &Cli, initial_session: InitialSess
     };
     let terminal_session = InlineTerminalSession::enter()?;
     let stdout = io::BufWriter::with_capacity(TERMINAL_WRITE_BUFFER_CAPACITY, io::stdout());
-    let terminal = Terminal::with_options(
-        CrosstermBackend::new(stdout),
-        TerminalOptions {
-            // Reserve a permanent live region sized to the composer and status
-            // surface. Bounded surfaces (setup, detail, pickers) clip inside it.
-            viewport: Viewport::Inline(super::terminal::INLINE_VIEWPORT_HEIGHT),
-        },
-    )?;
-    let mut surface = RatatuiSurface::new(terminal, terminal_session);
+    let mut surface = RatatuiSurface::new(stdout, terminal_session);
     let loop_result = interactive_loop(&mut surface, tick, cli, app);
     let finish_result = surface.finish();
     let restore_result = surface.terminal_session.suspend();
@@ -39,7 +31,8 @@ pub(crate) fn interactive_loop<S: InteractiveSurface>(
 ) -> io::Result<Option<String>> {
     let tick = tick.max(MIN_RENDER_INTERVAL);
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
-    let observability = init_tracing(&workspace_root, &app.session.id, app.session.run_persistence);
+    let mut observability = init_tracing(&workspace_root, &app.session.id, app.session.run_persistence);
+    let mut observed_session_id = app.session.id.clone();
     if cli.verbose
         && let Some(obs) = &observability
     {
@@ -61,7 +54,7 @@ pub(crate) fn interactive_loop<S: InteractiveSurface>(
     );
 
     let mut agent: Option<AgentSlot> = None;
-    let git_watcher = GitStatusWatcher::spawn(workspace_root);
+    let git_watcher = GitStatusWatcher::spawn(workspace_root.clone());
     let mut presenter = PresentationScheduler::new(tick);
     presenter.request_immediate();
     present_if_due(surface, &mut app, &mut presenter, Instant::now())?;
@@ -76,6 +69,7 @@ pub(crate) fn interactive_loop<S: InteractiveSurface>(
             presenter.request_throttled(now);
         }
         flush_steering(&mut app, &agent);
+        transition_session_resources(&app, &workspace_root, &mut observed_session_id, &mut observability);
 
         if now >= next_tick {
             let run_state_before_tick = app.runtime.run_state.clone();
@@ -127,8 +121,36 @@ pub(crate) fn interactive_loop<S: InteractiveSurface>(
             }
         }
         flush_steering(&mut app, &agent);
+        transition_session_resources(&app, &workspace_root, &mut observed_session_id, &mut observability);
         present_if_due(surface, &mut app, &mut presenter, Instant::now())?;
     }
+}
+
+/// Explicitly move session-scoped runtime resources when `/new` or `/resume`
+/// changes the active application session.
+fn transition_session_resources(
+    app: &App, workspace_root: &std::path::Path, observed_session_id: &mut String,
+    observability: &mut Option<Observability>,
+) {
+    if *observed_session_id == app.session.id {
+        return;
+    }
+
+    append_daily_log(
+        observability,
+        observed_session_id,
+        "session_end",
+        "reason=session_changed",
+    );
+    tracing::info!(from = %observed_session_id, to = %app.session.id, "active session changed");
+    *observability = init_tracing(workspace_root, &app.session.id, app.session.run_persistence);
+    append_daily_log(
+        observability,
+        &app.session.id,
+        "session_start",
+        "reason=session_changed",
+    );
+    *observed_session_id = app.session.id.clone();
 }
 
 /// Settle the current terminal frame before giving terminal control to the shell.

@@ -1192,8 +1192,11 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
     let width = context.width;
     let geometry = super::layout::UiGeometry::new(width);
     let body_width = geometry.technical_width();
-    let railed_body_width = geometry.prose_width().saturating_sub(utils::text_width(ENTRY_RAIL));
+    // Native scrollback is selectable terminal text, not a narrow document
+    // column. Use the available terminal width so transcript rows do not
+    // create a large copied tail of padding on wide terminals.
     let railed_technical_width = body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
+    let railed_body_width = railed_technical_width;
 
     match entry {
         Entry::User { text } => {

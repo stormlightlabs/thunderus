@@ -302,7 +302,7 @@ impl RendererView {
     pub fn build(app: &App, width: usize, height: usize) -> Self {
         let semantic = SemanticUiView::from(app);
         let transcript = TranscriptView::build(app, width);
-        let live = LiveView::build(app, width, height, &transcript, &semantic);
+        let live = LiveView::build(app, width, height, &semantic);
         Self { semantic, transcript, live, width, height }
     }
 }
@@ -314,10 +314,8 @@ mod transcript;
 pub use semantic::*;
 pub use transcript::*;
 
-/// Live chrome portion of the view: prompt, status, and accessory rows.
+/// Ratatui-owned bottom-pane chrome: prompt, status, and focused surfaces.
 pub struct LiveView {
-    /// Clipped mutable transcript tail rows.
-    pub live_tail: Vec<Row>,
     /// Prompt input rows.
     pub prompt_rows: Vec<Row>,
     /// Cursor coordinate relative to the first prompt row.
@@ -333,22 +331,13 @@ pub struct LiveView {
 }
 
 impl LiveView {
-    pub fn build(
-        app: &App, width: usize, height: usize, transcript: &TranscriptView, semantic: &SemanticUiView,
-    ) -> LiveView {
-        let live_tail = transcript.live_rows.clone();
+    pub fn build(app: &App, width: usize, height: usize, semantic: &SemanticUiView) -> LiveView {
         let (prompt_rows, prompt_cursor) = super::live::prompt_rows_for(app, width);
         let prompt_body_budget = super::live::MAX_PROMPT_ROWS.saturating_sub(super::live::composer_frame_height(width));
         let (prompt_rows, prompt_cursor) =
             clip_prompt_rows_around_cursor(prompt_rows, prompt_cursor, prompt_body_budget);
         let (prompt_rows, prompt_cursor) = super::live::frame_prompt_rows(app, width, prompt_rows, prompt_cursor);
-        let min_prompt_chrome = prompt_rows.len() + 1;
-        let keep_prompt_gutters = !transcript.live_rows.is_empty()
-            && matches!(&semantic.focused_surface, FocusedSurfaceView::None)
-            && height >= min_prompt_chrome + 3;
-        let reserved_chrome = prompt_rows.len() + if keep_prompt_gutters { 3 } else { 1 };
-        let accessory_limit = super::live::MAX_ACCESSORY_ROWS;
-        let accessory_height = accessory_limit.min(height.saturating_sub(reserved_chrome));
+        let accessory_height = super::live::MAX_ACCESSORY_ROWS.min(height.saturating_sub(prompt_rows.len() + 1));
 
         let accessory_rows = match &semantic.focused_surface {
             FocusedSurfaceView::ToolDetail(_) => Vec::new(),
@@ -373,7 +362,6 @@ impl LiveView {
         };
 
         LiveView {
-            live_tail,
             prompt_rows,
             prompt_cursor,
             accessory_rows,

@@ -9,10 +9,6 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossterm::event;
-use ratatui::backend::CrosstermBackend;
-use ratatui::{Terminal, TerminalOptions, Viewport};
-
 use crate::prompt::PromptBundle;
 use acp::config::provider_label;
 use app::{
@@ -26,6 +22,7 @@ use cli::{
     commands::mcp::McpCommand,
     commands::session::{SessionCommand, SessionDataFormat, SessionReportFormat},
 };
+use crossterm::event;
 use mcp::manager::McpManager;
 use utils::datetime;
 

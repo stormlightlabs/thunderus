@@ -7,10 +7,7 @@
 
 use std::collections::HashSet;
 
-use crate::app::{
-    App, Entry, PromptAccessory, ToolLifecycleState, ToolStatus, TranscriptBlock, TranscriptBlockId,
-    TranscriptBlockKind,
-};
+use crate::app::{App, Entry, ToolLifecycleState, ToolStatus, TranscriptBlock, TranscriptBlockId, TranscriptBlockKind};
 use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Color, Span};
 use crate::renderer::transcript::{ACTIVITY_RAIL, TranscriptRowContext, summarize_tool_invocation};
@@ -115,67 +112,77 @@ impl OperationKind {
 /// One stable block ready to insert above the inline viewport.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TranscriptCommit {
+    /// Application session that owns this terminal-scrollback checkpoint.
+    pub session_id: String,
     /// Semantic identity used for exact-once checkpointing.
     pub id: TranscriptBlockId,
     /// Rows projected at the terminal width when the block first stabilizes.
     pub rows: Vec<Row>,
 }
 
-/// Ordered work for one terminal transaction.
+/// Ordered native-scrollback work for one terminal transaction.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct InlineTranscriptPlan {
+pub struct ScrollbackPlan {
     /// New stable blocks, in transcript order.
     pub commits: Vec<TranscriptCommit>,
-    /// Reflowable blocks which have not become terminal history yet.
-    pub live_rows: Vec<Row>,
 }
 
-/// Tracks the semantic transcript blocks committed to this terminal session.
+/// Tracks semantic blocks already committed to native terminal history.
 #[derive(Clone, Debug, Default)]
-pub struct InlineTranscript {
-    generation: u64,
+pub struct ScrollbackCommitter {
     committed: HashSet<CommitCheckpoint>,
 }
 
-/// Exact-once checkpoint for one semantic block in one application generation.
+/// Exact-once checkpoint for one semantic block in one application session.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct CommitCheckpoint {
-    generation: u64,
+    session_id: String,
     id: TranscriptBlockId,
 }
 
-impl InlineTranscript {
-    /// Build the next ordered insertion and mutable tail for the current app state.
-    pub fn plan(&self, app: &App, width: usize) -> InlineTranscriptPlan {
-        let mut plan = InlineTranscriptPlan::default();
+impl ScrollbackCommitter {
+    /// Return stable semantic blocks that have not been committed for this session.
+    pub fn newly_stable(&self, app: &App, width: usize) -> ScrollbackPlan {
+        let mut plan = ScrollbackPlan::default();
         let mut waiting_for_stable = false;
 
         for (index, block) in app.transcript.entries.blocks().enumerate() {
-            if self
-                .committed
-                .contains(&CommitCheckpoint { generation: self.generation, id: block.id.clone() })
-            {
+            let checkpoint = CommitCheckpoint { session_id: app.session.id.clone(), id: block.id.clone() };
+            if self.committed.contains(&checkpoint) {
                 continue;
             }
             if !waiting_for_stable && block_is_stable(app, &block) {
-                plan.commits
-                    .push(TranscriptCommit { id: block.id.clone(), rows: project_inline_block(app, index, width) });
+                plan.commits.push(TranscriptCommit {
+                    session_id: app.session.id.clone(),
+                    id: block.id.clone(),
+                    rows: project_inline_block(app, index, width),
+                });
                 continue;
             }
 
             waiting_for_stable = true;
-            plan.live_rows.extend(project_inline_block(app, index, width));
-        }
-
-        if app.transcript.entries.is_empty() {
-            plan.live_rows = app.render_banner_rows(width);
-            if !matches!(app.overlay.accessory(), PromptAccessory::None) {
-                // Keep the welcome identity visible above a focused surface,
-                // but give the surface the rest of the fixed inline viewport.
-                plan.live_rows.truncate(1);
-            }
         }
         plan
+    }
+
+    /// Project the incomplete ordered suffix that Ratatui still owns.
+    pub fn mutable_tail_rows(&self, app: &App, width: usize) -> Vec<Row> {
+        let mut tail = Vec::new();
+        let mut waiting_for_stable = false;
+
+        for (index, block) in app.transcript.entries.blocks().enumerate() {
+            let checkpoint = CommitCheckpoint { session_id: app.session.id.clone(), id: block.id.clone() };
+            if self.committed.contains(&checkpoint) {
+                continue;
+            }
+            if !waiting_for_stable && block_is_stable(app, &block) {
+                continue;
+            }
+
+            waiting_for_stable = true;
+            tail.extend(project_inline_block(app, index, width));
+        }
+        tail
     }
 
     /// Record commits only after their terminal transaction has succeeded.
@@ -183,20 +190,13 @@ impl InlineTranscript {
         self.committed.extend(
             commits
                 .iter()
-                .map(|commit| CommitCheckpoint { generation: self.generation, id: commit.id.clone() }),
+                .map(|commit| CommitCheckpoint { session_id: commit.session_id.clone(), id: commit.id.clone() }),
         );
     }
 
-    /// Start a fresh application-history generation without purporting to erase
-    /// terminal-emulator scrollback.
-    pub fn reset(&mut self) {
-        self.generation = self.generation.saturating_add(1);
+    /// Forget checkpoints after an explicit terminal clear.
+    pub fn clear(&mut self) {
         self.committed.clear();
-    }
-
-    /// Current generation for tests and terminal-coordinator diagnostics.
-    pub fn generation(&self) -> u64 {
-        self.generation
     }
 }
 
@@ -385,31 +385,56 @@ mod tests {
         app.transcript
             .entries
             .push(Entry::Agent { text: "streaming".to_string(), streaming: true });
-        let mut transcript = InlineTranscript::default();
+        let mut committer = ScrollbackCommitter::default();
 
-        let first = transcript.plan(&app, 80);
+        let first = committer.newly_stable(&app, 80);
         assert_eq!(first.commits.len(), 1);
-        assert!(first.live_rows.iter().any(|row| row.text().contains("streaming")));
-        transcript.mark_committed(&first.commits);
+        assert!(
+            committer
+                .mutable_tail_rows(&app, 80)
+                .iter()
+                .any(|row| row.text().contains("streaming"))
+        );
+        committer.mark_committed(&first.commits);
 
-        let unchanged = transcript.plan(&app, 40);
+        let unchanged = committer.newly_stable(&app, 40);
         assert!(unchanged.commits.is_empty(), "width changes must not replay history");
 
         let Some(Entry::Agent { streaming, .. }) = app.transcript.entries.last_mut() else {
             panic!("streaming response should remain present");
         };
         *streaming = false;
-        let finalized = transcript.plan(&app, 40);
+        let finalized = committer.newly_stable(&app, 40);
         assert_eq!(finalized.commits.len(), 1);
-        assert!(finalized.live_rows.is_empty(), "finalization removes the mutable copy");
+        committer.mark_committed(&finalized.commits);
+        assert!(
+            committer.mutable_tail_rows(&app, 40).is_empty(),
+            "finalization removes the mutable copy"
+        );
     }
 
     #[test]
-    fn clear_starts_a_new_generation() {
-        let mut transcript = InlineTranscript::default();
-        transcript.reset();
+    fn new_and_resumed_sessions_have_distinct_checkpoint_namespaces() {
+        let mut app = app();
+        app.transcript.entries.push(Entry::User { text: "first".to_string() });
+        let mut committer = ScrollbackCommitter::default();
+        let first = committer.newly_stable(&app, 80);
+        committer.mark_committed(&first.commits);
 
-        assert_eq!(transcript.generation(), 1);
+        app.start_new_session();
+        app.transcript.entries.clear();
+        app.transcript.entries.push(Entry::User { text: "second".to_string() });
+        let next = committer.newly_stable(&app, 80);
+
+        assert_eq!(next.commits.len(), 1, "block identities may repeat after /new");
+        committer.mark_committed(&next.commits);
+
+        // `/resume` replaces the transcript with a distinct persisted session.
+        // The committer only needs its first-class application session identity
+        // to keep a repeated `block:1` from colliding with either prior session.
+        app.session.id = "resumed-session".to_string();
+        let resumed = committer.newly_stable(&app, 80);
+        assert_eq!(resumed.commits.len(), 1, "block identities may repeat after /resume");
     }
 
     #[test]

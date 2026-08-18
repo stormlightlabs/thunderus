@@ -1,6 +1,8 @@
 //! Inline Ratatui terminal coordinator used by the interactive runtime.
 
+use std::cell::RefCell;
 use std::io::{self, Write};
+use std::rc::Rc;
 use std::time::Duration;
 
 use crossterm::cursor::{SetCursorStyle, Show};
@@ -11,23 +13,16 @@ use crossterm::event::{
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::Terminal;
-use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::backend::{Backend, ClearType, CrosstermBackend};
 use ratatui::layout::Position;
+use ratatui::{TerminalOptions, Viewport};
 
 use super::*;
-use crate::renderer::inline::{InlineTranscript, InlineTranscriptPlan};
+use crate::renderer::inline::ScrollbackCommitter;
 use crate::renderer::live_surface::LiveSurfaceLayout;
 use crate::renderer::ratatui::{render_logical_frame, render_rows_to_buffer};
 use crate::renderer::row::Frame;
-use crate::renderer::view::{LiveView, SemanticUiView, TranscriptView};
-
-/// Height of the permanent inline live region.
-///
-/// Sized to the composer at its largest (including its border chrome), the
-/// status footer, and one blank gutter row, so normal operation does not
-/// reserve setup/auth-scale blank space. Setup, detail, and picker surfaces
-/// clip within this region.
-pub(crate) const INLINE_VIEWPORT_HEIGHT: u16 = crate::renderer::live::LIVE_REGION_HEIGHT as u16;
+use crate::renderer::view::{LiveView, SemanticUiView};
 
 pub(crate) trait InteractiveSurface {
     fn draw(&mut self, app: &mut App, full_repaint: bool) -> io::Result<()>;
@@ -101,22 +96,79 @@ impl Drop for InlineTerminalSession {
     }
 }
 
-/// One terminal coordinator owns viewport reservation, transcript insertion,
-/// live drawing, cursor placement, and flush order.
+/// Cloneable writer handle used to recreate Ratatui's inline viewport at its
+/// current height. Ratatui fixes an inline viewport's height at construction,
+/// while this application needs the height to follow its mutable bottom pane.
+struct SharedWriter<W>(Rc<RefCell<W>>);
+
+impl<W> Clone for SharedWriter<W> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<W: Write> Write for SharedWriter<W> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.0
+            .try_borrow_mut()
+            .map_err(|_| io::Error::other("terminal writer is already borrowed"))?
+            .write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0
+            .try_borrow_mut()
+            .map_err(|_| io::Error::other("terminal writer is already borrowed"))?
+            .flush()
+    }
+}
+
+/// One terminal coordinator owns native-scrollback insertion, dynamic live
+/// viewport reservation, cursor placement, and flush order.
 pub(crate) struct RatatuiSurface<W: io::Write> {
-    terminal: Terminal<CrosstermBackend<W>>,
-    transcript: InlineTranscript,
+    writer: SharedWriter<W>,
+    terminal: Option<Terminal<CrosstermBackend<SharedWriter<W>>>>,
+    scrollback: ScrollbackCommitter,
+    live_height: u16,
     pub(crate) terminal_session: InlineTerminalSession,
 }
 
 impl<W: io::Write> RatatuiSurface<W> {
-    pub(crate) fn new(terminal: Terminal<CrosstermBackend<W>>, terminal_session: InlineTerminalSession) -> Self {
-        Self { terminal, transcript: InlineTranscript::default(), terminal_session }
+    pub(crate) fn new(writer: W, terminal_session: InlineTerminalSession) -> Self {
+        Self {
+            writer: SharedWriter(Rc::new(RefCell::new(writer))),
+            terminal: None,
+            scrollback: ScrollbackCommitter::default(),
+            live_height: 1,
+            terminal_session,
+        }
+    }
+
+    fn terminal_mut(&mut self, height: u16) -> io::Result<&mut Terminal<CrosstermBackend<SharedWriter<W>>>> {
+        let height = height.max(1);
+        if self.terminal.is_none() || self.live_height != height {
+            // Ratatui fixes an inline viewport's height at construction. Clear
+            // only the old mutable pane before replacing it so stale composer,
+            // picker, or streaming rows cannot become transcript history.
+            // `Terminal::clear` would erase the screen below the old viewport,
+            // including visible native history.
+            if let Some(terminal) = self.terminal.as_mut() {
+                clear_live_viewport(terminal)?;
+            }
+            self.terminal = Some(Terminal::with_options(
+                CrosstermBackend::new(self.writer.clone()),
+                TerminalOptions { viewport: Viewport::Inline(height) },
+            )?);
+            self.live_height = height;
+        }
+        // The branch above guarantees the terminal is present.
+        Ok(self.terminal.as_mut().expect("inline terminal is initialized"))
     }
 
     /// Leave a blank terminal row for the shell after the live inline surface.
     pub(crate) fn finish(&mut self) -> io::Result<()> {
-        finish_inline_viewport(&mut self.terminal)
+        let height = self.live_height;
+        finish_inline_viewport(self.terminal_mut(height)?)
     }
 }
 
@@ -125,6 +177,16 @@ impl<W: io::Write> RatatuiSurface<W> {
 /// An inline viewport's cursor remains in the composer. Moving it to the last
 /// row and appending a line keeps the next shell prompt separate from that
 /// composer when the application exits.
+fn clear_live_viewport<B: Backend>(terminal: &mut Terminal<B>) -> Result<(), B::Error> {
+    let area = terminal.get_frame().area();
+    let cursor = terminal.backend_mut().get_cursor_position()?;
+    for y in area.top()..area.bottom() {
+        terminal.backend_mut().set_cursor_position(Position::new(area.x, y))?;
+        terminal.backend_mut().clear_region(ClearType::CurrentLine)?;
+    }
+    terminal.backend_mut().set_cursor_position(cursor)
+}
+
 fn finish_inline_viewport<B: Backend>(terminal: &mut Terminal<B>) -> Result<(), B::Error> {
     let area = terminal.get_frame().area();
     if area.height == 0 {
@@ -136,37 +198,37 @@ fn finish_inline_viewport<B: Backend>(terminal: &mut Terminal<B>) -> Result<(), 
 
 impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
     fn draw(&mut self, app: &mut App, full_repaint: bool) -> io::Result<()> {
-        if full_repaint {
-            self.terminal.clear()?;
-        }
         let projection_started = Instant::now();
         renderer::style::set_theme(app.runtime.theme);
-        let size = self.terminal.size()?;
-        let plan = self.transcript.plan(app, size.width as usize);
+        let (width, _) = crossterm::terminal::size()?;
+        let plan = self.scrollback.newly_stable(app, width as usize);
+        let mutable_tail = self.scrollback.mutable_tail_rows(app, width as usize);
+        let logical = bottom_pane_frame(app, width as usize, mutable_tail);
+        let desired_height = logical.rows.len().clamp(1, u16::MAX as usize) as u16;
         let projection_elapsed = projection_started.elapsed();
+        let terminal = self.terminal_mut(desired_height)?;
 
+        if full_repaint {
+            terminal.clear()?;
+        }
         let committed_rows = plan
             .commits
             .iter()
             .flat_map(|commit| commit.rows.iter().cloned())
             .collect::<Vec<_>>();
         if !committed_rows.is_empty() {
-            self.terminal.insert_before(committed_rows.len() as u16, |buffer| {
+            terminal.insert_before(committed_rows.len() as u16, |buffer| {
                 render_rows_to_buffer(&committed_rows, buffer);
             })?;
         }
         let draw_started = Instant::now();
-        self.terminal.draw(|frame| {
-            let area = frame.area();
-            let logical = inline_frame(app, area.width as usize, area.height as usize, &plan);
-            render_logical_frame(frame, &logical);
-        })?;
-        self.transcript.mark_committed(&plan.commits);
+        terminal.draw(|frame| render_logical_frame(frame, &logical))?;
+        self.scrollback.mark_committed(&plan.commits);
         tracing::trace!(
             projection_us = projection_elapsed.as_micros(),
             draw_us = draw_started.elapsed().as_micros(),
-            width = size.width,
-            height = size.height,
+            width,
+            live_height = self.live_height,
             committed_blocks = plan.commits.len(),
             "inline ratatui frame timing"
         );
@@ -174,15 +236,17 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
     }
 
     fn clear(&mut self) -> io::Result<()> {
-        self.transcript.reset();
-        self.terminal.clear()
+        self.scrollback.clear();
+        let height = self.live_height;
+        self.terminal_mut(height)?.clear()
     }
 
     fn suspend(&mut self) -> io::Result<()> {
         // Clear only Ratatui's mutable inline viewport before the shell or a
         // child process takes over. Committed transcript blocks stay in native
         // history and are never hydrated or replayed on resume.
-        self.terminal.clear()?;
+        let height = self.live_height;
+        self.terminal_mut(height)?.clear()?;
         self.terminal_session.suspend()?;
         let status = std::process::Command::new("kill")
             .args(["-TSTP", &std::process::id().to_string()])
@@ -201,25 +265,20 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
     }
 }
 
-fn inline_frame(app: &App, width: usize, height: usize, plan: &InlineTranscriptPlan) -> Frame {
+fn bottom_pane_frame(app: &App, width: usize, mut mutable_tail: Vec<crate::renderer::row::Row>) -> Frame {
+    if app.transcript.entries.is_empty() {
+        mutable_tail = app.render_banner_rows(width);
+        if !matches!(app.overlay.accessory(), crate::app::PromptAccessory::None) {
+            mutable_tail.truncate(1);
+        }
+    }
+
     let semantic = SemanticUiView::from(app);
-    let chrome_height =
-        if app.transcript.entries.is_empty() { height.saturating_sub(plan.live_rows.len()) } else { height };
-    let transcript = TranscriptView {
-        rows: Vec::new(),
-        banner_rows: Vec::new(),
-        stable_rows: Vec::new(),
-        // The startup banner is drawn before the live chrome, but it should
-        // not make the empty-state composer reserve transcript gutters.
-        live_rows: (!app.transcript.entries.is_empty())
-            .then(|| plan.live_rows.clone())
-            .unwrap_or_default(),
-    };
-    let live = LiveView::build(app, width, chrome_height, &transcript, &semantic);
-    let chrome = LiveSurfaceLayout::build(&live, width, chrome_height).into_frame();
+    let live = LiveView::build(app, width, u16::MAX as usize, &semantic);
+    let chrome = LiveSurfaceLayout::build(&live, width).into_frame();
 
     let mut frame = Frame::new(width);
-    frame.rows.extend(plan.live_rows.iter().cloned());
+    frame.rows.append(&mut mutable_tail);
     let chrome_offset = frame.rows.len();
     frame.rows.extend(chrome.rows);
     frame.cursor = chrome.cursor.map(|mut cursor| {
@@ -275,14 +334,14 @@ mod tests {
             .entries
             .push(Entry::User { text: "committed once".to_string() });
 
-        let mut coordinator = InlineTranscript::default();
-        let plan = coordinator.plan(&app, 40);
-        let frame = inline_frame(&app, 40, 8, &plan);
+        let mut coordinator = ScrollbackCommitter::default();
+        let plan = coordinator.newly_stable(&app, 40);
+        let frame = bottom_pane_frame(&app, 40, coordinator.mutable_tail_rows(&app, 40));
         assert!(frame.rows.iter().all(|row| !row.text().contains("committed once")));
 
         let mut terminal = Terminal::with_options(
             TestBackend::new(40, 8),
-            TerminalOptions { viewport: Viewport::Inline(INLINE_VIEWPORT_HEIGHT) },
+            TerminalOptions { viewport: Viewport::Inline(3) },
         )
         .expect("inline terminal");
         let rows = plan
@@ -298,14 +357,14 @@ mod tests {
             .expect("draw mutable surface");
         coordinator.mark_committed(&plan.commits);
 
-        assert!(coordinator.plan(&app, 20).commits.is_empty());
+        assert!(coordinator.newly_stable(&app, 20).commits.is_empty());
     }
 
     #[test]
     fn inline_viewport_leaves_room_for_recent_history_on_tall_terminals() {
         let mut terminal = Terminal::with_options(
             TestBackend::new(40, 30),
-            TerminalOptions { viewport: Viewport::Inline(INLINE_VIEWPORT_HEIGHT) },
+            TerminalOptions { viewport: Viewport::Inline(3) },
         )
         .expect("inline terminal");
         let rows = vec![Row::padded(
@@ -334,8 +393,9 @@ mod tests {
         app.session.writer = None;
         app.overlay.close();
         app.show_status_toast("Press CTRL+D again to quit.", crate::app::StatusToastKind::Warning);
-        let plan = InlineTranscript::default().plan(&app, 80);
-        let frame = inline_frame(&app, 80, INLINE_VIEWPORT_HEIGHT as usize, &plan);
+        let committer = ScrollbackCommitter::default();
+        let plan = committer.newly_stable(&app, 80);
+        let frame = bottom_pane_frame(&app, 80, committer.mutable_tail_rows(&app, 80));
         let text = frame.rows.iter().map(|row| row.text()).collect::<Vec<_>>().join("\n");
 
         assert!(
@@ -364,14 +424,111 @@ mod tests {
             )
             .expect("model picker opens");
 
-        let plan = InlineTranscript::default().plan(&app, 80);
-        let frame = inline_frame(&app, 80, INLINE_VIEWPORT_HEIGHT as usize, &plan);
+        let committer = ScrollbackCommitter::default();
+        let frame = bottom_pane_frame(&app, 80, committer.mutable_tail_rows(&app, 80));
         let text = frame.rows.iter().map(|row| row.text()).collect::<Vec<_>>().join("\n");
 
         assert!(text.contains("thndrs / ready"));
         assert!(text.contains("MODELS"));
         assert!(text.contains("model/a"));
         assert!(text.contains("model/b"));
+    }
+
+    #[test]
+    fn autocomplete_is_rendered_below_the_composer_and_never_committed() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session.writer = None;
+        app.transcript.entries.clear();
+        app.composer.input.set_text("/");
+        app.overlay.show_commands();
+
+        let committer = ScrollbackCommitter::default();
+        let frame = bottom_pane_frame(&app, 80, committer.mutable_tail_rows(&app, 80));
+        let prompt = frame
+            .rows
+            .iter()
+            .position(|row| row.text().contains('❯'))
+            .expect("command draft row");
+        let suggestions = frame
+            .rows
+            .iter()
+            .position(|row| row.text().contains("COMMANDS"))
+            .expect("command suggestions");
+
+        assert!(suggestions > prompt, "suggestions must follow the composer");
+
+        app.overlay.close();
+        app.composer.input.set_text("@src");
+        app.overlay
+            .show_picker(
+                crate::app::PromptAccessory::Files(crate::app::FilePickerSource::Forced),
+                crate::app::PickerState::new(vec![crate::app::PickerItem::new("src/main.rs", "main entry")], 10),
+            )
+            .expect("file picker opens");
+        let file_frame = bottom_pane_frame(&app, 80, committer.mutable_tail_rows(&app, 80));
+        let file_prompt = file_frame
+            .rows
+            .iter()
+            .position(|row| row.text().contains('❯'))
+            .expect("file draft row");
+        let files = file_frame
+            .rows
+            .iter()
+            .position(|row| row.text().contains("PATHS"))
+            .expect("file suggestions");
+
+        assert!(files > file_prompt, "file suggestions must follow the composer");
+        assert!(committer.newly_stable(&app, 80).commits.is_empty());
+    }
+
+    #[test]
+    fn picker_growth_only_changes_the_bottom_pane_height() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session.writer = None;
+        app.overlay.close();
+        app.transcript.entries.clear();
+        app.transcript
+            .entries
+            .push(Entry::User { text: "committed".to_string() });
+        let mut committer = ScrollbackCommitter::default();
+        let commits = committer.newly_stable(&app, 80);
+        committer.mark_committed(&commits.commits);
+        let idle = bottom_pane_frame(&app, 80, committer.mutable_tail_rows(&app, 80));
+
+        app.overlay
+            .show_picker(
+                crate::app::PromptAccessory::Models,
+                crate::app::PickerState::new(
+                    vec![
+                        crate::app::PickerItem::new("model/a", "first"),
+                        crate::app::PickerItem::new("model/b", "second"),
+                    ],
+                    10,
+                ),
+            )
+            .expect("model picker opens");
+        let picker = bottom_pane_frame(&app, 80, committer.mutable_tail_rows(&app, 80));
+
+        assert!(
+            picker.rows.len() > idle.rows.len(),
+            "picker should request temporary live-region height"
+        );
+        assert!(committer.newly_stable(&app, 80).commits.is_empty());
+    }
+
+    #[test]
+    fn clearing_a_replaced_live_viewport_preserves_visible_history() {
+        let mut terminal = Terminal::with_options(
+            TestBackend::with_lines(["history", "live 0", "live 1", "shell"]),
+            TerminalOptions { viewport: Viewport::Fixed(ratatui::layout::Rect::new(0, 1, 7, 2)) },
+        )
+        .expect("fixed terminal");
+
+        clear_live_viewport(&mut terminal).expect("clear live viewport");
+
+        terminal
+            .backend()
+            .assert_buffer_lines(["history", "       ", "       ", "shell  "]);
     }
 
     #[test]

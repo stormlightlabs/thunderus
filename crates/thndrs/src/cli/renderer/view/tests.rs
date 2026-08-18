@@ -712,7 +712,7 @@ fn build_view_prompt_clipping_keeps_cursor_row() {
 }
 
 #[test]
-fn build_view_working_state_has_live_tail_without_duplicate_composer_status() {
+fn build_view_working_state_keeps_composer_status_separate_from_transcript() {
     let mut app = test_app();
     app.runtime.run_state = RunState::Working;
     app.transcript.entries.push(Entry::Agent {
@@ -722,13 +722,16 @@ fn build_view_working_state_has_live_tail_without_duplicate_composer_status() {
 
     let view = RendererView::build(&app, 80, 24);
 
-    assert!(!view.live.live_tail.is_empty(), "working state should have a live tail");
+    assert!(
+        !view.transcript.live_rows.is_empty(),
+        "working state should project mutable transcript rows"
+    );
     assert!(!view.live.prompt_rows[0].text().contains("Working"));
     assert!(view.live.static_status.text().contains("Working"));
 }
 
 #[test]
-fn build_view_streaming_with_tool_has_live_tail_and_running_status() {
+fn build_view_streaming_with_tool_has_running_transcript_projection() {
     let mut app = test_app();
     app.runtime.run_state = RunState::Working;
     app.transcript.entries.push(Entry::Tool {
@@ -741,12 +744,12 @@ fn build_view_streaming_with_tool_has_live_tail_and_running_status() {
     let view = RendererView::build(&app, 80, 24);
 
     assert!(
-        !view.live.live_tail.is_empty(),
-        "running tool should appear in live tail"
+        !view.transcript.live_rows.is_empty(),
+        "running tool should have a mutable projection"
     );
     assert!(
-        view.live
-            .live_tail
+        view.transcript
+            .live_rows
             .iter()
             .any(|r| r.text().contains("Testing cargo test")),
         "live tail should describe the active operation"
@@ -1019,8 +1022,8 @@ fn build_view_handles_large_transcript_with_running_tool_and_inline_detail() {
         "large transcript should still produce stable rows"
     );
     assert!(
-        view.live
-            .live_tail
+        view.transcript
+            .live_rows
             .iter()
             .any(|row| row.text().contains("Testing cargo test renderer")),
         "running tool should stay live as a compact semantic row"
@@ -1111,7 +1114,7 @@ fn build_view_narrow_width_still_has_prompt_and_footer() {
 }
 
 #[test]
-fn build_view_tiny_height_clips_live_tail() {
+fn build_view_tiny_height_keeps_composer_and_status_without_owning_transcript_layout() {
     let mut app = test_app();
     app.runtime.run_state = RunState::Working;
 
@@ -1121,13 +1124,8 @@ fn build_view_tiny_height_clips_live_tail() {
     let view = RendererView::build(&app, 80, 8);
 
     assert!(
-        !view.live.live_tail.is_empty(),
-        "live tail should still be present on tiny height"
-    );
-    assert!(
-        view.live.live_tail.len() <= 4,
-        "live tail should be clipped for tiny height: got {} rows",
-        view.live.live_tail.len()
+        !view.transcript.live_rows.is_empty(),
+        "transcript projection remains independent from the bottom pane height"
     );
 
     assert!(!view.live.prompt_rows.is_empty(), "prompt should survive tiny height");

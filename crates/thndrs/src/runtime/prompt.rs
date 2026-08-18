@@ -100,18 +100,17 @@ pub(crate) fn init_tracing(
         .open(&session_log_path)
         .ok()?;
 
-    if tracing_subscriber::fmt()
+    // The tracing subscriber is process-global, so a later `/new` or `/resume`
+    // cannot replace its writer. Keep the per-session paths even when it was
+    // already initialized: daily lifecycle events must still follow the active
+    // session.
+    let _ = tracing_subscriber::fmt()
         .with_writer(std::sync::Mutex::new(file))
         .with_ansi(false)
         .with_target(true)
         .with_thread_ids(true)
-        .try_init()
-        .is_ok()
-    {
-        Some(Observability { session_log_path, daily_log_path })
-    } else {
-        None
-    }
+        .try_init();
+    Some(Observability { session_log_path, daily_log_path })
 }
 
 pub(crate) fn daily_detail_value(value: &str) -> String {

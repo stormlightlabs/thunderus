@@ -122,15 +122,17 @@ fn prompt_rows_reserve_even_horizontal_input_padding() {
 }
 
 #[test]
-fn comfortable_prompt_keeps_the_readable_measure() {
+fn comfortable_prompt_uses_the_available_width_with_even_outer_padding() {
     let mut app = test_app();
     app.composer.input.set_text(&"x".repeat(150));
 
     let (rows_at_120, _) = prompt_rows_for(&app, 120);
     let (rows_at_160, _) = prompt_rows_for(&app, 160);
 
-    assert_eq!(rows_at_120.len(), rows_at_160.len());
-    assert_eq!(rows_at_120[0].text().trim_end(), rows_at_160[0].text().trim_end());
+    assert!(
+        rows_at_160[0].text().trim_end().len() > rows_at_120[0].text().trim_end().len(),
+        "the wider terminal should enlarge the composer instead of adding an asymmetric right gap"
+    );
 }
 
 #[test]

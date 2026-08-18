@@ -1,6 +1,9 @@
 # Bugs
 
 - [ ] padding on the right side both above & below the input isn't correct (should be the same as the left)
+  - [ ] We probably shouldn't have so much horizontal padding for transcript rows,
+        as the spaces/empty cells create whitespace if anything is copied
+- [ ] Using a picker/slash command pushes up the transcript
 
 ## UI
 

@@ -315,13 +315,13 @@ fn ordinary_markdown_code_fence_is_highlighted_and_wrapped() {
 }
 
 #[test]
-fn comfortable_layout_caps_prose_and_preserves_wide_code() {
+fn comfortable_layout_uses_the_available_width_for_selectable_transcript_text() {
     let prose = Entry::Agent { text: "word ".repeat(80), streaming: false };
     let prose_at_120 = ctx(120).rows_for_entry(&prose).len();
     let prose_at_160 = ctx(160).rows_for_entry(&prose).len();
-    assert_eq!(
-        prose_at_120, prose_at_160,
-        "wide terminals should keep the readable prose measure"
+    assert!(
+        prose_at_160 < prose_at_120,
+        "wide transcript rows should avoid a large padded tail"
     );
 
     let code = Entry::Agent { text: format!("```text\n{}\n```", "x".repeat(130)), streaming: false };

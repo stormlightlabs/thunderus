@@ -156,7 +156,8 @@ pub fn frame_prompt_rows(
     };
     let label_style = CellStyle::new().fg(accent).bold();
     let border_style = CellStyle::new().fg(accent);
-    let content_width = super::layout::content_width(width);
+    let outer_width = composer_outer_width(width);
+    let content_width = outer_width;
 
     let queued_count = app.composer.queue.pending_count(crate::app::QueueTarget::Steering)
         + app.composer.queue.pending_count(crate::app::QueueTarget::FollowUp);
@@ -196,7 +197,6 @@ pub fn frame_prompt_rows(
         _ => {}
     };
 
-    let outer_width = composer_outer_width(width);
     let left_inset = width.min(LIVE_INSET);
     let border_row = |left, right| {
         Row::padded(
@@ -382,7 +382,7 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
 }
 
 fn composer_outer_width(width: usize) -> usize {
-    super::layout::UiGeometry::new(width).prose_width()
+    super::layout::UiGeometry::new(width).technical_width()
 }
 
 fn composer_has_border(width: usize) -> bool {
