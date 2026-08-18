@@ -98,8 +98,6 @@ pub struct TranscriptRowContext<'a> {
     /// [`renderer::row::RowGroupId`] so viewport navigation can correlate rows to the
     /// originating entry.
     pub entry_index: Option<usize>,
-    /// Whether this entry begins a consecutive group of tool activity.
-    pub tool_group_start: bool,
     /// Whether Ctrl+O currently targets this tool entry.
     pub detail_target: bool,
     /// Whether this tool's output is expanded inline.
@@ -114,6 +112,9 @@ impl TranscriptRowContext<'_> {
     /// Build all rows for a single transcript entry.
     pub fn rows_for_entry(&self, entry: &Entry) -> Vec<Row> {
         let mut rows = entry_to_rows(entry, self);
+        if !rows.is_empty() {
+            rows.insert(0, Row::blank(self.width, CellStyle::new().bg(Color::Reset)));
+        }
         if let Some(index) = self.entry_index {
             let group_id = renderer::row::RowGroupId { entry_index: index };
             for row in &mut rows {
@@ -155,7 +156,6 @@ impl<'a> TranscriptRowContext<'a> {
             cwd,
             width,
             entry_index: None,
-            tool_group_start: true,
             detail_target: true,
             detail_open: false,
             detail_scroll: 0,
@@ -201,19 +201,16 @@ impl LabeledBlock {
         Self { rail_style, label_style, text_style, bg, width, body_width }
     }
 
-    /// Build a labeled text block with a single leading spacer row.
+    /// Build a labeled text block.
     fn build(self, label: &str, text: &str) -> Vec<Row> {
-        let mut rows = vec![
-            Row::blank(self.width, CellStyle::new().bg(self.bg)),
-            Row::padded(
-                vec![
-                    Span::styled(ENTRY_RAIL, self.rail_style),
-                    Span::styled(label.to_string(), self.label_style),
-                ],
-                self.width,
-                CellStyle::new().bg(self.bg),
-            ),
-        ];
+        let mut rows = vec![Row::padded(
+            vec![
+                Span::styled(ENTRY_RAIL, self.rail_style),
+                Span::styled(label.to_string(), self.label_style),
+            ],
+            self.width,
+            CellStyle::new().bg(self.bg),
+        )];
 
         for line in super::layout::wrap_text(text, self.body_width) {
             match line.is_empty() {
@@ -271,7 +268,6 @@ struct ToolBlockView<'a> {
     body_width: usize,
     bg: Color,
     cwd: &'a Path,
-    group_start: bool,
     detail_target: bool,
     detail_open: bool,
     detail_scroll: usize,
@@ -304,10 +300,6 @@ impl ToolBlockView<'_> {
         let content = super::tool_output::project(base_name, self.args, &output);
 
         let mut rows = Vec::new();
-        if self.group_start {
-            rows.push(Row::blank(self.width, CellStyle::new().bg(self.bg)));
-        }
-
         let mut header_spans = vec![
             Span::styled(ACTIVITY_RAIL, rail_style),
             Span::styled(format!("{icon} [{status_label}] "), status_style),
@@ -587,9 +579,7 @@ fn search_result_parts(line: &str) -> Option<(String, &str, &str)> {
     Some((path.to_string(), number, content))
 }
 
-fn activity_summary_rows(
-    summary: &ActivitySummary, group_start: bool, width: usize, body_width: usize, bg: Color,
-) -> Vec<Row> {
+fn activity_summary_rows(summary: &ActivitySummary, width: usize, body_width: usize, bg: Color) -> Vec<Row> {
     let p = super::style::palette();
     let rail_style = CellStyle::new().fg(p.warning).bg(bg);
     let status_style = CellStyle::new()
@@ -603,9 +593,6 @@ fn activity_summary_rows(
         .bg(bg);
     let muted_style = CellStyle::new().fg(p.secondary).bg(bg);
     let mut rows = Vec::new();
-    if group_start {
-        rows.push(Row::blank(width, CellStyle::new().bg(bg)));
-    }
 
     let marker = format!("{} ", summary.marker);
     let label_width = body_width.saturating_sub(utils::text_width(ACTIVITY_RAIL) + utils::text_width(&marker));
@@ -1227,7 +1214,7 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
                 .build_compact("◆ Skill", &summary)
         }
         Entry::Tool { name, arguments, status, output } => {
-            let tool_rows = |group_start| {
+            let tool_rows = || {
                 ToolBlockView {
                     name,
                     args: arguments,
@@ -1237,7 +1224,6 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
                     body_width,
                     bg,
                     cwd: context.cwd,
-                    group_start,
                     detail_target: context.detail_target,
                     detail_open: context.detail_open,
                     detail_scroll: context.detail_scroll,
@@ -1245,13 +1231,13 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
                 .rows()
             };
             match &context.activity {
-                ActivityProjection::Regular => tool_rows(context.tool_group_start),
+                ActivityProjection::Regular => tool_rows(),
                 ActivityProjection::Hidden => Vec::new(),
-                ActivityProjection::DisclosedTool => tool_rows(false),
+                ActivityProjection::DisclosedTool => tool_rows(),
                 ActivityProjection::Summary { summary, show_tool } => {
-                    let mut rows = activity_summary_rows(summary, context.tool_group_start, width, body_width, bg);
+                    let mut rows = activity_summary_rows(summary, width, body_width, bg);
                     if *show_tool {
-                        rows.extend(tool_rows(false));
+                        rows.extend(tool_rows());
                     }
                     rows
                 }
@@ -1276,10 +1262,7 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
             let rail_style = CellStyle::new().fg(p.failure).bg(bg).bold();
             let label_style = CellStyle::new().fg(p.failure).bg(bg).bold();
             let text_style = CellStyle::new().fg(p.primary).bg(bg);
-            let mut rows = LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
-                .build("⚠ Error", text);
-            rows.push(Row::blank(width, CellStyle::new().bg(bg)));
-            rows
+            LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width).build("⚠ Error", text)
         }
     }
 }
@@ -1292,19 +1275,16 @@ fn context_request_rows(text: &str, width: usize, body_width: usize, bg: Color) 
     let value_style = CellStyle::new().fg(p.primary).bg(bg);
     let mut lines = text.lines();
     let summary = lines.next().unwrap_or_default().trim_start_matches("context request ");
-    let mut rows = vec![
-        Row::blank(width, CellStyle::new().bg(bg)),
-        Row::padded(
-            vec![
-                Span::styled(ENTRY_RAIL, rail_style),
-                Span::styled("◇ Request", heading_style),
-                Span::styled("  ", CellStyle::new().bg(bg)),
-                Span::styled(summary.to_string(), CellStyle::new().fg(p.primary).bg(bg).bold()),
-            ],
-            width,
-            CellStyle::new().bg(bg),
-        ),
-    ];
+    let mut rows = vec![Row::padded(
+        vec![
+            Span::styled(ENTRY_RAIL, rail_style),
+            Span::styled("◇ Request", heading_style),
+            Span::styled("  ", CellStyle::new().bg(bg)),
+            Span::styled(summary.to_string(), CellStyle::new().fg(p.primary).bg(bg).bold()),
+        ],
+        width,
+        CellStyle::new().bg(bg),
+    )];
 
     for line in lines {
         if line.is_empty() {
@@ -1344,9 +1324,7 @@ fn assistant_block_rows(
 ) -> Vec<Row> {
     let p = super::style::palette();
     let text_style = CellStyle::new().fg(p.primary).bg(bg);
-    let mut rows = vec![Row::blank(width, CellStyle::new().bg(bg))];
-
-    rows.extend(render_markdown_body(
+    let mut rows = render_markdown_body(
         assistant_markdown_body(text),
         rail_style,
         text_style,
@@ -1354,9 +1332,9 @@ fn assistant_block_rows(
         width,
         prose_width,
         technical_width,
-    ));
+    );
 
-    if rows.len() == 1 {
+    if rows.is_empty() {
         rows.push(Row::blank(width, CellStyle::new().bg(bg)));
     }
     rows

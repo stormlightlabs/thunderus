@@ -2,4 +2,5 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
+│                                                                                   # [-]=                                                                                
 │     Context  context  AGENTS.md (scope: .)                                        # [-]=   [fg=#abb4da]=   [fg=#abb4da]=Context [-]=   [fg=#abb4da]=context  AGENTS.md (scope: .) [-]=                                     [-]=

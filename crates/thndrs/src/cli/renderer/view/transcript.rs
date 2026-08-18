@@ -25,7 +25,6 @@ pub struct TranscriptView {
 /// Inputs beyond the entry itself that affect its cached row projection.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TranscriptProjectionKey {
-    tool_group_start: bool,
     detail_target: bool,
     detail_open: bool,
     detail_scroll: usize,
@@ -34,10 +33,6 @@ pub struct TranscriptProjectionKey {
 
 /// Return all presentation state needed to decide whether an entry projection is reusable.
 pub fn transcript_projection_key(app: &App, entry_index: usize) -> TranscriptProjectionKey {
-    let previous_was_tool = entry_index
-        .checked_sub(1)
-        .and_then(|index| app.transcript.entries.get(index))
-        .is_some_and(|entry| matches!(entry, Entry::Tool { .. }));
     let detail_target_index = crate::app::next_detail_target(app);
     let open_detail = app.overlay.detail();
     let activity = activity_projection(
@@ -47,7 +42,6 @@ pub fn transcript_projection_key(app: &App, entry_index: usize) -> TranscriptPro
         open_detail.map(|detail| detail.entry_index),
     );
     TranscriptProjectionKey {
-        tool_group_start: !previous_was_tool,
         detail_target: detail_target_index == Some(entry_index),
         detail_open: open_detail.is_some_and(|detail| detail.entry_index == entry_index),
         detail_scroll: open_detail
@@ -71,7 +65,6 @@ pub fn project_transcript_entry(app: &App, entry_index: usize, width: usize) -> 
         cwd: &app.runtime.cwd,
         width,
         entry_index: Some(entry_index),
-        tool_group_start: key.tool_group_start,
         detail_target: key.detail_target,
         detail_open: key.detail_open,
         detail_scroll: key.detail_scroll,

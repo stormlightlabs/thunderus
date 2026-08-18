@@ -1,9 +1,5 @@
 # Bugs
 
-- [ ] Spacing between transcript entries/tool calls is not consistent.
-  - there probably also needs to be a single blank row of padding between new
-    transcript entries and the input (it feels tight at the moment)
-
 ## UI
 
 - [ ] Let Enter open the selected tool result's full output, matching Ctrl+O.

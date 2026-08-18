@@ -63,3 +63,40 @@ OpenCode Go selects the endpoint from the raw model id:
 
 The base URL is `https://opencode.ai/zen/go/v1`. The selected endpoint determines
 the request conversion and SSE stream parser.
+
+## Reasoning controls
+
+`Auto` is available for every model. The other choices depend on the selected
+model and appear in the `/reasoning` picker (or the reasoning picker opened
+after `/model`):
+
+| Model | Additional choices |
+| --- | --- |
+| Grok 4.5 | `low`, `medium`, `high` |
+| GLM-5.3 | `low`, `high`, `max` |
+| GLM-5.2 | `high`, `max` |
+| GPT 5.6 Luna | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
+| Kimi K3 | `max` |
+| MiniMax M3 | `none`, `on` |
+| Qwen3.8 Max, Qwen3.7 Max, Qwen3.7 Plus, Qwen3.6 Plus | `high`, `max` |
+| DeepSeek V4 Pro | `high`, `max` |
+| DeepSeek V4 Flash | `low`, `high`, `max` |
+| Hy3 | `none`, `low`, `high` |
+| GLM-5.1, Kimi K2.7 Code, Kimi K2.6, MiMo-V2.5, MiMo-V2.5-Pro, MiniMax M2.7, MiniMax M2.5 | `Auto` only |
+
+The controls follow the model capability profiles used by OpenCode. OpenCode Go's
+`/models` endpoint returns model ids without those profiles, so an unlisted live
+model exposes `Auto` until its provider profile is added.
+
+The selected endpoint receives the native request shape for its model family:
+
+- Responses models receive `reasoning.effort`; `reasoning_summary = "auto"`
+  also requests a provider reasoning summary.
+- OpenAI-compatible chat models receive top-level `reasoning_effort`.
+- Anthropic-compatible Messages models receive `thinking`. `none` disables
+  thinking, `on` enables adaptive thinking for MiniMax M3, and `high`/`max`
+  use enabled thinking budgets for Qwen models. `high` uses half of the request
+  output budget; `max` uses the request output budget minus one token.
+
+These fields are provider request details. The application-facing setting stays
+`reasoning_effort` in configuration and the shared picker.

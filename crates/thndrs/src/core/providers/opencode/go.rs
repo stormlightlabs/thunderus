@@ -123,57 +123,138 @@ impl OpenCodeGoClient {
         ]
     }
 
-    /// Build a request body for `POST /chat/completions`.
+    /// Build a request body for `POST /chat/completions` without a reasoning override.
     pub fn build_chat_request_body(
         model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
     ) -> Result<serde_json::Value> {
-        let raw_model = raw_model_id(model)?;
-        Ok(providers::openai::build_chat_request_body(
-            raw_model, messages, max_tokens, stream, tools,
-        ))
+        Self::build_chat_request_body_with_reasoning(model, messages, max_tokens, stream, tools, ReasoningEffort::Auto)
     }
 
-    /// Build a request body for `POST /messages`.
+    /// Build a request body for `POST /chat/completions` with a Go reasoning effort.
+    pub fn build_chat_request_body_with_reasoning(
+        model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
+        effort: ReasoningEffort,
+    ) -> Result<serde_json::Value> {
+        ensure_reasoning_supported(model, effort)?;
+        let raw_model = raw_model_id(model)?;
+        let mut body = providers::openai::build_chat_request_body(raw_model, messages, max_tokens, stream, tools);
+        if effort != ReasoningEffort::Auto {
+            body["reasoning_effort"] = serde_json::Value::String(effort.label().to_string());
+        }
+        Ok(body)
+    }
+
+    /// Build a request body for `POST /messages` without a reasoning override.
     pub fn build_messages_request_body(
         model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
     ) -> Result<serde_json::Value> {
-        let raw_model = raw_model_id(model)?;
-        Ok(providers::anthropic::build_messages_request_body(
-            raw_model, messages, max_tokens, stream, tools,
-        ))
+        Self::build_messages_request_body_with_reasoning(
+            model,
+            messages,
+            max_tokens,
+            stream,
+            tools,
+            ReasoningEffort::Auto,
+        )
     }
 
-    /// Send a streaming request to the route selected by `model`.
+    /// Build a request body for `POST /messages` with a Go reasoning setting.
+    pub fn build_messages_request_body_with_reasoning(
+        model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
+        effort: ReasoningEffort,
+    ) -> Result<serde_json::Value> {
+        ensure_reasoning_supported(model, effort)?;
+        let raw_model = raw_model_id(model)?;
+        let mut body =
+            providers::anthropic::build_messages_request_body(raw_model, messages, max_tokens, stream, tools);
+        match effort {
+            ReasoningEffort::Auto => {}
+            ReasoningEffort::None => {
+                body["thinking"] = serde_json::json!({"type": "disabled"});
+            }
+            ReasoningEffort::On => {
+                body["thinking"] = serde_json::json!({"type": "adaptive"});
+            }
+            ReasoningEffort::High | ReasoningEffort::Max => {
+                let budget_tokens = reasoning_budget(max_tokens, effort)?;
+                body["thinking"] = serde_json::json!({
+                    "type": "enabled",
+                    "budget_tokens": budget_tokens,
+                });
+            }
+            ReasoningEffort::Minimal | ReasoningEffort::Low | ReasoningEffort::Medium | ReasoningEffort::Xhigh => {
+                return Err(ProviderError::Json(format!(
+                    "reasoning control `{}` is not supported by {model}",
+                    effort.label()
+                )));
+            }
+        }
+        Ok(body)
+    }
+
+    /// Build the complete request body for the route selected by `model`.
+    pub fn build_request_body(
+        model: &str, messages: &[ProviderMessage], max_tokens: u32, tools: Option<&serde_json::Value>,
+        effort: ReasoningEffort, summary: ReasoningSummary, continuation: &ProviderContinuation,
+    ) -> Result<serde_json::Value> {
+        ensure_reasoning_supported(model, effort)?;
+        let raw_model = raw_model_id(model)?;
+        Ok(match endpoint_family(raw_model) {
+            EndpointFamily::Responses => providers::codex::ChatGptCodexClient::build_openai_responses_request_body(
+                raw_model,
+                messages,
+                tools,
+                effort,
+                summary,
+                continuation,
+            ),
+            EndpointFamily::OpenAiChat => {
+                Self::build_chat_request_body_with_reasoning(model, messages, max_tokens, true, tools, effort)?
+            }
+            EndpointFamily::AnthropicMessages => {
+                Self::build_messages_request_body_with_reasoning(model, messages, max_tokens, true, tools, effort)?
+            }
+        })
+    }
+
+    /// Send a streaming request with the provider's default reasoning behavior.
     pub fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, tools: Option<&serde_json::Value>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
+        self.send_streaming_request_with_reasoning(
+            model,
+            messages,
+            max_tokens,
+            tools,
+            ReasoningEffort::Auto,
+            ReasoningSummary::Auto,
+            &ProviderContinuation::default(),
+        )
+    }
+
+    /// Send a streaming request to the route selected by `model`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The public helper mirrors the complete provider request boundary for focused fixture tests."
+    )]
+    pub fn send_streaming_request_with_reasoning(
+        &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, tools: Option<&serde_json::Value>,
+        effort: ReasoningEffort, summary: ReasoningSummary, continuation: &ProviderContinuation,
+    ) -> Result<ureq::http::Response<ureq::Body>> {
         let raw_model = raw_model_id(model)?;
         let family = endpoint_family(raw_model);
-        let (url, body, headers) = match family {
-            EndpointFamily::Responses => (
-                format!("{}/responses", self.http.base_url()),
-                providers::codex::ChatGptCodexClient::build_openai_responses_request_body(
-                    raw_model,
-                    messages,
-                    tools,
-                    ReasoningEffort::Auto,
-                    ReasoningSummary::Auto,
-                    &ProviderContinuation::default(),
-                ),
-                self.build_chat_headers(),
-            ),
-            EndpointFamily::OpenAiChat => (
-                format!("{}/chat/completions", self.http.base_url()),
-                Self::build_chat_request_body(model, messages, max_tokens, true, tools)?,
-                self.build_chat_headers(),
-            ),
-            EndpointFamily::AnthropicMessages => (
-                format!("{}/messages", self.http.base_url()),
-                Self::build_messages_request_body(model, messages, max_tokens, true, tools)?,
-                self.build_messages_headers(),
-            ),
+        let body = Self::build_request_body(model, messages, max_tokens, tools, effort, summary, continuation)?;
+        let path = match family {
+            EndpointFamily::Responses => "responses",
+            EndpointFamily::OpenAiChat => "chat/completions",
+            EndpointFamily::AnthropicMessages => "messages",
         };
-
+        let url = format!("{}/{}", self.http.base_url(), path);
+        let headers = if family == EndpointFamily::AnthropicMessages {
+            self.build_messages_headers()
+        } else {
+            self.build_chat_headers()
+        };
         let mut request = self.http.agent().post(&url);
         for (key, value) in headers {
             request = request.header(&key, &value);
@@ -256,32 +337,31 @@ impl StreamingProvider for OpenCodeGoClient {
     fn serialized_request_body(
         &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
     ) -> Result<Vec<u8>> {
-        let raw_model = raw_model_id(model)?;
-        let body = match endpoint_family(raw_model) {
-            EndpointFamily::Responses => providers::codex::ChatGptCodexClient::build_openai_responses_request_body(
-                raw_model,
-                messages,
-                Some(request.tools),
-                request.reasoning_effort,
-                request.reasoning_summary,
-                request.continuation,
-            ),
-            EndpointFamily::OpenAiChat => {
-                Self::build_chat_request_body(model, messages, request.max_tokens, true, Some(request.tools))?
-            }
-            EndpointFamily::AnthropicMessages => {
-                Self::build_messages_request_body(model, messages, request.max_tokens, true, Some(request.tools))?
-            }
-        };
+        let body = Self::build_request_body(
+            model,
+            messages,
+            request.max_tokens,
+            Some(request.tools),
+            request.reasoning_effort,
+            request.reasoning_summary,
+            request.continuation,
+        )?;
         providers::serialize_request_body(&body)
     }
 
-    /// TODO: Map reasoning effort and summaries when the OpenCode Go backend
-    /// exposes model-specific controls for them.
     fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], request: &crate::providers::StreamingRequest<'_>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
-        OpenCodeGoClient::send_streaming_request(self, model, messages, request.max_tokens, Some(request.tools))
+        OpenCodeGoClient::send_streaming_request_with_reasoning(
+            self,
+            model,
+            messages,
+            request.max_tokens,
+            Some(request.tools),
+            request.reasoning_effort,
+            request.reasoning_summary,
+            request.continuation,
+        )
     }
 
     fn stream_format(&self, model: &str) -> Result<StreamFormat> {
@@ -327,6 +407,94 @@ pub fn endpoint_family(raw_model: &str) -> EndpointFamily {
     } else {
         EndpointFamily::OpenAiChat
     }
+}
+
+/// Return the verified reasoning choices for one OpenCode Go model.
+///
+/// OpenCode Go's `/models` response does not include capability metadata, so
+/// this profile follows the provider catalog's model-specific reasoning
+/// options. `Auto` is always available; models with a budget-based toggle are
+/// represented by `High` and `Max`, which lower to request-sized thinking
+/// budgets on the Messages route.
+pub fn reasoning_options(model: &str) -> Vec<ReasoningEffort> {
+    let Ok(raw) = raw_model_id(model) else {
+        return vec![ReasoningEffort::Auto];
+    };
+
+    match raw {
+        "gpt-5.6-luna" => vec![
+            ReasoningEffort::Auto,
+            ReasoningEffort::None,
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::Xhigh,
+            ReasoningEffort::Max,
+        ],
+        "grok-4.5" => vec![
+            ReasoningEffort::Auto,
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+        ],
+        "glm-5.3" => vec![
+            ReasoningEffort::Auto,
+            ReasoningEffort::Low,
+            ReasoningEffort::High,
+            ReasoningEffort::Max,
+        ],
+        "glm-5.2" | "deepseek-v4-pro" => vec![ReasoningEffort::Auto, ReasoningEffort::High, ReasoningEffort::Max],
+        "deepseek-v4-flash" => vec![
+            ReasoningEffort::Auto,
+            ReasoningEffort::Low,
+            ReasoningEffort::High,
+            ReasoningEffort::Max,
+        ],
+        "kimi-k3" => vec![ReasoningEffort::Auto, ReasoningEffort::Max],
+        "minimax-m3" => vec![ReasoningEffort::Auto, ReasoningEffort::None, ReasoningEffort::On],
+        "hy3" | "hy3-preview" => vec![
+            ReasoningEffort::Auto,
+            ReasoningEffort::None,
+            ReasoningEffort::Low,
+            ReasoningEffort::High,
+        ],
+        raw if supports_budget_reasoning(raw) => {
+            vec![ReasoningEffort::Auto, ReasoningEffort::High, ReasoningEffort::Max]
+        }
+        _ => vec![ReasoningEffort::Auto],
+    }
+}
+
+fn supports_budget_reasoning(raw: &str) -> bool {
+    matches!(
+        raw,
+        "qwen3.8-max" | "qwen3.7-max" | "qwen3.7-plus" | "qwen3.6-plus" | "qwen3.5-plus"
+    )
+}
+
+fn ensure_reasoning_supported(model: &str, effort: ReasoningEffort) -> Result<()> {
+    if reasoning_options(model).contains(&effort) {
+        Ok(())
+    } else {
+        Err(ProviderError::Json(format!(
+            "reasoning control `{}` is not supported by {model}",
+            effort.label()
+        )))
+    }
+}
+
+fn reasoning_budget(max_tokens: u32, effort: ReasoningEffort) -> Result<u32> {
+    let maximum = max_tokens.saturating_sub(1);
+    if maximum == 0 {
+        return Err(ProviderError::Json(String::from(
+            "reasoning budget requires max_tokens greater than one",
+        )));
+    }
+    Ok(match effort {
+        ReasoningEffort::High => maximum.div_ceil(2),
+        ReasoningEffort::Max => maximum,
+        _ => maximum,
+    })
 }
 
 /// Current OpenCode Go models from the public docs and live model list.
@@ -466,6 +634,142 @@ mod tests {
         assert!(models.iter().any(|model| model.id == "opencode-go/grok-4.5"));
         assert!(models.iter().any(|model| model.id == "opencode-go/gpt-5.6-luna"));
         assert!(models.iter().any(|model| model.id == "opencode-go/hy3"));
+    }
+
+    #[test]
+    fn reasoning_options_follow_the_go_model_capability_profiles() {
+        assert_eq!(
+            reasoning_options("opencode-go/gpt-5.6-luna"),
+            vec![
+                ReasoningEffort::Auto,
+                ReasoningEffort::None,
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High,
+                ReasoningEffort::Xhigh,
+                ReasoningEffort::Max,
+            ]
+        );
+        assert_eq!(
+            reasoning_options("opencode-go/glm-5.2"),
+            vec![ReasoningEffort::Auto, ReasoningEffort::High, ReasoningEffort::Max]
+        );
+        assert_eq!(
+            reasoning_options("opencode-go/minimax-m3"),
+            vec![ReasoningEffort::Auto, ReasoningEffort::None, ReasoningEffort::On]
+        );
+        assert_eq!(
+            reasoning_options("opencode-go/qwen3.7-max"),
+            vec![ReasoningEffort::Auto, ReasoningEffort::High, ReasoningEffort::Max]
+        );
+        assert_eq!(
+            reasoning_options("opencode-go/kimi-k2.7-code"),
+            vec![ReasoningEffort::Auto]
+        );
+    }
+
+    #[test]
+    fn build_chat_request_body_forwards_reasoning_effort() {
+        let body = OpenCodeGoClient::build_chat_request_body_with_reasoning(
+            "opencode-go/deepseek-v4-flash",
+            &[ProviderMessage::user("hello")],
+            4096,
+            true,
+            None,
+            ReasoningEffort::Max,
+        )
+        .expect("body");
+
+        assert_eq!(body["model"], "deepseek-v4-flash");
+        assert_eq!(body["reasoning_effort"], "max");
+    }
+
+    #[test]
+    fn build_responses_request_body_forwards_reasoning_effort() {
+        let body = OpenCodeGoClient::build_request_body(
+            "opencode-go/gpt-5.6-luna",
+            &[ProviderMessage::user("hello")],
+            4096,
+            None,
+            ReasoningEffort::Xhigh,
+            ReasoningSummary::Auto,
+            &ProviderContinuation::default(),
+        )
+        .expect("body");
+
+        assert_eq!(body["model"], "gpt-5.6-luna");
+        assert_eq!(body["reasoning"]["effort"], "xhigh");
+        assert_eq!(body["reasoning"]["summary"], "auto");
+    }
+
+    #[test]
+    fn build_messages_request_body_lowers_toggle_and_budget_controls() {
+        let messages = vec![ProviderMessage::user("hello")];
+        let disabled = OpenCodeGoClient::build_messages_request_body_with_reasoning(
+            "opencode-go/minimax-m3",
+            &messages,
+            4096,
+            true,
+            None,
+            ReasoningEffort::None,
+        )
+        .expect("disabled body");
+        assert_eq!(disabled["thinking"], serde_json::json!({"type": "disabled"}));
+
+        let adaptive = OpenCodeGoClient::build_messages_request_body_with_reasoning(
+            "opencode-go/minimax-m3",
+            &messages,
+            4096,
+            true,
+            None,
+            ReasoningEffort::On,
+        )
+        .expect("adaptive body");
+        assert_eq!(adaptive["thinking"], serde_json::json!({"type": "adaptive"}));
+
+        let high = OpenCodeGoClient::build_messages_request_body_with_reasoning(
+            "opencode-go/qwen3.7-max",
+            &messages,
+            4096,
+            true,
+            None,
+            ReasoningEffort::High,
+        )
+        .expect("high body");
+        assert_eq!(
+            high["thinking"],
+            serde_json::json!({"type": "enabled", "budget_tokens": 2048})
+        );
+
+        let max = OpenCodeGoClient::build_messages_request_body_with_reasoning(
+            "opencode-go/qwen3.7-max",
+            &messages,
+            4096,
+            true,
+            None,
+            ReasoningEffort::Max,
+        )
+        .expect("max body");
+        assert_eq!(
+            max["thinking"],
+            serde_json::json!({"type": "enabled", "budget_tokens": 4095})
+        );
+    }
+
+    #[test]
+    fn unsupported_reasoning_effort_is_rejected_before_serialization() {
+        let error = OpenCodeGoClient::build_request_body(
+            "opencode-go/glm-5.1",
+            &[ProviderMessage::user("hello")],
+            4096,
+            None,
+            ReasoningEffort::High,
+            ReasoningSummary::Off,
+            &ProviderContinuation::default(),
+        )
+        .expect_err("GLM-5.1 does not expose an adjustable effort");
+
+        assert!(error.to_string().contains("not supported"));
     }
 
     #[test]

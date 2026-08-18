@@ -21,7 +21,8 @@ use super::*;
 use crate::renderer::inline::ScrollbackCommitter;
 use crate::renderer::live_surface::LiveSurfaceLayout;
 use crate::renderer::ratatui::{render_logical_frame, render_rows_to_buffer};
-use crate::renderer::row::Frame;
+use crate::renderer::row::{Frame, Row};
+use crate::renderer::style::CellStyle;
 use crate::renderer::view::{LiveView, SemanticUiView};
 
 pub(crate) trait InteractiveSurface {
@@ -362,6 +363,14 @@ fn bottom_pane_frame(app: &App, width: usize, mut mutable_tail: Vec<crate::rende
         }
     }
 
+    if !app.transcript.entries.is_empty()
+        && mutable_tail
+            .last()
+            .is_none_or(|row| !row.spans.iter().all(|span| span.text.trim().is_empty()))
+    {
+        mutable_tail.push(Row::blank(width, CellStyle::new()));
+    }
+
     let semantic = SemanticUiView::from(app);
     let live = LiveView::build(app, width, u16::MAX as usize, &semantic);
     let chrome = LiveSurfaceLayout::build(&live, width).into_frame();
@@ -447,6 +456,32 @@ mod tests {
         coordinator.mark_committed(&plan.commits);
 
         assert!(coordinator.newly_stable(&app, 20).commits.is_empty());
+    }
+
+    #[test]
+    fn inline_frame_leaves_one_spacer_between_history_and_composer() {
+        let mut app = App::from_cli(&Cli::default());
+        app.session.writer = None;
+        app.overlay.close();
+        app.transcript.entries.clear();
+        app.transcript
+            .entries
+            .push(Entry::User { text: "committed once".to_string() });
+
+        let mut coordinator = ScrollbackCommitter::default();
+        let plan = coordinator.newly_stable(&app, 40);
+        coordinator.mark_committed(&plan.commits);
+        let frame = bottom_pane_frame(&app, 40, coordinator.mutable_tail_rows(&app, 40));
+        let prompt = frame
+            .rows
+            .iter()
+            .position(|row| row.text().contains('❯'))
+            .expect("composer row");
+
+        let chrome_start = prompt.saturating_sub(2);
+        assert!(chrome_start > 0);
+        assert!(frame.rows[chrome_start - 1].text().trim().is_empty());
+        assert!(!frame.rows[chrome_start].text().trim().is_empty());
     }
 
     #[test]

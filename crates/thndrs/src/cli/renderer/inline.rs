@@ -251,7 +251,6 @@ fn project_inline_block(app: &App, entry_index: usize, width: usize) -> Vec<Row>
         cwd: &app.runtime.cwd,
         width,
         entry_index: Some(entry_index),
-        tool_group_start: true,
         detail_target: false,
         detail_open: false,
         detail_scroll: 0,
@@ -264,11 +263,14 @@ fn project_inline_block(app: &App, entry_index: usize, width: usize) -> Vec<Row>
             rewrite_tool_header(&mut rows, width, action, arguments, *status, &app.runtime.cwd);
         }
         Entry::Skill { name, path, token_estimate, context_percent, .. } => {
-            rows = vec![skill_row(width, name, path, *token_estimate, *context_percent)];
+            rows = skill_row(width, name, path, *token_estimate, *context_percent);
         }
         Entry::Status { text } => {
             if let Some(operation) = semantic_operation {
-                rows = vec![operation_status_row(width, operation, text)];
+                rows = vec![
+                    Row::blank(width, CellStyle::new().bg(Color::Reset)),
+                    operation_status_row(width, operation, text),
+                ];
             }
         }
         _ => {}
@@ -365,21 +367,24 @@ fn operation_status_row(width: usize, operation: OperationKind, text: &str) -> R
     )
 }
 
-fn skill_row(width: usize, name: &str, path: &str, token_estimate: usize, context_percent: Option<u8>) -> Row {
+fn skill_row(width: usize, name: &str, path: &str, token_estimate: usize, context_percent: Option<u8>) -> Vec<Row> {
     let palette = super::style::palette();
     let summary = crate::renderer::view::skill_activation_summary(name, path, token_estimate, context_percent);
-    Row::padded(
-        vec![
-            Span::styled("  ", CellStyle::new().fg(palette.warning).bg(Color::Reset)),
-            Span::styled("§ Skill", CellStyle::new().fg(palette.accent).bg(Color::Reset).bold()),
-            Span::styled(
-                format!("  {summary}"),
-                CellStyle::new().fg(palette.secondary).bg(Color::Reset),
-            ),
-        ],
-        width,
-        CellStyle::new().bg(Color::Reset),
-    )
+    vec![
+        Row::blank(width, CellStyle::new().bg(Color::Reset)),
+        Row::padded(
+            vec![
+                Span::styled("  ", CellStyle::new().fg(palette.warning).bg(Color::Reset)),
+                Span::styled("§ Skill", CellStyle::new().fg(palette.accent).bg(Color::Reset).bold()),
+                Span::styled(
+                    format!("  {summary}"),
+                    CellStyle::new().fg(palette.secondary).bg(Color::Reset),
+                ),
+            ],
+            width,
+            CellStyle::new().bg(Color::Reset),
+        ),
+    ]
 }
 
 fn tool_arguments(entry: &Entry) -> &str {

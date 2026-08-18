@@ -61,6 +61,38 @@ Qwen3.7 Plus, Qwen3.6 Plus, DeepSeek V4 Pro, DeepSeek V4 Flash, and Hy3.
 The app-facing ids use `opencode-go/<model-id>`; the API receives the raw id.
 The live `/models` response is still loaded for picker metadata and validation.
 
+## Reasoning controls
+
+`providers::reasoning_options` owns the OpenCode Go capability profile because
+Go's `/models` endpoint returns ids but no reasoning metadata. `Auto` is always
+available. The adjustable profiles are:
+
+- Grok 4.5: `low`, `medium`, `high`.
+- GPT 5.6 Luna: `none`, `low`, `medium`, `high`, `xhigh`, `max`.
+- GLM-5.3: `low`, `high`, `max`; GLM-5.2 and DeepSeek V4 Pro: `high`, `max`.
+- DeepSeek V4 Flash: `low`, `high`, `max`; Kimi K3: `max`.
+- MiniMax M3: `none`, `on`; Hy3: `none`, `low`, `high`.
+- Qwen3.8 Max, Qwen3.7 Max, Qwen3.7 Plus, and Qwen3.6 Plus: `high`, `max`.
+
+GLM-5.1, Kimi K2.7 Code, Kimi K2.6, MiMo-V2.5, MiMo-V2.5-Pro, MiniMax
+M2.7, and MiniMax M2.5 currently expose only `Auto`. Unknown Go ids also fall
+back to `Auto` until a capability profile is added.
+
+The adapter rejects a setting outside the selected model's profile before it
+serializes a request, then lowers the accepted setting by endpoint family:
+
+- Responses routes use the shared Codex builder and send `reasoning.effort`,
+  with `reasoning.summary = "auto"` when summaries are enabled.
+- OpenAI-compatible chat routes send top-level `reasoning_effort`.
+- Anthropic-compatible Messages routes send `thinking`. MiniMax `none` and
+  `on` become `disabled` and `adaptive`; Qwen `high` and `max` become enabled
+  thinking with request-sized `budget_tokens` values. `high` uses half of the
+  request output budget, and `max` uses that budget minus one token so the
+  thinking budget stays below `max_tokens`.
+
+The application carries only `ReasoningEffort` and `ReasoningSummary`. These
+provider fields stay inside the adapter.
+
 ## Streaming Event Normalization
 
 `stream_format` selects one of three parsers: Anthropic Messages, OpenAI chat

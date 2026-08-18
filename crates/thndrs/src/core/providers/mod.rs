@@ -59,7 +59,7 @@ pub fn reasoning_options(model: &str) -> Vec<ReasoningEffort> {
     if opencode::is_zen_model_id(model) {
         opencode::zen::reasoning_options(model)
     } else if opencode::is_go_model_id(model) {
-        vec![ReasoningEffort::Auto]
+        opencode::go::reasoning_options(model)
     } else if codex::is_model_id(model) {
         codex::reasoning_options(model)
     } else {

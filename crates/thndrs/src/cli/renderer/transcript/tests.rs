@@ -76,7 +76,8 @@ fn skill_activation_is_a_compact_estimate_instead_of_instruction_body() {
     let rows = ctx(100).rows_for_entry(&entry);
     let text = rows.iter().map(|row| row.text()).collect::<String>();
 
-    assert_eq!(rows.len(), 1);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.first().is_some_and(|row| row.text().trim().is_empty()));
     assert!(text.contains("◆ Skill"));
     assert!(text.contains("writing · ~842 tokens · <1% context"));
     assert!(!text.contains("INTERNAL INSTRUCTIONS"));
@@ -196,6 +197,36 @@ fn user_message_uses_one_leading_spacer_between_turns() {
         rows.last().is_some_and(|row| !row.text().trim().is_empty()),
         "user block should not add a second trailing spacer"
     );
+}
+
+#[test]
+fn every_visible_transcript_entry_starts_with_one_spacer_row() {
+    let entries = [
+        Entry::User { text: "hello".to_string() },
+        Entry::Agent { text: "answer".to_string(), streaming: false },
+        Entry::Reasoning { text: "thinking".to_string(), streaming: false },
+        Entry::Status { text: "ready".to_string() },
+        Entry::Error { text: "failed".to_string() },
+        Entry::Tool {
+            name: "search_text".to_string(),
+            arguments: r#"{"pattern":"hello"}"#.to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["src/lib.rs:1:hello".to_string()],
+        },
+    ];
+
+    for entry in entries {
+        let rows = ctx(80).rows_for_entry(&entry);
+        assert!(
+            rows.first().is_some_and(|row| row.text().trim().is_empty()),
+            "{entry:?}"
+        );
+        assert!(
+            rows.get(1).is_some_and(|row| !row.text().trim().is_empty()),
+            "{entry:?}"
+        );
+        assert!(rows.get(2).is_none_or(|row| !row.text().trim().is_empty()), "{entry:?}");
+    }
 }
 
 #[test]

@@ -5,4 +5,3 @@ expression: contents
 │                                                                                   # [-]=
 │     ⚠ Error                                                                       # [-]=   [fg=#f16c75 b]=   [fg=#f16c75 b]=⚠ Error [-]=                                                                    [-]=
 │     Provider request failed: connection refused                                   # [-]=   [fg=#f16c75 b]=   [fg=#ebfafa]=Provider request failed: connection refused [-]=                                [-]=
-│                                                                                   # [-]=
