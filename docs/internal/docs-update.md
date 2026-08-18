@@ -26,7 +26,7 @@ locations used by later pages.
 
 ## Priority 2: Document Runtime Subsystems
 
-- [ ] Update `internals/providers.md`: complete Mental Model, Streaming Event
+- [x] Update `internals/providers.md`: complete Mental Model, Streaming Event
   Normalization, Authentication, Errors, Retries, and Cancellation, Boundaries,
   Key Types, Invariants, Source Map, and Related; verify Responsibilities and
   Request Conversion for every supported provider.

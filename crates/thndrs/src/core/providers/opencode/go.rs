@@ -9,9 +9,10 @@ use std::path::Path;
 
 use crate::{
     app::AgentEvent,
+    cli::{ReasoningEffort, ReasoningSummary},
     providers::{
-        self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
-        StreamingRequest,
+        self, KnownModel, ProviderContinuation, ProviderError, ProviderHttpClient, ProviderMessage, Result,
+        StreamFormat, StreamingProvider, StreamingRequest,
     },
     thndrs_core::auth,
 };
@@ -33,6 +34,7 @@ pub const DEFAULT_RECOMMENDED_MAX_TOKENS: u32 = 32_768;
 /// Endpoint family used by a model.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EndpointFamily {
+    Responses,
     OpenAiChat,
     AnthropicMessages,
 }
@@ -40,6 +42,7 @@ pub enum EndpointFamily {
 impl EndpointFamily {
     pub fn label(self) -> &'static str {
         match self {
+            EndpointFamily::Responses => "responses",
             EndpointFamily::OpenAiChat => "chat/completions",
             EndpointFamily::AnthropicMessages => "messages",
         }
@@ -147,6 +150,18 @@ impl OpenCodeGoClient {
         let raw_model = raw_model_id(model)?;
         let family = endpoint_family(raw_model);
         let (url, body, headers) = match family {
+            EndpointFamily::Responses => (
+                format!("{}/responses", self.http.base_url()),
+                providers::codex::ChatGptCodexClient::build_openai_responses_request_body(
+                    raw_model,
+                    messages,
+                    tools,
+                    ReasoningEffort::Auto,
+                    ReasoningSummary::Auto,
+                    &ProviderContinuation::default(),
+                ),
+                self.build_chat_headers(),
+            ),
             EndpointFamily::OpenAiChat => (
                 format!("{}/chat/completions", self.http.base_url()),
                 Self::build_chat_request_body(model, messages, max_tokens, true, tools)?,
@@ -212,10 +227,15 @@ impl StreamingProvider for OpenCodeGoClient {
     }
 
     fn metadata_loaded_event(&self, metadata: &Self::Metadata) -> Option<AgentEvent> {
-        let mut items: Vec<(String, String)> = providers::opencode::zen::known_models()
+        let mut items: Vec<(String, String)> = known_models()
             .into_iter()
             .map(|model| (model.id.to_string(), model.description.to_string()))
             .collect();
+        items.extend(
+            providers::opencode::zen::known_models()
+                .into_iter()
+                .map(|model| (model.id.to_string(), model.description.to_string())),
+        );
         items.extend(model_picker_items(metadata));
         items.extend(
             providers::chatgpt_codex::known_models()
@@ -236,7 +256,16 @@ impl StreamingProvider for OpenCodeGoClient {
     fn serialized_request_body(
         &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
     ) -> Result<Vec<u8>> {
-        let body = match endpoint_family(raw_model_id(model)?) {
+        let raw_model = raw_model_id(model)?;
+        let body = match endpoint_family(raw_model) {
+            EndpointFamily::Responses => providers::codex::ChatGptCodexClient::build_openai_responses_request_body(
+                raw_model,
+                messages,
+                Some(request.tools),
+                request.reasoning_effort,
+                request.reasoning_summary,
+                request.continuation,
+            ),
             EndpointFamily::OpenAiChat => {
                 Self::build_chat_request_body(model, messages, request.max_tokens, true, Some(request.tools))?
             }
@@ -258,6 +287,7 @@ impl StreamingProvider for OpenCodeGoClient {
     fn stream_format(&self, model: &str) -> Result<StreamFormat> {
         let raw_model = raw_model_id(model)?;
         Ok(match endpoint_family(raw_model) {
+            EndpointFamily::Responses => StreamFormat::ChatGptCodexResponses,
             EndpointFamily::OpenAiChat => StreamFormat::OpenAiChat,
             EndpointFamily::AnthropicMessages => StreamFormat::AnthropicMessages,
         })
@@ -290,7 +320,9 @@ pub fn raw_model_id(model: &str) -> Result<&str> {
 /// The public `/models` response currently exposes ids only, so route family is
 /// derived from the documented families plus observed id prefixes.
 pub fn endpoint_family(raw_model: &str) -> EndpointFamily {
-    if raw_model.starts_with("minimax-") || raw_model.starts_with("qwen") {
+    if raw_model.starts_with("grok-") || raw_model.starts_with("gpt-") {
+        EndpointFamily::Responses
+    } else if raw_model.starts_with("minimax-") || raw_model.starts_with("qwen") {
         EndpointFamily::AnthropicMessages
     } else {
         EndpointFamily::OpenAiChat
@@ -300,11 +332,26 @@ pub fn endpoint_family(raw_model: &str) -> EndpointFamily {
 /// Current OpenCode Go models from the public docs and live model list.
 pub fn known_models() -> Vec<KnownModel> {
     vec![
-        KnownModel { id: "opencode-go/kimi-k2.7-code", description: "OpenCode Go Kimi K2.7 Code, tools and reasoning" },
-        KnownModel { id: "opencode-go/deepseek-v4-flash", description: "OpenCode Go fast low-cost chat route" },
-        KnownModel { id: "opencode-go/glm-5.2", description: "OpenCode Go GLM route" },
-        KnownModel { id: "opencode-go/minimax-m3", description: "OpenCode Go Anthropic-compatible route" },
-        KnownModel { id: "opencode-go/qwen3.7-plus", description: "OpenCode Go Qwen Anthropic-compatible route" },
+        KnownModel { id: "opencode-go/grok-4.5", description: "OpenCode Go Grok 4.5 (Responses)" },
+        KnownModel { id: "opencode-go/glm-5.3", description: "OpenCode Go GLM-5.3" },
+        KnownModel { id: "opencode-go/glm-5.2", description: "OpenCode Go GLM-5.2" },
+        KnownModel { id: "opencode-go/glm-5.1", description: "OpenCode Go GLM-5.1" },
+        KnownModel { id: "opencode-go/gpt-5.6-luna", description: "OpenCode Go GPT-5.6 Luna (Responses)" },
+        KnownModel { id: "opencode-go/kimi-k3", description: "OpenCode Go Kimi K3" },
+        KnownModel { id: "opencode-go/kimi-k2.7-code", description: "OpenCode Go Kimi K2.7 Code" },
+        KnownModel { id: "opencode-go/kimi-k2.6", description: "OpenCode Go Kimi K2.6" },
+        KnownModel { id: "opencode-go/mimo-v2.5", description: "OpenCode Go MiMo-V2.5" },
+        KnownModel { id: "opencode-go/mimo-v2.5-pro", description: "OpenCode Go MiMo-V2.5-Pro" },
+        KnownModel { id: "opencode-go/minimax-m3", description: "OpenCode Go MiniMax M3" },
+        KnownModel { id: "opencode-go/minimax-m2.7", description: "OpenCode Go MiniMax M2.7" },
+        KnownModel { id: "opencode-go/minimax-m2.5", description: "OpenCode Go MiniMax M2.5" },
+        KnownModel { id: "opencode-go/qwen3.8-max", description: "OpenCode Go Qwen3.8 Max" },
+        KnownModel { id: "opencode-go/qwen3.7-max", description: "OpenCode Go Qwen3.7 Max" },
+        KnownModel { id: "opencode-go/qwen3.7-plus", description: "OpenCode Go Qwen3.7 Plus" },
+        KnownModel { id: "opencode-go/qwen3.6-plus", description: "OpenCode Go Qwen3.6 Plus" },
+        KnownModel { id: "opencode-go/deepseek-v4-pro", description: "OpenCode Go DeepSeek V4 Pro" },
+        KnownModel { id: "opencode-go/deepseek-v4-flash", description: "OpenCode Go DeepSeek V4 Flash" },
+        KnownModel { id: "opencode-go/hy3", description: "OpenCode Go Hy3" },
     ]
 }
 
@@ -404,10 +451,21 @@ mod tests {
 
     #[test]
     fn endpoint_family_uses_documented_prefixes() {
+        assert_eq!(endpoint_family("grok-4.5"), EndpointFamily::Responses);
+        assert_eq!(endpoint_family("gpt-5.6-luna"), EndpointFamily::Responses);
         assert_eq!(endpoint_family("kimi-k2.7-code"), EndpointFamily::OpenAiChat);
         assert_eq!(endpoint_family("deepseek-v4-flash"), EndpointFamily::OpenAiChat);
         assert_eq!(endpoint_family("minimax-m3"), EndpointFamily::AnthropicMessages);
         assert_eq!(endpoint_family("qwen3.7-plus"), EndpointFamily::AnthropicMessages);
+    }
+
+    #[test]
+    fn known_models_match_the_documented_go_catalog() {
+        let models = known_models();
+        assert_eq!(models.len(), 20);
+        assert!(models.iter().any(|model| model.id == "opencode-go/grok-4.5"));
+        assert!(models.iter().any(|model| model.id == "opencode-go/gpt-5.6-luna"));
+        assert!(models.iter().any(|model| model.id == "opencode-go/hy3"));
     }
 
     #[test]
