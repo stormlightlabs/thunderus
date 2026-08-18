@@ -12,7 +12,7 @@ use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::Terminal;
 use ratatui::backend::{Backend, CrosstermBackend};
-use ratatui::layout::{Position, Rect};
+use ratatui::layout::Position;
 
 use super::*;
 use crate::renderer::inline::{InlineTranscript, InlineTranscriptPlan};
@@ -21,12 +21,16 @@ use crate::renderer::ratatui::{render_logical_frame, render_rows_to_buffer};
 use crate::renderer::row::Frame;
 use crate::renderer::view::{LiveView, SemanticUiView, TranscriptView};
 
-pub(crate) const INLINE_VIEWPORT_HEIGHT: u16 =
-    (crate::renderer::live::MAX_PROMPT_ROWS + crate::renderer::live::MAX_SETUP_ROWS + 3) as u16;
+/// Height of the permanent inline live region.
+///
+/// Sized to the composer at its largest (including its border chrome), the
+/// status footer, and one blank gutter row, so normal operation does not
+/// reserve setup/auth-scale blank space. Setup, detail, and picker surfaces
+/// clip within this region.
+pub(crate) const INLINE_VIEWPORT_HEIGHT: u16 = crate::renderer::live::LIVE_REGION_HEIGHT as u16;
 
 pub(crate) trait InteractiveSurface {
     fn draw(&mut self, app: &mut App, full_repaint: bool) -> io::Result<()>;
-    fn resize(&mut self, width: u16, height: u16) -> io::Result<()>;
     fn clear(&mut self) -> io::Result<()>;
     fn suspend(&mut self) -> io::Result<()>;
     fn handle_navigation(&mut self, app: &mut App, action: &Action) -> bool;
@@ -137,11 +141,9 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
         }
         let projection_started = Instant::now();
         renderer::style::set_theme(app.runtime.theme);
-        let area = self.terminal.size()?;
-        let plan = self.transcript.plan(app, area.width as usize);
-        let logical = inline_frame(app, area.width as usize, area.height as usize, &plan);
+        let size = self.terminal.size()?;
+        let plan = self.transcript.plan(app, size.width as usize);
         let projection_elapsed = projection_started.elapsed();
-        let draw_started = Instant::now();
 
         let committed_rows = plan
             .commits
@@ -153,21 +155,21 @@ impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
                 render_rows_to_buffer(&committed_rows, buffer);
             })?;
         }
-        self.terminal.draw(|frame| render_logical_frame(frame, &logical))?;
+        let draw_started = Instant::now();
+        self.terminal.draw(|frame| {
+            let area = frame.area();
+            let logical = inline_frame(app, area.width as usize, area.height as usize, &plan);
+            render_logical_frame(frame, &logical);
+        })?;
         self.transcript.mark_committed(&plan.commits);
         tracing::trace!(
             projection_us = projection_elapsed.as_micros(),
             draw_us = draw_started.elapsed().as_micros(),
-            width = area.width,
-            height = area.height,
+            width = size.width,
+            height = size.height,
             committed_blocks = plan.commits.len(),
             "inline ratatui frame timing"
         );
-        Ok(())
-    }
-
-    fn resize(&mut self, width: u16, height: u16) -> io::Result<()> {
-        self.terminal.resize(Rect::new(0, 0, width, height))?;
         Ok(())
     }
 

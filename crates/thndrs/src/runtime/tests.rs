@@ -107,7 +107,6 @@ struct TestSurface {
     draws: usize,
     full_repaints: usize,
     suspends: usize,
-    size: (u16, u16),
 }
 
 impl InteractiveSurface for TestSurface {
@@ -115,11 +114,6 @@ impl InteractiveSurface for TestSurface {
         self.events.push("draw");
         self.draws += 1;
         self.full_repaints += usize::from(full_repaint);
-        Ok(())
-    }
-
-    fn resize(&mut self, width: u16, height: u16) -> io::Result<()> {
-        self.size = (width, height);
         Ok(())
     }
 
@@ -1840,13 +1834,6 @@ fn maybe_spawn_agent_does_not_run_preflight_while_agent_in_flight() {
         "in-flight requests must never be interrupted for compaction"
     );
     assert!(agent.is_some(), "the existing agent slot must be preserved");
-}
-
-#[test]
-fn resize_event_dimensions_drive_the_full_viewport_repaint() {
-    let mut surface = TestSurface::default();
-    surface.resize(100, 30).expect("resize");
-    assert_eq!(surface.size, (100, 30));
 }
 
 #[test]

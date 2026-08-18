@@ -24,15 +24,15 @@
 
 ### Fix transcript rendering
 
-- [ ] Shrink the permanent inline viewport.
+- [x] Shrink the permanent inline viewport.
       `INLINE_VIEWPORT_HEIGHT` is currently ~23 rows because it includes `MAX_SETUP_ROWS`. That reserves a large blank region during normal operation. Base the normal viewport on the composer/status surface instead—roughly **10–12 rows**.
-- [ ] Do not budget setup/auth UI into the normal viewport.
+- [x] Do not budget setup/auth UI into the normal viewport.
       Treat setup/auth as a special temporary surface, or let it clip/scroll within the normal live region. `LiveSurfaceLayout` already has clipping behavior suitable for this.
-- [ ] Lay out against Ratatui's actual viewport area.
+- [x] Lay out against Ratatui's actual viewport area.
       Don't pass `Terminal::size().height` into `inline_frame()`. Build the live frame using the `Frame::area()` height Ratatui actually gives the inline viewport. Right now the layout thinks it has the whole terminal available.
-- [ ] Keep bottom alignment, once the viewport is correctly sized.
+- [x] Keep bottom alignment, once the viewport is correctly sized.
       The bottom alignment in `render_logical_frame()` is desirable for keeping the composer pinned to the bottom. It only looks wrong because it's currently bottom-aligning ~6 rows inside a 23-row viewport.
-- [ ] Simplify resize handling.
+- [x] Simplify resize handling.
       Consider dropping the explicit `Terminal::resize()` call on `Action::Resize` and just request an immediate repaint; Ratatui's inline viewport can follow backend resize during rendering.
 
 #### Target architecture

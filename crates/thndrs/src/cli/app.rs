@@ -603,6 +603,7 @@ impl TranscriptSearchState {
     }
 }
 
+/// Compact transcript search deliberately excludes hidden tool output.
 fn transcript_search_text(entry: &Entry) -> String {
     match entry {
         Entry::User { text }
@@ -612,7 +613,6 @@ fn transcript_search_text(entry: &Entry) -> String {
         | Entry::Error { text } => text.clone(),
         Entry::Skill { name, path, content, .. } => format!("{name} {path} {content}"),
         Entry::Tool { name, arguments, status, .. } => {
-            // Compact transcript search deliberately excludes hidden tool output.
             format!("{name} {arguments} {status:?}")
         }
     }

@@ -13,8 +13,8 @@ pub(crate) fn run_inline(tick: Duration, cli: &Cli, initial_session: InitialSess
     let terminal = Terminal::with_options(
         CrosstermBackend::new(stdout),
         TerminalOptions {
-            // Reserve enough rows for the largest bounded surface without
-            // pushing the visible transcript out of the terminal on startup.
+            // Reserve a permanent live region sized to the composer and status
+            // surface. Bounded surfaces (setup, detail, pickers) clip inside it.
             viewport: Viewport::Inline(super::terminal::INLINE_VIEWPORT_HEIGHT),
         },
     )?;
@@ -110,9 +110,10 @@ pub(crate) fn interactive_loop<S: InteractiveSurface>(
                 continue;
             }
             match action {
-                Action::Resize { width, height } => {
-                    surface.resize(width, height)?;
-                    // Ratatui's resize operation clears the viewport for the next draw.
+                Action::Resize { .. } => {
+                    // Ratatui's inline viewport follows backend resizes during
+                    // rendering (autoresize on the next draw), so an immediate
+                    // repaint is enough to settle the new viewport area.
                     presenter.request_immediate();
                 }
                 Action::Suspend => {

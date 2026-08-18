@@ -249,12 +249,13 @@ fn project_inline_block(app: &App, entry_index: usize, width: usize) -> Vec<Row>
     rows
 }
 
+/// Inline projection always starts a standalone tool block, whose header
+/// follows its one-row group spacer.
+///
+/// Classification uses structured tool data above; it never inspects rendered labels.
 fn rewrite_tool_header(
     rows: &mut [Row], width: usize, action: &str, arguments: &str, status: ToolStatus, cwd: &std::path::Path,
 ) {
-    // Inline projection always starts a standalone tool block, whose header
-    // follows its one-row group spacer. Classification uses structured tool
-    // data above; it never inspects rendered labels.
     let Some(row) = rows.get_mut(1) else {
         return;
     };

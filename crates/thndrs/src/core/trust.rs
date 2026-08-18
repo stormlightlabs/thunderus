@@ -13,7 +13,7 @@ const TRUST_STORE_VERSION: u32 = 1;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum StoredTrustScope {
-    // Retained so stores written by the removed generic trust system remain readable.
+    /// Retained so stores written by the removed generic trust system remain readable.
     Configuration,
     PromptTemplates,
     Skills,

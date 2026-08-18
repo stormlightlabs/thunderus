@@ -345,14 +345,7 @@ impl LiveView {
         let min_prompt_chrome = prompt_rows.len() + 1;
         let keep_prompt_gutters = height >= min_prompt_chrome + 3;
         let reserved_chrome = prompt_rows.len() + if keep_prompt_gutters { 3 } else { 1 };
-        let accessory_limit = if matches!(
-            semantic.focused_surface,
-            FocusedSurfaceView::SetupForm(_) | FocusedSurfaceView::McpTrust(_)
-        ) {
-            super::live::MAX_SETUP_ROWS
-        } else {
-            super::live::MAX_ACCESSORY_ROWS
-        };
+        let accessory_limit = super::live::MAX_ACCESSORY_ROWS;
         let accessory_height = accessory_limit.min(height.saturating_sub(reserved_chrome));
 
         let accessory_rows = match &semantic.focused_surface {
@@ -372,7 +365,7 @@ impl LiveView {
                 &semantic.focused_surface,
                 &SurfaceThemeView::new(),
                 width,
-                super::live::MAX_ACCESSORY_ROWS,
+                accessory_height,
             )),
             _ => Vec::new(),
         };

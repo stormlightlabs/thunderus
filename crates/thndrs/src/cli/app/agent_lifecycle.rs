@@ -123,11 +123,12 @@ fn persist_completed_observation(app: &mut App) {
 }
 
 /// Process an [`AgentEvent`] and mutate `app` accordingly.
+///
+/// A `Started` event can still be queued when the user stops the run.
+/// Do not let it revive a run that is already winding down.
 pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
     match event {
         AgentEvent::Started => {
-            // A `Started` event can still be queued when the user stops the
-            // run. Do not let it revive a run that is already winding down.
             if app.runtime.run_state != RunState::Stopping {
                 app.runtime.turn_timing.ensure_started();
                 app.runtime.stopping_deadline = None;

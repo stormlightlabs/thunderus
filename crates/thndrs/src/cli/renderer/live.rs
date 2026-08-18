@@ -20,9 +20,12 @@ pub const MAX_PROMPT_ROWS: usize = 8;
 /// Maximum accessory rows (help/commands/files) shown in the live region.
 pub const MAX_ACCESSORY_ROWS: usize = 8;
 
-/// Maximum rows for setup and authentication, whose complete action set is
-/// more important than preserving extra transcript space.
-pub const MAX_SETUP_ROWS: usize = 12;
+/// Height of the permanent inline live region: the composer at its largest
+/// (including border chrome), the status footer, and one blank gutter row.
+///
+/// Setup/auth and bounded detail surfaces clip within this region instead of
+/// expanding it.
+pub const LIVE_REGION_HEIGHT: usize = MAX_PROMPT_ROWS + 3;
 
 const LIVE_INSET: usize = 2;
 const COMPOSER_MIN_CONTENT_WIDTH: usize = 8;

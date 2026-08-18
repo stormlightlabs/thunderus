@@ -811,7 +811,6 @@ fn mcp_trust_surface(
             .unwrap_or_else(|| ".thndrs/mcp.toml".to_string()),
         hash,
         servers,
-        // Cancel is selected by default: trust changes process authority.
         selected: 1,
     })
 }

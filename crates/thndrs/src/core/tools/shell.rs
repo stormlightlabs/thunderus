@@ -864,6 +864,10 @@ pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelToken) -> Resul
 }
 
 /// Execute a shell command, handing background ownership to `registry`.
+///
+/// Background ownership is independent from the enclosing agent turn:
+/// cancelling one registry entry must not cancel its sibling tools or
+/// the agent loop that started it.
 pub fn run_command_with_registry(
     args: &ShellArgs, root: &Path, cancel: &CancelToken, registry: Option<&ProcessRegistry>,
 ) -> Result<ProcessResult, String> {
@@ -881,9 +885,7 @@ pub fn run_command_with_registry(
             .stdin(Stdio::null());
         let start = Instant::now();
         let child = spawn_owned_command(cmd).map_err(|error| format!("failed to spawn '{}': {error}", args.program))?;
-        // Background ownership is independent from the enclosing agent turn:
-        // cancelling one registry entry must not cancel its sibling tools or
-        // the agent loop that started it.
+
         let process_cancel = CancelToken::new();
         let id = registry.spawn_background(args, cwd.clone(), child, start, process_cancel);
         return Ok(ProcessResult {

@@ -396,10 +396,6 @@ pub fn lower_to_provider_messages(bundle: &PromptBundle) -> Vec<ProviderMessage>
                 messages.push(ProviderMessage::assistant(content));
             }
             Entry::Tool { name, output, status, .. } if *status != ToolStatus::Running => {
-                // Session transcript entries currently retain their bounded
-                // display lines for compatibility. Lower them through the
-                // provider-neutral model projection so this boundary is
-                // ready for independently persisted projections.
                 let model_output = tools::ToolOutput::ok(name, output.clone()).model.lines;
                 messages.push(ProviderMessage::user(
                     &(match model_output.is_empty() {

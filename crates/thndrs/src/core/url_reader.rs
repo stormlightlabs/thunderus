@@ -264,11 +264,11 @@ fn fetch_url_with_agent_factory(
     })
 }
 
+/// A proxy can resolve the destination itself and bypass the guarded
+/// resolver. Public URL fetching therefore always connects directly.
 fn public_fetch_agent(timeout: Duration) -> ureq::Agent {
     let config = ureq::Agent::config_builder()
         .max_redirects(0)
-        // A proxy can resolve the destination itself and bypass the guarded
-        // resolver. Public URL fetching therefore always connects directly.
         .proxy(None)
         .timeout_global(Some(timeout))
         .build();

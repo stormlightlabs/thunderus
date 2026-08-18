@@ -1419,13 +1419,13 @@ fn semantic_setup_surface_projects_selection_and_masks_credentials() {
 }
 
 #[test]
-fn setup_surface_keeps_all_authentication_actions_visible_at_normal_height() {
+fn setup_surface_clips_actions_around_the_focused_selection_in_the_live_region() {
     let mut app = test_app();
     app.overlay
         .show_setup(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
 
     for width in [80, 40] {
-        let view = RendererView::build(&app, width, 24);
+        let view = RendererView::build(&app, width, renderer::live::LIVE_REGION_HEIGHT);
         let text = view
             .live
             .accessory_rows
@@ -1436,24 +1436,15 @@ fn setup_surface_keeps_all_authentication_actions_visible_at_normal_height() {
 
         assert!(
             text.contains("start browser PKCE login"),
-            "browser login missing at width {width}:\n{text}"
+            "focused setup action should stay visible at width {width}:\n{text}"
         );
         assert!(
-            text.contains("use headless device code"),
-            "device login missing at width {width}:\n{text}"
-        );
-        assert!(
-            text.contains("return to draft"),
-            "draft return missing at width {width}:\n{text}"
+            text.contains("rows above") && text.contains("below"),
+            "overflowing setup actions should be clipped with an indicator at width {width}:\n{text}"
         );
         assert!(
             !text.contains("continue without setup"),
             "pending setup offers an unavailable continuation at width {width}:\n{text}"
-        );
-        assert!(text.contains("quit"), "last action clipped at width {width}:\n{text}");
-        assert!(
-            !text.contains("rows below"),
-            "setup actions clipped at width {width}:\n{text}"
         );
     }
 }
