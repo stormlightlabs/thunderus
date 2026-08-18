@@ -28,6 +28,7 @@ struct Field {
     truncation: Truncation,
     urgent: bool,
     required: bool,
+    route: bool,
 }
 
 /// Render the configured operational status without wrapping.
@@ -93,9 +94,7 @@ pub(super) fn status_row(app: &App, width: usize) -> Row {
         spans.push(Span::styled(left_text, CellStyle::new().fg(state_color).bold()));
     }
     spans.push(Span::styled(" ".repeat(gap), background));
-    if !right_text.is_empty() {
-        spans.push(Span::styled(right_text, CellStyle::new().fg(palette.secondary)));
-    }
+    spans.extend(right_spans(&right, palette));
     spans.push(Span::styled(" ".repeat(inset), background));
     Row::padded(spans, width, background)
 }
@@ -152,7 +151,15 @@ fn project(app: &App, segment: StatusSegment) -> Option<Field> {
             (format!("{remaining}% ctx left"), 5, 12, Truncation::None, false)
         }
     };
-    Some(Field { text, priority, min_width, truncation, urgent, required: segment == StatusSegment::RunState })
+    Some(Field {
+        text,
+        priority,
+        min_width,
+        truncation,
+        urgent,
+        required: segment == StatusSegment::RunState,
+        route: segment == StatusSegment::Route,
+    })
 }
 
 fn operational_state(app: &App) -> String {
@@ -288,6 +295,39 @@ fn fit(left: &mut Vec<Field>, right: &mut Vec<Field>, available: usize) {
         let target = current.saturating_sub(excess).max(field.min_width);
         field.text = truncate_field(field, target);
     }
+}
+
+/// Build the rendered spans for the right-aligned metadata fields.
+///
+/// The route field (`model · reasoning`) is split so the model, reasoning
+/// level, and remaining-context fields read as distinct colors: model uses
+/// the accent, reasoning uses the reasoning role, and everything else stays
+/// in the muted secondary color. Truncation keeps only the model portion of a
+/// squeezed route, so any remaining route text is rendered in the model color.
+fn right_spans(fields: &[Field], palette: super::style::Palette) -> Vec<Span> {
+    let mut spans = Vec::new();
+    for (index, field) in fields.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(" · ", CellStyle::new().fg(palette.secondary)));
+        }
+        if field.route {
+            spans.extend(route_spans(field, palette));
+        } else {
+            spans.push(Span::styled(field.text.clone(), CellStyle::new().fg(palette.secondary)));
+        }
+    }
+    spans
+}
+
+fn route_spans(field: &Field, palette: super::style::Palette) -> Vec<Span> {
+    let Some((model, reasoning)) = field.text.split_once(" · ") else {
+        return vec![Span::styled(field.text.clone(), CellStyle::new().fg(palette.accent))];
+    };
+    vec![
+        Span::styled(model.to_string(), CellStyle::new().fg(palette.accent)),
+        Span::styled(" · ", CellStyle::new().fg(palette.secondary)),
+        Span::styled(reasoning.to_string(), CellStyle::new().fg(palette.reasoning)),
+    ]
 }
 
 fn total_width(left: &[Field], right: &[Field]) -> usize {

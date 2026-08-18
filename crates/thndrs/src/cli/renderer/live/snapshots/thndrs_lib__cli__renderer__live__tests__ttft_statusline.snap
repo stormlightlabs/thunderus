@@ -3,10 +3,10 @@ source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: combined
 ---
 pending:
-│     ✓ Ready                                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                                 [fg=#abb4da]=test-model · auto [-]=   [-]=  
+│     ✓ Ready                                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                                 [fg=#37f499]=test-model [fg=#abb4da]= ·  [fg=#a48cf2]=auto [-]=   [-]=  
 measured:
-│     ✓ Ready                                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                                 [fg=#abb4da]=test-model · auto [-]=   [-]=  
+│     ✓ Ready                                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                                 [fg=#37f499]=test-model [fg=#abb4da]= ·  [fg=#a48cf2]=auto [-]=   [-]=  
 retained:
-│     ✓ Ready                                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                                 [fg=#abb4da]=test-model · auto [-]=   [-]=  
+│     ✓ Ready                                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                                 [fg=#37f499]=test-model [fg=#abb4da]= ·  [fg=#a48cf2]=auto [-]=   [-]=  
 narrow:
-│     ✓ Ready                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                 [fg=#abb4da]=test-model · auto [-]=   [-]=
+│     ✓ Ready                                                test-model · auto      # [-]=   [-]=   [fg=#37f499 b]=✓ Ready [-]=                                                 [fg=#37f499]=test-model [fg=#abb4da]= ·  [fg=#a48cf2]=auto [-]=   [-]=

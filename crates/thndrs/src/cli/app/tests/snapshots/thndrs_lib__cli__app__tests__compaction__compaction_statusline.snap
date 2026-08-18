@@ -1,8 +1,8 @@
 ---
-source: crates/thndrs/src/cli/app/tests.rs
+source: crates/thndrs/src/cli/app/tests/compaction.rs
 expression: rendered_status
 ---
 normal (80):
-│     ⠋ Compacting                    opencode/big-pickle · auto · 7% ctx left      # [-]=   [-]=   [fg=#f7c67f b]=⠋ Compacting [-]=                     [fg=#abb4da]=opencode/big-pickle · auto · 7% ctx left [-]=   [-]=  
+│     ⠋ Compacting                    opencode/big-pickle · auto · 7% ctx left      # [-]=   [-]=   [fg=#f7c67f b]=⠋ Compacting [-]=                     [fg=#37f499]=opencode/big-pickle [fg=#abb4da]= ·  [fg=#a48cf2]=auto [fg=#abb4da]= ·  [fg=#abb4da]=7% ctx left [-]=   [-]=  
 narrow (40):
-│     ⠋ Compacting opencode/big-pickle      # [-]=   [-]=   [fg=#f7c67f b]=⠋ Compacting [-]=  [fg=#abb4da]=opencode/big-pickle [-]=   [-]=
+│     ⠋ Compacting opencode/big-pickle      # [-]=   [-]=   [fg=#f7c67f b]=⠋ Compacting [-]=  [fg=#37f499]=opencode/big-pickle [-]=   [-]=

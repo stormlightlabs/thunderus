@@ -179,7 +179,7 @@ pub const CATPPUCCIN_MOCHA: Palette = Palette {
     input: Color::Rgb { r: 30, g: 30, b: 46 },
     link: Color::Rgb { r: 137, g: 180, b: 250 },
     primary: Color::Rgb { r: 205, g: 214, b: 244 },
-    reasoning: Color::Rgb { r: 203, g: 166, b: 247 },
+    reasoning: Color::Rgb { r: 180, g: 190, b: 254 },
     secondary: Color::Rgb { r: 166, g: 173, b: 200 },
     selection: Color::Rgb { r: 69, g: 71, b: 90 },
     success: Color::Rgb { r: 166, g: 227, b: 161 },
