@@ -107,14 +107,32 @@ export default defineConfig({
             { label: "Session Format", slug: "docs/reference/session-format" },
           ],
         },
-        /* Development: contributor-facing internals, workflows, invariants, and test strategy */
+        /* Internals: architecture, execution flow, subsystem boundaries, and source maps. */
+        {
+          label: "Internals",
+          collapsed: true,
+          items: [
+            { label: "Architecture", slug: "docs/internals" },
+            { label: "Request Lifecycle", slug: "docs/internals/lifecycle" },
+            { label: "Runtime and State", slug: "docs/internals/runtime" },
+            { label: "Context Assembly", slug: "docs/internals/context" },
+            { label: "Providers", slug: "docs/internals/providers" },
+            { label: "Tools and MCP", slug: "docs/internals/tools" },
+            { label: "Terminal UI", slug: "docs/internals/terminal-ui" },
+            { label: "Sessions and Persistence", slug: "docs/internals/sessions" },
+            { label: "ACP Server", slug: "docs/internals/acp" },
+            { label: "Codebase Tour", slug: "docs/internals/codebase" },
+          ],
+        },
+        /* Development: contributor workflows and task-oriented guides. */
         {
           label: "Development",
           collapsed: true,
           items: [
-            { label: "Architecture", slug: "docs/development/architecture" },
             { label: "Workflow", slug: "docs/development/workflow" },
             { label: "Testing", slug: "docs/development/testing" },
+            { label: "Adding a Tool", slug: "docs/development/adding-a-tool" },
+            { label: "Adding a Provider", slug: "docs/development/adding-a-provider" },
           ],
         },
         /* Notebook: research notes and working synthesis */
