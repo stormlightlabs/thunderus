@@ -1304,6 +1304,128 @@ fn mcp_catalog_commands_use_global_sources_and_offline_metadata() {
         let effective = mcp::config::load_effective_mcp(&cli.cwd, &[]).expect("load generated project config");
         assert!(effective.blocked_project_servers.contains_key("weather"));
 
+        let project_path = cli.cwd.join(".thndrs/mcp.toml");
+        let mut inspect = Vec::new();
+        run_mcp_catalog_inspect(
+            &cli,
+            "weather",
+            crate::cli::commands::mcp::McpConfigScope::Project,
+            &mut inspect,
+        )
+        .expect("inspect catalog definition");
+        let inspect = String::from_utf8(inspect).expect("utf8");
+        assert!(inspect.contains("catalog URL: https://catalog.example"));
+        assert!(inspect.contains("metadata version: 1.2.3"));
+        assert!(inspect.contains("provenance status: current"));
+
+        let edited = std::fs::read_to_string(&project_path)
+            .expect("read generated config")
+            .replacen(
+                "url = \"https://weather.example/mcp\"\nenabled",
+                "url = \"https://manual.example/mcp\"\nenabled",
+                1,
+            );
+        std::fs::write(&project_path, edited).expect("manually edit generated transport");
+        let mut drift = Vec::new();
+        run_mcp_catalog_inspect(
+            &cli,
+            "weather",
+            crate::cli::commands::mcp::McpConfigScope::Project,
+            &mut drift,
+        )
+        .expect("inspect drifted definition");
+        let drift = String::from_utf8(drift).expect("utf8");
+        assert!(drift.contains("URL: https://manual.example/mcp"));
+        assert!(drift.contains("provenance status: historical"));
+
+        let trusted_hash = mcp::config::project_mcp_config_hash(&cli.cwd)
+            .expect("project hash")
+            .expect("hash");
+        crate::trust::trust_project_mcp(&cli.cwd, &trusted_hash).expect("trust current project config");
+        let mut newer = serde_json::from_value::<mcp::catalog::CatalogEntry>(
+            serde_json::to_value(&cache["entries"][0]).expect("entry JSON"),
+        )
+        .expect("catalog entry");
+        newer.version = "1.2.4".to_string();
+        newer.remotes[0].url = "https://weather.example/v1/mcp".to_string();
+        let cache = serde_json::json!({"retrieved_at": "2026-08-19T00:00:00Z", "entries": [newer]});
+        std::fs::write(
+            home.join(".thndrs/mcp-catalog-cache/community.json"),
+            serde_json::to_vec(&cache).expect("cache JSON"),
+        )
+        .expect("cache");
+        let update = crate::cli::commands::mcp::CatalogUpdateArgs {
+            name: "weather".to_string(),
+            scope: crate::cli::commands::mcp::McpConfigScope::Project,
+            version: "1.2.4".to_string(),
+            package: None,
+            offline: true,
+            yes: false,
+        };
+        let mut update_preview = Vec::new();
+        run_mcp_catalog_update(&cli, &update, &mut update_preview).expect("preview catalog update");
+        let update_preview = String::from_utf8(update_preview).expect("utf8");
+        assert!(update_preview.contains("offline cache; this preview cannot establish"));
+        assert!(update_preview.contains("metadata version: 1.2.3"));
+        assert!(update_preview.contains("metadata version: 1.2.4"));
+        assert!(update_preview.contains("URL: https://manual.example/mcp"));
+        assert!(update_preview.contains("URL: https://weather.example/v1/mcp"));
+        assert!(update_preview.contains("No files changed"));
+
+        let mut update_approval = Vec::new();
+        run_mcp_catalog_update(
+            &cli,
+            &crate::cli::commands::mcp::CatalogUpdateArgs { yes: true, ..update },
+            &mut update_approval,
+        )
+        .expect("approve catalog update");
+        let updated = std::fs::read_to_string(&project_path).expect("read updated config");
+        assert!(updated.contains("https://weather.example/v1/mcp"));
+        assert!(updated.contains("metadata_version = \"1.2.4\""));
+        assert!(matches!(
+            mcp::config::load_effective_mcp(&cli.cwd, &[])
+                .expect("load updated config")
+                .project_trust,
+            Some(crate::trust::ProjectMcpTrust::Stale { .. })
+        ));
+        let mut unchanged = Vec::new();
+        run_mcp_catalog_update(
+            &cli,
+            &crate::cli::commands::mcp::CatalogUpdateArgs {
+                name: "weather".to_string(),
+                scope: crate::cli::commands::mcp::McpConfigScope::Project,
+                version: "1.2.4".to_string(),
+                package: None,
+                offline: true,
+                yes: true,
+            },
+            &mut unchanged,
+        )
+        .expect("unchanged catalog update");
+        assert!(
+            String::from_utf8(unchanged)
+                .expect("utf8")
+                .contains("already matches this exact recipe. No files changed")
+        );
+
+        let cache_before_removal = std::fs::read(home.join(".thndrs/mcp-catalog-cache/community.json")).expect("cache");
+        let mut removal = Vec::new();
+        run_mcp_remove(
+            &cli,
+            "weather",
+            crate::cli::commands::mcp::McpConfigScope::Project,
+            &mut removal,
+        )
+        .expect("remove catalog definition");
+        let removed = std::fs::read_to_string(&project_path).expect("read removed config");
+        assert!(!removed.contains("[servers.weather]"));
+        assert!(!removed.contains("[provenance.weather]"));
+        assert_eq!(
+            std::fs::read(home.join(".thndrs/mcp-catalog-cache/community.json")).expect("cache"),
+            cache_before_removal,
+            "removal must not clear external or catalog caches"
+        );
+
         mcp::catalog::set_source_enabled("official", false).expect("disable official");
         assert!(
             std::fs::read_to_string(home.join(".thndrs/mcp-catalogs.toml"))

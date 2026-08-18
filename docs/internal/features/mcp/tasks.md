@@ -137,20 +137,20 @@ configuration diff. Keep external package state outside thndrs ownership.
 
 **Acceptance criteria:**
 
-- [ ] Inspection reports the stored catalog URL, entry identity and metadata
+- [x] Inspection reports the stored catalog URL, entry identity and metadata
       version, retrieval time, package or remote origin, exact version, supplied
       digest, and generated transport configuration.
-- [ ] A manual change to generated transport fields is visible and prevents
+- [x] A manual change to generated transport fields is visible and prevents
       thndrs from presenting the old projection as current catalog provenance.
-- [ ] Update resolves one new exact recipe and shows source, version, digest,
+- [x] Update resolves one new exact recipe and shows source, version, digest,
       command, environment-name, and transport changes before approval.
-- [ ] Cancellation and resolution failure preserve the current definition;
+- [x] Cancellation and resolution failure preserve the current definition;
       approval uses validated atomic replacement and causes project trust to
       become stale when the project configuration hash changes.
-- [ ] Update never executes the server or package manager. Removal deletes the
+- [x] Update never executes the server or package manager. Removal deletes the
       definition and its provenance without uninstalling packages or clearing
       external caches.
-- [ ] Offline mode can inspect stored provenance and configuration but cannot
+- [x] Offline mode can inspect stored provenance and configuration but cannot
       claim that a newer version is available without current catalog data.
 
 **Verification:**

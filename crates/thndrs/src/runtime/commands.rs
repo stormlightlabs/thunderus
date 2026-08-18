@@ -872,6 +872,8 @@ fn run_mcp_catalog_command<W: io::Write>(
             run_mcp_catalog_show(&args.name, args.source.as_deref(), &args.version, args.offline, writer)
         }
         McpCatalogCommand::Configure(args) => run_mcp_catalog_configure(cli, args, writer),
+        McpCatalogCommand::Inspect(args) => run_mcp_catalog_inspect(cli, &args.name, args.scope, writer),
+        McpCatalogCommand::Update(args) => run_mcp_catalog_update(cli, args, writer),
     }
 }
 
@@ -1122,6 +1124,304 @@ pub(crate) fn run_mcp_catalog_configure<W: io::Write>(
         )?;
     }
     Ok(())
+}
+
+pub(crate) fn run_mcp_catalog_inspect<W: io::Write>(
+    cli: &Cli, name: &str, scope: crate::cli::commands::mcp::McpConfigScope, writer: &mut W,
+) -> io::Result<()> {
+    let (path, _, server, provenance) = catalog_definition(cli, name, scope)?;
+    let provenance_is_intact = catalog_provenance_is_intact(&provenance);
+    let projection_is_current = provenance_is_intact && server == provenance.generated_transport;
+
+    writeln!(writer, "catalog-derived MCP server `{name}` ({})", scope_label(scope))?;
+    writeln!(writer, "configuration: {}", path.display())?;
+    render_catalog_provenance(&provenance, writer)?;
+    writeln!(
+        writer,
+        "generated transport configuration (recorded at configuration time):"
+    )?;
+    render_transport_configuration(&provenance.generated_transport, writer, "  ")?;
+    writeln!(writer, "current transport configuration:")?;
+    render_transport_configuration(&server, writer, "  ")?;
+    if !provenance_is_intact {
+        writeln!(
+            writer,
+            "provenance status: inconsistent; the stored generated transport no longer matches its recorded fingerprint. It is not current catalog provenance."
+        )?;
+    } else if projection_is_current {
+        writeln!(
+            writer,
+            "provenance status: current; the configured transport matches the recorded catalog projection."
+        )?;
+    } else {
+        writeln!(
+            writer,
+            "provenance status: historical; generated transport fields were manually changed after catalog configuration. The recorded projection is not current catalog provenance."
+        )?;
+    }
+    writeln!(
+        writer,
+        "This inspection reads stored configuration only. It does not contact a catalog or MCP server, execute a command, or invoke a package manager."
+    )
+}
+
+pub(crate) fn run_mcp_catalog_update<W: io::Write>(
+    cli: &Cli, args: &crate::cli::commands::mcp::CatalogUpdateArgs, writer: &mut W,
+) -> io::Result<()> {
+    let (path, target, current_server, current_provenance) = catalog_definition(cli, &args.name, args.scope)?;
+    if !catalog_provenance_is_intact(&current_provenance) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the stored catalog provenance is inconsistent; inspect it and configure a new definition instead of updating it",
+        ));
+    }
+    let detail = mcp::catalog::detail(
+        &current_provenance.entry_name,
+        Some(&current_provenance.catalog_name),
+        &args.version,
+        args.offline,
+    )
+    .map_err(io::Error::other)?;
+    let selected = detail
+        .results
+        .iter()
+        .flat_map(|result| {
+            result.entries.iter().map(move |entry| {
+                (
+                    result.source.clone(),
+                    entry.clone(),
+                    result
+                        .retrieved_at
+                        .clone()
+                        .unwrap_or_else(crate::utils::datetime::now_iso8601),
+                    result.from_cache,
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    let (source, entry, retrieved_at, from_cache) = match selected.as_slice() {
+        [] => {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "no catalog metadata found for stored entry `{}` from `{}`",
+                    current_provenance.entry_name, current_provenance.catalog_name
+                ),
+            ));
+        }
+        [selected] => selected.clone(),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "catalog selection is ambiguous; pass an exact `--version` to select one metadata record",
+            ));
+        }
+    };
+    let transport = match current_provenance.generated_transport.transport {
+        mcp::config::McpTransport::Stdio => mcp::recipe::CatalogRecipeTransport::Stdio,
+        mcp::config::McpTransport::StreamableHttp => mcp::recipe::CatalogRecipeTransport::StreamableHttp,
+    };
+    let package_identifier = args
+        .package
+        .as_deref()
+        .or(current_provenance.package_identifier.as_deref());
+    let recipe = mcp::recipe::resolve(&source, &entry, transport, package_identifier, retrieved_at)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+
+    writeln!(
+        writer,
+        "catalog update for MCP server `{}` ({})",
+        args.name,
+        scope_label(args.scope)
+    )?;
+    writeln!(writer, "configuration: {}", path.display())?;
+    if from_cache {
+        writeln!(
+            writer,
+            "metadata source: offline cache; this preview cannot establish that a newer catalog recipe is available."
+        )?;
+    }
+    render_catalog_update_diff(
+        &current_provenance,
+        &current_server,
+        &recipe.provenance,
+        &recipe.server,
+        writer,
+    )?;
+    writeln!(
+        writer,
+        "thndrs did not contact the proposed MCP server, execute a command, invoke a package manager, or modify package caches."
+    )?;
+
+    if catalog_recipe_matches(&current_provenance, &current_server, &recipe) {
+        return writeln!(
+            writer,
+            "The current definition already matches this exact recipe. No files changed."
+        );
+    }
+    if !args.yes {
+        return writeln!(
+            writer,
+            "No files changed. Review this replacement, then rerun with `--yes` to write it."
+        );
+    }
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let path = mcp::edit::add_catalog_server(&workspace, target, &args.name, recipe.server, recipe.provenance)?;
+    writeln!(
+        writer,
+        "updated catalog-derived MCP server `{}` in {}",
+        args.name,
+        path.display()
+    )?;
+    if args.scope == crate::cli::commands::mcp::McpConfigScope::Project {
+        writeln!(
+            writer,
+            "The project MCP configuration changed. Inspect it with `thndrs mcp status`, then run `thndrs mcp trust` before it can be activated."
+        )?;
+    }
+    Ok(())
+}
+
+fn catalog_definition(
+    cli: &Cli, name: &str, scope: crate::cli::commands::mcp::McpConfigScope,
+) -> io::Result<(
+    PathBuf,
+    mcp::edit::McpConfigTarget,
+    mcp::config::McpServerConfig,
+    mcp::config::McpCatalogProvenance,
+)> {
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let target = mcp_config_target(scope);
+    let path = match target {
+        mcp::edit::McpConfigTarget::Global => mcp::config::global_mcp_config_path().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "could not determine the home directory for global MCP configuration",
+            )
+        })?,
+        mcp::edit::McpConfigTarget::Project => mcp::config::project_mcp_config_path(&workspace),
+    };
+    let config = mcp::config::read_mcp_config_file(&path).map_err(io::Error::other)?;
+    let server = config.servers.get(name).cloned().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("MCP server `{name}` is not configured"),
+        )
+    })?;
+    let provenance = config.provenance.get(name).cloned().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("MCP server `{name}` is not catalog-derived"),
+        )
+    })?;
+    Ok((path, target, server, provenance))
+}
+
+fn catalog_provenance_is_intact(provenance: &mcp::config::McpCatalogProvenance) -> bool {
+    mcp::recipe::transport_fingerprint(&provenance.generated_transport) == provenance.generated_transport_sha256
+}
+
+fn catalog_recipe_matches(
+    current_provenance: &mcp::config::McpCatalogProvenance, current_server: &mcp::config::McpServerConfig,
+    recipe: &mcp::recipe::CatalogRecipe,
+) -> bool {
+    current_server == &recipe.server
+        && current_provenance.catalog_url == recipe.provenance.catalog_url
+        && current_provenance.catalog_name == recipe.provenance.catalog_name
+        && current_provenance.entry_name == recipe.provenance.entry_name
+        && current_provenance.metadata_version == recipe.provenance.metadata_version
+        && current_provenance.origin_type == recipe.provenance.origin_type
+        && current_provenance.origin == recipe.provenance.origin
+        && current_provenance.package_version == recipe.provenance.package_version
+        && current_provenance.package_identifier == recipe.provenance.package_identifier
+        && current_provenance.supplied_sha256 == recipe.provenance.supplied_sha256
+        && current_provenance.digest_status == recipe.provenance.digest_status
+        && current_provenance.generated_transport == recipe.provenance.generated_transport
+        && current_provenance.generated_transport_sha256 == recipe.provenance.generated_transport_sha256
+}
+
+fn render_catalog_provenance<W: io::Write>(
+    provenance: &mcp::config::McpCatalogProvenance, writer: &mut W,
+) -> io::Result<()> {
+    writeln!(writer, "catalog URL: {}", provenance.catalog_url)?;
+    writeln!(writer, "catalog: {}", provenance.catalog_name)?;
+    writeln!(writer, "entry identity: {}", provenance.entry_name)?;
+    writeln!(writer, "metadata version: {}", provenance.metadata_version)?;
+    writeln!(writer, "retrieved: {}", provenance.retrieved_at)?;
+    writeln!(writer, "origin: {} ({})", provenance.origin_type, provenance.origin)?;
+    writeln!(
+        writer,
+        "exact package version: {}",
+        provenance.package_version.as_deref().unwrap_or("not applicable")
+    )?;
+    writeln!(
+        writer,
+        "package identifier: {}",
+        provenance.package_identifier.as_deref().unwrap_or("not applicable")
+    )?;
+    writeln!(
+        writer,
+        "supplied digest: {}",
+        provenance.supplied_sha256.as_deref().unwrap_or("not supplied")
+    )?;
+    writeln!(writer, "digest status: {}", provenance.digest_status)
+}
+
+fn render_catalog_update_diff<W: io::Write>(
+    current_provenance: &mcp::config::McpCatalogProvenance, current_server: &mcp::config::McpServerConfig,
+    next_provenance: &mcp::config::McpCatalogProvenance, next_server: &mcp::config::McpServerConfig, writer: &mut W,
+) -> io::Result<()> {
+    writeln!(writer, "stored catalog provenance:")?;
+    render_catalog_provenance(current_provenance, writer)?;
+    writeln!(writer, "resolved catalog provenance:")?;
+    render_catalog_provenance(next_provenance, writer)?;
+    writeln!(writer, "current transport configuration:")?;
+    render_transport_configuration(current_server, writer, "  ")?;
+    writeln!(writer, "resolved transport configuration:")?;
+    render_transport_configuration(next_server, writer, "  ")
+}
+
+fn render_transport_configuration<W: io::Write>(
+    server: &mcp::config::McpServerConfig, writer: &mut W, indent: &str,
+) -> io::Result<()> {
+    match server.transport {
+        mcp::config::McpTransport::Stdio => {
+            writeln!(writer, "{indent}transport: stdio")?;
+            writeln!(
+                writer,
+                "{indent}command: {}",
+                command_preview(&server.command, &server.args)
+            )?;
+            writeln!(
+                writer,
+                "{indent}environment variable names: {}",
+                if server.env.is_empty() {
+                    "none".to_string()
+                } else {
+                    server.env.keys().cloned().collect::<Vec<_>>().join(", ")
+                }
+            )?;
+        }
+        mcp::config::McpTransport::StreamableHttp => {
+            writeln!(writer, "{indent}transport: streamable_http")?;
+            writeln!(
+                writer,
+                "{indent}URL: {}",
+                server.url.as_deref().unwrap_or("not configured")
+            )?;
+            writeln!(
+                writer,
+                "{indent}header names: {}",
+                if server.headers.is_empty() {
+                    "none".to_string()
+                } else {
+                    server.headers.keys().cloned().collect::<Vec<_>>().join(", ")
+                }
+            )?;
+        }
+    }
+    writeln!(writer, "{indent}enabled: {}", server.enabled)?;
+    writeln!(writer, "{indent}timeout_secs: {}", server.timeout_secs)
 }
 
 fn command_preview(command: &str, args: &[String]) -> String {

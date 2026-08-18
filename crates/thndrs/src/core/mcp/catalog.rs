@@ -410,7 +410,7 @@ pub fn detail(name: &str, source_name: Option<&str>, version: &str, offline: boo
             continue;
         }
         if offline {
-            match cached_detail(&source, name) {
+            match cached_detail(&source, name, version) {
                 Ok(result) => search.results.push(result),
                 Err(error) => search.diagnostics.push(format!("catalog `{}`: {error}", source.name)),
             }
@@ -425,7 +425,7 @@ pub fn detail(name: &str, source_name: Option<&str>, version: &str, offline: boo
                 }
                 search.results.push(result);
             }
-            Err(error) => match cached_detail(&source, name) {
+            Err(error) => match cached_detail(&source, name, version) {
                 Ok(result) => {
                     search.diagnostics.push(format!(
                         "catalog `{}`: {error}; using cached metadata from {}",
@@ -564,15 +564,20 @@ fn cached_search(source: &CatalogSource, query: &str) -> Result<CatalogSearchRes
     })
 }
 
-fn cached_detail(source: &CatalogSource, name: &str) -> Result<CatalogSearchResult, String> {
+fn cached_detail(source: &CatalogSource, name: &str, version: &str) -> Result<CatalogSearchResult, String> {
     let cache = read_cache(source)?;
     let entries = cache
         .entries
         .into_iter()
         .filter(|entry| entry.name == name)
+        .filter(|entry| version == "latest" || entry.version == version)
         .collect::<Vec<_>>();
     if entries.is_empty() {
-        return Err(format!("no cached metadata for `{name}`"));
+        return Err(if version == "latest" {
+            format!("no cached metadata for `{name}`")
+        } else {
+            format!("no cached metadata for `{name}` at version `{version}`")
+        });
     }
     Ok(CatalogSearchResult {
         source: source.clone(),
@@ -1053,7 +1058,11 @@ mod tests {
         let search = cached_search(&source, "weather").unwrap();
         assert!(search.from_cache);
         assert_eq!(search.entries.len(), 1);
-        assert!(cached_detail(&source, "io.example/weather").unwrap().from_cache);
+        assert!(
+            cached_detail(&source, "io.example/weather", "latest")
+                .unwrap()
+                .from_cache
+        );
 
         unsafe {
             if let Some(home) = old_home {

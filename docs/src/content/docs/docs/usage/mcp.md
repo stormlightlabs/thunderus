@@ -74,9 +74,43 @@ have one concrete URL and no catalog-supplied header values.
 
 The generated definition records catalog provenance beside the server:
 metadata source and retrieval time, entry and package version, origin, supplied
-digest, and the generated transport fingerprint. A supplied digest is a catalog
-assertion unless the launcher itself enforces an image digest. thndrs does not
-download an artifact or claim to verify one.
+digest, selected package identifier, and the generated transport fingerprint. A
+supplied digest is a catalog assertion unless the launcher itself enforces an
+image digest. thndrs does not download an artifact or claim to verify one.
+
+## Inspect and Update a Catalog Definition
+
+Inspect the stored provenance and compare its generated transport with the
+current definition before changing a catalog-derived server:
+
+```sh
+thndrs mcp catalog inspect weather --scope project
+```
+
+If the transport fields were edited manually, inspection shows both versions and
+marks the recorded projection as historical rather than current catalog
+provenance. Inspection works offline because it reads only the MCP file.
+
+Resolve a replacement from the same stored catalog and entry with `update`.
+The first command shows the stored and replacement source, version, digest,
+origin, command or endpoint, environment-variable names, and transport
+configuration; it does not change files.
+
+```sh
+thndrs mcp catalog update weather --scope project
+thndrs mcp catalog update weather --scope project --yes
+```
+
+Use `--version <exact-version>` to review a particular catalog metadata record.
+For a package variant that is no longer unambiguous, use `--package
+<identifier>`. `--offline` resolves only cached metadata and clearly cannot
+establish that a newer recipe is available. Approval atomically replaces the
+definition and provenance. A project replacement changes the configuration hash,
+so it requires a new `thndrs mcp trust` decision before activation.
+
+Updates and removal only edit thndrs configuration. They never run a server or
+package manager, install or uninstall packages, or clear package and container
+caches.
 
 ## Add a Server
 

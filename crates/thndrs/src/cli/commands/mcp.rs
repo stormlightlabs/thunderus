@@ -56,6 +56,10 @@ pub enum McpCatalogCommand {
     Show(CatalogShowArgs),
     /// Resolve catalog metadata into a reviewable MCP server definition.
     Configure(CatalogConfigureArgs),
+    /// Inspect the stored provenance and current configuration of a catalog-derived definition.
+    Inspect(CatalogInspectArgs),
+    /// Resolve and review a replacement for a catalog-derived definition.
+    Update(CatalogUpdateArgs),
 }
 
 /// Query options shared by catalog search.
@@ -88,6 +92,38 @@ pub struct CatalogShowArgs {
     /// Use only the last successful metadata snapshot.
     #[arg(long)]
     pub offline: bool,
+}
+
+/// Options for inspecting one catalog-derived definition.
+#[derive(Args, Clone, Debug, Eq, PartialEq)]
+pub struct CatalogInspectArgs {
+    /// Local name of the catalog-derived MCP definition.
+    pub name: String,
+    /// Configuration file that contains the definition.
+    #[arg(long, value_enum)]
+    pub scope: McpConfigScope,
+}
+
+/// Options for replacing one catalog-derived MCP definition.
+#[derive(Args, Clone, Debug, Eq, PartialEq)]
+pub struct CatalogUpdateArgs {
+    /// Local name of the catalog-derived MCP definition.
+    pub name: String,
+    /// Configuration file that contains the definition.
+    #[arg(long, value_enum)]
+    pub scope: McpConfigScope,
+    /// Exact catalog metadata version to resolve. `latest` resolves the current entry version.
+    #[arg(long, default_value = "latest")]
+    pub version: String,
+    /// Select a stdio package identifier when the stored variant is unavailable or ambiguous.
+    #[arg(long)]
+    pub package: Option<String>,
+    /// Use only cached catalog metadata. This cannot establish that a newer recipe is available.
+    #[arg(long)]
+    pub offline: bool,
+    /// Write the reviewed replacement. Without this flag, thndrs only prints the diff.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 /// Options for configuring one selected catalog entry.

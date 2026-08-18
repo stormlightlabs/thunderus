@@ -93,6 +93,9 @@ pub struct McpCatalogProvenance {
     pub origin: String,
     /// Exact package version, when the recipe uses a package.
     pub package_version: Option<String>,
+    /// Selected package identifier, when the recipe uses a package.
+    #[serde(default)]
+    pub package_identifier: Option<String>,
     /// Digest supplied by the catalog, when present.
     pub supplied_sha256: Option<String>,
     /// How the selected launcher treats the supplied digest.
@@ -398,6 +401,11 @@ fn mcp_project_path_display(path: &Path, workspace: &Path) -> String {
         return rel.display().to_string();
     }
     path.display().to_string()
+}
+
+/// Read and validate an MCP configuration file without applying scope, trust, or environment policy.
+pub(crate) fn read_mcp_config_file(path: &Path) -> Result<McpConfig, ConfigError> {
+    load_mcp_file(path).map(|(config, _)| config)
 }
 
 fn load_mcp_file(path: &Path) -> Result<(McpConfig, String), ConfigError> {

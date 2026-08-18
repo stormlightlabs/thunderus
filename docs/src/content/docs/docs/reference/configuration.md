@@ -340,8 +340,18 @@ Use `thndrs mcp catalog configure <entry> --name <local-name> --scope
 recipe. Add `--yes` to write it. The preview shows the selected catalog,
 publisher claim, origin, exact version, supplied digest, command or URL,
 environment-variable names, and destination path. Generated definitions record
-that metadata and a transport fingerprint under `[provenance.<local-name>]` in
-the MCP file. Project definitions remain blocked until `thndrs mcp trust`.
+that metadata, the selected package identifier, and a transport fingerprint
+under `[provenance.<local-name>]` in the MCP file. Project definitions remain
+blocked until `thndrs mcp trust`.
+
+Use `thndrs mcp catalog inspect <local-name> --scope <global|project>` to read
+that stored provenance and compare its generated transport with the current
+server definition. Manual transport edits mark the recorded projection as
+historical. Use `thndrs mcp catalog update <local-name> --scope
+<global|project> [--version <version>] [--offline] [--yes]` to preview or
+atomically replace it with one newly resolved exact recipe. An offline preview
+uses cached metadata and does not claim that a newer recipe exists. Update and
+removal leave package-manager, container, and MCPB caches untouched.
 
 Catalog claims about a publisher, curation, version, or digest do not verify
 software. Catalog access does not configure a server, grant project trust,

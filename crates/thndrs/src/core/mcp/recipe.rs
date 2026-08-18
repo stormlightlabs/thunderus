@@ -99,6 +99,7 @@ fn resolve_package(
             "package",
             package_origin(package),
             Some(version),
+            Some(&package.identifier),
             package.sha256.clone(),
             &server,
         ),
@@ -143,6 +144,7 @@ fn resolve_remote(
             retrieved_at,
             "remote",
             remote_host(&url)?,
+            None,
             None,
             None,
             &server,
@@ -299,7 +301,8 @@ fn package_origin(package: &CatalogPackage) -> String {
 
 fn provenance(
     source: &CatalogSource, entry: &CatalogEntry, retrieved_at: String, origin_type: &str, origin: String,
-    package_version: Option<&str>, supplied_sha256: Option<String>, server: &McpServerConfig,
+    package_version: Option<&str>, package_identifier: Option<&str>, supplied_sha256: Option<String>,
+    server: &McpServerConfig,
 ) -> McpCatalogProvenance {
     McpCatalogProvenance {
         catalog_url: source.url.clone(),
@@ -310,6 +313,7 @@ fn provenance(
         origin_type: origin_type.to_string(),
         origin,
         package_version: package_version.map(str::to_string),
+        package_identifier: package_identifier.map(str::to_string),
         supplied_sha256,
         digest_status: "catalog assertion; thndrs did not download or verify this artifact".to_string(),
         generated_transport_sha256: transport_fingerprint(server),
@@ -317,7 +321,8 @@ fn provenance(
     }
 }
 
-fn transport_fingerprint(server: &McpServerConfig) -> String {
+/// Return the stable fingerprint used to bind catalog provenance to its generated transport.
+pub(crate) fn transport_fingerprint(server: &McpServerConfig) -> String {
     let value = serde_json::to_vec(server).unwrap_or_default();
     let mut hasher = Sha256::new();
     hasher.update(value);

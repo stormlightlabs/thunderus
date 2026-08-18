@@ -122,6 +122,14 @@ stdout is protocol-only; diagnostics go to stderr.
   <global|project> --transport <stdio|streamable-http> [--source <name>]
   [--package <identifier>] [--offline] [--yes]`: preview one exact catalog
   recipe, or write it with provenance after review and `--yes`.
+- `thndrs mcp catalog inspect <local-name> --scope <global|project>`: show
+  stored catalog provenance, its generated transport, and any manual transport
+  drift without contacting a catalog or server.
+- `thndrs mcp catalog update <local-name> --scope <global|project> [--version
+  <version>] [--package <identifier>] [--offline] [--yes]`: compare a newly
+  resolved exact recipe with the current definition, or atomically replace it
+  after review and `--yes`. Offline metadata cannot establish that a newer
+  recipe is available.
 - `thndrs mcp add <name> --scope <global|project> --command <command> [--arg <arg>]...`:
   add or replace a stdio definition without installing or starting it.
 - `thndrs mcp add <name> --scope <global|project> --url <url>`: add or replace

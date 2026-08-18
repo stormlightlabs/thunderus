@@ -50,6 +50,9 @@ pub(crate) fn add_catalog_server(
         if let Some(package_version) = &provenance.package_version {
             table["package_version"] = value(package_version.clone());
         }
+        if let Some(package_identifier) = &provenance.package_identifier {
+            table["package_identifier"] = value(package_identifier.clone());
+        }
         if let Some(supplied_sha256) = &provenance.supplied_sha256 {
             table["supplied_sha256"] = value(supplied_sha256.clone());
         }
