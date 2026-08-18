@@ -363,6 +363,46 @@ pub struct DiffDetailView {
     pub lines: Vec<String>,
 }
 
+/// Semantic project MCP trust decision surface.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct McpTrustView {
+    pub action: McpTrustAction,
+    pub workspace: String,
+    pub config_path: String,
+    pub hash: String,
+    pub servers: Vec<McpTrustServerView>,
+    pub selected: usize,
+}
+
+impl From<&McpTrustSurface> for McpTrustView {
+    fn from(surface: &McpTrustSurface) -> Self {
+        Self {
+            action: surface.action,
+            workspace: surface.workspace.clone(),
+            config_path: surface.config_path.clone(),
+            hash: surface.hash.clone(),
+            servers: surface
+                .servers
+                .iter()
+                .map(|server| McpTrustServerView {
+                    name: server.name.clone(),
+                    transport: format!("{:?}", server.transport),
+                    replaces_global: server.replaces_global,
+                })
+                .collect(),
+            selected: surface.selected,
+        }
+    }
+}
+
+/// One project MCP definition in the trust decision.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct McpTrustServerView {
+    pub name: String,
+    pub transport: String,
+    pub replaces_global: bool,
+}
+
 /// Setup/recovery form semantic state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SetupFormView {

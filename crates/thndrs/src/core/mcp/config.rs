@@ -99,6 +99,8 @@ pub struct EffectiveMcpConfig {
     pub blocked_project_servers: BTreeMap<String, BlockedMcpServer>,
     /// Trust state for the discovered project MCP configuration, when present.
     pub project_trust: Option<ProjectMcpTrust>,
+    /// Project definition names that replace global definitions when active.
+    pub project_overrides_global: BTreeSet<String>,
     /// Non-fatal loading diagnostics.
     pub diagnostics: Vec<String>,
 }
@@ -195,6 +197,7 @@ pub fn load_effective_mcp(workspace: &Path, env_vars: &[(String, String)]) -> Re
     let mut server_sources = BTreeMap::new();
     let mut blocked_project_servers = BTreeMap::new();
     let mut project_trust = None;
+    let mut project_overrides_global = BTreeSet::new();
     let mut diagnostics = Vec::new();
 
     if let Some(global_path) = global_mcp_config_path()
@@ -226,6 +229,12 @@ pub fn load_effective_mcp(workspace: &Path, env_vars: &[(String, String)]) -> Re
             display_path: Some(display_path),
             hash: Some(hash.clone()),
         });
+        project_overrides_global = project_config
+            .servers
+            .keys()
+            .filter(|name| merged.servers.contains_key(*name))
+            .cloned()
+            .collect();
         let trust = match trust::project_mcp_trust(workspace, &hash) {
             Ok(trust) => trust,
             Err(error) => {
@@ -280,6 +289,7 @@ pub fn load_effective_mcp(workspace: &Path, env_vars: &[(String, String)]) -> Re
         server_sources,
         blocked_project_servers,
         project_trust,
+        project_overrides_global,
         diagnostics,
     })
 }
@@ -775,6 +785,7 @@ mod tests {
             server_sources: BTreeMap::new(),
             blocked_project_servers: BTreeMap::new(),
             project_trust: Some(ProjectMcpTrust::Untrusted),
+            project_overrides_global: BTreeSet::new(),
             diagnostics: Vec::new(),
         };
         effective.config.servers.insert(

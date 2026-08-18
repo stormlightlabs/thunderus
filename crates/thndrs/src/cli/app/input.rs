@@ -30,6 +30,7 @@ pub enum InputFocus {
     Queue,
     Setup,
     Permission,
+    McpTrust,
 }
 
 /// A key binding that is independent of terminal event kind and state.
@@ -255,6 +256,8 @@ pub fn input_focus(app: &App) -> InputFocus {
         InputFocus::Permission
     } else if app.overlay.setup().is_some() {
         InputFocus::Setup
+    } else if app.overlay.mcp_trust().is_some() {
+        InputFocus::McpTrust
     } else if app.overlay.is_detail() {
         InputFocus::Detail
     } else if app.overlay.transcript_search().is_some() {
@@ -374,6 +377,13 @@ fn default_key_action(app: &App, focus: InputFocus, key: KeyEvent) -> Option<Act
             KeyCode::Enter => Some(Action::Confirm),
             KeyCode::Backspace if !control && !alt => Some(Action::Backspace),
             KeyCode::Char(ch) if !control && !alt => Some(Action::InsertText(ch.to_string())),
+            _ => None,
+        },
+        InputFocus::McpTrust => match key.code {
+            KeyCode::Esc => Some(Action::Cancel),
+            KeyCode::Up => Some(Action::SelectPrevious),
+            KeyCode::Down => Some(Action::SelectNext),
+            KeyCode::Enter => Some(Action::Confirm),
             _ => None,
         },
         InputFocus::Detail => match key.code {
@@ -735,6 +745,9 @@ pub fn handle_action(app: &mut App, action: Action) -> Option<Msg> {
             }
             if app.overlay.setup().is_some() {
                 return handle_first_run_action(app, action);
+            }
+            if app.overlay.mcp_trust().is_some() {
+                return super::commands::handle_mcp_trust_action(app, action);
             }
             if app.overlay.is_detail() {
                 return handle_detail_action(app, &action);

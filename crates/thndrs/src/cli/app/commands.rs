@@ -20,6 +20,9 @@ const COMMANDS: &[(&str, &str)] = &[
     ("model", "switch model"),
     ("reasoning", "set reasoning effort"),
     ("skills", "browse loaded skills"),
+    ("mcp", "inspect configured MCP servers"),
+    ("mcp trust", "review and trust project MCP configuration"),
+    ("mcp revoke", "revoke project MCP trust"),
     ("context", "inspect context lifecycle"),
     ("context request", "inspect a provider request"),
     ("context verify", "review a verification relation"),
@@ -130,6 +133,14 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
 
     if command == "mcp" {
         list_mcp_servers(app);
+        return None;
+    }
+    if command == "mcp trust" {
+        open_mcp_trust_surface(app);
+        return None;
+    }
+    if command == "mcp revoke" {
+        revoke_mcp_trust(app);
         return None;
     }
     if command == "mcp tools" {
@@ -585,6 +596,228 @@ fn cancel_background_process(app: &mut App, id_text: &str) -> Option<Msg> {
             .push(Entry::Error { text: format!("background process [{id}] is not running") });
     }
     None
+}
+
+fn open_mcp_trust_surface(app: &mut App) {
+    let effective = match load_mcp_for_tui(app) {
+        Ok(effective) => effective,
+        Err(error) => {
+            app.transcript.entries.push(Entry::Error { text: error });
+            return;
+        }
+    };
+    let Some(surface) = mcp_trust_surface(&effective, &app.runtime.cwd, McpTrustAction::Trust) else {
+        app.transcript
+            .entries
+            .push(Entry::Error { text: "project MCP configuration `.thndrs/mcp.toml` not found".to_string() });
+        return;
+    };
+    match effective.project_trust {
+        Some(crate::trust::ProjectMcpTrust::Trusted) => app.transcript.entries.push(Entry::Status {
+            text: "project MCP configuration is already trusted; use /mcp revoke to deactivate it".to_string(),
+        }),
+        Some(crate::trust::ProjectMcpTrust::Untrusted | crate::trust::ProjectMcpTrust::Stale { .. }) => {
+            app.overlay.show_mcp_trust(surface);
+        }
+        None => app
+            .transcript
+            .entries
+            .push(Entry::Error { text: "project MCP configuration `.thndrs/mcp.toml` not found".to_string() }),
+    }
+}
+
+fn revoke_mcp_trust(app: &mut App) {
+    let effective = match load_mcp_for_tui(app) {
+        Ok(effective) => effective,
+        Err(error) => {
+            app.transcript.entries.push(Entry::Error { text: error });
+            return;
+        }
+    };
+    let Some(surface) = mcp_trust_surface(&effective, &app.runtime.cwd, McpTrustAction::Revoke) else {
+        app.transcript
+            .entries
+            .push(Entry::Error { text: "project MCP configuration `.thndrs/mcp.toml` not found".to_string() });
+        return;
+    };
+    match effective.project_trust {
+        Some(crate::trust::ProjectMcpTrust::Trusted) if !surface.servers.is_empty() => {
+            app.overlay.show_mcp_trust(surface);
+        }
+        Some(crate::trust::ProjectMcpTrust::Trusted) => finish_mcp_revoke(app),
+        Some(crate::trust::ProjectMcpTrust::Untrusted | crate::trust::ProjectMcpTrust::Stale { .. }) => {
+            finish_mcp_revoke(app);
+        }
+        None => app
+            .transcript
+            .entries
+            .push(Entry::Error { text: "project MCP configuration `.thndrs/mcp.toml` not found".to_string() }),
+    }
+}
+
+pub(super) fn handle_mcp_trust_action(app: &mut App, action: Action) -> Option<Msg> {
+    match action {
+        Action::SelectPrevious => {
+            if let Some(surface) = app.overlay.mcp_trust_mut() {
+                surface.selected = surface.selected.saturating_sub(1);
+            }
+        }
+        Action::SelectNext => {
+            if let Some(surface) = app.overlay.mcp_trust_mut() {
+                surface.selected = (surface.selected + 1).min(1);
+            }
+        }
+        Action::Cancel | Action::CloseOverlay => app.overlay.close(),
+        Action::Confirm => {
+            let Some(surface) = app.overlay.mcp_trust().cloned() else {
+                return None;
+            };
+            app.overlay.close();
+            if surface.selected == 0 {
+                match surface.action {
+                    McpTrustAction::Trust => finish_mcp_trust(app, &surface),
+                    McpTrustAction::Revoke => finish_mcp_revoke(app),
+                }
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+fn finish_mcp_trust(app: &mut App, surface: &McpTrustSurface) {
+    let current_hash = match mcp::config::project_mcp_config_hash(&app.runtime.cwd) {
+        Ok(Some(hash)) => hash,
+        Ok(None) => {
+            app.transcript
+                .entries
+                .push(Entry::Error { text: "project MCP configuration was removed before approval".to_string() });
+            return;
+        }
+        Err(error) => {
+            app.transcript
+                .entries
+                .push(Entry::Error { text: format!("could not re-read project MCP configuration: {error}") });
+            return;
+        }
+    };
+    if current_hash != surface.hash {
+        app.transcript.entries.push(Entry::Error {
+            text:
+                "project MCP configuration changed since review and remains blocked; run /mcp trust to review it again"
+                    .to_string(),
+        });
+        return;
+    }
+    if let Err(error) = crate::trust::trust_project_mcp(&app.runtime.cwd, &surface.hash) {
+        app.transcript
+            .entries
+            .push(Entry::Error { text: format!("could not trust project MCP configuration: {error}") });
+        return;
+    }
+    match load_mcp_for_tui(app) {
+        Ok(effective) => {
+            let count = mcp::config::server_statuses(&effective)
+                .into_iter()
+                .filter(|server| server.source == crate::config::ConfigSource::ProjectFile)
+                .count();
+            app.transcript.entries.push(Entry::Status {
+                text: format!(
+                    "trusted project MCP configuration ({}) and reloaded {count} project server(s); servers remain stopped until needed",
+                    short_hash(&surface.hash)
+                ),
+            });
+        }
+        Err(error) => app.transcript.entries.push(Entry::Error {
+            text: format!(
+                "trusted project MCP configuration ({}) but could not reload it: {error}",
+                short_hash(&surface.hash)
+            ),
+        }),
+    }
+}
+
+fn finish_mcp_revoke(app: &mut App) {
+    match crate::trust::revoke_project_mcp_trust(&app.runtime.cwd) {
+        Ok(true) => match load_mcp_for_tui(app) {
+            Ok(effective) => {
+                let blocked = mcp::config::server_statuses(&effective)
+                    .into_iter()
+                    .filter(|server| server.state == mcp::config::McpLifecycleState::BlockedByTrust)
+                    .count();
+                app.transcript.entries.push(Entry::Status {
+                    text: format!("revoked project MCP trust; {blocked} project server(s) are blocked by trust"),
+                });
+            }
+            Err(error) => app.transcript.entries.push(Entry::Error {
+                text: format!("revoked project MCP trust but could not reload configuration: {error}"),
+            }),
+        },
+        Ok(false) => app
+            .transcript
+            .entries
+            .push(Entry::Status { text: "project MCP trust was not set".to_string() }),
+        Err(error) => app
+            .transcript
+            .entries
+            .push(Entry::Error { text: format!("could not revoke project MCP trust: {error}") }),
+    }
+}
+
+fn load_mcp_for_tui(app: &App) -> Result<mcp::config::EffectiveMcpConfig, String> {
+    let env_vars: Vec<(String, String)> = std::env::vars().collect();
+    mcp::config::load_effective_mcp(&app.runtime.cwd, &env_vars)
+        .map_err(|error| format!("failed to load MCP config: {error}"))
+}
+
+fn mcp_trust_surface(
+    effective: &mcp::config::EffectiveMcpConfig, workspace: &std::path::Path, action: McpTrustAction,
+) -> Option<McpTrustSurface> {
+    let layer = effective
+        .layers
+        .iter()
+        .find(|layer| layer.source == crate::config::ConfigSource::ProjectFile)?;
+    let hash = layer.hash.clone()?;
+    let mut servers = if effective.blocked_project_servers.is_empty() {
+        effective
+            .config
+            .servers
+            .iter()
+            .filter(|(name, _)| effective.server_sources.get(*name) == Some(&crate::config::ConfigSource::ProjectFile))
+            .map(|(name, server)| McpTrustServer {
+                name: name.clone(),
+                transport: server.transport,
+                replaces_global: effective.project_overrides_global.contains(name),
+            })
+            .collect::<Vec<_>>()
+    } else {
+        effective
+            .blocked_project_servers
+            .iter()
+            .map(|(name, server)| McpTrustServer {
+                name: name.clone(),
+                transport: server.transport,
+                replaces_global: server.overrides_global,
+            })
+            .collect()
+    };
+    servers.sort_by(|left, right| left.name.cmp(&right.name));
+    Some(McpTrustSurface {
+        action,
+        workspace: workspace.display().to_string(),
+        config_path: layer
+            .display_path
+            .clone()
+            .unwrap_or_else(|| ".thndrs/mcp.toml".to_string()),
+        hash,
+        servers,
+        // Cancel is selected by default: trust changes process authority.
+        selected: 1,
+    })
+}
+
+fn short_hash(hash: &str) -> &str {
+    hash.get(..12).unwrap_or(hash)
 }
 
 fn list_mcp_servers(app: &mut App) {

@@ -9,8 +9,8 @@ use crate::renderer::key_hint::{KeyHint, render_key_hints};
 use crate::renderer::row::Row;
 use crate::renderer::style::{self, CellStyle, Span};
 use crate::renderer::view::{
-    ColumnAlignment, ColumnWidthPolicy, DiffDetailView, FocusedSurfaceView, HelpView, PermissionView, PickerView,
-    QueueView, SetupFormView, SurfaceRenderInput, SurfaceThemeView, TableCellView, TableView, ThemeRole,
+    ColumnAlignment, ColumnWidthPolicy, DiffDetailView, FocusedSurfaceView, HelpView, McpTrustView, PermissionView,
+    PickerView, QueueView, SetupFormView, SurfaceRenderInput, SurfaceThemeView, TableCellView, TableView, ThemeRole,
     ToolDetailView, TranscriptSearchView,
 };
 use crate::utils;
@@ -77,6 +77,7 @@ pub fn render_surface(input: &SurfaceRenderInput<'_>) -> Vec<Row> {
             transcript_lens_surface_rows(selected_entry, *scroll, input.width, input.height, input.theme)
         }
         FocusedSurfaceView::SetupForm(form) => setup_form_rows(form, input.width, input.height, input.theme),
+        FocusedSurfaceView::McpTrust(trust) => mcp_trust_rows(trust, input.width, input.height, input.theme),
         FocusedSurfaceView::StructuredTable(table) => table_rows(table, input.width, input.height, input.theme),
     }
 }
@@ -411,6 +412,60 @@ fn diff_detail_rows(detail: &DiffDetailView, width: usize, height: usize, theme:
     )
 }
 
+fn mcp_trust_rows(trust: &McpTrustView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
+    let mut body = vec![
+        SurfaceLine::muted(format!("workspace: {}", trust.workspace)),
+        SurfaceLine::muted(format!("config: {}", trust.config_path)),
+        SurfaceLine::muted(format!("sha256: {}", trust.hash)),
+    ];
+    if trust.servers.is_empty() {
+        body.push(SurfaceLine::muted("project configuration has no servers"));
+    } else {
+        body.push(SurfaceLine::title("servers:"));
+        body.extend(trust.servers.iter().map(|server| {
+            let replaces = if server.replaces_global { " · replaces global" } else { "" };
+            SurfaceLine::text(format!("  {} · {}{}", server.name, server.transport, replaces))
+        }));
+    }
+    if matches!(trust.action, crate::app::McpTrustAction::Trust) {
+        body.push(SurfaceLine::new(
+            "warning: not sandboxed; local stdio servers run with thndrs process permissions",
+            theme.warning,
+        ));
+    } else {
+        body.push(SurfaceLine::new(
+            "warning: revoking trust deactivates the listed project definitions",
+            theme.warning,
+        ));
+    }
+    let actions_start = body.len();
+    for (index, label) in [trust.action.label(), "cancel"].into_iter().enumerate() {
+        let selected = index == trust.selected;
+        let text = format!("{} {}", if selected { "❯" } else { " " }, label);
+        body.push(if selected { SurfaceLine::selected(text) } else { SurfaceLine::text(text) });
+    }
+    render_bounded_view(
+        &ViewContent {
+            title: match trust.action {
+                crate::app::McpTrustAction::Trust => "trust project MCP".to_string(),
+                crate::app::McpTrustAction::Revoke => "revoke project MCP trust".to_string(),
+            },
+            status: "review required · focused".to_string(),
+            body,
+            focus: Some(actions_start + trust.selected),
+            hints: vec![
+                KeyHint::new("↑↓", "choose"),
+                KeyHint::new("enter", "confirm"),
+                KeyHint::new("esc", "cancel"),
+            ],
+            border: ThemeRole::Warning,
+        },
+        width,
+        height,
+        theme,
+    )
+}
+
 fn setup_form_rows(form: &SetupFormView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
     let mut body = form
         .validation_errors
@@ -735,8 +790,8 @@ mod tests {
     use super::*;
     use crate::renderer::row::Frame;
     use crate::renderer::view::{
-        DiffSummaryView, PermissionOptionView, PickerItemView, SetupFieldView, SurfaceThemeView, TableCellView,
-        ThemeRole,
+        DiffSummaryView, McpTrustServerView, McpTrustView, PermissionOptionView, PickerItemView, SetupFieldView,
+        SurfaceThemeView, TableCellView, ThemeRole,
     };
 
     #[test]
@@ -878,6 +933,48 @@ mod tests {
     }
 
     #[test]
+    fn mcp_trust_surface_keeps_warning_and_selected_action_at_constrained_widths() {
+        let surface = FocusedSurfaceView::McpTrust(McpTrustView {
+            action: crate::app::McpTrustAction::Trust,
+            workspace: "/workspaces/example".to_string(),
+            config_path: ".thndrs/mcp.toml".to_string(),
+            hash: "0123456789abcdef0123456789abcdef".to_string(),
+            servers: vec![
+                McpTrustServerView { name: "docs".to_string(), transport: "Stdio".to_string(), replaces_global: true },
+                McpTrustServerView {
+                    name: "web".to_string(),
+                    transport: "StreamableHttp".to_string(),
+                    replaces_global: false,
+                },
+            ],
+            selected: 0,
+        });
+        for (width, height) in [(80, 12), (30, 8), (16, 4)] {
+            let rows = render_surface(&SurfaceRenderInput { surface: &surface, theme: &test_theme(), width, height });
+            let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
+            assert!(rows.iter().all(|row| row.width == width));
+            assert!(
+                text.contains("❯ trust"),
+                "selected action missing at {width}x{height}:\n{text}"
+            );
+            assert!(
+                text.contains("↑↓  choose"),
+                "keyboard hint missing at {width}x{height}:\n{text}"
+            );
+            if width == 80 {
+                assert!(text.contains("workspace:"), "workspace missing:\n{text}");
+                assert!(text.contains("config:"), "config path missing:\n{text}");
+                assert!(text.contains("sha256:"), "hash missing:\n{text}");
+                assert!(
+                    text.contains("docs · Stdio · replaces global"),
+                    "server replacement missing:\n{text}"
+                );
+                assert!(text.contains("not sandboxed"), "containment warning missing:\n{text}");
+            }
+        }
+    }
+
+    #[test]
     fn selected_surface_rows_keep_text_distinct_from_the_selection_fill() {
         let rows = render_lines(
             &[SurfaceLine::selected("selected")],
@@ -909,6 +1006,21 @@ mod tests {
                         PermissionOptionView { label: "Allow once".to_string(), kind: "allow once".to_string() },
                         PermissionOptionView { label: "Reject".to_string(), kind: "reject once".to_string() },
                     ],
+                }),
+            ),
+            (
+                "MCP trust",
+                FocusedSurfaceView::McpTrust(McpTrustView {
+                    action: crate::app::McpTrustAction::Trust,
+                    workspace: "/workspace/project".to_string(),
+                    config_path: ".thndrs/mcp.toml".to_string(),
+                    hash: "0123456789abcdef".to_string(),
+                    servers: vec![McpTrustServerView {
+                        name: "docs".to_string(),
+                        transport: "Stdio".to_string(),
+                        replaces_global: true,
+                    }],
+                    selected: 0,
                 }),
             ),
             (

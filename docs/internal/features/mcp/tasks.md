@@ -73,18 +73,18 @@ focused TUI surface while keeping the exact-hash trust behavior from EXT-1.
 
 **Acceptance criteria:**
 
-- [ ] `/mcp trust` shows the workspace, project config path and hash, server
+- [x] `/mcp trust` shows the workspace, project config path and hash, server
       names and transports, global definitions that would be replaced, and the
       process-permission containment warning before approval.
-- [ ] Approval trusts only the hash shown in the surface and reloads effective
+- [x] Approval trusts only the hash shown in the surface and reloads effective
       MCP configuration without eagerly starting servers.
-- [ ] Editing the project file after approval returns the TUI to a blocked,
+- [x] Editing the project file after approval returns the TUI to a blocked,
       stale state.
-- [ ] `/mcp revoke` asks for confirmation when revocation would deactivate
+- [x] `/mcp revoke` asks for confirmation when revocation would deactivate
       project definitions and reports the resulting state.
-- [ ] `Enter` confirms the selected action, `Esc` cancels, and both paths restore
+- [x] `Enter` confirms the selected action, `Esc` cancels, and both paths restore
       composer focus without losing the draft.
-- [ ] The surface remains usable at narrow and tiny terminal sizes, and focus or
+- [x] The surface remains usable at narrow and tiny terminal sizes, and focus or
       selection does not depend on color.
 
 **Verification:**

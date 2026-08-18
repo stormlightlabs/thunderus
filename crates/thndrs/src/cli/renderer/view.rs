@@ -11,8 +11,8 @@ mod tests;
 
 use crate::app::{
     App, BlockContentState, CONTEXT_INSPECTION_MAX_ITEMS, ChatGptOAuthMethod, Entry, FilePickerSource,
-    FirstRunRecovery, Mode, PromptAccessory, QueueAuditState, QueueTarget, RecoveryStage, RunState, ToolLifecycleState,
-    ToolStatus, TranscriptBlock, TranscriptBlockId, TranscriptBlockKind,
+    FirstRunRecovery, McpTrustAction, McpTrustSurface, Mode, PromptAccessory, QueueAuditState, QueueTarget,
+    RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlock, TranscriptBlockId, TranscriptBlockKind,
 };
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::renderer::row::{CursorCoord, Row};
@@ -107,6 +107,7 @@ pub enum FocusedSurfaceView {
         scroll: usize,
     },
     SetupForm(SetupFormView),
+    McpTrust(McpTrustView),
     StructuredTable(TableView),
 }
 
@@ -129,6 +130,9 @@ impl From<&App> for FocusedSurfaceView {
         }
         if let Some(form) = app.render_setup_form_view() {
             return FocusedSurfaceView::SetupForm(form);
+        }
+        if let Some(surface) = app.overlay.mcp_trust() {
+            return FocusedSurfaceView::McpTrust(McpTrustView::from(surface));
         }
         if let Some(search) = app.overlay.transcript_search() {
             return FocusedSurfaceView::TranscriptSearch(TranscriptSearchView {
@@ -341,7 +345,10 @@ impl LiveView {
         let min_prompt_chrome = prompt_rows.len() + 1;
         let keep_prompt_gutters = height >= min_prompt_chrome + 3;
         let reserved_chrome = prompt_rows.len() + if keep_prompt_gutters { 3 } else { 1 };
-        let accessory_limit = if matches!(semantic.focused_surface, FocusedSurfaceView::SetupForm(_)) {
+        let accessory_limit = if matches!(
+            semantic.focused_surface,
+            FocusedSurfaceView::SetupForm(_) | FocusedSurfaceView::McpTrust(_)
+        ) {
             super::live::MAX_SETUP_ROWS
         } else {
             super::live::MAX_ACCESSORY_ROWS

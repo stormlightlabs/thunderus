@@ -1155,6 +1155,159 @@ fn slash_mcp_lists_trust_blocked_project_overrides() {
 }
 
 #[test]
+fn slash_mcp_trust_requires_review_and_preserves_the_draft() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(home.join(".thndrs")).expect("create global config directory");
+    std::fs::create_dir_all(workspace.join(".thndrs")).expect("create project config directory");
+    std::fs::write(
+        home.join(".thndrs/mcp.toml"),
+        "[servers.docs]\ncommand = \"global-mcp\"\n",
+    )
+    .expect("write global config");
+    std::fs::write(
+        workspace.join(".thndrs/mcp.toml"),
+        "[servers.docs]\ncommand = \"project-mcp\"\n\n[servers.web]\ntransport = \"streamable_http\"\nurl = \"https://mcp.example.test\"\n",
+    )
+    .expect("write project config");
+
+    with_isolated_setup_env(&home, || {
+        let mut app = fresh_app();
+        app.runtime.cwd = workspace.clone();
+        app.composer.input = PromptInput::from("/mcp trust");
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        let surface = app.overlay.mcp_trust().expect("trust decision");
+        assert_eq!(surface.workspace, workspace.display().to_string());
+        assert_eq!(surface.config_path, ".thndrs/mcp.toml");
+        assert_eq!(surface.selected, 1, "cancel is the safe default");
+        assert!(
+            surface
+                .servers
+                .iter()
+                .any(|server| server.name == "docs" && server.replaces_global)
+        );
+        assert!(surface.servers.iter().any(|server| server.name == "web"));
+        let reviewed_hash = surface.hash.clone();
+
+        app.composer.input.set_text("keep this draft");
+        update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(app.overlay.mcp_trust().is_none(), "approval restores composer focus");
+        assert_eq!(app.composer.input.as_str(), "keep this draft");
+        assert_eq!(
+            crate::trust::project_mcp_trust(&workspace, &reviewed_hash).expect("inspect trust"),
+            crate::trust::ProjectMcpTrust::Trusted
+        );
+        assert!(matches!(
+            app.transcript.entries.last(),
+            Some(Entry::Status { text }) if text.contains("servers remain stopped until needed")
+        ));
+
+        std::fs::write(
+            workspace.join(".thndrs/mcp.toml"),
+            "[servers.docs]\ncommand = \"changed-project-mcp\"\n",
+        )
+        .expect("change project config");
+        app.composer.input = PromptInput::from("/mcp");
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(matches!(
+            app.transcript.entries.last(),
+            Some(Entry::Status { text }) if text.contains("blocked by trust") && text.contains("changed since it was trusted")
+        ));
+    });
+}
+
+#[test]
+fn slash_mcp_trust_rejects_a_changed_reviewed_hash() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&home).expect("create home");
+    std::fs::create_dir_all(workspace.join(".thndrs")).expect("create project config directory");
+    let config = workspace.join(".thndrs/mcp.toml");
+    std::fs::write(&config, "[servers.docs]\ncommand = \"project-mcp\"\n").expect("write project config");
+
+    with_isolated_setup_env(&home, || {
+        let mut app = fresh_app();
+        app.runtime.cwd = workspace.clone();
+        app.composer.input = PromptInput::from("/mcp trust");
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        let shown_hash = app.overlay.mcp_trust().expect("trust decision").hash.clone();
+
+        std::fs::write(&config, "[servers.docs]\ncommand = \"changed-mcp\"\n").expect("change project config");
+        update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(app.overlay.mcp_trust().is_none());
+        assert_eq!(
+            crate::trust::project_mcp_trust(&workspace, &shown_hash).expect("inspect trust"),
+            crate::trust::ProjectMcpTrust::Untrusted
+        );
+        assert!(matches!(
+            app.transcript.entries.last(),
+            Some(Entry::Error { text }) if text.contains("changed since review") && text.contains("remains blocked")
+        ));
+    });
+}
+
+#[test]
+fn slash_mcp_trust_cancel_and_revoke_restore_the_draft() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&home).expect("create home");
+    std::fs::create_dir_all(workspace.join(".thndrs")).expect("create project config directory");
+    std::fs::write(
+        workspace.join(".thndrs/mcp.toml"),
+        "[servers.docs]\ncommand = \"project-mcp\"\n",
+    )
+    .expect("write project config");
+
+    with_isolated_setup_env(&home, || {
+        let mut app = fresh_app();
+        app.runtime.cwd = workspace.clone();
+        app.composer.input = PromptInput::from("/mcp trust");
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        app.composer.input.set_text("draft after cancel");
+        update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.overlay.mcp_trust().is_none());
+        assert_eq!(app.composer.input.as_str(), "draft after cancel");
+
+        app.composer.input = PromptInput::from("/mcp trust");
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        app.composer.input = PromptInput::from("/mcp revoke");
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            app.overlay.mcp_trust().is_some(),
+            "active project definitions require confirmation"
+        );
+        app.composer.input.set_text("draft after revoke");
+        update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(app.overlay.mcp_trust().is_none());
+        assert_eq!(app.composer.input.as_str(), "draft after revoke");
+        let hash = crate::mcp::config::project_mcp_config_hash(&workspace)
+            .expect("hash")
+            .expect("project config");
+        assert_eq!(
+            crate::trust::project_mcp_trust(&workspace, &hash).expect("inspect trust"),
+            crate::trust::ProjectMcpTrust::Untrusted
+        );
+        assert!(matches!(
+            app.transcript.entries.last(),
+            Some(Entry::Status { text }) if text.contains("blocked by trust")
+        ));
+    });
+}
+
+#[test]
 fn slash_mcp_tools_requires_name() {
     let mut app = fresh_app();
     app.composer.input = PromptInput::from("/mcp tools ");

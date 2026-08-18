@@ -893,6 +893,42 @@ impl SetupState {
     }
 }
 
+/// The pending action in the focused MCP project-trust decision.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum McpTrustAction {
+    Trust,
+    Revoke,
+}
+
+impl McpTrustAction {
+    /// Label for the primary action presented in the decision surface.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Trust => "trust this configuration",
+            Self::Revoke => "revoke trust",
+        }
+    }
+}
+
+/// A project MCP definition safe to show in a trust decision.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct McpTrustServer {
+    pub name: String,
+    pub transport: crate::mcp::config::McpTransport,
+    pub replaces_global: bool,
+}
+
+/// Focused state for inspecting and changing project MCP trust.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct McpTrustSurface {
+    pub action: McpTrustAction,
+    pub workspace: String,
+    pub config_path: String,
+    pub hash: String,
+    pub servers: Vec<McpTrustServer>,
+    pub selected: usize,
+}
+
 /// Focused overlay variants. The enum makes picker, detail, setup, help, and
 /// permission surfaces mutually exclusive by construction.
 #[derive(Debug)]
@@ -927,6 +963,7 @@ enum OverlaySurface {
     Queue(QueuePane),
     Setup(SetupState),
     Permission(PendingPermission),
+    McpTrust(McpTrustSurface),
 }
 
 /// Focus, auth recovery, and all other mutually-exclusive transient surfaces.
@@ -954,7 +991,8 @@ impl OverlayState {
             | OverlaySurface::TranscriptSearch(_)
             | OverlaySurface::Queue(_)
             | OverlaySurface::Setup(_)
-            | OverlaySurface::Permission(_) => PromptAccessory::None,
+            | OverlaySurface::Permission(_)
+            | OverlaySurface::McpTrust(_) => PromptAccessory::None,
             OverlaySurface::Help { .. } => PromptAccessory::Help,
             OverlaySurface::Commands { selected } => PromptAccessory::Commands { selected: *selected },
             OverlaySurface::Files { source, .. } => PromptAccessory::Files(*source),
@@ -1004,6 +1042,27 @@ impl OverlayState {
             OverlaySurface::Setup(setup) => Some(&mut setup.recovery),
             _ => None,
         }
+    }
+
+    /// Return the focused MCP trust decision, when it owns focus.
+    pub fn mcp_trust(&self) -> Option<&McpTrustSurface> {
+        match &self.surface {
+            OverlaySurface::McpTrust(surface) => Some(surface),
+            _ => None,
+        }
+    }
+
+    /// Mutably access the focused MCP trust decision.
+    pub fn mcp_trust_mut(&mut self) -> Option<&mut McpTrustSurface> {
+        match &mut self.surface {
+            OverlaySurface::McpTrust(surface) => Some(surface),
+            _ => None,
+        }
+    }
+
+    /// Replace focus with an MCP trust decision.
+    pub fn show_mcp_trust(&mut self, surface: McpTrustSurface) {
+        self.surface = OverlaySurface::McpTrust(surface);
     }
 
     /// Return the pending permission when permission owns focus.

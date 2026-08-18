@@ -1,6 +1,5 @@
 ---
 source: crates/thndrs/src/cli/renderer/surface.rs
-assertion_line: 1067
 expression: rendered
 ---
 permission buffer:
@@ -15,6 +14,18 @@ styles:
 │     Allow once  [allow once]                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Allow once  [allow once] [bg=#212337]=                   [bg=#212337]=  
 │   ❯ Reject  [reject once]                         # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=❯ Reject  [reject once] [bg=#292e42]=                      [bg=#292e42]=  
 │    ↑↓  navigate   enter  choose   esc  cancel     # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=navigate [-]=   [fg=#ebfafa bg=#292e42 b]= enter  [-]=  [fg=#abb4da]=choose [-]=   [fg=#ebfafa bg=#292e42 b]= esc  [-]=  [fg=#abb4da]=cancel [-]=  [-]=  
+MCP trust buffer:
+  trust project MCP · review required · focused
+  warning: not sandboxed; local stdio servers ru
+  ❯ trust this configuration
+  … 5 rows above · 1 below
+   ↑↓  choose   enter  confirm   esc  cancel
+styles:
+│   trust project MCP · review required · focused   # [bg=#212337]=   [fg=#f1fc79 bg=#212337]=trust project MCP · review required · focused [bg=#212337]= 
+│   warning: not sandboxed; local stdio servers run…  # [bg=#212337]=   [fg=#f1fc79 bg=#212337]=warning: not sandboxed; local stdio servers run…
+│   ❯ trust this configuration                      # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=❯ trust this configuration [bg=#292e42]=                   [bg=#292e42]=  
+│   … 5 rows above · 1 below                        # [bg=#212337]=   [fg=#abb4da bg=#212337]=… 5 rows above · 1 below [bg=#212337]=                     [bg=#212337]=  
+│    ↑↓  choose   enter  confirm   esc  cancel      # [-]=   [fg=#ebfafa bg=#292e42 b]= ↑↓  [-]=  [fg=#abb4da]=choose [-]=   [fg=#ebfafa bg=#292e42 b]= enter  [-]=  [fg=#abb4da]=confirm [-]=   [fg=#ebfafa bg=#292e42 b]= esc  [-]=  [fg=#abb4da]=cancel [-]=   [-]=  
 command picker buffer:
     COMMANDS                        option 1/2
     filter: c
