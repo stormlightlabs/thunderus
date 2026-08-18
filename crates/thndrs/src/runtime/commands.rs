@@ -39,7 +39,7 @@ pub(crate) fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()>
     let stdout = io::stdout();
     let mut lock = stdout.lock();
     match command {
-        McpCommand::Catalog(command) => run_mcp_catalog_command(command, &mut lock),
+        McpCommand::Catalog(command) => run_mcp_catalog_command(cli, command, &mut lock),
         McpCommand::Add { name, scope, command, args, url } => {
             run_mcp_add(cli, name, *scope, command.as_deref(), args, url.as_deref(), &mut lock)
         }
@@ -843,7 +843,7 @@ pub(crate) fn newest_log_file(dir: &Path) -> Option<PathBuf> {
 }
 
 fn run_mcp_catalog_command<W: io::Write>(
-    command: &crate::cli::commands::mcp::McpCatalogCommand, writer: &mut W,
+    cli: &Cli, command: &crate::cli::commands::mcp::McpCatalogCommand, writer: &mut W,
 ) -> io::Result<()> {
     use crate::cli::commands::mcp::McpCatalogCommand;
 
@@ -871,6 +871,7 @@ fn run_mcp_catalog_command<W: io::Write>(
         McpCatalogCommand::Show(args) => {
             run_mcp_catalog_show(&args.name, args.source.as_deref(), &args.version, args.offline, writer)
         }
+        McpCatalogCommand::Configure(args) => run_mcp_catalog_configure(cli, args, writer),
     }
 }
 
@@ -995,6 +996,147 @@ fn render_catalog_search<W: io::Write>(search: &mcp::catalog::CatalogSearch, wri
         writer,
         "Catalog metadata is discovery only. thndrs does not verify publisher identity, curation labels, versions, or supplied digests, and this command does not start a server."
     )
+}
+
+pub(crate) fn run_mcp_catalog_configure<W: io::Write>(
+    cli: &Cli, args: &crate::cli::commands::mcp::CatalogConfigureArgs, writer: &mut W,
+) -> io::Result<()> {
+    use crate::cli::commands::mcp::CatalogRecipeTransport;
+
+    let detail = mcp::catalog::detail(&args.entry, args.source.as_deref(), &args.version, args.offline)
+        .map_err(io::Error::other)?;
+    let selected = detail
+        .results
+        .iter()
+        .flat_map(|result| {
+            result.entries.iter().map(move |entry| {
+                (
+                    result.source.clone(),
+                    entry.clone(),
+                    result
+                        .retrieved_at
+                        .clone()
+                        .unwrap_or_else(crate::utils::datetime::now_iso8601),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    let (source, entry, retrieved_at) = match selected.as_slice() {
+        [] => {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("no catalog metadata found for `{}`", args.entry),
+            ));
+        }
+        [selected] => selected.clone(),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "catalog selection is ambiguous; pass `--source` to select one catalog entry",
+            ));
+        }
+    };
+    let transport = match args.transport {
+        CatalogRecipeTransport::Stdio => mcp::recipe::CatalogRecipeTransport::Stdio,
+        CatalogRecipeTransport::StreamableHttp => mcp::recipe::CatalogRecipeTransport::StreamableHttp,
+    };
+    let recipe = mcp::recipe::resolve(&source, &entry, transport, args.package.as_deref(), retrieved_at)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
+    let target = mcp_config_target(args.scope);
+    let path = match target {
+        mcp::edit::McpConfigTarget::Global => mcp::config::global_mcp_config_path().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "could not determine the home directory for global MCP configuration",
+            )
+        })?,
+        mcp::edit::McpConfigTarget::Project => mcp::config::project_mcp_config_path(&workspace),
+    };
+    writeln!(writer, "catalog: {} ({})", source.name, source.url)?;
+    writeln!(writer, "claimed publisher: {} (catalog claim)", entry.claimed_publisher)?;
+    writeln!(writer, "entry: {} metadata version={}", entry.name, entry.version)?;
+    writeln!(
+        writer,
+        "origin: {} ({})",
+        recipe.provenance.origin_type, recipe.provenance.origin
+    )?;
+    writeln!(
+        writer,
+        "package version: {}",
+        recipe.provenance.package_version.as_deref().unwrap_or("not applicable")
+    )?;
+    writeln!(
+        writer,
+        "supplied digest: {} (catalog assertion; not verified by thndrs)",
+        recipe.provenance.supplied_sha256.as_deref().unwrap_or("not supplied")
+    )?;
+    match recipe.server.transport {
+        mcp::config::McpTransport::Stdio => {
+            writeln!(
+                writer,
+                "command: {}",
+                command_preview(&recipe.server.command, &recipe.server.args)
+            )?;
+            writeln!(
+                writer,
+                "later startup may download code: {}",
+                if recipe.launcher_may_download { "yes, through the package runner" } else { "no" }
+            )?;
+        }
+        mcp::config::McpTransport::StreamableHttp => {
+            writeln!(writer, "URL: {}", recipe.server.url.as_deref().unwrap_or_default())?;
+        }
+    }
+    writeln!(
+        writer,
+        "environment variable names: {}",
+        if recipe.environment_names.is_empty() {
+            "none".to_string()
+        } else {
+            recipe.environment_names.join(", ")
+        }
+    )?;
+    writeln!(writer, "destination: {} ({})", scope_label(args.scope), path.display())?;
+    writeln!(
+        writer,
+        "Catalog metadata is an assertion. thndrs did not contact the proposed MCP server, execute the command, or invoke a package manager."
+    )?;
+    if !args.yes {
+        return writeln!(
+            writer,
+            "No files changed. Review this recipe, then rerun with `--yes` to write it."
+        );
+    }
+    let path = mcp::edit::add_catalog_server(&workspace, target, &args.name, recipe.server, recipe.provenance)?;
+    writeln!(
+        writer,
+        "added catalog-derived MCP server `{}` to {}",
+        args.name,
+        path.display()
+    )?;
+    if args.scope == crate::cli::commands::mcp::McpConfigScope::Project {
+        writeln!(
+            writer,
+            "Review the project MCP configuration, inspect it with `thndrs mcp status`, then run `thndrs mcp trust` to activate it."
+        )?;
+    }
+    Ok(())
+}
+
+fn command_preview(command: &str, args: &[String]) -> String {
+    std::iter::once(command)
+        .chain(args.iter().map(String::as_str))
+        .map(|part| format!("{part:?}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn scope_label(scope: crate::cli::commands::mcp::McpConfigScope) -> &'static str {
+    match scope {
+        crate::cli::commands::mcp::McpConfigScope::Global => "global",
+        crate::cli::commands::mcp::McpConfigScope::Project => "project",
+    }
 }
 
 fn catalog_retrieval(result: &mcp::catalog::CatalogSearchResult) -> String {

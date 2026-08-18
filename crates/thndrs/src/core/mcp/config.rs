@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{ConfigError, ConfigSource};
 use crate::trust::{self, ProjectMcpTrust};
@@ -20,7 +20,7 @@ use crate::utils;
 const DEFAULT_TIMEOUT_SECS: u64 = 20;
 
 /// Supported MCP transport types.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum McpTransport {
     /// Launch a local MCP server subprocess and communicate over stdin/stdout.
@@ -31,7 +31,7 @@ pub enum McpTransport {
 }
 
 /// Configuration for one MCP server.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct McpServerConfig {
     /// Transport used to reach this server.
@@ -70,18 +70,54 @@ impl Default for McpServerConfig {
 /// MCP server map keyed by configured server name.
 pub type McpServersConfig = BTreeMap<String, McpServerConfig>;
 
+/// Catalog metadata recorded beside a generated MCP server definition.
+///
+/// This is an audit record. It never grants trust, starts a server, or permits
+/// MCP tool calls.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct McpCatalogProvenance {
+    /// Catalog endpoint that supplied the selected entry.
+    pub catalog_url: String,
+    /// Local name of the catalog source.
+    pub catalog_name: String,
+    /// Registry entry identity.
+    pub entry_name: String,
+    /// Version of metadata selected from the catalog.
+    pub metadata_version: String,
+    /// Time at which thndrs retrieved the selected metadata.
+    pub retrieved_at: String,
+    /// Whether the recipe came from a package or remote endpoint.
+    pub origin_type: String,
+    /// Package registry or remote host supplied by the catalog.
+    pub origin: String,
+    /// Exact package version, when the recipe uses a package.
+    pub package_version: Option<String>,
+    /// Digest supplied by the catalog, when present.
+    pub supplied_sha256: Option<String>,
+    /// How the selected launcher treats the supplied digest.
+    pub digest_status: String,
+    /// SHA-256 of the generated transport configuration.
+    pub generated_transport_sha256: String,
+    /// Transport configuration generated from the selected catalog variant.
+    pub generated_transport: McpServerConfig,
+}
+
 /// User-editable MCP configuration loaded from TOML.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct McpConfig {
     /// Named MCP server definitions.
     pub servers: McpServersConfig,
+    /// Catalog provenance for definitions generated through `mcp catalog configure`.
+    pub provenance: BTreeMap<String, McpCatalogProvenance>,
 }
 
 impl McpConfig {
-    /// Merge `other` over `self`, replacing servers with the same name.
+    /// Merge `other` over `self`, replacing servers and provenance with the same name.
     pub fn merge(mut self, other: McpConfig) -> Self {
         self.servers.extend(other.servers);
+        self.provenance.extend(other.provenance);
         self
     }
 }

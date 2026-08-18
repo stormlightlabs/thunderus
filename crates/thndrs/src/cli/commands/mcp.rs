@@ -11,6 +11,15 @@ pub enum McpConfigScope {
     Project,
 }
 
+/// Transport selected from catalog metadata.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum CatalogRecipeTransport {
+    /// A local stdio package recipe.
+    Stdio,
+    /// A remote Streamable HTTP endpoint.
+    StreamableHttp,
+}
+
 /// Read-only discovery and configuration of MCP server catalogs.
 #[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
 pub enum McpCatalogCommand {
@@ -45,6 +54,8 @@ pub enum McpCatalogCommand {
     Search(CatalogSearchArgs),
     /// Inspect one catalog server entry without starting a server.
     Show(CatalogShowArgs),
+    /// Resolve catalog metadata into a reviewable MCP server definition.
+    Configure(CatalogConfigureArgs),
 }
 
 /// Query options shared by catalog search.
@@ -77,6 +88,37 @@ pub struct CatalogShowArgs {
     /// Use only the last successful metadata snapshot.
     #[arg(long)]
     pub offline: bool,
+}
+
+/// Options for configuring one selected catalog entry.
+#[derive(Args, Clone, Debug, Eq, PartialEq)]
+pub struct CatalogConfigureArgs {
+    /// Catalog server name, such as `io.example/weather`.
+    pub entry: String,
+    /// Name for the generated local MCP definition.
+    #[arg(long)]
+    pub name: String,
+    /// Destination configuration file.
+    #[arg(long, value_enum)]
+    pub scope: McpConfigScope,
+    /// Transport variant to resolve.
+    #[arg(long, value_enum)]
+    pub transport: CatalogRecipeTransport,
+    /// Restrict the lookup to one enabled source.
+    #[arg(long)]
+    pub source: Option<String>,
+    /// Exact catalog metadata version to inspect. `latest` resolves the current entry version.
+    #[arg(long, default_value = "latest")]
+    pub version: String,
+    /// Select a stdio package identifier when multiple variants are available.
+    #[arg(long)]
+    pub package: Option<String>,
+    /// Use only the last successful metadata snapshot.
+    #[arg(long)]
+    pub offline: bool,
+    /// Write the reviewed recipe. Without this flag, thndrs only prints the preview.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 /// MCP inspection, discovery, and tool-call commands.

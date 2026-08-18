@@ -1231,8 +1231,17 @@ fn mcp_catalog_commands_use_global_sources_and_offline_metadata() {
                 sha256: Some("catalog-assertion".to_string()),
                 transports: vec!["stdio".to_string()],
                 platform_constraints: vec!["linux".to_string()],
+                package_arguments: Vec::new(),
+                runtime_arguments: Vec::new(),
+                runtime_hint: None,
+                environment_variables: Vec::new(),
             }],
-            platform_constraints: vec!["linux".to_string()],
+            remotes: vec![mcp::catalog::CatalogRemote {
+                transport: "streamable-http".to_string(),
+                url: "https://weather.example/mcp".to_string(),
+                header_names: Vec::new(),
+            }],
+            platform_constraints: Vec::new(),
             curation_claim: "community review".to_string(),
         };
         let cache = serde_json::json!({"retrieved_at": "2026-08-18T00:00:00Z", "entries": [entry]});
@@ -1262,6 +1271,38 @@ fn mcp_catalog_commands_use_global_sources_and_offline_metadata() {
         assert!(detail.contains("available transports: stdio, streamable-http"));
         assert!(detail.contains("digest=catalog-assertion"));
         assert!(detail.contains("does not start a server"));
+
+        let cli = Cli { cwd: temp.path().join("workspace"), ..Cli::default() };
+        let configure = crate::cli::commands::mcp::CatalogConfigureArgs {
+            entry: "io.example/weather".to_string(),
+            name: "weather".to_string(),
+            scope: crate::cli::commands::mcp::McpConfigScope::Project,
+            transport: crate::cli::commands::mcp::CatalogRecipeTransport::StreamableHttp,
+            source: Some("community".to_string()),
+            version: "latest".to_string(),
+            package: None,
+            offline: true,
+            yes: false,
+        };
+        let mut preview = Vec::new();
+        run_mcp_catalog_configure(&cli, &configure, &mut preview).expect("preview catalog recipe");
+        let preview = String::from_utf8(preview).expect("utf8");
+        assert!(preview.contains("URL: https://weather.example/mcp"));
+        assert!(preview.contains("No files changed"));
+        assert!(!cli.cwd.join(".thndrs/mcp.toml").exists());
+
+        let mut approval = Vec::new();
+        run_mcp_catalog_configure(
+            &cli,
+            &crate::cli::commands::mcp::CatalogConfigureArgs { yes: true, ..configure },
+            &mut approval,
+        )
+        .expect("approve catalog recipe");
+        let written = std::fs::read_to_string(cli.cwd.join(".thndrs/mcp.toml")).expect("read generated config");
+        assert!(written.contains("[provenance.weather]"));
+        assert!(written.contains("generated_transport_sha256"));
+        let effective = mcp::config::load_effective_mcp(&cli.cwd, &[]).expect("load generated project config");
+        assert!(effective.blocked_project_servers.contains_key("weather"));
 
         mcp::catalog::set_source_enabled("official", false).expect("disable official");
         assert!(

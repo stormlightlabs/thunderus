@@ -8,8 +8,8 @@ use toml_edit::{DocumentMut, Item, Table, value};
 use crate::config::edit_toml_file;
 
 use super::config::{
-    McpConfig, McpServerConfig, McpTransport, global_mcp_config_path, project_mcp_config_path, validate_mcp_config,
-    validate_mcp_server_name,
+    McpCatalogProvenance, McpConfig, McpServerConfig, McpTransport, global_mcp_config_path, project_mcp_config_path,
+    validate_mcp_config, validate_mcp_server_name,
 };
 
 /// Destination for one MCP configuration edit.
@@ -27,31 +27,43 @@ pub(crate) fn add_server(
 ) -> io::Result<PathBuf> {
     validate_mcp_server_name(name).map_err(io::Error::other)?;
     let path = config_path(workspace, target)?;
+    edit_config(&path, |document| insert_server(document, name, &server))?;
+    Ok(path)
+}
+
+/// Add a catalog-derived server definition and its provenance atomically.
+pub(crate) fn add_catalog_server(
+    workspace: &Path, target: McpConfigTarget, name: &str, server: McpServerConfig, provenance: McpCatalogProvenance,
+) -> io::Result<PathBuf> {
+    validate_mcp_server_name(name).map_err(io::Error::other)?;
+    let path = config_path(workspace, target)?;
     edit_config(&path, |document| {
+        insert_server(document, name, &server)?;
         let mut table = Table::new();
-        match server.transport {
-            McpTransport::Stdio => {
-                table["transport"] = value("stdio");
-                table["command"] = value(server.command.clone());
-                if !server.args.is_empty() {
-                    table["args"] = Item::Value(server.args.iter().collect());
-                }
-            }
-            McpTransport::StreamableHttp => {
-                table["transport"] = value("streamable_http");
-                table["url"] = value(server.url.clone().unwrap_or_default());
-            }
+        table["catalog_url"] = value(provenance.catalog_url.clone());
+        table["catalog_name"] = value(provenance.catalog_name.clone());
+        table["entry_name"] = value(provenance.entry_name.clone());
+        table["metadata_version"] = value(provenance.metadata_version.clone());
+        table["retrieved_at"] = value(provenance.retrieved_at.clone());
+        table["origin_type"] = value(provenance.origin_type.clone());
+        table["origin"] = value(provenance.origin.clone());
+        if let Some(package_version) = &provenance.package_version {
+            table["package_version"] = value(package_version.clone());
         }
-        table["enabled"] = value(server.enabled);
-        table["timeout_secs"] = value(server.timeout_secs as i64);
-        if document.get("servers").is_none() {
-            document["servers"] = Item::Table(Table::new());
+        if let Some(supplied_sha256) = &provenance.supplied_sha256 {
+            table["supplied_sha256"] = value(supplied_sha256.clone());
         }
-        let servers = document
-            .get_mut("servers")
+        table["digest_status"] = value(provenance.digest_status.clone());
+        table["generated_transport_sha256"] = value(provenance.generated_transport_sha256.clone());
+        table["generated_transport"] = Item::Table(server_table(&provenance.generated_transport));
+        if document.get("provenance").is_none() {
+            document["provenance"] = Item::Table(Table::new());
+        }
+        let provenance_table = document
+            .get_mut("provenance")
             .and_then(Item::as_table_like_mut)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "MCP `servers` must be a table"))?;
-        servers.insert(name, Item::Table(table));
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "MCP `provenance` must be a table"))?;
+        provenance_table.insert(name, Item::Table(table));
         Ok(())
     })?;
     Ok(path)
@@ -74,9 +86,50 @@ pub(crate) fn remove_server(workspace: &Path, target: McpConfigTarget, name: &st
                 format!("MCP server `{name}` is not configured"),
             ));
         }
+        if let Some(provenance) = document.get_mut("provenance").and_then(Item::as_table_like_mut) {
+            provenance.remove(name);
+        }
         Ok(())
     })?;
     Ok(path)
+}
+
+fn insert_server(document: &mut DocumentMut, name: &str, server: &McpServerConfig) -> io::Result<()> {
+    if document.get("servers").is_none() {
+        document["servers"] = Item::Table(Table::new());
+    }
+    let servers = document
+        .get_mut("servers")
+        .and_then(Item::as_table_like_mut)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "MCP `servers` must be a table"))?;
+    servers.insert(name, Item::Table(server_table(server)));
+    Ok(())
+}
+
+fn server_table(server: &McpServerConfig) -> Table {
+    let mut table = Table::new();
+    match server.transport {
+        McpTransport::Stdio => {
+            table["transport"] = value("stdio");
+            table["command"] = value(server.command.clone());
+            if !server.args.is_empty() {
+                table["args"] = Item::Value(server.args.iter().collect());
+            }
+            if !server.env.is_empty() {
+                table["env"] = Item::Value(server.env.iter().collect());
+            }
+        }
+        McpTransport::StreamableHttp => {
+            table["transport"] = value("streamable_http");
+            table["url"] = value(server.url.clone().unwrap_or_default());
+            if !server.headers.is_empty() {
+                table["headers"] = Item::Value(server.headers.iter().collect());
+            }
+        }
+    }
+    table["enabled"] = value(server.enabled);
+    table["timeout_secs"] = value(server.timeout_secs as i64);
+    table
 }
 
 fn config_path(workspace: &Path, target: McpConfigTarget) -> io::Result<PathBuf> {

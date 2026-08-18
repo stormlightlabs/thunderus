@@ -335,6 +335,14 @@ metadata snapshots live in `~/.thndrs/mcp-catalog-cache/`, with their retrieval
 times. Use `mcp catalog search --offline` or `mcp catalog show --offline` to
 read that cache.
 
+Use `thndrs mcp catalog configure <entry> --name <local-name> --scope
+<global|project> --transport <stdio|streamable-http>` to preview a generated
+recipe. Add `--yes` to write it. The preview shows the selected catalog,
+publisher claim, origin, exact version, supplied digest, command or URL,
+environment-variable names, and destination path. Generated definitions record
+that metadata and a transport fingerprint under `[provenance.<local-name>]` in
+the MCP file. Project definitions remain blocked until `thndrs mcp trust`.
+
 Catalog claims about a publisher, curation, version, or digest do not verify
 software. Catalog access does not configure a server, grant project trust,
 start a server, or grant tool permissions.

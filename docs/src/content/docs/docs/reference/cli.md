@@ -118,6 +118,10 @@ stdout is protocol-only; diagnostics go to stderr.
   starting a server.
 - `thndrs mcp catalog show <server-name> [--source <name>] [--version <version>]
   [--offline]`: inspect catalog metadata for one server.
+- `thndrs mcp catalog configure <entry> --name <local-name> --scope
+  <global|project> --transport <stdio|streamable-http> [--source <name>]
+  [--package <identifier>] [--offline] [--yes]`: preview one exact catalog
+  recipe, or write it with provenance after review and `--yes`.
 - `thndrs mcp add <name> --scope <global|project> --command <command> [--arg <arg>]...`:
   add or replace a stdio definition without installing or starting it.
 - `thndrs mcp add <name> --scope <global|project> --url <url>`: add or replace

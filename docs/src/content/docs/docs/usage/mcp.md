@@ -49,6 +49,35 @@ Catalog discovery is separate from configuration, project trust, server
 startup, and tool permissions. Review the publisher's source and package
 origin before using catalog metadata to configure a server.
 
+## Configure from a Catalog
+
+Use `configure` to turn one catalog entry into a local definition. Select the
+catalog source, destination scope, local name, and transport. The first command
+prints the complete recipe and changes no files:
+
+```sh
+thndrs mcp catalog configure io.example/weather \
+  --source community --name weather --scope project --transport stdio
+```
+
+The preview identifies the catalog and publisher claim, artifact registry or
+remote host, exact package version, supplied digest, command or URL,
+environment-variable names, and destination path. Re-run the same command with
+`--yes` after review. Project definitions still need `thndrs mcp trust`.
+
+For stdio entries, thndrs supports exact npm, PyPI, NuGet, and OCI recipes with
+`npx`, `uvx`, `dnx`, and `docker`. It rejects `latest`, ranges, unversioned
+packages, incompatible platforms, ambiguous variants, secret arguments, and
+recipes that need interactive values. Package runners can download code later
+when MCP starts; this command never invokes them. Streamable HTTP recipes must
+have one concrete URL and no catalog-supplied header values.
+
+The generated definition records catalog provenance beside the server:
+metadata source and retrieval time, entry and package version, origin, supplied
+digest, and the generated transport fingerprint. A supplied digest is a catalog
+assertion unless the launcher itself enforces an image digest. thndrs does not
+download an artifact or claim to verify one.
+
 ## Add a Server
 
 `thndrs` does not provide an MCP package installer. Install a local server using

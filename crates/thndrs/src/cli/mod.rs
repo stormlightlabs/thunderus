@@ -1029,6 +1029,42 @@ mod tests {
             })
         );
 
+        let configure = Cli::try_parse_from([
+            "thndrs",
+            "mcp",
+            "catalog",
+            "configure",
+            "io.example/weather",
+            "--name",
+            "weather",
+            "--scope",
+            "project",
+            "--transport",
+            "streamable-http",
+            "--source",
+            "community",
+            "--yes",
+        ])
+        .expect("parse catalog configure");
+        assert_eq!(
+            configure.command,
+            Some(Command::Mcp {
+                command: commands::mcp::McpCommand::Catalog(commands::mcp::McpCatalogCommand::Configure(
+                    commands::mcp::CatalogConfigureArgs {
+                        entry: "io.example/weather".to_string(),
+                        name: "weather".to_string(),
+                        scope: commands::mcp::McpConfigScope::Project,
+                        transport: commands::mcp::CatalogRecipeTransport::StreamableHttp,
+                        source: Some("community".to_string()),
+                        version: "latest".to_string(),
+                        package: None,
+                        offline: false,
+                        yes: true,
+                    }
+                ))
+            })
+        );
+
         let add = Cli::try_parse_from([
             "thndrs",
             "mcp",

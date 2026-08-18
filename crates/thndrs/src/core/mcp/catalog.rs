@@ -56,6 +56,44 @@ pub struct CatalogSource {
     pub curation_claim: String,
 }
 
+/// Fixed command-line argument supplied by a catalog package recipe.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct CatalogArgument {
+    /// Argument form from the catalog schema.
+    pub kind: String,
+    /// Flag name for named arguments.
+    pub name: Option<String>,
+    /// Fixed argument value. Values requiring user input are omitted.
+    pub value: Option<String>,
+    /// Whether the catalog marks the argument as secret.
+    pub secret: bool,
+}
+
+/// Environment variable name supplied by a catalog package recipe.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct CatalogEnvironmentVariable {
+    /// Environment variable name.
+    pub name: String,
+    /// Whether the catalog marks this variable as required.
+    pub required: bool,
+    /// Whether the catalog marks this variable as secret.
+    pub secret: bool,
+}
+
+/// Remote MCP endpoint supplied by a catalog.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct CatalogRemote {
+    /// Catalog-supplied transport type.
+    pub transport: String,
+    /// Catalog-supplied endpoint URL.
+    pub url: String,
+    /// Header names supplied by the catalog. Values are intentionally discarded.
+    pub header_names: Vec<String>,
+}
+
 /// Package origin supplied by a catalog.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CatalogPackage {
@@ -73,6 +111,18 @@ pub struct CatalogPackage {
     pub transports: Vec<String>,
     /// Catalog-supplied platform constraints, when present.
     pub platform_constraints: Vec<String>,
+    /// Fixed arguments passed to the package after it starts.
+    #[serde(default)]
+    pub package_arguments: Vec<CatalogArgument>,
+    /// Fixed arguments passed to the package runtime.
+    #[serde(default)]
+    pub runtime_arguments: Vec<CatalogArgument>,
+    /// Package runtime hint supplied by the catalog.
+    #[serde(default)]
+    pub runtime_hint: Option<String>,
+    /// Environment variable names required by the package.
+    #[serde(default)]
+    pub environment_variables: Vec<CatalogEnvironmentVariable>,
 }
 
 /// Display-safe metadata for one catalog entry.
@@ -98,6 +148,9 @@ pub struct CatalogEntry {
     pub transports: Vec<String>,
     /// Package origins supplied by the catalog.
     pub packages: Vec<CatalogPackage>,
+    /// Remote endpoints supplied by the catalog.
+    #[serde(default)]
+    pub remotes: Vec<CatalogRemote>,
     /// Catalog-supplied platform constraints, when present.
     pub platform_constraints: Vec<String>,
     /// Curation label supplied by the selected catalog configuration.
@@ -183,12 +236,50 @@ struct RawPackage {
     transport: RawTransport,
     #[serde(default, alias = "platformConstraints")]
     platforms: Vec<String>,
+    #[serde(rename = "packageArguments", default)]
+    package_arguments: Vec<RawArgument>,
+    #[serde(rename = "runtimeArguments", default)]
+    runtime_arguments: Vec<RawArgument>,
+    #[serde(rename = "runtimeHint", default)]
+    runtime_hint: Option<String>,
+    #[serde(rename = "environmentVariables", default)]
+    environment_variables: Vec<RawEnvironmentVariable>,
 }
 
 #[derive(Deserialize)]
 struct RawTransport {
     #[serde(rename = "type")]
     kind: String,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    headers: Vec<RawNamedInput>,
+}
+
+#[derive(Deserialize)]
+struct RawArgument {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(rename = "isSecret", default)]
+    secret: bool,
+}
+
+#[derive(Deserialize)]
+struct RawEnvironmentVariable {
+    name: String,
+    #[serde(rename = "isRequired", default)]
+    required: bool,
+    #[serde(rename = "isSecret", default)]
+    secret: bool,
+}
+
+#[derive(Deserialize)]
+struct RawNamedInput {
+    name: String,
 }
 
 trait CatalogFetcher {
@@ -504,8 +595,22 @@ fn catalog_entry(source: &CatalogSource, envelope: RawEnvelope) -> Result<Catalo
         .unwrap_or_default()
         .to_string();
     let mut transports = BTreeSet::new();
+    let mut remotes = Vec::new();
     for remote in server.remotes {
-        transports.insert(clean_required_field(&remote.kind)?);
+        let transport = clean_required_field(&remote.kind)?;
+        transports.insert(transport.clone());
+        let url = remote
+            .url
+            .as_deref()
+            .map(clean_optional_field)
+            .transpose()?
+            .unwrap_or_default();
+        let header_names = remote
+            .headers
+            .into_iter()
+            .map(|header| clean_required_field(&header.name))
+            .collect::<Result<Vec<_>, _>>()?;
+        remotes.push(CatalogRemote { transport, url, header_names });
     }
     let mut platform_constraints = clean_fields(server.platforms)?;
     let mut packages = Vec::new();
@@ -525,6 +630,10 @@ fn catalog_entry(source: &CatalogSource, envelope: RawEnvelope) -> Result<Catalo
             sha256: package.sha256.as_deref().map(clean_optional_field).transpose()?,
             transports: vec![transport],
             platform_constraints: package_platforms,
+            package_arguments: clean_arguments(package.package_arguments)?,
+            runtime_arguments: clean_arguments(package.runtime_arguments)?,
+            runtime_hint: package.runtime_hint.as_deref().map(clean_optional_field).transpose()?,
+            environment_variables: clean_environment_variables(package.environment_variables)?,
         });
     }
     platform_constraints.sort();
@@ -546,6 +655,7 @@ fn catalog_entry(source: &CatalogSource, envelope: RawEnvelope) -> Result<Catalo
         status,
         transports: transports.into_iter().collect(),
         packages,
+        remotes,
         platform_constraints,
         curation_claim: source.curation_claim.clone(),
     })
@@ -700,6 +810,39 @@ fn validate_catalog_url(url: &str) -> Result<(), String> {
         return Err("catalog URL must be an HTTPS base URL without a query or fragment".to_string());
     }
     Ok(())
+}
+
+fn clean_arguments(arguments: Vec<RawArgument>) -> Result<Vec<CatalogArgument>, String> {
+    arguments
+        .into_iter()
+        .map(|argument| {
+            Ok(CatalogArgument {
+                kind: clean_required_field(&argument.kind)?,
+                name: argument.name.as_deref().map(clean_optional_field).transpose()?,
+                value: if argument.secret {
+                    None
+                } else {
+                    argument.value.as_deref().map(clean_optional_field).transpose()?
+                },
+                secret: argument.secret,
+            })
+        })
+        .collect()
+}
+
+fn clean_environment_variables(
+    variables: Vec<RawEnvironmentVariable>,
+) -> Result<Vec<CatalogEnvironmentVariable>, String> {
+    variables
+        .into_iter()
+        .map(|variable| {
+            Ok(CatalogEnvironmentVariable {
+                name: clean_required_field(&variable.name)?,
+                required: variable.required,
+                secret: variable.secret,
+            })
+        })
+        .collect()
 }
 
 fn clean_fields(fields: Vec<String>) -> Result<Vec<String>, String> {
