@@ -1205,6 +1205,74 @@ fn mcp_add_and_remove_write_scoped_configuration_without_trusting_or_starting_se
 }
 
 #[test]
+fn mcp_catalog_commands_use_global_sources_and_offline_metadata() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    std::fs::create_dir_all(&home).expect("home");
+
+    with_home(&home, || {
+        mcp::catalog::add_source("community", "https://catalog.example", Some("community review"))
+            .expect("add catalog");
+        let entry = mcp::catalog::CatalogEntry {
+            source: "community".to_string(),
+            source_url: "https://catalog.example".to_string(),
+            name: "io.example/weather".to_string(),
+            title: Some("Weather".to_string()),
+            description: "Weather forecasts".to_string(),
+            claimed_publisher: "io.example".to_string(),
+            version: "1.2.3".to_string(),
+            status: Some("active".to_string()),
+            transports: vec!["stdio".to_string(), "streamable-http".to_string()],
+            packages: vec![mcp::catalog::CatalogPackage {
+                registry_type: "npm".to_string(),
+                registry_url: Some("https://registry.npmjs.org".to_string()),
+                identifier: "@example/weather".to_string(),
+                version: Some("1.2.3".to_string()),
+                sha256: Some("catalog-assertion".to_string()),
+                transports: vec!["stdio".to_string()],
+                platform_constraints: vec!["linux".to_string()],
+            }],
+            platform_constraints: vec!["linux".to_string()],
+            curation_claim: "community review".to_string(),
+        };
+        let cache = serde_json::json!({"retrieved_at": "2026-08-18T00:00:00Z", "entries": [entry]});
+        let cache_path = home.join(".thndrs/mcp-catalog-cache/community.json");
+        std::fs::create_dir_all(cache_path.parent().expect("cache parent")).expect("cache parent");
+        std::fs::write(cache_path, serde_json::to_vec(&cache).expect("cache JSON")).expect("cache");
+
+        let mut list = Vec::new();
+        run_mcp_catalog_list(&mut list).expect("list catalogs");
+        let list = String::from_utf8(list).expect("utf8");
+        assert!(list.contains("official\tenabled\tbuilt-in"));
+        assert!(list.contains("community\tenabled\tcustom"));
+        assert!(list.contains("global only"));
+
+        let mut search = Vec::new();
+        run_mcp_catalog_search("weather", 20, None, true, &mut search).expect("offline search");
+        let search = String::from_utf8(search).expect("utf8");
+        assert!(search.contains("io.example/weather"));
+        assert!(search.contains("cache from 2026-08-18T00:00:00Z"));
+        assert!(search.contains("does not verify publisher identity"));
+
+        let mut detail = Vec::new();
+        run_mcp_catalog_show("io.example/weather", Some("community"), "latest", true, &mut detail)
+            .expect("offline detail");
+        let detail = String::from_utf8(detail).expect("utf8");
+        assert!(detail.contains("claimed publisher: io.example (catalog claim)"));
+        assert!(detail.contains("available transports: stdio, streamable-http"));
+        assert!(detail.contains("digest=catalog-assertion"));
+        assert!(detail.contains("does not start a server"));
+
+        mcp::catalog::set_source_enabled("official", false).expect("disable official");
+        assert!(
+            std::fs::read_to_string(home.join(".thndrs/mcp-catalogs.toml"))
+                .expect("catalog config")
+                .contains("enabled = false")
+        );
+    });
+}
+
+#[test]
 fn mcp_add_rejects_invalid_transport_and_name() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let cli = Cli { cwd: tmp.path().to_path_buf(), ..Cli::default() };

@@ -5,6 +5,50 @@ title: "MCP"
 `thndrs` connects to Model Context Protocol servers and exposes their tools to
 the model. It supports local stdio servers and remote Streamable HTTP servers.
 
+## Catalog Discovery
+
+`thndrs mcp catalog` searches server metadata before any server is configured.
+The built-in source is the official MCP Registry at
+`https://registry.modelcontextprotocol.io`. It is enabled by default and shown
+as **preview; uncurated**. Registry entries can name a publisher, package,
+version, digest, platform constraint, or curation label, but those are catalog
+claims. They are not a thndrs security verdict.
+
+```sh
+thndrs mcp catalog search filesystem
+thndrs mcp catalog show io.modelcontextprotocol/filesystem
+```
+
+Search results identify their source, publisher claim, version, transports, and
+curation claim. `show` also prints the package origin, supplied digest, and
+platform constraints. These commands only retrieve metadata. They do not
+install a package, configure an MCP server, start a process, or contact a
+server endpoint.
+
+Catalog sources are global. Project files cannot add, replace, or select a
+catalog endpoint. List or change sources with:
+
+```sh
+thndrs mcp catalog list
+thndrs mcp catalog disable official
+thndrs mcp catalog add community https://catalog.example --curation 'community review'
+thndrs mcp catalog remove community
+```
+
+Custom sources must use an HTTPS base URL and the MCP Registry-compatible
+`/v0.1/servers` API. Their optional `--curation` text is displayed as a claim.
+Re-enable the built-in source with `thndrs mcp catalog enable official`.
+
+For each source, thndrs stores at most 200 display-safe entries from successful
+responses in `~/.thndrs/mcp-catalog-cache/`. Use `--offline` to search that
+last snapshot or inspect a cached entry. Output names its retrieval time.
+An unavailable or malformed source is reported as a diagnostic and does not
+hide results from another source or change configured MCP servers.
+
+Catalog discovery is separate from configuration, project trust, server
+startup, and tool permissions. Review the publisher's source and package
+origin before using catalog metadata to configure a server.
+
 ## Add a Server
 
 `thndrs` does not provide an MCP package installer. Install a local server using

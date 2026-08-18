@@ -139,21 +139,21 @@ uncurated source without treating its entries as trusted software.
 
 **Acceptance criteria:**
 
-- [ ] Search and detail commands identify the source catalog, claimed
+- [x] Search and detail commands identify the source catalog, claimed
       publisher, available transports, package origins, versions, platform
       constraints, and curation claims without launching a server.
-- [ ] The official registry endpoint is enabled by default, clearly labelled as
+- [x] The official registry endpoint is enabled by default, clearly labelled as
       preview and uncurated, and can be disabled.
-- [ ] Users can add and remove global API-compatible catalog sources; project
+- [x] Users can add and remove global API-compatible catalog sources; project
       configuration cannot select or replace catalog endpoints.
-- [ ] Catalog responses are bounded, validated, and isolated so one unavailable
+- [x] Catalog responses are bounded, validated, and isolated so one unavailable
       or malformed source does not hide results from another source.
-- [ ] A bounded cache supports offline search of the last successful metadata
+- [x] A bounded cache supports offline search of the last successful metadata
       snapshot and shows when it was retrieved. Catalog failure never affects
       configured MCP servers.
-- [ ] Output does not present publisher identity, curation labels, versions, or
+- [x] Output does not present publisher identity, curation labels, versions, or
       supplied hashes as a thndrs security verdict.
-- [ ] Internal and public MCP documentation explain catalog configuration,
+- [x] Internal and public MCP documentation explain catalog configuration,
       preview status, caching, and the discovery-only security boundary.
 
 **Verification:**

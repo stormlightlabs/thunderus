@@ -1002,6 +1002,33 @@ mod tests {
             Some(Command::Mcp { command: commands::mcp::McpCommand::List })
         );
 
+        let catalog = Cli::try_parse_from([
+            "thndrs",
+            "mcp",
+            "catalog",
+            "search",
+            "weather",
+            "--limit",
+            "5",
+            "--cursor",
+            "next",
+            "--offline",
+        ])
+        .expect("parse catalog search");
+        assert_eq!(
+            catalog.command,
+            Some(Command::Mcp {
+                command: commands::mcp::McpCommand::Catalog(commands::mcp::McpCatalogCommand::Search(
+                    commands::mcp::CatalogSearchArgs {
+                        query: "weather".to_string(),
+                        limit: 5,
+                        cursor: Some("next".to_string()),
+                        offline: true,
+                    }
+                ))
+            })
+        );
+
         let add = Cli::try_parse_from([
             "thndrs",
             "mcp",

@@ -1,6 +1,6 @@
 //! MCP command definitions.
 
-use clap::{Subcommand, ValueEnum};
+use clap::{Args, Subcommand, ValueEnum};
 
 /// Destination for an MCP server definition.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -11,7 +11,75 @@ pub enum McpConfigScope {
     Project,
 }
 
-/// MCP inspection and tool-call commands.
+/// Read-only discovery and configuration of MCP server catalogs.
+#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
+pub enum McpCatalogCommand {
+    /// List global catalog sources and their discovery labels.
+    List,
+    /// Add or replace a global API-compatible catalog source.
+    Add {
+        /// Local source name.
+        name: String,
+        /// HTTPS base URL for the catalog API.
+        url: String,
+        /// Catalog-provided curation claim to display with its entries.
+        #[arg(long)]
+        curation: Option<String>,
+    },
+    /// Remove a global custom catalog source.
+    Remove {
+        /// Local source name.
+        name: String,
+    },
+    /// Enable one global catalog source.
+    Enable {
+        /// Local source name.
+        name: String,
+    },
+    /// Disable one global catalog source.
+    Disable {
+        /// Local source name.
+        name: String,
+    },
+    /// Search enabled catalog metadata without starting a server.
+    Search(CatalogSearchArgs),
+    /// Inspect one catalog server entry without starting a server.
+    Show(CatalogShowArgs),
+}
+
+/// Query options shared by catalog search.
+#[derive(Args, Clone, Debug, Eq, PartialEq)]
+pub struct CatalogSearchArgs {
+    /// Name or description text to search for.
+    pub query: String,
+    /// Maximum entries requested from each catalog (1-50).
+    #[arg(long, default_value_t = 20)]
+    pub limit: usize,
+    /// Opaque cursor returned by a previous search for the same catalog.
+    #[arg(long)]
+    pub cursor: Option<String>,
+    /// Use only the last successful metadata snapshot.
+    #[arg(long)]
+    pub offline: bool,
+}
+
+/// Query options for catalog detail.
+#[derive(Args, Clone, Debug, Eq, PartialEq)]
+pub struct CatalogShowArgs {
+    /// Catalog server name, such as `io.example/weather`.
+    pub name: String,
+    /// Restrict the lookup to one enabled source.
+    #[arg(long)]
+    pub source: Option<String>,
+    /// Version to inspect. `latest` is the registry default.
+    #[arg(long, default_value = "latest")]
+    pub version: String,
+    /// Use only the last successful metadata snapshot.
+    #[arg(long)]
+    pub offline: bool,
+}
+
+/// MCP inspection, discovery, and tool-call commands.
 #[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
 pub enum McpCommand {
     /// Add or replace one MCP server definition without starting it.
@@ -39,6 +107,9 @@ pub enum McpCommand {
         #[arg(long, value_enum)]
         scope: McpConfigScope,
     },
+    /// Discover MCP server metadata from global catalogs.
+    #[command(subcommand)]
+    Catalog(McpCatalogCommand),
     /// List configured MCP servers.
     List,
     /// Show project MCP trust state and the current configuration hash.

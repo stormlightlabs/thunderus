@@ -106,6 +106,18 @@ stdout is protocol-only; diagnostics go to stderr.
 
 ### MCP (Model Context Protocol)
 
+- `thndrs mcp catalog list`: list globally configured discovery catalogs.
+- `thndrs mcp catalog add <name> <https-url> [--curation <claim>]`: add or
+  replace a global MCP Registry-compatible catalog source.
+- `thndrs mcp catalog remove <name>`: remove a global custom catalog source.
+- `thndrs mcp catalog enable|disable <name>`: enable or disable a global
+  catalog source. The built-in `official` source can be disabled but not
+  removed.
+- `thndrs mcp catalog search <query> [--limit <1-50>] [--cursor <cursor>]
+  [--offline]`: search metadata from enabled catalogs without configuring or
+  starting a server.
+- `thndrs mcp catalog show <server-name> [--source <name>] [--version <version>]
+  [--offline]`: inspect catalog metadata for one server.
 - `thndrs mcp add <name> --scope <global|project> --command <command> [--arg <arg>]...`:
   add or replace a stdio definition without installing or starting it.
 - `thndrs mcp add <name> --scope <global|project> --url <url>`: add or replace

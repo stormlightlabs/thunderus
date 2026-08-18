@@ -39,6 +39,7 @@ pub(crate) fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()>
     let stdout = io::stdout();
     let mut lock = stdout.lock();
     match command {
+        McpCommand::Catalog(command) => run_mcp_catalog_command(command, &mut lock),
         McpCommand::Add { name, scope, command, args, url } => {
             run_mcp_add(cli, name, *scope, command.as_deref(), args, url.as_deref(), &mut lock)
         }
@@ -839,6 +840,173 @@ pub(crate) fn newest_log_file(dir: &Path) -> Option<PathBuf> {
         right_time.cmp(&left_time).then_with(|| right.cmp(left))
     });
     files.into_iter().next()
+}
+
+fn run_mcp_catalog_command<W: io::Write>(
+    command: &crate::cli::commands::mcp::McpCatalogCommand, writer: &mut W,
+) -> io::Result<()> {
+    use crate::cli::commands::mcp::McpCatalogCommand;
+
+    match command {
+        McpCatalogCommand::List => run_mcp_catalog_list(writer),
+        McpCatalogCommand::Add { name, url, curation } => {
+            let path = mcp::catalog::add_source(name, url, curation.as_deref()).map_err(io::Error::other)?;
+            writeln!(writer, "added MCP catalog `{name}` to {}", path.display())
+        }
+        McpCatalogCommand::Remove { name } => {
+            let path = mcp::catalog::remove_source(name).map_err(io::Error::other)?;
+            writeln!(writer, "removed MCP catalog `{name}` from {}", path.display())
+        }
+        McpCatalogCommand::Enable { name } => {
+            let path = mcp::catalog::set_source_enabled(name, true).map_err(io::Error::other)?;
+            writeln!(writer, "enabled MCP catalog `{name}` in {}", path.display())
+        }
+        McpCatalogCommand::Disable { name } => {
+            let path = mcp::catalog::set_source_enabled(name, false).map_err(io::Error::other)?;
+            writeln!(writer, "disabled MCP catalog `{name}` in {}", path.display())
+        }
+        McpCatalogCommand::Search(args) => {
+            run_mcp_catalog_search(&args.query, args.limit, args.cursor.as_deref(), args.offline, writer)
+        }
+        McpCatalogCommand::Show(args) => {
+            run_mcp_catalog_show(&args.name, args.source.as_deref(), &args.version, args.offline, writer)
+        }
+    }
+}
+
+pub(crate) fn run_mcp_catalog_list<W: io::Write>(writer: &mut W) -> io::Result<()> {
+    for source in mcp::catalog::sources().map_err(io::Error::other)? {
+        let state = if source.enabled { "enabled" } else { "disabled" };
+        let built_in = if source.built_in { "built-in" } else { "custom" };
+        writeln!(
+            writer,
+            "{}\t{state}\t{built_in}\t{}\tcuration claim={}",
+            source.name, source.url, source.curation_claim
+        )?;
+    }
+    writeln!(
+        writer,
+        "Catalog sources are global only. The official catalog is a preview, uncurated discovery source."
+    )
+}
+
+pub(crate) fn run_mcp_catalog_search<W: io::Write>(
+    query: &str, limit: usize, cursor: Option<&str>, offline: bool, writer: &mut W,
+) -> io::Result<()> {
+    let search = mcp::catalog::search(query, limit, cursor, offline).map_err(io::Error::other)?;
+    render_catalog_search(&search, writer)
+}
+
+pub(crate) fn run_mcp_catalog_show<W: io::Write>(
+    name: &str, source: Option<&str>, version: &str, offline: bool, writer: &mut W,
+) -> io::Result<()> {
+    let detail = mcp::catalog::detail(name, source, version, offline).map_err(io::Error::other)?;
+    let mut found = false;
+    for result in &detail.results {
+        for entry in &result.entries {
+            found = true;
+            writeln!(writer, "source: {} ({})", result.source.name, result.source.url)?;
+            writeln!(writer, "retrieved: {}", catalog_retrieval(result))?;
+            writeln!(writer, "catalog labels: {}", entry.curation_claim)?;
+            writeln!(writer, "name: {}", entry.name)?;
+            writeln!(writer, "title: {}", entry.title.as_deref().unwrap_or("not supplied"))?;
+            writeln!(writer, "claimed publisher: {} (catalog claim)", entry.claimed_publisher)?;
+            writeln!(writer, "version: {} (catalog-supplied)", entry.version)?;
+            writeln!(writer, "status: {}", entry.status.as_deref().unwrap_or("not supplied"))?;
+            writeln!(writer, "description: {}", entry.description)?;
+            writeln!(
+                writer,
+                "available transports: {}",
+                catalog_values(&entry.transports, "not supplied")
+            )?;
+            writeln!(
+                writer,
+                "platform constraints: {}",
+                catalog_values(&entry.platform_constraints, "not supplied")
+            )?;
+            if entry.packages.is_empty() {
+                writeln!(writer, "package origins: not supplied")?;
+            } else {
+                writeln!(writer, "package origins (catalog-supplied):")?;
+                for package in &entry.packages {
+                    writeln!(
+                        writer,
+                        "  {} {} version={} registry={} digest={} transports={} platforms={}",
+                        package.registry_type,
+                        package.identifier,
+                        package.version.as_deref().unwrap_or("not supplied"),
+                        package.registry_url.as_deref().unwrap_or("not supplied"),
+                        package.sha256.as_deref().unwrap_or("not supplied"),
+                        catalog_values(&package.transports, "not supplied"),
+                        catalog_values(&package.platform_constraints, "not supplied"),
+                    )?;
+                }
+            }
+            writeln!(writer)?;
+        }
+    }
+    for diagnostic in &detail.diagnostics {
+        writeln!(writer, "diagnostic: {diagnostic}")?;
+    }
+    if !found {
+        writeln!(writer, "no catalog metadata found for `{name}`")?;
+    }
+    writeln!(
+        writer,
+        "Catalog metadata is discovery only. thndrs does not verify publisher identity, curation labels, versions, or supplied digests, and this command does not start a server."
+    )
+}
+
+fn render_catalog_search<W: io::Write>(search: &mcp::catalog::CatalogSearch, writer: &mut W) -> io::Result<()> {
+    let mut entries = 0;
+    for result in &search.results {
+        writeln!(
+            writer,
+            "catalog: {} ({}) retrieved={}",
+            result.source.name,
+            result.source.url,
+            catalog_retrieval(result)
+        )?;
+        for entry in &result.entries {
+            entries += 1;
+            writeln!(
+                writer,
+                "{}\t{}\tversion={}\tpublisher claim={}\ttransports={}\tcuration claim={}",
+                entry.name,
+                entry.title.as_deref().unwrap_or("-"),
+                entry.version,
+                entry.claimed_publisher,
+                catalog_values(&entry.transports, "not supplied"),
+                entry.curation_claim,
+            )?;
+            writeln!(writer, "  {}", entry.description)?;
+        }
+        if let Some(cursor) = &result.next_cursor {
+            writeln!(writer, "next cursor for {}: {cursor}", result.source.name)?;
+        }
+    }
+    for diagnostic in &search.diagnostics {
+        writeln!(writer, "diagnostic: {diagnostic}")?;
+    }
+    if entries == 0 {
+        writeln!(writer, "no catalog entries found")?;
+    }
+    writeln!(
+        writer,
+        "Catalog metadata is discovery only. thndrs does not verify publisher identity, curation labels, versions, or supplied digests, and this command does not start a server."
+    )
+}
+
+fn catalog_retrieval(result: &mcp::catalog::CatalogSearchResult) -> String {
+    match (&result.retrieved_at, result.from_cache) {
+        (Some(time), true) => format!("cache from {time}"),
+        (Some(time), false) => time.clone(),
+        (None, _) => "live response".to_string(),
+    }
+}
+
+fn catalog_values(values: &[String], fallback: &str) -> String {
+    if values.is_empty() { fallback.to_string() } else { values.join(", ") }
 }
 
 pub(crate) fn run_mcp_add<W: io::Write>(

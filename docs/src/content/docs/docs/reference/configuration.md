@@ -320,6 +320,25 @@ diagnostics.
 See [MCP](/docs/usage/mcp/) for stdio setup, Streamable HTTP examples, tool
 namespacing, diagnostics, and security limits.
 
+## MCP Catalogs
+
+Catalog discovery uses only `~/.thndrs/mcp-catalogs.toml`; project
+configuration cannot select or replace catalog endpoints. The official MCP
+Registry is built in at `https://registry.modelcontextprotocol.io`, enabled by
+default, and labelled preview and uncurated. Disable it with `thndrs mcp
+catalog disable official`.
+
+Add a custom HTTPS source with `thndrs mcp catalog add <name> <url>`. The file
+records source URLs, enabled state, and optional curation claims. It never
+holds server definitions, credentials, or package recipes. Successful display
+metadata snapshots live in `~/.thndrs/mcp-catalog-cache/`, with their retrieval
+times. Use `mcp catalog search --offline` or `mcp catalog show --offline` to
+read that cache.
+
+Catalog claims about a publisher, curation, version, or digest do not verify
+software. Catalog access does not configure a server, grant project trust,
+start a server, or grant tool permissions.
+
 ## ACP Agents
 
 ACP agents are configured in the normal `thndrs` config files:
