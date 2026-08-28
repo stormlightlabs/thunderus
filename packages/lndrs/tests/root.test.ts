@@ -7,6 +7,7 @@ import { bindRootView } from "../src/views/projection.svelte.ts";
 import { createRootView } from "../src/views/root.ts";
 
 const snapshot = (transcript: TranscriptItem[]): FrontendSnapshot => ({
+  event_sequence: 0,
   session: { id: "session-1", ephemeral: true, turn_count: 1 },
   workspace: "/tmp/project",
   model: "fake-agent",
@@ -29,7 +30,7 @@ test("renders the initial shell and updates retained renderables", async () => {
   try {
     await renderOnce();
     expect(captureCharFrame()).toContain("Landorus");
-    expect(captureCharFrame()).toContain("Composer arrives in LNDRS-4");
+    expect(captureCharFrame()).toContain("Ask Landorus…");
 
     state.apply({ type: "status.updated", message: "Backend ready" });
     await tick();

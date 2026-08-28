@@ -1,6 +1,7 @@
 export {};
 
 const snapshot = {
+  event_sequence: 0,
   session: { id: "fake-session", ephemeral: true, turn_count: 0 },
   workspace: process.cwd(),
   model: "fake-agent",

@@ -124,52 +124,54 @@ Landorus Stream.
 
 ## LNDRS-4: Implement the composer and active-run interaction
 
+**Status:** Complete.
+
 Make Stream usable for a complete normal agent turn.
 
 ### Composer
 
-- [ ] replace the placeholder composer with `TextareaRenderable`;
-- [ ] focus the composer on normal startup;
-- [ ] support multiline editing;
-- [ ] define explicit submit and newline bindings;
-- [ ] handle terminal paste correctly;
-- [ ] preserve unsent text during unrelated frontend state changes;
-- [ ] clear submitted input only after the corresponding command is accepted.
+- [x] replace the placeholder composer with `TextareaRenderable`;
+- [x] focus the composer on normal startup;
+- [x] support multiline editing;
+- [x] define explicit submit and newline bindings;
+- [x] handle terminal paste correctly;
+- [x] preserve unsent text during unrelated frontend state changes;
+- [x] clear submitted input only after the corresponding command is accepted.
 
 ### Turn lifecycle
 
-- [ ] idle submission sends `turn.submit`;
-- [ ] active runs visibly distinguish working and stopping;
-- [ ] the stop action sends `turn.cancel`;
-- [ ] cancellation remains visibly pending until confirmed by the backend;
-- [ ] failed turns settle into a stable error state;
-- [ ] completed turns return focus to the composer.
+- [x] idle submission sends `turn.submit`;
+- [x] active runs visibly distinguish working and stopping;
+- [x] the stop action sends `turn.cancel`;
+- [x] cancellation remains visibly pending until confirmed by the backend;
+- [x] failed turns settle into a stable error state;
+- [x] completed turns return focus to the composer.
 
 ### Input architecture
 
-- [ ] remove the bare global `q` binding before normal text input is enabled;
-- [ ] define semantic frontend actions independently from physical bindings;
-- [ ] keep renderer-global key handlers limited to genuinely global actions;
-- [ ] ensure printable keys are never intercepted while the composer is
+- [x] remove the bare global `q` binding before normal text input is enabled;
+- [x] define semantic frontend actions independently from physical bindings;
+- [x] keep renderer-global key handlers limited to genuinely global actions;
+- [x] ensure printable keys are never intercepted while the composer is
       focused;
-- [ ] introduce `@opentui/keymap` once focus-dependent commands or overlays make
+- [x] introduce `@opentui/keymap` once focus-dependent commands or overlays make
       direct listeners ambiguous.
 
 ### Protocol recovery
 
-- [ ] track frontend event sequence numbers in `FrontendClient`;
-- [ ] detect missing or out-of-order events;
-- [ ] request `state.snapshot` after a detected sequence gap;
-- [ ] replace local state atomically from the recovery snapshot;
-- [ ] surface unrecoverable backend termination without corrupting the terminal.
+- [x] track frontend event sequence numbers in `FrontendClient`;
+- [x] detect missing or out-of-order events;
+- [x] request `state.snapshot` after a detected sequence gap;
+- [x] replace local state atomically from the recovery snapshot;
+- [x] surface unrecoverable backend termination without corrupting the terminal.
 
 ### Verification
 
-- [ ] submit → stream → finish integration test;
-- [ ] submit → cancel → settle integration test;
-- [ ] composer editing/render tests;
-- [ ] focus regression test proving ordinary printable keys reach the composer;
-- [ ] sequence-gap recovery test.
+- [x] submit → stream → finish integration test;
+- [x] submit → cancel → settle integration test;
+- [x] composer editing/render tests;
+- [x] focus regression test proving ordinary printable keys reach the composer;
+- [x] sequence-gap recovery test.
 
 ## LNDRS-5: Add progressive-disclosure controls
 

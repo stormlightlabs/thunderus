@@ -13,6 +13,7 @@ export type TranscriptItem =
   | { kind: "error"; id: string; text: string };
 
 export interface FrontendSnapshot {
+  event_sequence: number;
   session: { id: string; ephemeral: boolean; turn_count: number };
   workspace: string;
   model: string;

@@ -1,5 +1,6 @@
 {
   "snapshot": {
+    "event_sequence": 0,
     "session": { "id": "replay-tool-heavy", "ephemeral": true, "turn_count": 1 },
     "workspace": "/tmp/replay",
     "model": "fake-agent",

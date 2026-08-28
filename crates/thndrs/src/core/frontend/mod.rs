@@ -191,7 +191,7 @@ impl Bridge {
                     )?;
                 } else {
                     self.initialized = true;
-                    let snapshot = FrontendSnapshot::from_app(&self.app);
+                    let snapshot = FrontendSnapshot::from_app(&self.app, self.sequence);
                     self.write_response(
                         envelope.id,
                         Ok(ResponseResult::Initialized { protocol_version: PROTOCOL_VERSION, snapshot }),
@@ -205,7 +205,7 @@ impl Bridge {
                 }
                 self.write_response(
                     envelope.id,
-                    Ok(ResponseResult::Snapshot { snapshot: FrontendSnapshot::from_app(&self.app) }),
+                    Ok(ResponseResult::Snapshot { snapshot: FrontendSnapshot::from_app(&self.app, self.sequence) }),
                     output,
                 )?;
             }

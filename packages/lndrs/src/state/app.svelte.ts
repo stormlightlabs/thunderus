@@ -6,22 +6,64 @@ export class AppState {
   transcript = $state<TranscriptItem[]>([]);
   run = $state<RunState>({ state: "idle" });
   #liveId = 0;
+  #localUserId = 0;
+  #submissionTranscriptIndex: number | undefined;
   #activeAssistantId: string | undefined;
   #activeReasoningId: string | undefined;
 
   initialize(snapshot: FrontendSnapshot): void {
+    this.replaceSnapshot(snapshot, "Connected");
+  }
+
+  recover(snapshot: FrontendSnapshot): void {
+    this.replaceSnapshot(snapshot, "Recovered backend state");
+  }
+
+  replaceSnapshot(snapshot: FrontendSnapshot, status = "Connected"): void {
     this.snapshot = snapshot;
     this.transcript = snapshot.transcript;
     this.#restoreActiveStreamingIds();
     this.run = snapshot.run;
-    this.status = "Connected";
+    this.status = status;
+  }
+
+  beginSubmission(): void {
+    this.#submissionTranscriptIndex = this.transcript.length;
+    this.status = "Sending…";
+  }
+
+  acceptSubmission(text: string): void {
+    const index = this.#submissionTranscriptIndex ?? this.transcript.length;
+    this.transcript.splice(index, 0, { kind: "user", id: `local-user-${++this.#localUserId}`, text });
+    this.#submissionTranscriptIndex = undefined;
+    this.status = this.run.state === "idle" ? "Starting…" : this.status;
+  }
+
+  beginCancellation(): void {
+    this.run = { state: "stopping" };
+    this.status = "Stopping…";
+  }
+
+  rejectAction(error: unknown): void {
+    this.#submissionTranscriptIndex = undefined;
+    const message = error instanceof Error ? error.message : String(error);
+    this.run = { state: "error", message };
+    this.status = message;
+  }
+
+  backendTerminated(message: string): void {
+    this.finishStreaming();
+    this.run = { state: "error", message };
+    this.status = message;
   }
 
   apply(event: FrontendEvent): void {
     switch (event.type) {
       case "run.started":
-        this.run = { state: "working" };
-        this.status = "Working";
+        if (this.run.state !== "stopping") {
+          this.run = { state: "working" };
+          this.status = "Working";
+        }
         break;
       case "run.finished":
       case "run.cancelled":
@@ -89,7 +131,9 @@ export class AppState {
     const model = this.snapshot?.model ?? "no model";
     const usage = this.snapshot?.usage;
     const tokens = usage ? `${usage.input_tokens + usage.output_tokens} tokens` : "0 tokens";
-    return `${model} · ${tokens} · ${this.status} · q quit`;
+    const action =
+      this.run.state === "working" ? "Esc stop" : this.run.state === "stopping" ? "stopping…" : "Ctrl+D quit";
+    return `${model} · ${tokens} · ${this.status} · ${action}`;
   }
 
   #appendDelta(kind: "assistant" | "reasoning", text: string): void {

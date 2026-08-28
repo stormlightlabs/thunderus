@@ -1,5 +1,6 @@
 import { createCliRenderer, type KeyEvent } from "@opentui/core";
 import { flushSync } from "svelte";
+import { InteractionController, globalActionForKey } from "./interaction.ts";
 import { FrontendClient } from "./protocol/client.ts";
 import { AppState } from "./state/app.svelte.ts";
 import { bindRootView } from "./views/projection.svelte.ts";
@@ -19,9 +20,21 @@ async function run(): Promise<void> {
   const state = new AppState();
   const view = mountRootView(renderer);
   const disposeProjection = bindRootView(state, view);
-  const client = new FrontendClient({ onEvent: (event) => state.apply(event), onExit: () => finish?.() });
+  let interaction: InteractionController;
+  const client = new FrontendClient({
+    onEvent: (event) => interaction.handleEvent(event),
+    onSnapshot: (snapshot) => state.recover(snapshot),
+    onExit: (code) => state.backendTerminated(`thndrs frontend exited with status ${code}`),
+  });
+  interaction = new InteractionController(state, view.composer.input, client);
+  view.composer.input.onSubmit = () => void interaction.dispatch("turn.submit");
   const onKeypress = (key: KeyEvent) => {
-    if (key.name === "q" && !key.ctrl && !key.meta) finish?.();
+    const action = globalActionForKey(key, state.run.state === "working" || state.run.state === "stopping");
+    if (!action) return;
+    key.preventDefault();
+    key.stopPropagation();
+    if (action === "app.quit") finish?.();
+    else void interaction.dispatch(action);
   };
   renderer.keyInput.on("keypress", onKeypress);
 

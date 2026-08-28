@@ -157,6 +157,8 @@ pub struct ResponseError {
 /// Bounded frontend-visible application state.
 #[derive(Clone, Debug, Serialize, Eq, PartialEq)]
 pub struct FrontendSnapshot {
+    /// Sequence of the latest event reflected by this snapshot.
+    pub event_sequence: u64,
     pub session: FrontendSession,
     pub workspace: String,
     pub model: String,
@@ -169,7 +171,7 @@ pub struct FrontendSnapshot {
 }
 
 impl FrontendSnapshot {
-    pub(super) fn from_app(app: &App) -> Self {
+    pub(super) fn from_app(app: &App, event_sequence: u64) -> Self {
         let entry_count = app.transcript.entries.len();
         let skipped = entry_count.saturating_sub(MAX_SNAPSHOT_ENTRIES);
         let transcript = app
@@ -193,6 +195,7 @@ impl FrontendSnapshot {
             })
             .collect();
         Self {
+            event_sequence,
             session: FrontendSession {
                 id: app.session.id.clone(),
                 ephemeral: app.is_ephemeral(),
