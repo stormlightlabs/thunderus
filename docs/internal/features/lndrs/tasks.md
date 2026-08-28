@@ -1,271 +1,369 @@
 # Landorus Tasks
 
-## LNDRS-1: Define the frontend protocol boundary
+## LNDRS-1: Establish the frontend application boundary
 
-**What to build:** Add a versioned, frontend-neutral stdio protocol backed by
-the existing Rust application core and harness. Establish snapshots, commands,
-responses, and asynchronous events without importing Ratatui state or exposing
-provider payloads.
+**Status:** Complete.
 
-**Acceptance criteria:**
+Add a versioned frontend-neutral stdio adapter backed by the existing Thunderus
+application and harness.
 
-- [x] `thndrs frontend --stdio` starts without entering terminal raw mode or
-      drawing UI.
-- [x] stdin accepts versioned NDJSON frontend commands.
-- [x] stdout contains protocol messages only; diagnostics use stderr.
-- [x] Initialization negotiates a protocol version and returns a bounded
-      frontend snapshot before live events.
-- [x] Commands and responses have stable request identifiers where a direct
-      result is required.
-- [x] Existing `AgentEvent` values are projected into a separate serialized
-      frontend event vocabulary.
-- [x] Provider-native payloads, credentials, and internal session writer state
-      never cross the protocol.
-- [x] Turn submission uses the shared context, prompt, provider, tool, MCP, and
-      session paths rather than a second agent loop.
-- [x] Cancellation uses the existing cooperative cancellation token.
-- [x] The protocol supports clean shutdown and detects unexpected peer
-      termination.
-- [x] A second frontend does not need to import `cli/app`, `runtime`, or
-      Ratatui renderer modules.
-- [x] Shared behavior found only in `cli/app` is moved to an appropriate
-      frontend-neutral owner rather than duplicated for Landorus.
+### Acceptance criteria
 
-**Verification:**
+- [x] `thndrs frontend --stdio` runs without owning or drawing the terminal.
+- [x] stdin accepts versioned NDJSON commands.
+- [x] stdout contains protocol messages only.
+- [x] initialization negotiates the protocol version and returns a bounded
+      snapshot.
+- [x] requests have stable IDs.
+- [x] asynchronous events have monotonic sequence numbers.
+- [x] snapshots and events use frontend-specific semantic types rather than
+      serialized provider payloads.
+- [x] provider credentials and persistence internals do not cross the protocol.
+- [x] turn submission uses the existing application/harness lifecycle.
+- [x] cancellation uses the existing cooperative cancellation path.
+- [x] unexpected frontend disconnection cancels active work.
+- [x] output is bounded and sensitive diagnostic/tool text is redacted.
+- [x] unsupported future commands fail explicitly.
 
-- Rust protocol serialization and schema tests.
-- Fake-provider integration test covering handshake, snapshot, turn start,
-  streaming output, tool lifecycle, terminal outcome, and shutdown.
-- Tests proving stdout remains valid protocol when diagnostics occur.
-- Tests for malformed commands, unsupported versions, peer disconnect, and
-  cancellation.
+---
 
-## LNDRS-2: Bootstrap the Svelte/OpenTUI frontend
+## LNDRS-2: Bootstrap the Bun/Svelte/OpenTUI frontend
 
-**What to build:** Create `packages/lndrs/` as a Bun/TypeScript application
-using Svelte 5 runes for reactive state and `@opentui/core` for imperative
-terminal rendering.
+**Status:** Complete.
 
-**Blocked by:** LNDRS-1 for live integration. The frontend shell and replay
-transport may begin independently.
+Create Landorus as a Bun workspace package and prove the Svelte-state →
+retained-OpenTUI-renderable integration.
 
-**Acceptance criteria:**
+### Acceptance criteria
 
-- [x] `packages/lndrs/` has an isolated package manifest, TypeScript
-      configuration, formatting/linting commands, and tests.
-- [x] `bun run dev` starts an OpenTUI alternate-screen application and restores
-      the terminal cleanly on normal exit, Ctrl+C, error, and backend exit.
-- [x] Landorus can spawn `thndrs frontend --stdio` and complete the protocol
-      handshake.
-- [x] Svelte reactive state lives in `.svelte.ts` modules where appropriate.
-- [x] No React, Solid, DOM runtime, browser renderer, or custom Svelte
-      reconciler is required.
-- [x] OpenTUI renderables are created through `@opentui/core` and retained
-      across ordinary state updates.
-- [x] One small prototype proves that a protocol state change can update an
-      existing OpenTUI renderable through the chosen Svelte-reactivity
-      integration.
-- [x] Shutdown disposes reactive effects, protocol streams, the child process,
-      and the OpenTUI renderer without leaving the terminal corrupted.
-- [x] The package exposes a `lndrs` executable or equivalent local launch
-      command.
+- [x] the repository uses one Bun workspace and lockfile for `docs` and
+      `packages/*`;
+- [x] `packages/lndrs` has its own package manifest and TypeScript config;
+- [x] `lndrs` is exposed as a local executable;
+- [x] `.svelte.ts` modules compile through the Bun Svelte preload plugin;
+- [x] Landorus launches an OpenTUI alternate-screen renderer;
+- [x] Landorus launches and initializes `thndrs frontend --stdio`;
+- [x] the frontend restores the terminal on normal exit and backend exit;
+- [x] protocol state can update an existing retained OpenTUI renderable through
+      Svelte reactivity;
+- [x] protocol framing, client behavior, state, and the initial render shell
+      have tests;
+- [x] Landorus participates in repository CI.
 
-**Verification:**
+The existing single-`TextRenderable` transcript is considered scaffolding for
+this milestone, not the target transcript architecture.
 
-- Unit test for protocol framing and typed message parsing.
-- State test for snapshot initialization and incremental updates.
-- OpenTUI render test for the initial shell.
-- Manual smoke test in a dedicated tmux session on macOS and at least one Linux
-  environment before this milestone is considered complete. Capture each
-  representative frame with `tmux capture-pane -p -e -N`, render it through
-  Freeze, and compare the screenshot with the raw ANSI capture. The macOS smoke
-  test passed in tmux; Linux verification remains pending.
+---
 
-## LNDRS-3: Implement transcript and live run rendering
+## LNDRS-3: Build the Stream transcript
 
-**What to build:** Render the normal conversation and active agent run from
-frontend snapshots and semantic events.
+**Status:** Next.
 
-**Blocked by:** LNDRS-2.
+Replace the bootstrap transcript string with the actual conversation-first
+Landorus Stream.
 
-**Acceptance criteria:**
+### Transcript structure
 
-- [ ] User turns and assistant responses render as distinct transcript blocks.
-- [ ] Assistant deltas update one active assistant block instead of allocating
-      one view per token.
-- [ ] Reasoning has a distinct presentation and streams into one active
-      reasoning block.
-- [ ] Tool start/update/finish events modify one stable tool block identified by
-      tool-call id.
-- [ ] Failed and cancelled tools remain visibly distinct from successful tools.
-- [ ] Markdown output uses OpenTUI's Markdown renderable where appropriate.
-- [ ] Source and diff output use appropriate OpenTUI renderables where they
-      materially improve readability.
-- [ ] Completed transcript content remains stable when a new run begins.
-- [ ] Long transcripts scroll correctly and do not require rebuilding all
-      completed renderables for every live delta.
-- [ ] Auto-follow remains enabled while the user is at the bottom and stops
-      pulling the viewport downward after the user deliberately scrolls into
-      history.
-- [ ] Resize events preserve usable layout across narrow and wide terminals.
-- [ ] Failure, cancellation, and normal completion return the live surface to a
-      settled state.
+- [ ] replace the single transcript `TextRenderable` with a
+      `ScrollBoxRenderable`;
+- [ ] represent semantic transcript entries as stable child renderables;
+- [ ] preserve protocol IDs as frontend renderable identities;
+- [ ] add dedicated presentation for:
 
-**Verification:**
+  - user;
+  - assistant;
+  - reasoning;
+  - tool;
+  - skill;
+  - status;
+  - error;
 
-- Replay fixtures for simple, reasoning-heavy, tool-heavy, cancelled, and
-  failed turns.
-- Fixed-size render snapshots for representative transcript states.
-- A stress fixture with a long transcript and many streaming deltas that does
-  not exhibit unbounded renderable growth or obvious input stalls.
+- [ ] assistant deltas mutate one active assistant block;
+- [ ] reasoning deltas mutate one active reasoning block;
+- [ ] tool start and finish events update one block by tool-call ID;
+- [ ] completed blocks are not recreated when unrelated live events arrive.
 
-## LNDRS-4: Implement prompt, steering, queue, and permissions
+### Tool presentation
 
-**What to build:** Make Landorus capable of controlling a complete interactive
-turn rather than acting as a read-only event viewer.
+- [ ] render normal tools in a compact collapsed form;
+- [ ] distinguish running, successful, failed, and cancelled states;
+- [ ] allow tool arguments/output to be expanded;
+- [ ] bound visual output consistently with the Rust protocol;
+- [ ] use richer source/diff presentation only where it improves readability.
 
-**Blocked by:** LNDRS-3.
+### Scrolling
 
-**Acceptance criteria:**
+- [ ] follow output while the viewport is at the bottom;
+- [ ] stop auto-following after deliberate upward scrolling;
+- [ ] resume following after returning to the bottom;
+- [ ] preserve scroll position across status and usage updates;
+- [ ] verify long transcripts with viewport culling enabled where appropriate.
 
-- [ ] The composer supports editable multiline input.
-- [ ] Idle submission sends a new user turn through the frontend protocol.
-- [ ] Input submitted during a run can target either steering or follow-up
-      queue behavior according to the current frontend action.
-- [ ] Queue state is rendered from Rust-owned queue semantics rather than
-      independently inferred by Landorus.
-- [ ] Queued items can be inspected and deleted where the Rust application
-      allows it.
-- [ ] Escape or the chosen stop binding requests cancellation without locally
-      pretending the run has already stopped.
-- [ ] The UI displays stopping state until the backend confirms settlement.
-- [ ] Permission requests interrupt normal input with an explicit decision
-      surface.
-- [ ] Allow/reject responses map to existing Rust permission semantics.
-- [ ] Backend disconnect while a permission is pending fails closed.
-- [ ] Input focus returns to a sensible location after permission settlement,
-      cancellation, and turn completion.
-- [ ] Keybindings are translated into semantic frontend actions before any
-      protocol command is sent.
+### Rendering cadence
 
-**Verification:**
+- [ ] remove full-transcript string regeneration from the live rendering path;
+- [ ] measure the current `flushSync()`-per-event path under a streaming fixture;
+- [ ] introduce presentation coalescing if measurements show unnecessary render
+      work;
+- [ ] never drop or merge semantic protocol events in application state;
+- [ ] keep input and scrolling responsive during dense streaming.
 
-- State tests for idle submit, steering, follow-up queueing, deletion,
-  cancellation, and permission settlement.
-- Replay fixtures for queue and permission states.
-- Fake-provider integration tests for submit → tool → permission → continue and
-  submit → cancel → settle.
+### Layout
 
-## LNDRS-5: Add session, model, and context controls
+- [ ] make Stream usable at narrow terminal widths;
+- [ ] keep the transcript visually dominant;
+- [ ] avoid permanent sidebars or dashboard chrome;
+- [ ] establish a minimal visual vocabulary for user, assistant, reasoning,
+      tools, errors, and muted metadata.
 
-**What to build:** Add the minimum surrounding application controls required for
-Landorus to function as a daily Thunderus frontend.
+### Verification
 
-**Blocked by:** LNDRS-4.
+- [ ] state tests for streaming block identity;
+- [ ] render tests for every transcript block type;
+- [ ] render tests at representative narrow and wide terminal sizes;
+- [ ] replay fixture for a long tool-heavy run;
+- [ ] test that historical scrolling is not pulled back to the bottom by new
+      deltas;
+- [ ] test that renderable count does not grow once-per-token.
 
-**Acceptance criteria:**
+---
 
-- [ ] Landorus can create a new session and resume an existing compatible
-      session.
-- [ ] Session selection uses Rust-provided session metadata rather than reading
-      JSONL files directly.
-- [ ] The active provider/model is visible.
-- [ ] Model selection uses a backend-provided option list and command.
-- [ ] Reasoning effort is visible and selectable where supported.
-- [ ] Context usage is displayed from normalized backend accounting.
-- [ ] Compaction activity and relevant recoverable diagnostics are visible.
-- [ ] Active skill/context information needed for normal operation can be
-      inspected without reproducing context-selection policy in TypeScript.
-- [ ] Backend configuration changes refresh the relevant frontend snapshot or
-      emit explicit state updates.
-- [ ] Unsupported controls are disabled or omitted based on backend
-      capabilities rather than failing after selection.
+## LNDRS-4: Implement the composer and active-run interaction
 
-**Verification:**
+Make Stream usable for a complete normal agent turn.
 
-- State and render tests for model, reasoning, session, and context states.
-- Integration test loading a persisted session and starting a new turn.
-- Integration test changing model/reasoning configuration before a turn.
+### Composer
 
-## LNDRS-6: Make replay and parity tests first-class
+- [ ] replace the placeholder composer with `TextareaRenderable`;
+- [ ] focus the composer on normal startup;
+- [ ] support multiline editing;
+- [ ] define explicit submit and newline bindings;
+- [ ] handle terminal paste correctly;
+- [ ] preserve unsent text during unrelated frontend state changes;
+- [ ] clear submitted input only after the corresponding command is accepted.
 
-**What to build:** Establish a shared deterministic fixture suite so Landorus
-can be developed and compared with the Ratatui frontend without live provider
-calls.
+### Turn lifecycle
 
-**Blocked by:** LNDRS-3. Expand alongside LNDRS-4 and LNDRS-5.
+- [ ] idle submission sends `turn.submit`;
+- [ ] active runs visibly distinguish working and stopping;
+- [ ] the stop action sends `turn.cancel`;
+- [ ] cancellation remains visibly pending until confirmed by the backend;
+- [ ] failed turns settle into a stable error state;
+- [ ] completed turns return focus to the composer.
 
-**Acceptance criteria:**
+### Input architecture
 
-- [ ] A versioned frontend fixture format is documented.
-- [ ] Fixtures exist for:
+- [ ] remove the bare global `q` binding before normal text input is enabled;
+- [ ] define semantic frontend actions independently from physical bindings;
+- [ ] keep renderer-global key handlers limited to genuinely global actions;
+- [ ] ensure printable keys are never intercepted while the composer is
+      focused;
+- [ ] introduce `@opentui/keymap` once focus-dependent commands or overlays make
+      direct listeners ambiguous.
+
+### Protocol recovery
+
+- [ ] track frontend event sequence numbers in `FrontendClient`;
+- [ ] detect missing or out-of-order events;
+- [ ] request `state.snapshot` after a detected sequence gap;
+- [ ] replace local state atomically from the recovery snapshot;
+- [ ] surface unrecoverable backend termination without corrupting the terminal.
+
+### Verification
+
+- [ ] submit → stream → finish integration test;
+- [ ] submit → cancel → settle integration test;
+- [ ] composer editing/render tests;
+- [ ] focus regression test proving ordinary printable keys reach the composer;
+- [ ] sequence-gap recovery test.
+
+---
+
+## LNDRS-5: Add progressive-disclosure controls
+
+Add the surrounding controls needed for daily use without turning Stream into
+an IDE/dashboard layout.
+
+Secondary controls should appear as overlays, pickers, or temporary inspection
+surfaces.
+
+### Capability discovery
+
+- [ ] expose frontend command/capability availability during initialization or
+      snapshot state;
+- [ ] hide or disable unsupported Landorus actions;
+- [ ] distinguish backend command support from provider-specific option
+      availability.
+
+### Permissions
+
+- [ ] implement `permission.respond` in the Rust bridge;
+- [ ] model pending permission state explicitly in Landorus;
+- [ ] open an explicit focused permission surface when requested;
+- [ ] support all existing allow/reject semantics;
+- [ ] restore sensible focus after settlement;
+- [ ] fail closed on backend disconnect.
+
+### Model and reasoning
+
+- [ ] implement backend model selection support;
+- [ ] implement backend reasoning-effort selection support;
+- [ ] expose model/reasoning selection through a temporary picker;
+- [ ] keep the active model and reasoning effort visible in compact status;
+- [ ] omit unsupported reasoning controls.
+
+### Context inspection
+
+- [ ] expose normalized context-window usage required by Landorus;
+- [ ] show compact context usage in the normal status line;
+- [ ] add a temporary context-inspection surface for additional available
+      details;
+- [ ] expose compaction state where useful;
+- [ ] do not reproduce context-selection or compaction policy in TypeScript.
+
+### Command palette
+
+- [ ] introduce a searchable command palette;
+- [ ] source palette entries from available semantic frontend actions;
+- [ ] show current keybindings where useful;
+- [ ] use the palette for infrequent actions instead of permanent chrome.
+
+### Verification
+
+- [ ] permission replay and integration tests;
+- [ ] model/reasoning picker render tests;
+- [ ] capability-gating tests;
+- [ ] context status and inspector tests;
+- [ ] focus restoration tests for every overlay.
+
+---
+
+## LNDRS-6: Add queue and session parity
+
+Implement remaining application controls that materially affect normal
+single-agent use.
+
+### Queue and steering
+
+- [ ] implement `queue.submit`;
+- [ ] implement `queue.delete`;
+- [ ] expose Rust-owned queued items in frontend state;
+- [ ] allow active-run input to explicitly target supported steering/follow-up
+      semantics;
+- [ ] render queued input compactly;
+- [ ] provide a temporary queue inspector where needed;
+- [ ] never infer settlement independently from the backend.
+
+### Sessions
+
+- [ ] implement `session.new`;
+- [ ] implement `session.load`;
+- [ ] implement `session.close`;
+- [ ] expose session metadata required for a session picker;
+- [ ] resume compatible persisted sessions;
+- [ ] show truncated-history state when a frontend snapshot cannot contain the
+      complete transcript;
+- [ ] keep session persistence entirely Rust-owned.
+
+### Explicitly deferred
+
+- [ ] no agent tree;
+- [ ] no Fleet view;
+- [ ] no subagent UI;
+- [ ] no worktree orchestration UI;
+- [ ] no multi-session dashboard.
+
+These should become a separate future feature only after corresponding
+Thunderus application semantics exist.
+
+### Verification
+
+- [ ] queue/steering integration tests;
+- [ ] session create/load/close integration tests;
+- [ ] persisted-session replay/render test;
+- [ ] tests proving unsupported future orchestration state is absent from the
+      frontend model.
+
+---
+
+## LNDRS-7: Make replay and visual QA first-class
+
+Create the deterministic workflow used to iterate on and polish Landorus.
+
+### Replay
+
+- [ ] define a versioned frontend replay fixture format;
+- [ ] add fixtures for:
+
   - simple turn;
+  - streaming;
   - reasoning;
   - multiple tools;
   - failed tool;
   - permission;
-  - steering;
-  - follow-up queue;
+  - queued input;
   - cancellation;
+  - retry;
   - provider failure;
   - compaction;
-  - long transcript.
-- [ ] Landorus can launch directly against a fixture without spawning a live
-      provider.
-- [ ] Rust projection tests can generate or validate the same protocol
-      messages consumed by the TypeScript tests.
-- [ ] Fixture playback supports deterministic terminal dimensions.
-- [ ] Replay can run faster than real time for automated tests.
-- [ ] Replay can optionally preserve event timing for manual streaming and
-      animation inspection.
-- [ ] A protocol change that invalidates fixtures fails tests explicitly rather
-      than silently ignoring unknown semantic data.
+  - long transcript;
 
-**Verification:**
+- [ ] allow Landorus to run without spawning a provider-backed turn;
+- [ ] support immediate playback for automated testing;
+- [ ] support timed playback for manual streaming inspection;
+- [ ] support deterministic terminal dimensions.
 
-- Landorus unit/render suite runs without network credentials.
-- Rust and TypeScript CI both exercise the shared fixture corpus.
-- At least one end-to-end fake-provider trace round-trips through capture and
-  replay with equivalent final frontend state.
+### Render QA
 
-## LNDRS-7: Polish and evaluate the experiment
+- [ ] capture fixed-size OpenTUI character frames for important states;
+- [ ] exercise narrow, normal, and wide terminal sizes;
+- [ ] verify alternate-screen restoration after exceptions;
+- [ ] smoke test macOS and Linux;
+- [ ] add Windows testing if Landorus is intended to match the supported
+      Thunderus platform matrix;
+- [ ] use tmux/VHS/Freeze captures for representative manual visual review where
+      useful.
 
-**What to build:** Bring Landorus to realistic daily-use quality, measure it
-against the Ratatui frontend, and record whether the experiment should
-continue.
+### Performance
 
-**Blocked by:** LNDRS-4, LNDRS-5, and LNDRS-6.
+- [ ] measure startup time;
+- [ ] measure idle memory;
+- [ ] measure memory during a long replay;
+- [ ] measure CPU during dense streaming;
+- [ ] verify input latency remains acceptable while rendering;
+- [ ] verify completed transcript history does not cause increasing work for
+      every new token.
 
-**Acceptance criteria:**
+---
 
-- [ ] Common interaction paths are usable without visible flicker or terminal
-      corruption.
-- [ ] Streaming remains responsive during tool-heavy and long-output runs.
-- [ ] Input remains responsive while assistant output is arriving.
-- [ ] Completed transcript content does not cause obviously increasing work on
-      every new delta.
-- [ ] Startup time, idle memory, active memory, and CPU during representative
-      streaming are measured against the Ratatui frontend.
-- [ ] Cross-platform behavior is checked on macOS, Linux, and Windows or the
-      current supported platform matrix is explicitly narrowed.
-- [ ] The implementation records approximate frontend-specific source size and
-      major abstraction count for comparison with Ratatui.
-- [ ] Adding one representative new frontend surface is used as a qualitative
-      maintainability test.
-- [ ] Remaining behavioral gaps are listed explicitly rather than hidden behind
-      "parity" language.
-- [ ] A short evaluation records one of:
+## LNDRS-8: Evaluate the experiment
+
+Dogfood Landorus on normal coding tasks and decide whether the experiment
+should continue.
+
+### Acceptance criteria
+
+- [ ] normal agent tasks can be completed without returning to Ratatui for the
+      core interaction loop;
+- [ ] transcript scrolling remains predictable;
+- [ ] streaming feels stable and responsive;
+- [ ] composer input remains responsive during active output;
+- [ ] permissions, cancellation, queueing, model selection, and session resume
+      are usable;
+- [ ] remaining Ratatui parity gaps are documented explicitly;
+- [ ] frontend-specific source size is measured;
+- [ ] major frontend abstractions are identified and compared with Ratatui;
+- [ ] Svelte/OpenTUI projection boilerplate is evaluated from actual code rather
+      than anticipated complexity;
+- [ ] packaging implications are documented;
+- [ ] a recommendation records one of:
+
   - keep experimental;
-  - promote to supported alternative;
-  - begin replacement work;
-  - archive Landorus but retain the frontend protocol;
+  - support Landorus alongside Ratatui;
+  - begin gradual frontend replacement;
+  - archive Landorus but keep the frontend protocol;
   - archive both.
-- [ ] A custom Svelte/OpenTUI renderer is proposed only if repeated imperative
-      synchronization has become a demonstrated maintenance problem.
 
-**Verification:**
-
-- Daily-use dogfood through representative coding tasks.
-- Recorded performance measurements for equivalent fixture workloads.
-- Final architecture review confirming that provider, tool, authority,
-  persistence, and context behavior remains Rust-owned.
+A custom Svelte/OpenTUI renderer is only a follow-up if the final implementation
+demonstrates that retained-renderable synchronization is itself the dominant
+source of frontend complexity.

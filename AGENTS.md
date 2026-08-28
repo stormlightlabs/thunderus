@@ -57,6 +57,8 @@ cargo clippy --workspace
 cargo test --workspace
 ```
 
+`cargo clean` regularly to conserve disk space.
+
 Documentation in the doc site changes require `bun run --cwd docs build`.
 Ensure documentation stays up to date as feature work is completed.
 
