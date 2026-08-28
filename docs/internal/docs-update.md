@@ -77,5 +77,5 @@ locations used by later pages.
 - [ ] Check every Internals page for one useful mental model, explicit ownership
   boundaries, current key types, verified source locations, and links instead
   of duplicated guarantees.
-- [ ] Run `pnpm --dir docs build` and resolve content, route, and internal-link
+- [ ] Run `bun run --cwd docs build` and resolve content, route, and internal-link
   validation failures.

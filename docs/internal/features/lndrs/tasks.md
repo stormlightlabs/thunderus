@@ -51,23 +51,23 @@ transport may begin independently.
 
 **Acceptance criteria:**
 
-- [ ] `packages/lndrs/` has an isolated package manifest, TypeScript
+- [x] `packages/lndrs/` has an isolated package manifest, TypeScript
       configuration, formatting/linting commands, and tests.
-- [ ] `bun run dev` starts an OpenTUI alternate-screen application and restores
+- [x] `bun run dev` starts an OpenTUI alternate-screen application and restores
       the terminal cleanly on normal exit, Ctrl+C, error, and backend exit.
-- [ ] Landorus can spawn `thndrs frontend --stdio` and complete the protocol
+- [x] Landorus can spawn `thndrs frontend --stdio` and complete the protocol
       handshake.
-- [ ] Svelte reactive state lives in `.svelte.ts` modules where appropriate.
-- [ ] No React, Solid, DOM runtime, browser renderer, or custom Svelte
+- [x] Svelte reactive state lives in `.svelte.ts` modules where appropriate.
+- [x] No React, Solid, DOM runtime, browser renderer, or custom Svelte
       reconciler is required.
-- [ ] OpenTUI renderables are created through `@opentui/core` and retained
+- [x] OpenTUI renderables are created through `@opentui/core` and retained
       across ordinary state updates.
-- [ ] One small prototype proves that a protocol state change can update an
+- [x] One small prototype proves that a protocol state change can update an
       existing OpenTUI renderable through the chosen Svelte-reactivity
       integration.
-- [ ] Shutdown disposes reactive effects, protocol streams, the child process,
+- [x] Shutdown disposes reactive effects, protocol streams, the child process,
       and the OpenTUI renderer without leaving the terminal corrupted.
-- [ ] The package exposes a `lndrs` executable or equivalent local launch
+- [x] The package exposes a `lndrs` executable or equivalent local launch
       command.
 
 **Verification:**
@@ -75,8 +75,11 @@ transport may begin independently.
 - Unit test for protocol framing and typed message parsing.
 - State test for snapshot initialization and incremental updates.
 - OpenTUI render test for the initial shell.
-- Manual smoke test on macOS and at least one Linux environment before this
-  milestone is considered complete.
+- Manual smoke test in a dedicated tmux session on macOS and at least one Linux
+  environment before this milestone is considered complete. Capture each
+  representative frame with `tmux capture-pane -p -e -N`, render it through
+  Freeze, and compare the screenshot with the raw ANSI capture. The macOS smoke
+  test passed in tmux; Linux verification remains pending.
 
 ## LNDRS-3: Implement transcript and live run rendering
 

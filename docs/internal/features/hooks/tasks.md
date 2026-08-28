@@ -141,7 +141,7 @@ configuration and execute them through a bounded, versioned JSON protocol.
 - End-to-end fixtures for turn start and end, a context addition, tool denial,
   argument rewrite, model-result rewrite, compaction and session decisions, and
   stop continuation.
-- `pnpm --dir docs build` after the public documentation is added.
+- `bun run --cwd docs build` after the public documentation is added.
 
 ## HOOK-5: Activate trusted project hooks
 

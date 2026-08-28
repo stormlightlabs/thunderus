@@ -87,7 +87,7 @@ uncurated source without treating its entries as trusted software.
   search, detail, pagination, multiple sources, invalid data, response limits,
   disabled sources, unavailable sources, and offline cache fallback.
 - `cargo test -p thndrs mcp` or the narrowest matching test filters.
-- `pnpm --dir docs build` after updating public documentation.
+- `bun run --cwd docs build` after updating public documentation.
 
 ## EXT-10B: Configure a server from catalog metadata
 
@@ -161,7 +161,7 @@ configuration diff. Keep external package state outside thndrs ownership.
 - Confirm that update and removal leave representative npm, Python, container,
   and MCPB caches untouched.
 - `cargo test -p thndrs mcp` or the narrowest matching test filters.
-- `pnpm --dir docs build` after updating public documentation.
+- `bun run --cwd docs build` after updating public documentation.
 
 ## EXT-11: Move web search to MCP
 

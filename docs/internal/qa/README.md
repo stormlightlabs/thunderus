@@ -82,7 +82,7 @@ cargo fmt
 cargo clippy --workspace --fix --allow-dirty --allow-staged
 cargo clippy --workspace
 cargo test --workspace
-pnpm --dir docs build
+bun run --cwd docs build
 git diff --check
 ```
 
@@ -107,9 +107,12 @@ Record:
 - [ ] Review the representative snapshot matrix at 80×24, 120×32, 160×40,
       and one cramped size. Review a smaller subset across every built-in theme
       for semantic contrast.
-- [ ] In a real terminal, inspect hierarchy, content rails, spacing,
+- [ ] In a dedicated tmux session, inspect hierarchy, content rails, spacing,
       truncation, cursor placement, scrolling, selection, overlay transitions,
       and resize behavior.
+- [ ] Capture representative full frames with `tmux capture-pane -p -e -N`,
+      render them through Freeze, and compare each screenshot with its raw ANSI
+      capture before recording a UI defect.
 - [ ] Confirm active and settled states remain distinguishable without color.
 - [ ] Redraw and stale-cell regressions remain covered. Add a focused
       regression when the candidate changes one of those state boundaries.
@@ -119,6 +122,7 @@ Record:
 - Snapshot review:
 - Cross-theme review:
 - Terminal and resize review:
+- tmux capture and Freeze screenshot paths:
 - Redraw and stale-cell result:
 
 ### Installed application acceptance

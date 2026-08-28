@@ -41,6 +41,12 @@ and its transitions, including streaming, picker open/close, narrow and short
 resizes, multiline input, and cleanup. Inspect the capture for stale rows,
 mid-word wrapping, blank gaps, cursor displacement, and transcript loss.
 
+For smoke tests and UI verification, save the complete visible pane as an ANSI
+file and render a PNG with Freeze. Keep both artifacts during review and compare
+them before attributing a rendering difference to thndrs. The
+[development workflow](/docs/development/workflow/#interactive-tui-checks)
+contains the commands and the fallback for cells that Freeze cannot reproduce.
+
 ## Fixtures
 
 ### Providers
@@ -104,9 +110,9 @@ the full stable suite.
 The stable job also verifies the `thndrs-agent` package and prints its archive
 contents. The package manifest's `include` list is the archive allowlist.
 `cargo-deny` checks RustSec advisories, licenses, duplicate and wildcard
-dependencies, and dependency sources using the policy in `deny.toml`. All Cargo
-and pnpm commands use their committed lockfiles. CI fails if a check changes
-tracked files; it never accepts snapshots.
+dependencies, and dependency sources using the policy in `deny.toml`. Cargo and
+Bun commands use their committed lockfiles. CI fails if a check changes tracked
+files; it never accepts snapshots.
 
 ### Search
 

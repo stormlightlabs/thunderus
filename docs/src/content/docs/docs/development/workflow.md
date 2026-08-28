@@ -183,8 +183,24 @@ tmux send-keys -t "$qa_session":0.0 Escape
 
 Check streaming output, word wrapping, stale rows, composer anchoring, picker
 open/close, and a short-height resize. `capture-pane -e` keeps ANSI colors;
-`-N` keeps trailing styled spaces that affect full-cell backgrounds. Bound the
-captured output with `tail` or `-S` rather than dumping the whole pane.
+`-N` keeps trailing styled spaces that affect full-cell backgrounds. Bound text
+inspection with `tail` or `-S` rather than dumping the whole pane.
+
+For visual review, capture the complete visible frame and render it with
+[Freeze](https://github.com/charmbracelet/freeze):
+
+```sh
+mkdir -p .sandbox
+capture=.sandbox/tui-smoke.ansi
+screenshot=.sandbox/tui-smoke.png
+tmux capture-pane -p -e -N -t "$qa_session":0.0 > "$capture"
+freeze "$capture" -o "$screenshot"
+```
+
+Keep the raw ANSI capture until review is complete. Compare it with the PNG so
+a screenshot-renderer defect is not mistaken for a TUI defect. In particular,
+if background-only cells are present in the raw capture but broken in Freeze,
+use VHS or a native terminal screenshot for that review.
 
 Stop the application and remove the session when the check is complete:
 

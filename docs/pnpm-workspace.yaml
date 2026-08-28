@@ -1,6 +1,0 @@
-allowBuilds:
-  esbuild: true
-  sharp: true
-  workerd: true
-minimumReleaseAgeExclude:
-  - '@astrojs/starlight@0.41.2'

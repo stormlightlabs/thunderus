@@ -1,0 +1,26 @@
+{
+  "name": "@thndrs/lndrs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "lndrs": "./bin/lndrs"
+  },
+  "scripts": {
+    "dev": "bun --preload ./svelte-plugin.ts src/main.ts",
+    "start": "bun --preload ./svelte-plugin.ts src/main.ts",
+    "test": "bun test --preload ./svelte-plugin.ts",
+    "lint": "tsc --noEmit",
+    "format": "cd ../../docs && prettier --config .prettierrc --write ../packages/lndrs",
+    "format:check": "cd ../../docs && prettier --config .prettierrc --check ../packages/lndrs",
+    "check": "bun run lint && bun run format:check && bun run test"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.5.9",
+    "svelte": "^5.56.10"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.10",
+    "typescript": "^6.0.3"
+  }
+}

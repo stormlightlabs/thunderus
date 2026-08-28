@@ -1,12 +1,13 @@
 {
-  "name": "website",
+  "name": "@thndrs/docs",
+  "private": true,
   "type": "module",
   "version": "0.0.1",
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
     "build": "astro build",
-    "deploy": "pnpm build && wrangler pages deploy",
+    "deploy": "bun run build && wrangler pages deploy",
     "preview": "astro preview",
     "screenshot:tui": "vhs tui/landing.tape",
     "astro": "astro"

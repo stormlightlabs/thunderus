@@ -29,16 +29,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes ripgrep
-      - uses: pnpm/action-setup@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: 10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: docs/pnpm-lock.yaml
-      - name: Install documentation dependencies
-        run: pnpm --dir docs install --frozen-lockfile
+          bun-version: 1.4.0
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Run strict Clippy
@@ -49,8 +44,10 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --all-features --no-deps --locked
+      - name: Check Landorus
+        run: bun run check
       - name: Build public documentation
-        run: pnpm --dir docs build
+        run: bun run build
       - name: Verify the thndrs-agent package
         run: cargo package -p thndrs-agent --locked
       - name: Show the thndrs-agent archive contents

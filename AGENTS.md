@@ -57,7 +57,7 @@ cargo clippy --workspace
 cargo test --workspace
 ```
 
-Documentation in the doc site changes require `pnpm --dir docs build`.
+Documentation in the doc site changes require `bun run --cwd docs build`.
 Ensure documentation stays up to date as feature work is completed.
 
 Keep `docs/src/content/docs/docs/internals` and
@@ -89,9 +89,22 @@ tmux capture-pane -p -e -N -t "$qa_session":0.0 | tail -30
 tmux send-keys -t "$qa_session":0.0 Escape
 ```
 
-`-e` preserves ANSI colors and `-N` preserves trailing styled spaces. Use
-bounded output, check picker open/close plus narrow and short resizes, then stop
-the process and remove the session:
+`-e` preserves ANSI colors and `-N` preserves trailing styled spaces. For UI
+review, save the visible pane and render it with Freeze:
+
+```sh
+mkdir -p .sandbox
+capture=.sandbox/tui-smoke.ansi
+screenshot=.sandbox/tui-smoke.png
+tmux capture-pane -p -e -N -t "$qa_session":0.0 > "$capture"
+freeze "$capture" -o "$screenshot"
+```
+
+Inspect the ANSI capture as well as the screenshot. If background-only cells
+look correct in the capture but not in Freeze, use VHS or a native terminal
+screenshot instead of changing the TUI to fit Freeze. Use bounded output, check
+picker open/close plus narrow and short resizes, then stop the process and
+remove the session:
 
 ```sh
 tmux send-keys -t "$qa_session":0.0 C-d

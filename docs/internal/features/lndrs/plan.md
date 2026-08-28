@@ -334,7 +334,22 @@ Svelte 5 runes
 @opentui/core
 ```
 
+The repository root is a Bun workspace containing `docs/` and `packages/*`.
+A single root `bun.lock` covers the Astro site and Landorus. Run the public
+site with `bun run --cwd docs dev` and Landorus with:
+
+```sh
+bun run --cwd packages/lndrs dev
+```
+
+Landorus discovers `thndrs` on `PATH`. `THNDRS_BIN` can select a development
+binary, but the launcher removes that variable from the child environment
+before starting `thndrs frontend --stdio`.
+
 Svelte is used for reactive application state, not as a rendering target.
+Landorus compiles `.svelte.ts` modules through Svelte's `compileModule` API in
+a Bun preload plugin. OpenTUI renderables remain imperative objects; Svelte
+effects update their properties without replacing them.
 
 Reactive modules use `.svelte.ts` where useful:
 
