@@ -1,19 +1,15 @@
 import { BoxRenderable, type CliRenderer, type RenderContext, TextRenderable } from "@opentui/core";
+import { TranscriptView } from "./transcript.ts";
 
 export interface RootView {
   root: BoxRenderable;
-  transcript: TextRenderable;
+  transcript: TranscriptView;
   status: TextRenderable;
 }
 
 export function createRootView(context: RenderContext): RootView {
   const root = new BoxRenderable(context, { id: "lndrs-root", width: "100%", height: "100%", flexDirection: "column" });
-  const transcript = new TextRenderable(context, {
-    id: "transcript",
-    content: "Landorus\n\nConnecting to thndrs…",
-    flexGrow: 1,
-    padding: 1,
-  });
+  const transcript = new TranscriptView(context);
   const composer = new BoxRenderable(context, {
     id: "composer",
     height: 3,
@@ -30,7 +26,7 @@ export function createRootView(context: RenderContext): RootView {
     fg: "#888888",
   });
 
-  root.add(transcript);
+  root.add(transcript.scroll);
   root.add(composer);
   root.add(status);
   return { root, transcript, status };
@@ -39,5 +35,6 @@ export function createRootView(context: RenderContext): RootView {
 export function mountRootView(renderer: CliRenderer): RootView {
   const view = createRootView(renderer);
   renderer.root.add(view.root);
+  view.transcript.scroll.focus();
   return view;
 }

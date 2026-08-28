@@ -19,13 +19,7 @@ async function run(): Promise<void> {
   const state = new AppState();
   const view = mountRootView(renderer);
   const disposeProjection = bindRootView(state, view);
-  const client = new FrontendClient({
-    onEvent: (event) => {
-      state.apply(event);
-      flushSync();
-    },
-    onExit: () => finish?.(),
-  });
+  const client = new FrontendClient({ onEvent: (event) => state.apply(event), onExit: () => finish?.() });
   const onKeypress = (key: KeyEvent) => {
     if (key.name === "q" && !key.ctrl && !key.meta) finish?.();
   };

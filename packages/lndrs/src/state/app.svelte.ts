@@ -6,10 +6,13 @@ export class AppState {
   transcript = $state<TranscriptItem[]>([]);
   run = $state<RunState>({ state: "idle" });
   #liveId = 0;
+  #activeAssistantId: string | undefined;
+  #activeReasoningId: string | undefined;
 
   initialize(snapshot: FrontendSnapshot): void {
     this.snapshot = snapshot;
     this.transcript = snapshot.transcript;
+    this.#restoreActiveStreamingIds();
     this.run = snapshot.run;
     this.status = "Connected";
   }
@@ -37,16 +40,21 @@ export class AppState {
       case "reasoning.delta":
         this.#appendDelta("reasoning", event.text);
         break;
-      case "tool.started":
-        this.transcript.push({
+      case "tool.started": {
+        this.#closeActiveStreaming();
+        const existing = this.transcript.findIndex((item) => item.kind === "tool" && item.id === event.id);
+        const tool: TranscriptItem = {
           kind: "tool",
           id: event.id,
           name: event.name,
           arguments: event.arguments,
           status: "running",
           output: [],
-        });
+        };
+        if (existing >= 0) this.transcript[existing] = tool;
+        else this.transcript.push(tool);
         break;
+      }
       case "tool.finished": {
         const index = this.transcript.findIndex((item) => item.kind === "tool" && item.id === event.id);
         if (index >= 0) {
@@ -77,32 +85,6 @@ export class AppState {
     }
   }
 
-  get transcriptText(): string {
-    if (this.transcript.length === 0) {
-      return "Landorus\n\nFrontend connected. Transcript output will appear here.";
-    }
-    return this.transcript
-      .map((item) => {
-        switch (item.kind) {
-          case "user":
-            return `You\n${item.text}`;
-          case "assistant":
-            return `Assistant\n${item.text}`;
-          case "reasoning":
-            return `Reasoning\n${item.text}`;
-          case "tool":
-            return `Tool · ${item.name} · ${item.status}\n${item.output.join("\n") || item.arguments}`;
-          case "skill":
-            return `Skill · ${item.name}\n${item.path}`;
-          case "status":
-          case "error":
-            return item.text;
-        }
-        return "";
-      })
-      .join("\n\n");
-  }
-
   get statusText(): string {
     const model = this.snapshot?.model ?? "no model";
     const usage = this.snapshot?.usage;
@@ -111,19 +93,38 @@ export class AppState {
   }
 
   #appendDelta(kind: "assistant" | "reasoning", text: string): void {
-    const current = this.transcript.at(-1);
+    const activeId = kind === "assistant" ? this.#activeAssistantId : this.#activeReasoningId;
+    const current = activeId ? this.transcript.find((item) => item.id === activeId) : undefined;
     if (current?.kind === kind && current.streaming) {
       current.text += text;
       return;
     }
-    this.transcript.push({ kind, id: `live-${++this.#liveId}`, text, streaming: true });
+
+    const id = `live-${++this.#liveId}`;
+    this.transcript.push({ kind, id, text, streaming: true });
+    if (kind === "assistant") this.#activeAssistantId = id;
+    else this.#activeReasoningId = id;
+  }
+
+  #closeActiveStreaming(): void {
+    for (const id of [this.#activeAssistantId, this.#activeReasoningId]) {
+      const item = id ? this.transcript.find((candidate) => candidate.id === id) : undefined;
+      if (item && (item.kind === "assistant" || item.kind === "reasoning")) item.streaming = false;
+    }
+    this.#activeAssistantId = undefined;
+    this.#activeReasoningId = undefined;
+  }
+
+  #restoreActiveStreamingIds(): void {
+    this.#activeAssistantId = undefined;
+    this.#activeReasoningId = undefined;
+    for (const item of this.transcript) {
+      if (item.kind === "assistant" && item.streaming) this.#activeAssistantId = item.id;
+      if (item.kind === "reasoning" && item.streaming) this.#activeReasoningId = item.id;
+    }
   }
 
   finishStreaming(): void {
-    for (const item of this.transcript) {
-      if ((item.kind === "assistant" || item.kind === "reasoning") && item.streaming) {
-        item.streaming = false;
-      }
-    }
+    this.#closeActiveStreaming();
   }
 }

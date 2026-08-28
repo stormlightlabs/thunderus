@@ -4,7 +4,9 @@ import type { RootView } from "./root.ts";
 export function bindRootView(state: AppState, view: RootView): () => void {
   return $effect.root(() => {
     $effect(() => {
-      view.transcript.content = state.transcriptText;
+      view.transcript.reconcile(state.transcript);
+    });
+    $effect(() => {
       view.status.content = state.statusText;
     });
   });

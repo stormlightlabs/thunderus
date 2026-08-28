@@ -25,8 +25,6 @@ application and harness.
 - [x] output is bounded and sensitive diagnostic/tool text is redacted.
 - [x] unsupported future commands fail explicitly.
 
----
-
 ## LNDRS-2: Bootstrap the Bun/Svelte/OpenTUI frontend
 
 **Status:** Complete.
@@ -53,22 +51,20 @@ retained-OpenTUI-renderable integration.
 The existing single-`TextRenderable` transcript is considered scaffolding for
 this milestone, not the target transcript architecture.
 
----
-
 ## LNDRS-3: Build the Stream transcript
 
-**Status:** Next.
+**Status:** Complete.
 
 Replace the bootstrap transcript string with the actual conversation-first
 Landorus Stream.
 
 ### Transcript structure
 
-- [ ] replace the single transcript `TextRenderable` with a
+- [x] replace the single transcript `TextRenderable` with a
       `ScrollBoxRenderable`;
-- [ ] represent semantic transcript entries as stable child renderables;
-- [ ] preserve protocol IDs as frontend renderable identities;
-- [ ] add dedicated presentation for:
+- [x] represent semantic transcript entries as stable child renderables;
+- [x] preserve protocol IDs as frontend renderable identities;
+- [x] add dedicated presentation for:
 
   - user;
   - assistant;
@@ -78,55 +74,53 @@ Landorus Stream.
   - status;
   - error;
 
-- [ ] assistant deltas mutate one active assistant block;
-- [ ] reasoning deltas mutate one active reasoning block;
-- [ ] tool start and finish events update one block by tool-call ID;
-- [ ] completed blocks are not recreated when unrelated live events arrive.
+- [x] assistant deltas mutate one active assistant block;
+- [x] reasoning deltas mutate one active reasoning block;
+- [x] tool start and finish events update one block by tool-call ID;
+- [x] completed blocks are not recreated when unrelated live events arrive.
 
 ### Tool presentation
 
-- [ ] render normal tools in a compact collapsed form;
-- [ ] distinguish running, successful, failed, and cancelled states;
-- [ ] allow tool arguments/output to be expanded;
-- [ ] bound visual output consistently with the Rust protocol;
-- [ ] use richer source/diff presentation only where it improves readability.
+- [x] render normal tools in a compact collapsed form;
+- [x] distinguish running, successful, failed, and cancelled states;
+- [x] allow tool arguments/output to be expanded;
+- [x] bound visual output consistently with the Rust protocol;
+- [x] use richer source/diff presentation only where it improves readability.
 
 ### Scrolling
 
-- [ ] follow output while the viewport is at the bottom;
-- [ ] stop auto-following after deliberate upward scrolling;
-- [ ] resume following after returning to the bottom;
-- [ ] preserve scroll position across status and usage updates;
-- [ ] verify long transcripts with viewport culling enabled where appropriate.
+- [x] follow output while the viewport is at the bottom;
+- [x] stop auto-following after deliberate upward scrolling;
+- [x] resume following after returning to the bottom;
+- [x] preserve scroll position across status and usage updates;
+- [x] verify long transcripts with viewport culling enabled where appropriate.
 
 ### Rendering cadence
 
-- [ ] remove full-transcript string regeneration from the live rendering path;
-- [ ] measure the current `flushSync()`-per-event path under a streaming fixture;
-- [ ] introduce presentation coalescing if measurements show unnecessary render
+- [x] remove full-transcript string regeneration from the live rendering path;
+- [x] measure the current `flushSync()`-per-event path under a streaming fixture;
+- [x] introduce presentation coalescing if measurements show unnecessary render
       work;
-- [ ] never drop or merge semantic protocol events in application state;
-- [ ] keep input and scrolling responsive during dense streaming.
+- [x] never drop or merge semantic protocol events in application state;
+- [x] keep input and scrolling responsive during dense streaming.
 
 ### Layout
 
-- [ ] make Stream usable at narrow terminal widths;
-- [ ] keep the transcript visually dominant;
-- [ ] avoid permanent sidebars or dashboard chrome;
-- [ ] establish a minimal visual vocabulary for user, assistant, reasoning,
+- [x] make Stream usable at narrow terminal widths;
+- [x] keep the transcript visually dominant;
+- [x] avoid permanent sidebars or dashboard chrome;
+- [x] establish a minimal visual vocabulary for user, assistant, reasoning,
       tools, errors, and muted metadata.
 
 ### Verification
 
-- [ ] state tests for streaming block identity;
-- [ ] render tests for every transcript block type;
-- [ ] render tests at representative narrow and wide terminal sizes;
-- [ ] replay fixture for a long tool-heavy run;
-- [ ] test that historical scrolling is not pulled back to the bottom by new
+- [x] state tests for streaming block identity;
+- [x] render tests for every transcript block type;
+- [x] render tests at representative narrow and wide terminal sizes;
+- [x] replay fixture for a long tool-heavy run;
+- [x] test that historical scrolling is not pulled back to the bottom by new
       deltas;
-- [ ] test that renderable count does not grow once-per-token.
-
----
+- [x] test that renderable count does not grow once-per-token.
 
 ## LNDRS-4: Implement the composer and active-run interaction
 
@@ -176,8 +170,6 @@ Make Stream usable for a complete normal agent turn.
 - [ ] composer editing/render tests;
 - [ ] focus regression test proving ordinary printable keys reach the composer;
 - [ ] sequence-gap recovery test.
-
----
 
 ## LNDRS-5: Add progressive-disclosure controls
 
@@ -236,8 +228,6 @@ surfaces.
 - [ ] context status and inspector tests;
 - [ ] focus restoration tests for every overlay.
 
----
-
 ## LNDRS-6: Add queue and session parity
 
 Implement remaining application controls that materially affect normal
@@ -283,8 +273,6 @@ Thunderus application semantics exist.
 - [ ] persisted-session replay/render test;
 - [ ] tests proving unsupported future orchestration state is absent from the
       frontend model.
-
----
 
 ## LNDRS-7: Make replay and visual QA first-class
 
@@ -333,8 +321,6 @@ Create the deterministic workflow used to iterate on and polish Landorus.
 - [ ] verify input latency remains acceptable while rendering;
 - [ ] verify completed transcript history does not cause increasing work for
       every new token.
-
----
 
 ## LNDRS-8: Evaluate the experiment
 

@@ -97,7 +97,7 @@ review, save the visible pane and render it with Freeze:
 ```sh
 mkdir -p .sandbox
 capture=.sandbox/tui-smoke.ansi
-screenshot=.sandbox/tui-smoke.png
+screenshot=.sandbox/screenshots/xxx_tui-smoke.png # xxx identifies the screenshot
 tmux capture-pane -p -e -N -t "$qa_session":0.0 > "$capture"
 freeze "$capture" -o "$screenshot"
 ```
