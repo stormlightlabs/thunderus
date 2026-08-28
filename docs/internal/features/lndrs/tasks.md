@@ -9,26 +9,26 @@ provider payloads.
 
 **Acceptance criteria:**
 
-- [ ] `thndrs frontend --stdio` starts without entering terminal raw mode or
+- [x] `thndrs frontend --stdio` starts without entering terminal raw mode or
       drawing UI.
-- [ ] stdin accepts versioned NDJSON frontend commands.
-- [ ] stdout contains protocol messages only; diagnostics use stderr.
-- [ ] Initialization negotiates a protocol version and returns a bounded
+- [x] stdin accepts versioned NDJSON frontend commands.
+- [x] stdout contains protocol messages only; diagnostics use stderr.
+- [x] Initialization negotiates a protocol version and returns a bounded
       frontend snapshot before live events.
-- [ ] Commands and responses have stable request identifiers where a direct
+- [x] Commands and responses have stable request identifiers where a direct
       result is required.
-- [ ] Existing `AgentEvent` values are projected into a separate serialized
+- [x] Existing `AgentEvent` values are projected into a separate serialized
       frontend event vocabulary.
-- [ ] Provider-native payloads, credentials, and internal session writer state
+- [x] Provider-native payloads, credentials, and internal session writer state
       never cross the protocol.
-- [ ] Turn submission uses the shared context, prompt, provider, tool, MCP, and
+- [x] Turn submission uses the shared context, prompt, provider, tool, MCP, and
       session paths rather than a second agent loop.
-- [ ] Cancellation uses the existing cooperative cancellation token.
-- [ ] The protocol supports clean shutdown and detects unexpected peer
+- [x] Cancellation uses the existing cooperative cancellation token.
+- [x] The protocol supports clean shutdown and detects unexpected peer
       termination.
-- [ ] A second frontend does not need to import `cli/app`, `runtime`, or
+- [x] A second frontend does not need to import `cli/app`, `runtime`, or
       Ratatui renderer modules.
-- [ ] Shared behavior found only in `cli/app` is moved to an appropriate
+- [x] Shared behavior found only in `cli/app` is moved to an appropriate
       frontend-neutral owner rather than duplicated for Landorus.
 
 **Verification:**

@@ -13,6 +13,15 @@ pub(crate) fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
         Command::Acp { command } => run_acp_command(cli, command),
         Command::Mcp { command } => run_mcp_command(cli, command),
         Command::Skills { command } => cli_commands::skills::run(cli, command),
+        Command::Frontend { stdio: true } => crate::frontend::run_stdio(
+            cli,
+            io::BufReader::new(io::stdin()),
+            io::stdout().lock(),
+            io::stderr().lock(),
+        ),
+        Command::Frontend { stdio: false } => {
+            Err(io::Error::new(io::ErrorKind::InvalidInput, "frontend requires --stdio"))
+        }
         Command::Run(command) => headless::run_command(cli, command),
         Command::Review(command) => review::run_command(cli, command),
         Command::Context(command) => run_context_command(cli, command),

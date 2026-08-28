@@ -212,6 +212,12 @@ pub enum Command {
         #[command(subcommand)]
         command: commands::skills::SkillsCommand,
     },
+    /// Serve a native frontend over a machine-only transport.
+    Frontend {
+        /// Use newline-delimited JSON over standard input and output.
+        #[arg(long)]
+        stdio: bool,
+    },
     /// Run one coding prompt without opening the terminal interface.
     Run(commands::run::RunCommand),
     /// Review one change target with read-only tools and structured findings.
@@ -506,6 +512,12 @@ mod tests {
         assert!(!cli.verbose);
         assert_eq!(cli.theme, Theme::EldritchMinimal);
         assert!(cli.skill_dirs.is_empty());
+    }
+
+    #[test]
+    fn frontend_stdio_command_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "frontend", "--stdio"]).expect("parse frontend");
+        assert_eq!(cli.command, Some(Command::Frontend { stdio: true }));
     }
 
     #[test]

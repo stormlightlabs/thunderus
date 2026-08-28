@@ -3,15 +3,38 @@
 //! The harness starts a reusable agent run and exposes an event receiver
 //! plus a cooperative cancellation handle.
 
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, Sender};
 
 use crate::agent::{RunHandle, ToolExecutionHook, ToolPermissionHook};
-use crate::app::AgentEvent;
+use crate::app::{AgentEvent, EffectRequest};
 use crate::providers::ProviderMessage;
 use crate::tools::AgentRunConfig;
 
 use thndrs_agent::run::AgentRunError;
 use thndrs_agent::{AgentRun, CancelToken};
+
+/// State carried by an application adapter for one active agent run.
+pub struct AgentSlot {
+    /// Application request associated with this run.
+    pub request: EffectRequest,
+    /// Semantic event stream from the harness.
+    pub receiver: AgentRun<AgentEvent>,
+    /// Cooperative cancellation token for the run.
+    pub cancel: CancelToken,
+    /// Steering input accepted between provider requests.
+    pub steering: Sender<String>,
+}
+
+impl std::fmt::Debug for AgentSlot {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AgentSlot")
+            .field("request", &self.request)
+            .field("receiver", &self.receiver)
+            .field("cancel", &self.cancel)
+            .finish_non_exhaustive()
+    }
+}
 
 /// Handle returned when a harness turn has started.
 #[derive(Debug)]

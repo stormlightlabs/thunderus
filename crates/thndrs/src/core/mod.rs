@@ -6,6 +6,7 @@ pub mod auth;
 pub mod config;
 pub mod context;
 pub mod diagnostics;
+pub mod frontend;
 pub mod fuzzy;
 pub mod harness;
 pub mod internals;

@@ -156,7 +156,20 @@ The bridge contract is:
 - stderr: bounded human diagnostics;
 - process exit: bridge termination.
 
-The protocol is explicitly versioned from its first message.
+The protocol is explicitly versioned from its first message. Version 1 uses one
+JSON object per line. Every command contains `version`, a non-empty request
+`id`, and a semantic `command` name. The first command must be `initialize` and
+must list the versions the frontend accepts. Its response contains the selected
+version and the initial snapshot. Later responses retain the request `id`;
+asynchronous events use a monotonic `sequence` number instead.
+
+The Rust implementation lives in `crates/thndrs/src/core/frontend/`. It caps an
+input line at 1 MiB, a snapshot at the latest 200 transcript entries, each
+snapshot text field at 16 KiB, each event text field at 64 KiB, and tool output
+at 200 lines. Diagnostic and failure text is redacted and capped at 512 bytes.
+A command that exceeds its limit or contains malformed JSON produces a protocol
+error. End-of-file without a successful `shutdown` command is an unexpected
+peer disconnect and cancels active work.
 
 A local stdio transport keeps the experiment:
 

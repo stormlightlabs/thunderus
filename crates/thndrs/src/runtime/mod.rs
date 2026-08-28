@@ -31,6 +31,8 @@ use crate::input::TerminalInput;
 use thndrs_agent::CancelToken;
 use thndrs_agent::context as agent_context;
 
+use crate::harness::AgentSlot;
+
 /// Smallest interval at which the TUI applies periodic agent-driven updates.
 const MIN_RENDER_INTERVAL: Duration = Duration::from_millis(MIN_TICK_RATE_MS);
 /// Largest event burst applied before yielding back to the render/event loop.
@@ -51,14 +53,6 @@ enum AcpEventWrite {
     Finished,
     Cancelled,
     Failed(String),
-}
-
-/// State carried by the main loop for a single agent run.
-pub(crate) struct AgentSlot {
-    pub(crate) request: EffectRequest,
-    pub(crate) receiver: thndrs_agent::AgentRun<app::AgentEvent>,
-    pub(crate) cancel: CancelToken,
-    pub(crate) steering: mpsc::Sender<String>,
 }
 
 pub(crate) struct GitStatusWatcher {
