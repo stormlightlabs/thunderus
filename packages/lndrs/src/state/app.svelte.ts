@@ -7,7 +7,7 @@ import type {
   TranscriptItem,
 } from "../protocol/messages.ts";
 
-export type OverlayKind = "palette" | "permission" | "model" | "reasoning" | "context";
+export type OverlayKind = "palette" | "permission" | "model" | "reasoning" | "context" | "queue" | "session";
 export interface OverlayState {
   kind: OverlayKind;
   query: string;
@@ -168,6 +168,9 @@ export class AppState {
       case "reasoning.updated":
         if (this.snapshot) this.snapshot.reasoning_effort = event.effort;
         break;
+      case "snapshot.updated":
+        this.replaceSnapshot(event.snapshot, event.snapshot.run.state === "working" ? "Working" : "Ready");
+        break;
     }
   }
 
@@ -185,6 +188,8 @@ export class AppState {
     if (kind === "reasoning" && (!this.supports("reasoning.select") || this.capabilities.reasoning_efforts.length < 2))
       return false;
     if (kind === "context" && !this.snapshot?.context) return false;
+    if (kind === "queue" && !this.supports("queue.delete")) return false;
+    if (kind === "session" && (!this.supports("session.load") || !this.snapshot?.sessions?.length)) return false;
     this.overlay = { kind, query: "" };
     return true;
   }
@@ -211,9 +216,16 @@ export class AppState {
           (context.used_tokens * 100) / Math.max(context.context_window, 1),
         )}%`
       : undefined;
+    const pendingQueue = this.snapshot?.queue.filter((item) => item.settlement === "pending").length ?? 0;
+    const queueText = pendingQueue > 0 ? `${pendingQueue} queued` : undefined;
+    const historyText = this.snapshot?.truncated ? "earlier history omitted" : undefined;
     const action =
-      this.run.state === "working" ? "Esc stop" : this.run.state === "stopping" ? "stopping…" : "Ctrl+P commands";
-    return [model, reasoning, contextText, this.status, action].filter(Boolean).join(" · ");
+      this.run.state === "working"
+        ? "Enter follow-up · Ctrl+S steer · Esc stop"
+        : this.run.state === "stopping"
+          ? "stopping…"
+          : "Ctrl+P commands";
+    return [model, reasoning, contextText, queueText, historyText, this.status, action].filter(Boolean).join(" · ");
   }
 
   #appendDelta(kind: "assistant" | "reasoning", text: string): void {

@@ -111,6 +111,33 @@ test("text edited while submission is pending is not cleared", async () => {
   }
 });
 
+test("active-run input explicitly queues follow-up and steering targets", async () => {
+  const { renderer } = await createTestRenderer({ width: 60, height: 12 });
+  const state = new AppState();
+  state.initialize({ ...snapshot(), capabilities: { commands: ["queue.submit"], models: [], reasoning_efforts: [] } });
+  state.apply({ type: "run.started" });
+  const view = createRootView(renderer);
+  renderer.root.add(view.root);
+  const client = new FakeClient();
+  const interaction = new InteractionController(state, view.composer.input, client);
+
+  try {
+    view.composer.input.setText("run tests next");
+    await interaction.submit();
+    view.composer.input.setText("inspect the parser first");
+    await interaction.dispatch("queue.steer");
+
+    expect(client.commands).toEqual([
+      { command: "queue.submit", text: "run tests next", target: "follow_up" },
+      { command: "queue.submit", text: "inspect the parser first", target: "steering" },
+    ]);
+    expect(view.composer.input.plainText).toBe("");
+    expect(state.run.state).toBe("working");
+  } finally {
+    renderer.destroy();
+  }
+});
+
 test("cancellation stays pending until the backend settles it", async () => {
   const { renderer } = await createTestRenderer({ width: 60, height: 12 });
   const state = new AppState();

@@ -161,6 +161,7 @@ pub struct FrontendSnapshot {
     /// Sequence of the latest event reflected by this snapshot.
     pub event_sequence: u64,
     pub session: FrontendSession,
+    pub sessions: Vec<FrontendSessionOption>,
     pub workspace: String,
     pub model: String,
     pub reasoning_effort: String,
@@ -205,6 +206,7 @@ impl FrontendSnapshot {
                 ephemeral: app.is_ephemeral(),
                 turn_count: app.session.turn_count,
             },
+            sessions: session_options(app),
             workspace: app.runtime.cwd.display().to_string(),
             model: app.runtime.model.clone(),
             reasoning_effort: app.runtime.cli.reasoning_effort.label().to_string(),
@@ -228,6 +230,38 @@ pub struct FrontendSession {
     pub id: String,
     pub ephemeral: bool,
     pub turn_count: u64,
+}
+
+/// Rust-owned metadata needed to choose a persisted session.
+#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+pub struct FrontendSessionOption {
+    pub id: String,
+    pub title: String,
+    pub model: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub current: bool,
+}
+
+fn session_options(app: &App) -> Vec<FrontendSessionOption> {
+    if app.is_ephemeral() {
+        return Vec::new();
+    }
+    crate::session::list_session_files(&app.session_directory())
+        .into_iter()
+        .filter_map(|path| {
+            let id = path.file_stem()?.to_str()?.to_string();
+            let summary = crate::session::SessionReader::read_summary(&path);
+            Some(FrontendSessionOption {
+                current: id == app.session.id,
+                id,
+                title: summary.title,
+                model: summary.model,
+                input_tokens: summary.input_tokens,
+                output_tokens: summary.output_tokens,
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Serialize, Eq, PartialEq)]
@@ -361,19 +395,23 @@ impl FrontendCapabilities {
         }
         models.sort_by(|left, right| left.label.cmp(&right.label));
         models.dedup_by(|left, right| left.label == right.label);
-        Self {
-            commands: vec![
-                "state.snapshot".to_string(),
-                "turn.submit".to_string(),
-                "turn.cancel".to_string(),
-                "permission.respond".to_string(),
-                "model.select".to_string(),
-                "reasoning.select".to_string(),
-                "shutdown".to_string(),
-            ],
-            models,
-            reasoning_efforts: reasoning_options(&app.runtime.model),
+        let mut commands = vec![
+            "state.snapshot".to_string(),
+            "turn.submit".to_string(),
+            "turn.cancel".to_string(),
+            "queue.submit".to_string(),
+            "queue.delete".to_string(),
+            "session.new".to_string(),
+            "session.close".to_string(),
+            "permission.respond".to_string(),
+            "model.select".to_string(),
+            "reasoning.select".to_string(),
+            "shutdown".to_string(),
+        ];
+        if !app.is_ephemeral() {
+            commands.push("session.load".to_string());
         }
+        Self { commands, models, reasoning_efforts: reasoning_options(&app.runtime.model) }
     }
 }
 
@@ -521,6 +559,9 @@ pub enum FrontendEvent {
     },
     #[serde(rename = "reasoning.updated")]
     ReasoningUpdated { effort: String },
+    /// Authoritative replacement after queue or session state changes.
+    #[serde(rename = "snapshot.updated")]
+    SnapshotUpdated { snapshot: Box<FrontendSnapshot> },
 }
 
 impl FrontendEvent {

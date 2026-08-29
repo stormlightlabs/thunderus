@@ -66,6 +66,10 @@ function overlayTitle(kind: NonNullable<AppState["overlay"]>["kind"]): string {
       return "REASONING EFFORT";
     case "context":
       return "CONTEXT";
+    case "queue":
+      return "QUEUED INPUT";
+    case "session":
+      return "OPEN SESSION";
   }
 }
 
@@ -88,6 +92,23 @@ function overlayOptions(state: AppState, kind: NonNullable<AppState["overlay"]>[
           name: "Reasoning: select effort",
           description: state.snapshot?.reasoning_effort ?? "",
           value: "reasoning",
+        });
+      }
+      if (state.supports("queue.delete")) {
+        const pending = state.snapshot?.queue.filter((item) => item.settlement === "pending").length ?? 0;
+        options.push({ name: "Queue: inspect input", description: `${pending} pending`, value: "queue" });
+      }
+      if (state.supports("session.new")) {
+        options.push({ name: "Session: new", description: "Start a clean conversation", value: "session.new" });
+      }
+      if (state.supports("session.load") && (state.snapshot?.sessions?.length ?? 0) > 0) {
+        options.push({ name: "Session: open", description: "Resume persisted history", value: "session" });
+      }
+      if (state.supports("session.close")) {
+        options.push({
+          name: "Session: close",
+          description: "Close and replace the current session",
+          value: "session.close",
         });
       }
       options.push(
@@ -114,6 +135,22 @@ function overlayOptions(state: AppState, kind: NonNullable<AppState["overlay"]>[
         description: option.description,
         value: option.value,
       }));
+    case "queue":
+      return (state.snapshot?.queue ?? [])
+        .filter((item) => item.settlement === "pending")
+        .map((item) => ({
+          name: item.text.replace(/\s+/g, " ").slice(0, 48),
+          description: `${item.target} · Enter delete`,
+          value: item.id,
+        }));
+    case "session":
+      return (state.snapshot?.sessions ?? [])
+        .filter((session) => !session.current)
+        .map((session) => ({
+          name: session.title,
+          description: `${session.model} · ${session.input_tokens + session.output_tokens} tokens`,
+          value: session.id,
+        }));
     case "context":
       return [];
   }

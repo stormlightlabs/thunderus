@@ -4,7 +4,7 @@ import type { AppState } from "./state/app.svelte.ts";
 import type { OverlayView } from "./views/overlay.ts";
 import type { TranscriptView } from "./views/transcript.ts";
 
-export type FrontendAction = "turn.submit" | "composer.newline" | "turn.cancel" | "app.quit";
+export type FrontendAction = "turn.submit" | "queue.steer" | "composer.newline" | "turn.cancel" | "app.quit";
 
 export interface CommandClient {
   request(command: Command): Promise<ResponseResult>;
@@ -20,6 +20,7 @@ export const composerKeyBindings = [
 
 export function globalActionForKey(key: KeyEvent, activeRun: boolean): FrontendAction | undefined {
   if (key.name === "d" && key.ctrl) return "app.quit";
+  if (key.name === "s" && key.ctrl && activeRun) return "queue.steer";
   if (key.name === "escape" && activeRun) return "turn.cancel";
   return undefined;
 }
@@ -78,7 +79,7 @@ export class InteractionController {
     return false;
   }
 
-  openOverlay(kind: "palette" | "model" | "reasoning" | "context"): void {
+  openOverlay(kind: "palette" | "model" | "reasoning" | "context" | "queue" | "session"): void {
     if (!this.#state.openOverlay(kind)) return;
     if (kind === "palette" && this.#overlay) this.#overlay.search.value = "";
     this.#composer.blur();
@@ -102,8 +103,17 @@ export class InteractionController {
             this.closeOverlay();
           } else if (value === "quit") {
             this.#quit?.();
-          } else if (value === "context" || value === "model" || value === "reasoning") {
+          } else if (
+            value === "context" ||
+            value === "model" ||
+            value === "reasoning" ||
+            value === "queue" ||
+            value === "session"
+          ) {
             this.openOverlay(value);
+          } else if (value === "session.new" || value === "session.close") {
+            const result = await this.#client.request({ command: value });
+            if (result.kind !== "accepted") throw new Error("backend did not accept session change");
           }
           break;
         case "permission":
@@ -119,6 +129,16 @@ export class InteractionController {
           const result = await this.#client.request({ command: "reasoning.select", effort: value });
           if (result.kind !== "accepted") throw new Error("backend did not accept reasoning selection");
           this.closeOverlay();
+          break;
+        }
+        case "queue": {
+          const result = await this.#client.request({ command: "queue.delete", id: value });
+          if (result.kind !== "accepted") throw new Error("backend did not delete queued input");
+          break;
+        }
+        case "session": {
+          const result = await this.#client.request({ command: "session.load", session_id: value });
+          if (result.kind !== "accepted") throw new Error("backend did not load the session");
           break;
         }
         case "context":
@@ -150,6 +170,9 @@ export class InteractionController {
       case "turn.cancel":
         await this.cancel();
         break;
+      case "queue.steer":
+        await this.queue("steering");
+        break;
       case "composer.newline":
         this.#composer.newLine();
         break;
@@ -159,6 +182,10 @@ export class InteractionController {
   }
 
   async submit(): Promise<void> {
+    if (this.#state.run.state === "working") {
+      await this.queue("follow_up");
+      return;
+    }
     const text = this.#composer.plainText;
     if (this.#submitting || this.#state.run.state !== "idle" || !text.trim()) return;
     this.#submitting = true;
@@ -170,6 +197,22 @@ export class InteractionController {
       if (this.#composer.plainText === text) this.#composer.clear();
     } catch (error) {
       this.#state.rejectAction(error);
+    } finally {
+      this.#submitting = false;
+    }
+  }
+
+  async queue(target: "steering" | "follow_up"): Promise<void> {
+    const text = this.#composer.plainText;
+    if (this.#submitting || this.#state.run.state !== "working" || !text.trim()) return;
+    this.#submitting = true;
+    this.#state.status = target === "steering" ? "Steering…" : "Queueing follow-up…";
+    try {
+      const result = await this.#client.request({ command: "queue.submit", text, target });
+      if (result.kind !== "accepted") throw new Error("backend did not accept queued input");
+      if (this.#composer.plainText === text) this.#composer.clear();
+    } catch (error) {
+      this.#state.status = error instanceof Error ? error.message : String(error);
     } finally {
       this.#submitting = false;
     }

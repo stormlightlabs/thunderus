@@ -164,7 +164,7 @@ fn active_turn_uses_cooperative_cancellation() {
 }
 
 #[test]
-fn malformed_and_unsupported_commands_keep_stdout_protocol_only() {
+fn malformed_and_invalid_commands_keep_stdout_protocol_only() {
     let input = Cursor::new(
         concat!(
             "not-json\n",
@@ -185,7 +185,7 @@ fn malformed_and_unsupported_commands_keep_stdout_protocol_only() {
     let records = lines(&stdout);
     assert_eq!(records[0]["type"], "protocol_error");
     assert_eq!(records[1]["error"]["code"], "unsupported_version");
-    assert_eq!(records[3]["error"]["code"], "unsupported_command");
+    assert_eq!(records[3]["error"]["code"], "no_active_run");
     assert_eq!(records.last().and_then(|record| record["id"].as_str()), Some("done"));
     assert!(stderr.is_empty());
 }
@@ -224,6 +224,13 @@ fn initialization_exposes_commands_options_context_and_pending_permission() {
     assert!(snapshot["capabilities"]["commands"].as_array().is_some_and(|commands| {
         commands.iter().any(|command| command == "permission.respond")
             && commands.iter().any(|command| command == "model.select")
+            && !commands.iter().any(|command| {
+                command.as_str().is_some_and(|command| {
+                    command.starts_with("instance.")
+                        || command.starts_with("agent.")
+                        || command.starts_with("orchestration.")
+                })
+            })
     }));
     assert!(
         snapshot["capabilities"]["models"]
@@ -319,6 +326,111 @@ fn model_and_reasoning_selection_emit_backend_truth() {
     assert_eq!(
         bridge.app.runtime.cli.reasoning_effort,
         crate::cli::ReasoningEffort::High
+    );
+}
+
+#[test]
+fn queue_commands_project_authoritative_backend_settlement() {
+    let temp = tempfile::tempdir().expect("workspace");
+    let cli =
+        Cli { cwd: temp.path().to_path_buf(), ephemeral: true, model: "fake-agent".to_string(), ..Cli::default() };
+    let mut bridge = Bridge::new(&cli);
+    bridge.initialized = true;
+    let mut stdout = Vec::new();
+
+    bridge
+        .handle_command(
+            command("turn", Command::TurnSubmit { text: "inspect".to_string() }),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .expect("start turn");
+    bridge
+        .handle_command(
+            command(
+                "follow-up",
+                Command::QueueSubmit { text: "run tests next".to_string(), target: "follow_up".to_string() },
+            ),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .expect("queue follow-up");
+    bridge
+        .handle_command(
+            command("delete", Command::QueueDelete { id: "q1".to_string() }),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .expect("delete follow-up");
+    bridge
+        .handle_command(
+            command(
+                "steer",
+                Command::QueueSubmit { text: "check the parser first".to_string(), target: "steering".to_string() },
+            ),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .expect("submit steering");
+
+    let records = lines(&stdout);
+    let snapshots = records
+        .iter()
+        .filter(|record| record["event"]["type"] == "snapshot.updated")
+        .collect::<Vec<_>>();
+    assert_eq!(snapshots.len(), 3);
+    let queue = snapshots.last().expect("latest snapshot")["event"]["snapshot"]["queue"]
+        .as_array()
+        .expect("queue array");
+    assert_eq!(queue[0]["settlement"], "deleted");
+    assert_eq!(queue[1]["target"], "steering");
+    assert_eq!(queue[1]["settlement"], "sent");
+    bridge.stop_agent();
+}
+
+#[test]
+fn session_commands_create_and_resume_rust_owned_sessions() {
+    let temp = tempfile::tempdir().expect("workspace");
+    let cli = Cli { cwd: temp.path().to_path_buf(), model: "fake-agent".to_string(), ..Cli::default() };
+    let mut bridge = Bridge::new(&cli);
+    bridge.initialized = true;
+    let original_id = bridge.app.session.id.clone();
+    let mut stdout = Vec::new();
+
+    bridge
+        .handle_command(command("new", Command::SessionNew), &mut stdout, &mut Vec::new())
+        .expect("create session");
+    let replacement_id = bridge.app.session.id.clone();
+    assert_ne!(replacement_id, original_id);
+    bridge
+        .handle_command(
+            command("load", Command::SessionLoad { session_id: original_id.clone() }),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .expect("load session");
+
+    assert_eq!(bridge.app.session.id, original_id);
+    bridge
+        .handle_command(command("close", Command::SessionClose), &mut stdout, &mut Vec::new())
+        .expect("close session");
+    assert_ne!(bridge.app.session.id, original_id);
+    let closed_id = bridge.app.session.id.clone();
+
+    let records = lines(&stdout);
+    let loaded = records
+        .iter()
+        .rev()
+        .find(|record| record["event"]["type"] == "snapshot.updated")
+        .expect("closed snapshot");
+    assert_eq!(loaded["event"]["snapshot"]["session"]["id"], closed_id);
+    assert!(
+        loaded["event"]["snapshot"]["sessions"]
+            .as_array()
+            .is_some_and(|sessions| {
+                sessions.iter().any(|session| session["id"] == replacement_id)
+                    && sessions.iter().any(|session| session["id"] == original_id)
+            })
     );
 }
 

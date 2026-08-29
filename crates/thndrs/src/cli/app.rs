@@ -31,6 +31,7 @@ pub use context::start_auto_compaction;
 use input::accept_model_suggestion;
 
 pub use commands::command_suggestions_for_app;
+pub(crate) use input::queue_running_input_as;
 pub use input::{
     Action, FilePickerSource, InputFocus, KeyBinding, KeyHelp, Keymap, Mode, PickerItem, PickerState, PromptAccessory,
     translate_input, translate_input_with_keymap,
@@ -1954,7 +1955,7 @@ impl App {
         self.runtime.git_status = git::collect(&self.runtime.cwd);
     }
 
-    fn session_directory(&self) -> PathBuf {
+    pub(crate) fn session_directory(&self) -> PathBuf {
         self.runtime
             .cli
             .session_dir

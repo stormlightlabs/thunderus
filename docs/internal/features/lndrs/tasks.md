@@ -239,43 +239,32 @@ single-agent use.
 
 ### Queue and steering
 
-- [ ] implement `queue.submit`;
-- [ ] implement `queue.delete`;
-- [ ] expose Rust-owned queued items in frontend state;
-- [ ] allow active-run input to explicitly target supported steering/follow-up
+- [x] implement `queue.submit`;
+- [x] implement `queue.delete`;
+- [x] expose Rust-owned queued items in frontend state;
+- [x] allow active-run input to explicitly target supported steering/follow-up
       semantics;
-- [ ] render queued input compactly;
-- [ ] provide a temporary queue inspector where needed;
-- [ ] never infer settlement independently from the backend.
+- [x] render queued input compactly;
+- [x] provide a temporary queue inspector where needed;
+- [x] never infer settlement independently from the backend.
 
 ### Sessions
 
-- [ ] implement `session.new`;
-- [ ] implement `session.load`;
-- [ ] implement `session.close`;
-- [ ] expose session metadata required for a session picker;
-- [ ] resume compatible persisted sessions;
-- [ ] show truncated-history state when a frontend snapshot cannot contain the
+- [x] implement `session.new`;
+- [x] implement `session.load`;
+- [x] implement `session.close`;
+- [x] expose session metadata required for a session picker;
+- [x] resume compatible persisted sessions;
+- [x] show truncated-history state when a frontend snapshot cannot contain the
       complete transcript;
-- [ ] keep session persistence entirely Rust-owned.
-
-### Explicitly deferred
-
-- [ ] no agent tree;
-- [ ] no Fleet view;
-- [ ] no subagent UI;
-- [ ] no worktree orchestration UI;
-- [ ] no multi-session dashboard.
-
-These should become a separate future feature only after corresponding
-Thunderus application semantics exist.
+- [x] keep session persistence entirely Rust-owned.
 
 ### Verification
 
-- [ ] queue/steering integration tests;
-- [ ] session create/load/close integration tests;
-- [ ] persisted-session replay/render test;
-- [ ] tests proving unsupported future orchestration state is absent from the
+- [x] queue/steering integration tests;
+- [x] session create/load/close integration tests;
+- [x] persisted-session replay/render test;
+- [x] tests proving unsupported future orchestration state is absent from the
       frontend model.
 
 ## LNDRS-7: Make replay and visual QA first-class
@@ -286,45 +275,43 @@ Create the deterministic workflow used to iterate on and polish Landorus.
 
 - [ ] define a versioned frontend replay fixture format;
 - [ ] add fixtures for:
-
-  - simple turn;
-  - streaming;
-  - reasoning;
-  - multiple tools;
-  - failed tool;
-  - permission;
-  - queued input;
-  - cancellation;
-  - retry;
-  - provider failure;
-  - compaction;
-  - long transcript;
-
-- [ ] allow Landorus to run without spawning a provider-backed turn;
-- [ ] support immediate playback for automated testing;
-- [ ] support timed playback for manual streaming inspection;
-- [ ] support deterministic terminal dimensions.
+  - simple turn
+  - streaming
+  - reasoning
+  - multiple tools
+  - failed tool
+  - permission
+  - queued input
+  - cancellation
+  - retry
+  - provider failure
+  - compaction
+  - long transcript
+- [ ] allow Landorus to run without spawning a provider-backed turn
+- [ ] support immediate playback for automated testing
+- [ ] support timed playback for manual streaming inspection
+- [ ] support deterministic terminal dimensions
 
 ### Render QA
 
-- [ ] capture fixed-size OpenTUI character frames for important states;
-- [ ] exercise narrow, normal, and wide terminal sizes;
-- [ ] verify alternate-screen restoration after exceptions;
-- [ ] smoke test macOS and Linux;
+- [ ] capture fixed-size OpenTUI character frames for important states
+- [ ] exercise narrow, normal, and wide terminal sizes
+- [ ] verify alternate-screen restoration after exceptions
+- [ ] smoke test macOS and Linux
 - [ ] add Windows testing if Landorus is intended to match the supported
-      Thunderus platform matrix;
+      Thunderus platform matrix
 - [ ] use tmux/VHS/Freeze captures for representative manual visual review where
-      useful.
+      useful
 
 ### Performance
 
-- [ ] measure startup time;
-- [ ] measure idle memory;
-- [ ] measure memory during a long replay;
-- [ ] measure CPU during dense streaming;
-- [ ] verify input latency remains acceptable while rendering;
+- [ ] measure startup time
+- [ ] measure idle memory
+- [ ] measure memory during a long replay
+- [ ] measure CPU during dense streaming
+- [ ] verify input latency remains acceptable while rendering
 - [ ] verify completed transcript history does not cause increasing work for
-      every new token.
+      every new token
 
 ## LNDRS-8: Evaluate the experiment
 
@@ -347,13 +334,8 @@ should continue.
       than anticipated complexity;
 - [ ] packaging implications are documented;
 - [ ] a recommendation records one of:
-
   - keep experimental;
   - support Landorus alongside Ratatui;
   - begin gradual frontend replacement;
   - archive Landorus but keep the frontend protocol;
   - archive both.
-
-A custom Svelte/OpenTUI renderer is only a follow-up if the final implementation
-demonstrates that retained-renderable synchronization is itself the dominant
-source of frontend complexity.

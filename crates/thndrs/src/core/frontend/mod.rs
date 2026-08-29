@@ -388,22 +388,120 @@ impl Bridge {
                 self.write_response(envelope.id, Ok(ResponseResult::Shutdown), output)?;
                 return Ok(true);
             }
-            Command::QueueSubmit { .. }
-            | Command::QueueDelete { .. }
-            | Command::SessionNew
-            | Command::SessionLoad { .. }
-            | Command::SessionClose => {
+            Command::QueueSubmit { text, target } => {
                 if !self.ensure_version(envelope.version, &envelope.id, output)? {
                     return Ok(false);
                 }
-                self.write_response(
-                    envelope.id,
-                    Err((
-                        ErrorCode::UnsupportedCommand,
-                        "command is not available in this milestone".to_string(),
-                    )),
-                    output,
-                )?;
+                let target = match target.as_str() {
+                    "steering" => app::QueueTarget::Steering,
+                    "follow_up" | "follow-up" => app::QueueTarget::FollowUp,
+                    _ => {
+                        self.write_response(
+                            envelope.id,
+                            Err((
+                                ErrorCode::InvalidRequest,
+                                "queue target must be steering or follow_up".to_string(),
+                            )),
+                            output,
+                        )?;
+                        return Ok(false);
+                    }
+                };
+                if text.trim().is_empty() {
+                    self.write_response(
+                        envelope.id,
+                        Err((ErrorCode::InvalidRequest, "queued text must not be empty".to_string())),
+                        output,
+                    )?;
+                } else if self.app.runtime.run_state != RunState::Working || self.agent.is_none() {
+                    self.write_response(
+                        envelope.id,
+                        Err((
+                            ErrorCode::NoActiveRun,
+                            "queued input requires an active turn".to_string(),
+                        )),
+                        output,
+                    )?;
+                } else {
+                    app::queue_running_input_as(&mut self.app, text.trim(), target);
+                    if target == app::QueueTarget::Steering {
+                        self.flush_steering();
+                    }
+                    self.write_response(envelope.id, Ok(ResponseResult::Accepted), output)?;
+                    self.write_snapshot_event(output)?;
+                }
+            }
+            Command::QueueDelete { id } => {
+                if !self.ensure_version(envelope.version, &envelope.id, output)? {
+                    return Ok(false);
+                }
+                let parsed = id
+                    .strip_prefix('q')
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .map(app::QueueItemId);
+                let Some(id) = parsed else {
+                    self.write_response(
+                        envelope.id,
+                        Err((ErrorCode::InvalidRequest, "queue item id is invalid".to_string())),
+                        output,
+                    )?;
+                    return Ok(false);
+                };
+                if !self
+                    .app
+                    .composer
+                    .queue
+                    .item(id)
+                    .is_some_and(|item| item.settlement == app::QueueSettlement::Pending)
+                {
+                    self.write_response(
+                        envelope.id,
+                        Err((ErrorCode::InvalidRequest, "queue item is not pending".to_string())),
+                        output,
+                    )?;
+                } else {
+                    self.app.composer.queue.settle(id, app::QueueSettlement::Deleted);
+                    app::audit_queue_transition(&mut self.app, id, "deleted");
+                    self.write_response(envelope.id, Ok(ResponseResult::Accepted), output)?;
+                    self.write_snapshot_event(output)?;
+                }
+            }
+            Command::SessionNew | Command::SessionClose => {
+                if !self.ensure_version(envelope.version, &envelope.id, output)? {
+                    return Ok(false);
+                }
+                if self.app.runtime.run_state != RunState::Idle || self.agent.is_some() {
+                    self.write_response(
+                        envelope.id,
+                        Err((ErrorCode::Busy, "session cannot change during a turn".to_string())),
+                        output,
+                    )?;
+                } else {
+                    self.app.start_new_session();
+                    self.write_response(envelope.id, Ok(ResponseResult::Accepted), output)?;
+                    self.write_snapshot_event(output)?;
+                }
+            }
+            Command::SessionLoad { session_id } => {
+                if !self.ensure_version(envelope.version, &envelope.id, output)? {
+                    return Ok(false);
+                }
+                if self.app.runtime.run_state != RunState::Idle || self.agent.is_some() {
+                    self.write_response(
+                        envelope.id,
+                        Err((ErrorCode::Busy, "session cannot change during a turn".to_string())),
+                        output,
+                    )?;
+                } else if let Err(error) = self.app.resume_session(&session_id) {
+                    self.write_response(
+                        envelope.id,
+                        Err((ErrorCode::InvalidRequest, bounded_diagnostic(&error.to_string()))),
+                        output,
+                    )?;
+                } else {
+                    self.write_response(envelope.id, Ok(ResponseResult::Accepted), output)?;
+                    self.write_snapshot_event(output)?;
+                }
             }
         }
         let _ = diagnostics.flush();
@@ -460,6 +558,8 @@ impl Bridge {
                             )?;
                         }
                     }
+                    maybe_spawn_agent(&mut self.app, &mut self.agent);
+                    self.write_snapshot_event(output)?;
                 }
                 Ok(true)
             }
@@ -476,6 +576,32 @@ impl Bridge {
                 ))
             }
         }
+    }
+
+    fn flush_steering(&mut self) {
+        let Some(slot) = self.agent.as_ref() else { return };
+        let pending = self
+            .app
+            .composer
+            .queue
+            .items
+            .iter()
+            .filter(|item| {
+                item.target == app::QueueTarget::Steering && item.settlement == app::QueueSettlement::Pending
+            })
+            .map(|item| (item.id, item.text.clone()))
+            .collect::<Vec<_>>();
+        for (id, text) in pending {
+            if slot.steering.send(text).is_ok() {
+                self.app.composer.queue.settle(id, app::QueueSettlement::Sent);
+                app::audit_queue_transition(&mut self.app, id, "sent");
+            }
+        }
+    }
+
+    fn write_snapshot_event<W: Write>(&mut self, output: &mut W) -> io::Result<()> {
+        let snapshot = FrontendSnapshot::from_app(&self.app, self.sequence.saturating_add(1));
+        self.write_event(FrontendEvent::SnapshotUpdated { snapshot: Box::new(snapshot) }, output)
     }
 
     fn stop_agent(&mut self) {

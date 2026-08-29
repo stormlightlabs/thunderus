@@ -86,6 +86,37 @@ test("permission requests own focus until backend settlement", () => {
   expect(state.overlay).toBeUndefined();
 });
 
+test("replaces queue, session, and truncation state only from backend snapshots", () => {
+  const state = new AppState();
+  state.initialize(structuredClone(snapshot));
+  state.apply({
+    type: "snapshot.updated",
+    snapshot: {
+      ...structuredClone(snapshot),
+      session: { id: "session-2", ephemeral: false, turn_count: 4 },
+      sessions: [
+        {
+          id: "session-2",
+          title: "Parser work",
+          model: "fake-agent",
+          input_tokens: 120,
+          output_tokens: 30,
+          current: true,
+        },
+      ],
+      queue: [{ id: "q1", target: "follow-up", text: "run tests", settlement: "pending" }],
+      truncated: true,
+    },
+  });
+
+  expect(state.snapshot?.session.id).toBe("session-2");
+  expect(state.snapshot?.queue[0]?.settlement).toBe("pending");
+  expect(state.statusText).toContain("1 queued");
+  expect(state.statusText).toContain("earlier history omitted");
+  expect("instances" in (state.snapshot as unknown as Record<string, unknown>)).toBe(false);
+  expect("agents" in (state.snapshot as unknown as Record<string, unknown>)).toBe(false);
+});
+
 test("updates a tool by protocol call ID instead of appending lifecycle entries", () => {
   const state = new AppState();
   state.initialize(structuredClone(snapshot));

@@ -219,6 +219,52 @@ test("command palette is searchable and capability sourced", async () => {
   }
 });
 
+test("renders compact queued state and temporary queue and session pickers", async () => {
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({ width: 76, height: 20 });
+  const state = new AppState();
+  const view = createRootView(renderer);
+  renderer.root.add(view.root);
+  const dispose = bindRootView(state, view);
+  state.initialize({
+    ...snapshot([]),
+    session: { id: "session-current", ephemeral: false, turn_count: 1 },
+    sessions: [
+      {
+        id: "session-older",
+        title: "Parser cleanup",
+        model: "fake-agent",
+        input_tokens: 120,
+        output_tokens: 30,
+        current: false,
+      },
+    ],
+    queue: [{ id: "q1", target: "follow-up", text: "run the focused tests", settlement: "pending" }],
+    capabilities: { commands: ["queue.delete", "session.load"], models: [], reasoning_efforts: [] },
+  });
+
+  try {
+    await tick();
+    await renderOnce();
+    expect(captureCharFrame()).toContain("1 queued");
+
+    state.openOverlay("queue");
+    await tick();
+    await renderOnce();
+    expect(captureCharFrame()).toContain("QUEUED INPUT");
+    expect(captureCharFrame()).toContain("run the focused tests");
+
+    state.closeOverlay();
+    state.openOverlay("session");
+    await tick();
+    await renderOnce();
+    expect(captureCharFrame()).toContain("OPEN SESSION");
+    expect(captureCharFrame()).toContain("Parser cleanup");
+  } finally {
+    dispose();
+    renderer.destroy();
+  }
+});
+
 test("updates live and tool blocks without replacing their renderables", async () => {
   const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({ width: 70, height: 16 });
   const state = new AppState();

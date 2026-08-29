@@ -1938,7 +1938,7 @@ pub fn queue_running_input(app: &mut App, text: &str) {
     queue_running_input_as(app, text, QueueTarget::FollowUp);
 }
 
-fn queue_running_input_as(app: &mut App, text: &str, target: QueueTarget) {
+pub(crate) fn queue_running_input_as(app: &mut App, text: &str, target: QueueTarget) {
     app.composer.input.clear();
     agent_lifecycle::remember_input(app, text);
     let kind = target.label();

@@ -41,15 +41,32 @@ export interface FrontendCapabilities {
   reasoning_efforts: Array<{ value: string; label: string; description: string }>;
 }
 
+export interface SessionOption {
+  id: string;
+  title: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  current: boolean;
+}
+
+export interface QueueItem {
+  id: string;
+  target: string;
+  text: string;
+  settlement: string;
+}
+
 export interface FrontendSnapshot {
   event_sequence: number;
   session: { id: string; ephemeral: boolean; turn_count: number };
+  sessions?: SessionOption[];
   workspace: string;
   model: string;
   reasoning_effort: string;
   run: RunState;
   transcript: TranscriptItem[];
-  queue: Array<{ id: string; target: string; text: string; settlement: string }>;
+  queue: QueueItem[];
   usage: { input_tokens: number; output_tokens: number };
   context?: ContextSummary | null;
   pending_permission?: PendingPermission | null;
@@ -83,7 +100,8 @@ export type FrontendEvent =
       options: Array<{ label: string; detail: string }>;
       reasoning_efforts: Array<{ value: string; label: string; description: string }>;
     }
-  | { type: "reasoning.updated"; effort: string };
+  | { type: "reasoning.updated"; effort: string }
+  | { type: "snapshot.updated"; snapshot: FrontendSnapshot };
 
 export type ResponseResult =
   | { kind: "initialized"; protocol_version: number; snapshot: FrontendSnapshot }
@@ -106,6 +124,11 @@ export type Command =
   | { command: "state.snapshot" }
   | { command: "turn.submit"; text: string }
   | { command: "turn.cancel" }
+  | { command: "queue.submit"; text: string; target: "steering" | "follow_up" }
+  | { command: "queue.delete"; id: string }
+  | { command: "session.new" }
+  | { command: "session.load"; session_id: string }
+  | { command: "session.close" }
   | { command: "permission.respond"; tool_call_id: string; option_id: string | null }
   | { command: "model.select"; model: string }
   | { command: "reasoning.select"; effort: string }
@@ -129,6 +152,7 @@ const eventTypes = new Set([
   "status.updated",
   "model.updated",
   "reasoning.updated",
+  "snapshot.updated",
 ]);
 
 export function parseProtocolMessage(value: unknown): ProtocolMessage {
