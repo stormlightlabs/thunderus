@@ -171,9 +171,9 @@ payloads.
 Protocol commands may be named before their implementation exists, but the UI
 must not expose unavailable behavior.
 
-Initialization should eventually expose enough capability information for
-Landorus to omit or disable unsupported controls instead of discovering support
-through failed commands.
+Initialization exposes supported commands separately from provider-specific
+model and reasoning options. Landorus uses this state to omit unsupported
+controls instead of discovering support through failed commands.
 
 Landorus should track event sequence numbers. A detected gap should request a
 fresh snapshot rather than attempting to infer missing state.

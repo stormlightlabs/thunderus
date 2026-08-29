@@ -175,6 +175,8 @@ Make Stream usable for a complete normal agent turn.
 
 ## LNDRS-5: Add progressive-disclosure controls
 
+**Status:** Complete.
+
 Add the surrounding controls needed for daily use without turning Stream into
 an IDE/dashboard layout.
 
@@ -183,52 +185,52 @@ surfaces.
 
 ### Capability discovery
 
-- [ ] expose frontend command/capability availability during initialization or
+- [x] expose frontend command/capability availability during initialization or
       snapshot state;
-- [ ] hide or disable unsupported Landorus actions;
-- [ ] distinguish backend command support from provider-specific option
+- [x] hide or disable unsupported Landorus actions;
+- [x] distinguish backend command support from provider-specific option
       availability.
 
 ### Permissions
 
-- [ ] implement `permission.respond` in the Rust bridge;
-- [ ] model pending permission state explicitly in Landorus;
-- [ ] open an explicit focused permission surface when requested;
-- [ ] support all existing allow/reject semantics;
-- [ ] restore sensible focus after settlement;
-- [ ] fail closed on backend disconnect.
+- [x] implement `permission.respond` in the Rust bridge;
+- [x] model pending permission state explicitly in Landorus;
+- [x] open an explicit focused permission surface when requested;
+- [x] support all existing allow/reject semantics;
+- [x] restore sensible focus after settlement;
+- [x] fail closed on backend disconnect.
 
 ### Model and reasoning
 
-- [ ] implement backend model selection support;
-- [ ] implement backend reasoning-effort selection support;
-- [ ] expose model/reasoning selection through a temporary picker;
-- [ ] keep the active model and reasoning effort visible in compact status;
-- [ ] omit unsupported reasoning controls.
+- [x] implement backend model selection support;
+- [x] implement backend reasoning-effort selection support;
+- [x] expose model/reasoning selection through a temporary picker;
+- [x] keep the active model and reasoning effort visible in compact status;
+- [x] omit unsupported reasoning controls.
 
 ### Context inspection
 
-- [ ] expose normalized context-window usage required by Landorus;
-- [ ] show compact context usage in the normal status line;
-- [ ] add a temporary context-inspection surface for additional available
+- [x] expose normalized context-window usage required by Landorus;
+- [x] show compact context usage in the normal status line;
+- [x] add a temporary context-inspection surface for additional available
       details;
-- [ ] expose compaction state where useful;
-- [ ] do not reproduce context-selection or compaction policy in TypeScript.
+- [x] expose compaction state where useful;
+- [x] do not reproduce context-selection or compaction policy in TypeScript.
 
 ### Command palette
 
-- [ ] introduce a searchable command palette;
-- [ ] source palette entries from available semantic frontend actions;
-- [ ] show current keybindings where useful;
-- [ ] use the palette for infrequent actions instead of permanent chrome.
+- [x] introduce a searchable command palette;
+- [x] source palette entries from available semantic frontend actions;
+- [x] show current keybindings where useful;
+- [x] use the palette for infrequent actions instead of permanent chrome.
 
 ### Verification
 
-- [ ] permission replay and integration tests;
-- [ ] model/reasoning picker render tests;
-- [ ] capability-gating tests;
-- [ ] context status and inspector tests;
-- [ ] focus restoration tests for every overlay.
+- [x] permission replay and integration tests;
+- [x] model/reasoning picker render tests;
+- [x] capability-gating tests;
+- [x] context status and inspector tests;
+- [x] focus restoration tests for every overlay.
 
 ## LNDRS-6: Add queue and session parity
 

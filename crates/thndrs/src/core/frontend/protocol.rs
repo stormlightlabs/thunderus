@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::app::{AgentEvent, App, Entry, RunState};
+use crate::cli::ReasoningEffort;
 
 /// Current frontend protocol version.
 pub const PROTOCOL_VERSION: u16 = 1;
@@ -108,7 +109,7 @@ pub enum ProtocolMessage {
         id: String,
         ok: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
-        result: Option<ResponseResult>,
+        result: Option<Box<ResponseResult>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<ResponseError>,
     },
@@ -125,7 +126,7 @@ pub enum ProtocolMessage {
 
 impl ProtocolMessage {
     pub(super) fn response_ok(id: String, result: ResponseResult) -> Self {
-        Self::Response { version: PROTOCOL_VERSION, id, ok: true, result: Some(result), error: None }
+        Self::Response { version: PROTOCOL_VERSION, id, ok: true, result: Some(Box::new(result)), error: None }
     }
 
     pub(super) fn response_error(id: String, code: ErrorCode, message: String) -> Self {
@@ -167,6 +168,9 @@ pub struct FrontendSnapshot {
     pub transcript: Vec<TranscriptItem>,
     pub queue: Vec<QueueItem>,
     pub usage: UsageSummary,
+    pub context: ContextSummary,
+    pub pending_permission: Option<PendingPermission>,
+    pub capabilities: FrontendCapabilities,
     pub truncated: bool,
 }
 
@@ -211,6 +215,9 @@ impl FrontendSnapshot {
                 input_tokens: app.runtime.session_tokens_in,
                 output_tokens: app.runtime.session_tokens_out,
             },
+            context: ContextSummary::from_app(app),
+            pending_permission: app.overlay.permission().map(PendingPermission::from),
+            capabilities: FrontendCapabilities::from_app(app),
             truncated: skipped > 0,
         }
     }
@@ -247,6 +254,145 @@ impl From<&RunState> for FrontendRunState {
 pub struct UsageSummary {
     pub input_tokens: u64,
     pub output_tokens: u64,
+}
+
+/// Provider-neutral context-window state for compact display and inspection.
+#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+pub struct ContextSummary {
+    pub used_tokens: u64,
+    pub context_window: u64,
+    pub available_input: u64,
+    pub target_tokens: u64,
+    pub auto_compaction_threshold: u64,
+    pub compaction_state: String,
+    pub limit_source: String,
+}
+
+impl ContextSummary {
+    pub(super) fn from_app(app: &App) -> Self {
+        let fallback;
+        let budget = if let Some(ledger) = app.transcript.context_ledger.as_ref() {
+            &ledger.budget
+        } else {
+            let provider = crate::acp::config::provider_label(&app.runtime.model);
+            let (limits, _) =
+                thndrs_agent::context::ModelContextLimits::resolve(provider, &app.runtime.model, None, None);
+            fallback = thndrs_agent::context::ContextBudget::from_limits(limits, &[]);
+            &fallback
+        };
+        let compaction_state = if app.transcript.pending_compaction_review.is_some() {
+            "review"
+        } else if app.compaction_in_flight() {
+            "compacting"
+        } else if budget.exceeds_auto_compaction() {
+            "pressure"
+        } else {
+            "idle"
+        };
+        Self {
+            used_tokens: budget.used,
+            context_window: budget.limits.context_window,
+            available_input: budget.available_input,
+            target_tokens: budget.target,
+            auto_compaction_threshold: app
+                .effective_compaction_policy()
+                .auto_compaction_threshold(budget.available_input),
+            compaction_state: compaction_state.to_string(),
+            limit_source: budget.limits.source.label().to_string(),
+        }
+    }
+}
+
+/// One pending backend-owned permission decision.
+#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+pub struct PendingPermission {
+    pub tool_call_id: String,
+    pub title: String,
+    pub selected: usize,
+    pub options: Vec<PermissionOption>,
+}
+
+impl From<&crate::acp::permissions::PendingPermission> for PendingPermission {
+    fn from(permission: &crate::acp::permissions::PendingPermission) -> Self {
+        Self {
+            tool_call_id: bounded_diagnostic(&permission.tool_call_id),
+            title: bounded_diagnostic(&permission.title),
+            selected: permission.selected,
+            options: permission
+                .options
+                .iter()
+                .take(20)
+                .map(|option| PermissionOption {
+                    id: bounded_diagnostic(&option.id),
+                    name: bounded_diagnostic(&option.name),
+                    kind: option.kind.label().to_string(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Commands supported by the bridge and provider-specific selectable values.
+#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+pub struct FrontendCapabilities {
+    pub commands: Vec<String>,
+    pub models: Vec<ModelOption>,
+    pub reasoning_efforts: Vec<ReasoningOption>,
+}
+
+impl FrontendCapabilities {
+    pub(super) fn from_app(app: &App) -> Self {
+        let mut models: Vec<ModelOption> = crate::providers::opencode::known_models()
+            .into_iter()
+            .chain(crate::providers::codex::known_models())
+            .map(|model| ModelOption { label: model.id.to_string(), detail: model.description.to_string() })
+            .collect();
+        models.extend(
+            app.runtime
+                .model_picker_items
+                .iter()
+                .map(|item| ModelOption { label: item.label.clone(), detail: item.detail.clone() }),
+        );
+        if !models.iter().any(|option| option.label == app.runtime.model) {
+            models.insert(
+                0,
+                ModelOption { label: app.runtime.model.clone(), detail: "Current model".to_string() },
+            );
+        }
+        models.sort_by(|left, right| left.label.cmp(&right.label));
+        models.dedup_by(|left, right| left.label == right.label);
+        Self {
+            commands: vec![
+                "state.snapshot".to_string(),
+                "turn.submit".to_string(),
+                "turn.cancel".to_string(),
+                "permission.respond".to_string(),
+                "model.select".to_string(),
+                "reasoning.select".to_string(),
+                "shutdown".to_string(),
+            ],
+            models,
+            reasoning_efforts: reasoning_options(&app.runtime.model),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+pub struct ReasoningOption {
+    pub value: String,
+    pub label: String,
+    pub description: String,
+}
+
+fn reasoning_options(model: &str) -> Vec<ReasoningOption> {
+    crate::providers::reasoning_options(model)
+        .into_iter()
+        .map(|effort| ReasoningOption {
+            value: effort.label().to_string(),
+            label: effort.display_label().to_string(),
+            description: effort.description().to_string(),
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Serialize, Eq, PartialEq)]
@@ -354,6 +500,8 @@ pub enum FrontendEvent {
     },
     #[serde(rename = "usage.updated")]
     UsageUpdated { input_tokens: u64, output_tokens: u64 },
+    #[serde(rename = "context.updated")]
+    ContextUpdated { context: ContextSummary },
     #[serde(rename = "permission.requested")]
     PermissionRequested {
         tool_call_id: String,
@@ -366,7 +514,13 @@ pub enum FrontendEvent {
     #[serde(rename = "status.updated")]
     StatusUpdated { message: String },
     #[serde(rename = "model.updated")]
-    ModelUpdated { options: Vec<ModelOption> },
+    ModelUpdated {
+        model: String,
+        options: Vec<ModelOption>,
+        reasoning_efforts: Vec<ReasoningOption>,
+    },
+    #[serde(rename = "reasoning.updated")]
+    ReasoningUpdated { effort: String },
 }
 
 impl FrontendEvent {
@@ -409,6 +563,7 @@ impl FrontendEvent {
                 output: bounded_lines(output),
             }),
             AgentEvent::ModelMetadataLoaded(options) => Some(Self::ModelUpdated {
+                model: String::new(),
                 options: options
                     .iter()
                     .take(200)
@@ -417,6 +572,7 @@ impl FrontendEvent {
                         detail: bounded_diagnostic(detail),
                     })
                     .collect(),
+                reasoning_efforts: Vec::new(),
             }),
             AgentEvent::Retrying { attempt, max_attempts, delay_ms, error } => Some(Self::StatusUpdated {
                 message: format!(
@@ -462,6 +618,23 @@ pub struct PermissionOption {
 pub struct ModelOption {
     pub label: String,
     pub detail: String,
+}
+
+pub(super) fn model_updated(app: &App) -> FrontendEvent {
+    let capabilities = FrontendCapabilities::from_app(app);
+    FrontendEvent::ModelUpdated {
+        model: app.runtime.model.clone(),
+        options: capabilities.models,
+        reasoning_efforts: capabilities.reasoning_efforts,
+    }
+}
+
+pub(super) fn reasoning_updated(app: &App) -> FrontendEvent {
+    FrontendEvent::ReasoningUpdated { effort: app.runtime.cli.reasoning_effort.label().to_string() }
+}
+
+pub(super) fn parse_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
+    ReasoningEffort::parse(value)
 }
 
 fn bounded_lines(lines: &[String]) -> Vec<String> {

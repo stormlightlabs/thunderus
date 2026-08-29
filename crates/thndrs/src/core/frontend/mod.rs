@@ -20,6 +20,8 @@ pub use protocol::{
     ResponseResult,
 };
 
+use protocol::{ContextSummary, FrontendCapabilities, model_updated, parse_reasoning_effort, reasoning_updated};
+
 const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const MAX_COMMAND_BYTES: usize = 1024 * 1024;
 
@@ -253,6 +255,132 @@ impl Bridge {
                     )?;
                 }
             }
+            Command::PermissionRespond { tool_call_id, option_id } => {
+                if !self.ensure_version(envelope.version, &envelope.id, output)? {
+                    return Ok(false);
+                }
+                let Some(permission) = self.app.overlay.permission() else {
+                    self.write_response(
+                        envelope.id,
+                        Err((ErrorCode::InvalidRequest, "there is no pending permission".to_string())),
+                        output,
+                    )?;
+                    return Ok(false);
+                };
+                if permission.tool_call_id != tool_call_id {
+                    self.write_response(
+                        envelope.id,
+                        Err((
+                            ErrorCode::InvalidRequest,
+                            "permission request does not match the pending tool call".to_string(),
+                        )),
+                        output,
+                    )?;
+                    return Ok(false);
+                }
+                if let Some(option_id) = option_id.as_ref() {
+                    let Some(selected) = permission.options.iter().position(|option| option.id == *option_id) else {
+                        self.write_response(
+                            envelope.id,
+                            Err((
+                                ErrorCode::InvalidRequest,
+                                "permission option is not available".to_string(),
+                            )),
+                            output,
+                        )?;
+                        return Ok(false);
+                    };
+                    if let Some(permission) = self.app.overlay.permission_mut() {
+                        permission.selected = selected;
+                    }
+                }
+                if let Some(permission) = self.app.overlay.take_permission() {
+                    if option_id.is_some() {
+                        let _ = permission.select();
+                    } else {
+                        let _ = permission.cancel();
+                    }
+                }
+                self.app.transcript.context_ledger = None;
+                self.write_response(envelope.id, Ok(ResponseResult::Accepted), output)?;
+            }
+            Command::ModelSelect { model } => {
+                if !self.ensure_version(envelope.version, &envelope.id, output)? {
+                    return Ok(false);
+                }
+                if self.app.runtime.run_state != RunState::Idle || self.agent.is_some() {
+                    self.write_response(
+                        envelope.id,
+                        Err((ErrorCode::Busy, "model cannot change during a turn".to_string())),
+                        output,
+                    )?;
+                } else if !FrontendCapabilities::from_app(&self.app)
+                    .models
+                    .iter()
+                    .any(|option| option.label == model)
+                {
+                    self.write_response(
+                        envelope.id,
+                        Err((ErrorCode::InvalidRequest, "model is not available".to_string())),
+                        output,
+                    )?;
+                } else {
+                    if let Err(error) = crate::config::write_project_model(&self.app.runtime.cwd, &model) {
+                        self.write_response(
+                            envelope.id,
+                            Err((ErrorCode::InvalidRequest, bounded_diagnostic(&error.to_string()))),
+                            output,
+                        )?;
+                        return Ok(false);
+                    }
+                    self.app.runtime.model = model.clone();
+                    self.app.runtime.cli.model = model;
+                    self.app.runtime.codex_usage = None;
+                    self.app.refresh_context_ledger(None);
+                    self.write_response(envelope.id, Ok(ResponseResult::Accepted), output)?;
+                    self.write_event(model_updated(&self.app), output)?;
+                    self.write_event(
+                        FrontendEvent::ContextUpdated { context: ContextSummary::from_app(&self.app) },
+                        output,
+                    )?;
+                }
+            }
+            Command::ReasoningSelect { effort } => {
+                if !self.ensure_version(envelope.version, &envelope.id, output)? {
+                    return Ok(false);
+                }
+                let parsed = parse_reasoning_effort(&effort);
+                if self.app.runtime.run_state != RunState::Idle || self.agent.is_some() {
+                    self.write_response(
+                        envelope.id,
+                        Err((ErrorCode::Busy, "reasoning cannot change during a turn".to_string())),
+                        output,
+                    )?;
+                } else if !parsed.is_some_and(|effort| {
+                    crate::providers::reasoning_option_is_supported(&self.app.runtime.model, effort)
+                }) {
+                    self.write_response(
+                        envelope.id,
+                        Err((
+                            ErrorCode::InvalidRequest,
+                            "reasoning effort is not available for this model".to_string(),
+                        )),
+                        output,
+                    )?;
+                } else if let Some(effort) = parsed {
+                    if let Err(error) = crate::config::write_project_reasoning_effort(&self.app.runtime.cwd, effort) {
+                        self.write_response(
+                            envelope.id,
+                            Err((ErrorCode::InvalidRequest, bounded_diagnostic(&error.to_string()))),
+                            output,
+                        )?;
+                        return Ok(false);
+                    }
+                    self.app.runtime.cli.reasoning_effort = effort;
+                    self.write_response(envelope.id, Ok(ResponseResult::Accepted), output)?;
+                    self.write_event(reasoning_updated(&self.app), output)?;
+                }
+            }
             Command::Shutdown => {
                 if !self.ensure_version(envelope.version, &envelope.id, output)? {
                     return Ok(false);
@@ -262,12 +390,9 @@ impl Bridge {
             }
             Command::QueueSubmit { .. }
             | Command::QueueDelete { .. }
-            | Command::PermissionRespond { .. }
             | Command::SessionNew
             | Command::SessionLoad { .. }
-            | Command::SessionClose
-            | Command::ModelSelect { .. }
-            | Command::ReasoningSelect { .. } => {
+            | Command::SessionClose => {
                 if !self.ensure_version(envelope.version, &envelope.id, output)? {
                     return Ok(false);
                 }
@@ -307,11 +432,23 @@ impl Bridge {
                     event,
                     app::AgentEvent::Finished | app::AgentEvent::Cancelled | app::AgentEvent::Failed(_)
                 );
+                let updates_context = matches!(
+                    event,
+                    app::AgentEvent::RequestStarted(_) | app::AgentEvent::RequestAccounting(_)
+                );
+                let updates_models = matches!(event, app::AgentEvent::ModelMetadataLoaded(_));
                 let projected = FrontendEvent::from_agent_event(&event);
                 apply_message(&mut self.app, Msg::Agent(event));
-                if let Some(event) = projected {
-                    self.sequence = self.sequence.saturating_add(1);
-                    write_message(output, &ProtocolMessage::event(self.sequence, event))?;
+                if updates_models {
+                    self.write_event(model_updated(&self.app), output)?;
+                } else if let Some(event) = projected {
+                    self.write_event(event, output)?;
+                }
+                if updates_context {
+                    self.write_event(
+                        FrontendEvent::ContextUpdated { context: ContextSummary::from_app(&self.app) },
+                        output,
+                    )?;
                 }
                 if terminal {
                     if let Some(mut settled) = self.agent.take() {
@@ -342,10 +479,16 @@ impl Bridge {
     }
 
     fn stop_agent(&mut self) {
+        app::cancel_pending_permission(&mut self.app);
         if let Some(mut agent) = self.agent.take() {
             agent.cancel.cancel();
             let _ = agent.receiver.wait();
         }
+    }
+
+    fn write_event<W: Write>(&mut self, event: FrontendEvent, output: &mut W) -> io::Result<()> {
+        self.sequence = self.sequence.saturating_add(1);
+        write_message(output, &ProtocolMessage::event(self.sequence, event))
     }
 
     fn write_response<W: Write>(

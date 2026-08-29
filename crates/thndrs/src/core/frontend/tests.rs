@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -169,7 +170,7 @@ fn malformed_and_unsupported_commands_keep_stdout_protocol_only() {
             "not-json\n",
             "{\"version\":9,\"id\":\"bad-version\",\"command\":\"initialize\",\"supported_versions\":[9]}\n",
             "{\"version\":1,\"id\":\"init\",\"command\":\"initialize\",\"supported_versions\":[1]}\n",
-            "{\"version\":1,\"id\":\"future\",\"command\":\"model.select\",\"model\":\"x\"}\n",
+            "{\"version\":1,\"id\":\"future\",\"command\":\"queue.submit\",\"text\":\"later\",\"target\":\"follow_up\"}\n",
             "{\"version\":1,\"id\":\"done\",\"command\":\"shutdown\"}\n"
         )
         .as_bytes()
@@ -187,6 +188,138 @@ fn malformed_and_unsupported_commands_keep_stdout_protocol_only() {
     assert_eq!(records[3]["error"]["code"], "unsupported_command");
     assert_eq!(records.last().and_then(|record| record["id"].as_str()), Some("done"));
     assert!(stderr.is_empty());
+}
+
+#[test]
+fn initialization_exposes_commands_options_context_and_pending_permission() {
+    let cli = Cli { ephemeral: true, model: "fake-agent".to_string(), ..Cli::default() };
+    let mut bridge = Bridge::new(&cli);
+    bridge.app.refresh_context_ledger(None);
+    let (sender, _receiver) = mpsc::channel();
+    bridge
+        .app
+        .overlay
+        .show_permission(crate::acp::permissions::PendingPermission {
+            tool_call_id: "call-1".to_string(),
+            title: "Run command?".to_string(),
+            options: vec![crate::acp::permissions::PermissionOptionView {
+                id: "allow-once".to_string(),
+                name: "Allow once".to_string(),
+                kind: crate::acp::permissions::PermissionKindView::AllowOnce,
+            }],
+            selected: 0,
+            responder: sender,
+        });
+    let mut stdout = Vec::new();
+
+    bridge
+        .handle_command(
+            command("init", Command::Initialize { supported_versions: vec![1] }),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .expect("initialize");
+
+    let snapshot = &lines(&stdout)[0]["result"]["snapshot"];
+    assert!(snapshot["capabilities"]["commands"].as_array().is_some_and(|commands| {
+        commands.iter().any(|command| command == "permission.respond")
+            && commands.iter().any(|command| command == "model.select")
+    }));
+    assert!(
+        snapshot["capabilities"]["models"]
+            .as_array()
+            .is_some_and(|models| !models.is_empty())
+    );
+    assert!(snapshot["context"].is_object());
+    assert_eq!(snapshot["pending_permission"]["tool_call_id"], "call-1");
+}
+
+#[test]
+fn permission_response_selects_the_exact_backend_option() {
+    let cli = Cli { ephemeral: true, model: "fake-agent".to_string(), ..Cli::default() };
+    let mut bridge = Bridge::new(&cli);
+    bridge.initialized = true;
+    let (sender, receiver) = mpsc::channel();
+    bridge
+        .app
+        .overlay
+        .show_permission(crate::acp::permissions::PendingPermission {
+            tool_call_id: "call-1".to_string(),
+            title: "Run command?".to_string(),
+            options: vec![crate::acp::permissions::PermissionOptionView {
+                id: "reject-always".to_string(),
+                name: "Always reject".to_string(),
+                kind: crate::acp::permissions::PermissionKindView::RejectAlways,
+            }],
+            selected: 0,
+            responder: sender,
+        });
+    let mut stdout = Vec::new();
+
+    bridge
+        .handle_command(
+            command(
+                "permission",
+                Command::PermissionRespond {
+                    tool_call_id: "call-1".to_string(),
+                    option_id: Some("reject-always".to_string()),
+                },
+            ),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .expect("respond");
+
+    assert_eq!(
+        receiver.recv().expect("permission decision"),
+        crate::acp::permissions::PermissionDecision::Selected("reject-always".to_string())
+    );
+    assert!(bridge.app.overlay.permission().is_none());
+    assert_eq!(lines(&stdout)[0]["result"]["kind"], "accepted");
+}
+
+#[test]
+fn model_and_reasoning_selection_emit_backend_truth() {
+    let temp = tempfile::tempdir().expect("workspace");
+    let cli = Cli {
+        cwd: temp.path().to_path_buf(),
+        ephemeral: true,
+        model: "chatgpt-codex/gpt-5.6-terra".to_string(),
+        ..Cli::default()
+    };
+    let mut bridge = Bridge::new(&cli);
+    bridge.initialized = true;
+    let mut stdout = Vec::new();
+
+    bridge
+        .handle_command(
+            command(
+                "model",
+                Command::ModelSelect { model: "chatgpt-codex/gpt-5.6-terra".to_string() },
+            ),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .expect("select model");
+    bridge
+        .handle_command(
+            command("reasoning", Command::ReasoningSelect { effort: "high".to_string() }),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .expect("select reasoning");
+
+    let records = lines(&stdout);
+    assert!(records.iter().any(|record| record["event"]["type"] == "model.updated"));
+    assert!(
+        records
+            .iter()
+            .any(|record| { record["event"]["type"] == "reasoning.updated" && record["event"]["effort"] == "high" })
+    );
+    assert_eq!(
+        bridge.app.runtime.cli.reasoning_effort,
+        crate::cli::ReasoningEffort::High
+    );
 }
 
 #[test]

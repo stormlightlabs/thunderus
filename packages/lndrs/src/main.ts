@@ -27,8 +27,14 @@ async function run(): Promise<void> {
     onExit: (code) => state.backendTerminated(`thndrs frontend exited with status ${code}`),
   });
   interaction = new InteractionController(state, view.composer.input, client);
+  interaction.attachOverlay(view.overlay, view.transcript, () => finish?.());
   view.composer.input.onSubmit = () => void interaction.dispatch("turn.submit");
   const onKeypress = (key: KeyEvent) => {
+    if (interaction.handleKey(key)) {
+      key.preventDefault();
+      key.stopPropagation();
+      return;
+    }
     const action = globalActionForKey(key, state.run.state === "working" || state.run.state === "stopping");
     if (!action) return;
     key.preventDefault();

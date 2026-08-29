@@ -5,6 +5,8 @@ import { InteractionController } from "../src/interaction.ts";
 import { FrontendClient } from "../src/protocol/client.ts";
 import type { Command, FrontendSnapshot, ResponseResult } from "../src/protocol/messages.ts";
 import { AppState } from "../src/state/app.svelte.ts";
+import { tick } from "svelte";
+import { bindRootView } from "../src/views/projection.svelte.ts";
 import { createRootView } from "../src/views/root.ts";
 
 const snapshot = (): FrontendSnapshot => ({
@@ -129,6 +131,86 @@ test("cancellation stays pending until the backend settles it", async () => {
     interaction.handleEvent({ type: "run.cancelled" });
     expect(state.run.state).toBe("idle");
   } finally {
+    renderer.destroy();
+  }
+});
+
+test("permission decisions use backend option IDs and restore composer focus", async () => {
+  const { renderer } = await createTestRenderer({ width: 70, height: 18 });
+  const state = new AppState();
+  state.initialize({
+    ...snapshot(),
+    capabilities: { commands: ["permission.respond"], models: [], reasoning_efforts: [] },
+  });
+  const view = createRootView(renderer);
+  renderer.root.add(view.root);
+  const dispose = bindRootView(state, view);
+  const client = new FakeClient();
+  const interaction = new InteractionController(state, view.composer.input, client);
+  interaction.attachOverlay(view.overlay, view.transcript, () => undefined);
+
+  try {
+    state.apply({
+      type: "permission.requested",
+      tool_call_id: "call-1",
+      title: "Run command?",
+      selected: 0,
+      options: [{ id: "reject-always", name: "Always reject", kind: "reject always" }],
+    });
+    await tick();
+    await interaction.respondPermission("reject-always");
+
+    expect(client.commands).toEqual([
+      { command: "permission.respond", tool_call_id: "call-1", option_id: "reject-always" },
+    ]);
+    expect(state.pendingPermission).toBeUndefined();
+    expect(state.overlay).toBeUndefined();
+    expect(view.composer.input.focused).toBe(true);
+  } finally {
+    dispose();
+    renderer.destroy();
+  }
+});
+
+test("model, reasoning, context, and palette dismissal restore focus", async () => {
+  const { renderer } = await createTestRenderer({ width: 70, height: 18 });
+  const state = new AppState();
+  state.initialize({
+    ...snapshot(),
+    context: {
+      used_tokens: 10,
+      context_window: 100,
+      available_input: 80,
+      target_tokens: 64,
+      auto_compaction_threshold: 74,
+      compaction_state: "idle",
+      limit_source: "fallback",
+    },
+    capabilities: {
+      commands: ["model.select", "reasoning.select"],
+      models: [{ label: "fake-agent", detail: "Fake" }],
+      reasoning_efforts: [
+        { value: "auto", label: "Auto", description: "Default" },
+        { value: "high", label: "High", description: "Difficult work" },
+      ],
+    },
+  });
+  const view = createRootView(renderer);
+  renderer.root.add(view.root);
+  const dispose = bindRootView(state, view);
+  const interaction = new InteractionController(state, view.composer.input, new FakeClient());
+  interaction.attachOverlay(view.overlay, view.transcript, () => undefined);
+
+  try {
+    for (const kind of ["palette", "model", "reasoning", "context"] as const) {
+      interaction.openOverlay(kind);
+      await tick();
+      expect(state.overlay?.kind).toBe(kind);
+      interaction.closeOverlay();
+      expect(view.composer.input.focused).toBe(true);
+    }
+  } finally {
+    dispose();
     renderer.destroy();
   }
 });

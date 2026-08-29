@@ -1,5 +1,6 @@
 import { BoxRenderable, type CliRenderer, type RenderContext, TextareaRenderable, TextRenderable } from "@opentui/core";
 import { composerKeyBindings } from "../interaction.ts";
+import { OverlayView } from "./overlay.ts";
 import { TranscriptView } from "./transcript.ts";
 
 export interface ComposerView {
@@ -12,6 +13,7 @@ export interface RootView {
   transcript: TranscriptView;
   composer: ComposerView;
   status: TextRenderable;
+  overlay: OverlayView;
 }
 
 export function createRootView(context: RenderContext): RootView {
@@ -48,10 +50,12 @@ export function createRootView(context: RenderContext): RootView {
     fg: "#7b838a",
   });
 
+  const overlay = new OverlayView(context);
   root.add(transcript.scroll);
   root.add(composerRoot);
   root.add(status);
-  return { root, transcript, composer: { root: composerRoot, input }, status };
+  root.add(overlay.root);
+  return { root, transcript, composer: { root: composerRoot, input }, status, overlay };
 }
 
 export function mountRootView(renderer: CliRenderer): RootView {

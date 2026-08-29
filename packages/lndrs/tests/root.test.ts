@@ -95,6 +95,130 @@ test.each([
   }
 });
 
+test("renders compact context status and a temporary inspector", async () => {
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({ width: 70, height: 20 });
+  const state = new AppState();
+  const view = createRootView(renderer);
+  renderer.root.add(view.root);
+  const dispose = bindRootView(state, view);
+  state.initialize({
+    ...snapshot([]),
+    context: {
+      used_tokens: 74_000,
+      context_window: 128_000,
+      available_input: 110_000,
+      target_tokens: 88_000,
+      auto_compaction_threshold: 101_200,
+      compaction_state: "idle",
+      limit_source: "static_provider",
+    },
+  });
+
+  try {
+    await tick();
+    await renderOnce();
+    expect(captureCharFrame()).toContain("74k / 128k · 58%");
+
+    state.openOverlay("context");
+    await tick();
+    await renderOnce();
+    const frame = captureCharFrame();
+    expect(frame).toContain("CONTEXT");
+    expect(frame).toContain("compact at");
+    expect(frame).toContain("Esc  return to Stream");
+  } finally {
+    dispose();
+    renderer.destroy();
+  }
+});
+
+test("renders permission and provider-supported reasoning pickers", async () => {
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({ width: 70, height: 20 });
+  const state = new AppState();
+  const view = createRootView(renderer);
+  renderer.root.add(view.root);
+  const dispose = bindRootView(state, view);
+  state.initialize({
+    ...snapshot([]),
+    capabilities: {
+      commands: ["permission.respond", "model.select", "reasoning.select"],
+      models: [{ label: "fake-agent", detail: "Fake model" }],
+      reasoning_efforts: [
+        { value: "auto", label: "Auto", description: "Provider default" },
+        { value: "high", label: "High", description: "Difficult work" },
+      ],
+    },
+  });
+
+  try {
+    state.openOverlay("reasoning");
+    await tick();
+    await renderOnce();
+    expect(captureCharFrame()).toContain("REASONING EFFORT");
+    expect(captureCharFrame()).toContain("Difficult work");
+
+    state.apply({
+      type: "permission.requested",
+      tool_call_id: "call-1",
+      title: "Run command?",
+      selected: 0,
+      options: [
+        { id: "allow", name: "Allow once", kind: "allow once" },
+        { id: "reject", name: "Always reject", kind: "reject always" },
+      ],
+    });
+    await tick();
+    await renderOnce();
+    const frame = captureCharFrame();
+    expect(frame).toContain("PERMISSION REQUIRED");
+    expect(frame).toContain("Allow once");
+    expect(frame).toContain("Always reject");
+  } finally {
+    dispose();
+    renderer.destroy();
+  }
+});
+
+test("command palette is searchable and capability sourced", async () => {
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({ width: 70, height: 18 });
+  const state = new AppState();
+  const view = createRootView(renderer);
+  renderer.root.add(view.root);
+  const dispose = bindRootView(state, view);
+  state.initialize({
+    ...snapshot([]),
+    context: {
+      used_tokens: 10,
+      context_window: 100,
+      available_input: 80,
+      target_tokens: 64,
+      auto_compaction_threshold: 74,
+      compaction_state: "idle",
+      limit_source: "fallback",
+    },
+    capabilities: {
+      commands: ["model.select"],
+      models: [{ label: "fake-agent", detail: "Fake" }],
+      reasoning_efforts: [],
+    },
+  });
+
+  try {
+    state.openOverlay("palette");
+    await tick();
+    state.setOverlayQuery("model");
+    await tick();
+    await renderOnce();
+    const frame = captureCharFrame();
+    expect(frame).toContain("Model: select model");
+    expect(frame).not.toContain("Context: inspect usage");
+    expect(frame).not.toContain("Reasoning: select effort");
+  } finally {
+    dispose();
+    renderer.destroy();
+  }
+});
+
 test("updates live and tool blocks without replacing their renderables", async () => {
   const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({ width: 70, height: 16 });
   const state = new AppState();

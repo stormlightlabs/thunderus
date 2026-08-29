@@ -26,7 +26,7 @@ test("initializes from a snapshot and applies incremental events", () => {
   expect(state.run.state).toBe("working");
   expect(state.transcript).toHaveLength(1);
   expect(state.transcript[0]).toMatchObject({ kind: "assistant", text: "Hello world" });
-  expect(state.statusText).toContain("16 tokens");
+  expect(state.statusText).toContain("fake-agent · medium");
 });
 
 test("keeps one active block per streaming semantic kind", () => {
@@ -46,6 +46,44 @@ test("keeps one active block per streaming semantic kind", () => {
   expect(state.transcript).toHaveLength(4);
   expect(state.transcript[0]).toMatchObject({ streaming: false });
   expect(state.transcript[1]).toMatchObject({ streaming: false });
+});
+
+test("capability gates controls separately from provider options", () => {
+  const state = new AppState();
+  state.initialize({
+    ...structuredClone(snapshot),
+    capabilities: {
+      commands: ["model.select", "reasoning.select"],
+      models: [{ label: "fake-agent", detail: "Fake" }],
+      reasoning_efforts: [{ value: "auto", label: "Auto", description: "Provider default" }],
+    },
+  });
+
+  expect(state.openOverlay("model")).toBe(true);
+  state.closeOverlay();
+  expect(state.openOverlay("reasoning")).toBe(false);
+
+  state.snapshot!.capabilities!.reasoning_efforts.push({ value: "high", label: "High", description: "Difficult work" });
+  expect(state.openOverlay("reasoning")).toBe(true);
+});
+
+test("permission requests own focus until backend settlement", () => {
+  const state = new AppState();
+  state.initialize(structuredClone(snapshot));
+  state.apply({
+    type: "permission.requested",
+    tool_call_id: "call-1",
+    title: "Run command?",
+    selected: 0,
+    options: [{ id: "allow", name: "Allow once", kind: "allow once" }],
+  });
+
+  expect(state.overlay?.kind).toBe("permission");
+  state.closeOverlay();
+  expect(state.overlay?.kind).toBe("permission");
+  state.apply({ type: "permission.resolved", tool_call_id: "call-1", outcome: "selected allow" });
+  expect(state.pendingPermission).toBeUndefined();
+  expect(state.overlay).toBeUndefined();
 });
 
 test("updates a tool by protocol call ID instead of appending lifecycle entries", () => {

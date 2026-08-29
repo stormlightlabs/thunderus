@@ -1,10 +1,25 @@
-import type { FrontendEvent, FrontendSnapshot, RunState, TranscriptItem } from "../protocol/messages.ts";
+import type {
+  FrontendCapabilities,
+  FrontendEvent,
+  FrontendSnapshot,
+  PendingPermission,
+  RunState,
+  TranscriptItem,
+} from "../protocol/messages.ts";
+
+export type OverlayKind = "palette" | "permission" | "model" | "reasoning" | "context";
+export interface OverlayState {
+  kind: OverlayKind;
+  query: string;
+}
 
 export class AppState {
   snapshot = $state<FrontendSnapshot | undefined>();
   status = $state("Connecting to thndrs…");
   transcript = $state<TranscriptItem[]>([]);
   run = $state<RunState>({ state: "idle" });
+  pendingPermission = $state<PendingPermission | undefined>();
+  overlay = $state<OverlayState | undefined>();
   #liveId = 0;
   #localUserId = 0;
   #submissionTranscriptIndex: number | undefined;
@@ -24,6 +39,8 @@ export class AppState {
     this.transcript = snapshot.transcript;
     this.#restoreActiveStreamingIds();
     this.run = snapshot.run;
+    this.pendingPermission = snapshot.pending_permission ?? undefined;
+    this.overlay = this.pendingPermission ? { kind: "permission", query: "" } : undefined;
     this.status = status;
   }
 
@@ -53,6 +70,8 @@ export class AppState {
 
   backendTerminated(message: string): void {
     this.finishStreaming();
+    this.pendingPermission = undefined;
+    this.overlay = undefined;
     this.run = { state: "error", message };
     this.status = message;
   }
@@ -113,27 +132,88 @@ export class AppState {
           this.snapshot.usage = { input_tokens: event.input_tokens, output_tokens: event.output_tokens };
         }
         break;
+      case "context.updated":
+        if (this.snapshot) this.snapshot.context = event.context;
+        break;
       case "status.updated":
         this.status = event.message;
         break;
       case "permission.requested":
+        this.pendingPermission = {
+          tool_call_id: event.tool_call_id,
+          title: event.title,
+          selected: event.selected,
+          options: event.options,
+        };
+        this.overlay = { kind: "permission", query: "" };
         this.status = event.title;
         break;
       case "permission.resolved":
+        if (this.pendingPermission?.tool_call_id === event.tool_call_id) this.pendingPermission = undefined;
+        if (this.overlay?.kind === "permission") this.overlay = undefined;
         this.status = `Permission ${event.outcome}`;
         break;
       case "model.updated":
+        if (this.snapshot) {
+          if (event.model) this.snapshot.model = event.model;
+          const capabilities = this.capabilities;
+          this.snapshot.capabilities = {
+            ...capabilities,
+            models: event.options.length > 0 ? event.options : capabilities.models,
+            reasoning_efforts:
+              event.reasoning_efforts.length > 0 ? event.reasoning_efforts : capabilities.reasoning_efforts,
+          };
+        }
+        break;
+      case "reasoning.updated":
+        if (this.snapshot) this.snapshot.reasoning_effort = event.effort;
         break;
     }
   }
 
+  get capabilities(): FrontendCapabilities {
+    return this.snapshot?.capabilities ?? { commands: [], models: [], reasoning_efforts: [] };
+  }
+
+  supports(command: string): boolean {
+    return this.capabilities.commands.includes(command);
+  }
+
+  openOverlay(kind: OverlayKind): boolean {
+    if (kind === "permission" && !this.pendingPermission) return false;
+    if (kind === "model" && (!this.supports("model.select") || this.capabilities.models.length === 0)) return false;
+    if (kind === "reasoning" && (!this.supports("reasoning.select") || this.capabilities.reasoning_efforts.length < 2))
+      return false;
+    if (kind === "context" && !this.snapshot?.context) return false;
+    this.overlay = { kind, query: "" };
+    return true;
+  }
+
+  closeOverlay(): void {
+    if (this.overlay?.kind !== "permission") this.overlay = undefined;
+  }
+
+  setOverlayQuery(query: string): void {
+    if (this.overlay) this.overlay.query = query;
+  }
+
+  settlePermissionLocally(): void {
+    this.pendingPermission = undefined;
+    if (this.overlay?.kind === "permission") this.overlay = undefined;
+  }
+
   get statusText(): string {
     const model = this.snapshot?.model ?? "no model";
-    const usage = this.snapshot?.usage;
-    const tokens = usage ? `${usage.input_tokens + usage.output_tokens} tokens` : "0 tokens";
+    const reasoning = this.snapshot?.reasoning_effort;
+    const context = this.snapshot?.context;
+    const contextText = context
+      ? `${compactTokens(context.used_tokens)} / ${compactTokens(context.context_window)} · ${Math.round(
+          (context.used_tokens * 100) / Math.max(context.context_window, 1),
+        )}%`
+      : undefined;
     const action =
-      this.run.state === "working" ? "Esc stop" : this.run.state === "stopping" ? "stopping…" : "Ctrl+D quit";
-    return `${model} · ${tokens} · ${this.status} · ${action}`;
+      this.run.state === "working" ? "Esc stop" : this.run.state === "stopping" ? "stopping…" : "Ctrl+P commands";
+    return [model, reasoning, contextText, this.status, action].filter(Boolean).join(" · ");
   }
 
   #appendDelta(kind: "assistant" | "reasoning", text: string): void {
@@ -171,4 +251,10 @@ export class AppState {
   finishStreaming(): void {
     this.#closeActiveStreaming();
   }
+}
+
+function compactTokens(tokens: number): string {
+  if (tokens < 1_000) return String(tokens);
+  const thousands = tokens / 1_000;
+  return `${thousands >= 10 ? Math.round(thousands) : thousands.toFixed(1).replace(/\.0$/, "")}k`;
 }

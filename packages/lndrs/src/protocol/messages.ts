@@ -12,6 +12,35 @@ export type TranscriptItem =
   | { kind: "status"; id: string; text: string }
   | { kind: "error"; id: string; text: string };
 
+export interface ContextSummary {
+  used_tokens: number;
+  context_window: number;
+  available_input: number;
+  target_tokens: number;
+  auto_compaction_threshold: number;
+  compaction_state: string;
+  limit_source: string;
+}
+
+export interface PermissionOption {
+  id: string;
+  name: string;
+  kind: string;
+}
+
+export interface PendingPermission {
+  tool_call_id: string;
+  title: string;
+  selected: number;
+  options: PermissionOption[];
+}
+
+export interface FrontendCapabilities {
+  commands: string[];
+  models: Array<{ label: string; detail: string }>;
+  reasoning_efforts: Array<{ value: string; label: string; description: string }>;
+}
+
 export interface FrontendSnapshot {
   event_sequence: number;
   session: { id: string; ephemeral: boolean; turn_count: number };
@@ -22,6 +51,9 @@ export interface FrontendSnapshot {
   transcript: TranscriptItem[];
   queue: Array<{ id: string; target: string; text: string; settlement: string }>;
   usage: { input_tokens: number; output_tokens: number };
+  context?: ContextSummary | null;
+  pending_permission?: PendingPermission | null;
+  capabilities?: FrontendCapabilities;
   truncated: boolean;
 }
 
@@ -35,6 +67,7 @@ export type FrontendEvent =
   | { type: "tool.started"; id: string; name: string; arguments: string }
   | { type: "tool.finished"; id: string; status: string; output: string[] }
   | { type: "usage.updated"; input_tokens: number; output_tokens: number }
+  | { type: "context.updated"; context: ContextSummary }
   | {
       type: "permission.requested";
       tool_call_id: string;
@@ -44,7 +77,13 @@ export type FrontendEvent =
     }
   | { type: "permission.resolved"; tool_call_id: string; outcome: string }
   | { type: "status.updated"; message: string }
-  | { type: "model.updated"; options: Array<{ label: string; detail: string }> };
+  | {
+      type: "model.updated";
+      model: string;
+      options: Array<{ label: string; detail: string }>;
+      reasoning_efforts: Array<{ value: string; label: string; description: string }>;
+    }
+  | { type: "reasoning.updated"; effort: string };
 
 export type ResponseResult =
   | { kind: "initialized"; protocol_version: number; snapshot: FrontendSnapshot }
@@ -67,6 +106,9 @@ export type Command =
   | { command: "state.snapshot" }
   | { command: "turn.submit"; text: string }
   | { command: "turn.cancel" }
+  | { command: "permission.respond"; tool_call_id: string; option_id: string | null }
+  | { command: "model.select"; model: string }
+  | { command: "reasoning.select"; effort: string }
   | { command: "shutdown" };
 
 export type CommandEnvelope = Command & { version: typeof PROTOCOL_VERSION; id: string };
@@ -81,10 +123,12 @@ const eventTypes = new Set([
   "tool.started",
   "tool.finished",
   "usage.updated",
+  "context.updated",
   "permission.requested",
   "permission.resolved",
   "status.updated",
   "model.updated",
+  "reasoning.updated",
 ]);
 
 export function parseProtocolMessage(value: unknown): ProtocolMessage {

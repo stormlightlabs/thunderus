@@ -63,7 +63,7 @@ Read [references/ratatui-engineering.md](references/ratatui-engineering.md) only
 2. Compare before and after captures for hierarchy, balance, rhythm, alignment, contrast, chrome, copy, and spatial stability.
 3. Run the narrowest behavioral and rendering checks needed for the change.
 4. Inspect changed snapshots cell by cell. Passing snapshots do not establish polish.
-5. Exercise a real terminal when cursor behavior, input timing, animation, terminal capabilities, or overall composition changed.
+5. Exercise a real terminal when cursor behavior, input timing, animation, terminal capabilities, or overall composition changed. Load the project [tmux TUI QA skill](../tmux-tui-qa/SKILL.md) for that workflow.
 
 Use [references/verification.md](references/verification.md) to select states and evidence. Regenerate public screenshots or VHS fixtures only after the product state is approved and the fixture represents it accurately.
 
