@@ -156,7 +156,7 @@ pub struct ResponseError {
 }
 
 /// Bounded frontend-visible application state.
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct FrontendSnapshot {
     /// Sequence of the latest event reflected by this snapshot.
     pub event_sequence: u64,
@@ -225,7 +225,7 @@ impl FrontendSnapshot {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct FrontendSession {
     pub id: String,
     pub ephemeral: bool,
@@ -233,7 +233,7 @@ pub struct FrontendSession {
 }
 
 /// Rust-owned metadata needed to choose a persisted session.
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct FrontendSessionOption {
     pub id: String,
     pub title: String,
@@ -264,7 +264,7 @@ fn session_options(app: &App) -> Vec<FrontendSessionOption> {
         .collect()
 }
 
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum FrontendRunState {
     Idle,
@@ -284,14 +284,14 @@ impl From<&RunState> for FrontendRunState {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct UsageSummary {
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
 
 /// Provider-neutral context-window state for compact display and inspection.
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ContextSummary {
     pub used_tokens: u64,
     pub context_window: u64,
@@ -338,7 +338,7 @@ impl ContextSummary {
 }
 
 /// One pending backend-owned permission decision.
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct PendingPermission {
     pub tool_call_id: String,
     pub title: String,
@@ -367,7 +367,7 @@ impl From<&crate::acp::permissions::PendingPermission> for PendingPermission {
 }
 
 /// Commands supported by the bridge and provider-specific selectable values.
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct FrontendCapabilities {
     pub commands: Vec<String>,
     pub models: Vec<ModelOption>,
@@ -415,7 +415,7 @@ impl FrontendCapabilities {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ReasoningOption {
     pub value: String,
     pub label: String,
@@ -433,7 +433,7 @@ fn reasoning_options(model: &str) -> Vec<ReasoningOption> {
         .collect()
 }
 
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct QueueItem {
     pub id: String,
     pub target: String,
@@ -442,7 +442,7 @@ pub struct QueueItem {
 }
 
 /// Semantic transcript content; provider continuation data is never included.
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TranscriptItem {
     User {
@@ -509,7 +509,7 @@ impl TranscriptItem {
 }
 
 /// Provider-neutral asynchronous event vocabulary.
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(tag = "type")]
 pub enum FrontendEvent {
     #[serde(rename = "run.started")]
@@ -648,14 +648,14 @@ impl FrontendEvent {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct PermissionOption {
     pub id: String,
     pub name: String,
     pub kind: String,
 }
 
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ModelOption {
     pub label: String,
     pub detail: String,

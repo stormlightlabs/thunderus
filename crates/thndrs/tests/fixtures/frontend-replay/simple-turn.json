@@ -1,0 +1,88 @@
+{
+  "schema_version": "thndrs-frontend-replay-v1",
+  "name": "simple-turn",
+  "terminal": {
+    "width": 80,
+    "height": 24
+  },
+  "snapshot": {
+    "event_sequence": 0,
+    "session": {
+      "id": "replay-simple-turn",
+      "ephemeral": true,
+      "turn_count": 1
+    },
+    "workspace": "/work/thunderus",
+    "model": "opencode-go",
+    "reasoning_effort": "medium",
+    "run": {
+      "state": "working"
+    },
+    "transcript": [
+      {
+        "kind": "user",
+        "id": "user-1",
+        "text": "Update the status copy."
+      }
+    ],
+    "queue": [],
+    "usage": {
+      "input_tokens": 8000,
+      "output_tokens": 0
+    },
+    "context": {
+      "used_tokens": 8000,
+      "context_window": 128000,
+      "available_input": 110000,
+      "target_tokens": 88000,
+      "auto_compaction_threshold": 101200,
+      "compaction_state": "idle",
+      "limit_source": "static_provider"
+    },
+    "capabilities": {
+      "commands": [
+        "permission.respond",
+        "model.select",
+        "reasoning.select",
+        "queue.delete",
+        "session.load"
+      ],
+      "models": [
+        {
+          "label": "opencode-go",
+          "detail": "OpenCode Go"
+        }
+      ],
+      "reasoning_efforts": [
+        {
+          "value": "medium",
+          "label": "Medium",
+          "description": "Balanced"
+        },
+        {
+          "value": "high",
+          "label": "High",
+          "description": "Difficult work"
+        }
+      ]
+    },
+    "truncated": false,
+    "sessions": [],
+    "pending_permission": null
+  },
+  "steps": [
+    {
+      "delay_ms": 80,
+      "event": {
+        "type": "assistant.delta",
+        "text": "I\u2019ll make the focused change."
+      }
+    },
+    {
+      "delay_ms": 80,
+      "event": {
+        "type": "run.finished"
+      }
+    }
+  ]
+}

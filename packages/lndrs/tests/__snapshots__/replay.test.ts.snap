@@ -1,0 +1,83 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`captures the permission replay at 42x16 1`] = `
+"    ╭────────────────────────────────╮    
+    │                                │    
+    │ PERMISSION REQUIRED            │    
+    │  ▶ Allow once                  │    
+    │    allow once                  │    
+    │    Reject                      │    
+    │    reject once                 │    
+    │                                │    
+    │                                │    
+    │                                │    
+    │                                │    
+    │                                │    
+    │                                │    
+    │                                │    
+    │                                │    
+    ╰────────────────────────────────╯    
+"
+`;
+
+exports[`captures the tool-heavy replay at 80x24 1`] = `
+" you                                                                            
+ Improve context observability without making the interface busier.             
+                                                                                
+ landorus                                                                       
+ I’ll trace the existing accounting path and keep the UI addition disclosure-   
+ based.                                                                         
+                                                                                
+ › ✓ read  src/core/context.rs                                                  
+ › ✓ edit  src/tui/footer.rs                                                    
+ › ✓ test  context_display                                                     █
+ landorus                                                                      █
+ Context is now visible as 74k / 128k · 58%. The detailed breakdown stays      █
+ behind context inspection, so the conversation remains compact.               █
+                                                                               █
+                                                                               █
+                                                                               █
+                                                                               █
+                                                                               █
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ › Ask Landorus…                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+opencode-go · medium · 74k / 128k · 58% · Ready · Ctrl+P commands               
+"
+`;
+
+exports[`captures the long-transcript replay at 120x30 1`] = `
+" Historical response 56: the retained block stayed stable across updates.                                               
+                                                                                                                        
+ you                                                                                                                    
+ Historical request 57: inspect the rendering path.                                                                     
+                                                                                                                        
+ landorus                                                                                                               
+ Historical response 57: the retained block stayed stable across updates.                                               
+                                                                                                                        
+ you                                                                                                                    
+ Historical request 58: inspect the rendering path.                                                                     
+                                                                                                                        
+ landorus                                                                                                               
+ Historical response 58: the retained block stayed stable across updates.                                               
+                                                                                                                        
+ you                                                                                                                    
+ Historical request 59: inspect the rendering path.                                                                     
+                                                                                                                        
+ landorus                                                                                                               
+ Historical response 59: the retained block stayed stable across updates.                                               
+                                                                                                                        
+ landorus                                                                                                               
+ New output remains responsive after the long history.                                                                  
+                                                                                                                        
+                                                                                                                       ▄
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ › Ask Landorus…                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+opencode-go · medium · 8k / 128k · 6% · Ready · Ctrl+P commands                                                         
+"
+`;

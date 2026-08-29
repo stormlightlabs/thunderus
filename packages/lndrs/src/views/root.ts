@@ -3,18 +3,15 @@ import { composerKeyBindings } from "../interaction.ts";
 import { OverlayView } from "./overlay.ts";
 import { TranscriptView } from "./transcript.ts";
 
-export interface ComposerView {
-  root: BoxRenderable;
-  input: TextareaRenderable;
-}
+export type ComposerView = { root: BoxRenderable; input: TextareaRenderable };
 
-export interface RootView {
+export type RootView = {
   root: BoxRenderable;
   transcript: TranscriptView;
   composer: ComposerView;
   status: TextRenderable;
   overlay: OverlayView;
-}
+};
 
 export function createRootView(context: RenderContext): RootView {
   const root = new BoxRenderable(context, { id: "lndrs-root", width: "100%", height: "100%", flexDirection: "column" });

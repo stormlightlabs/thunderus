@@ -8,10 +8,7 @@ import type {
 } from "../protocol/messages.ts";
 
 export type OverlayKind = "palette" | "permission" | "model" | "reasoning" | "context" | "queue" | "session";
-export interface OverlayState {
-  kind: OverlayKind;
-  query: string;
-}
+export type OverlayState = { kind: OverlayKind; query: string };
 
 export class AppState {
   snapshot = $state<FrontendSnapshot | undefined>();

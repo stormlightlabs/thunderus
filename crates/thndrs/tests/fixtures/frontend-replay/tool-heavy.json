@@ -1,0 +1,168 @@
+{
+  "schema_version": "thndrs-frontend-replay-v1",
+  "name": "tool-heavy",
+  "terminal": {
+    "width": 80,
+    "height": 24
+  },
+  "snapshot": {
+    "event_sequence": 0,
+    "session": {
+      "id": "replay-tool-heavy",
+      "ephemeral": true,
+      "turn_count": 1
+    },
+    "sessions": [],
+    "workspace": "/work/thunderus",
+    "model": "opencode-go",
+    "reasoning_effort": "medium",
+    "run": {
+      "state": "working"
+    },
+    "transcript": [
+      {
+        "kind": "user",
+        "id": "user-1",
+        "text": "Improve context observability without making the interface busier."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-1",
+        "text": "I’ll trace the existing accounting path and keep the UI addition disclosure-based.",
+        "streaming": false
+      }
+    ],
+    "queue": [],
+    "usage": {
+      "input_tokens": 74000,
+      "output_tokens": 0
+    },
+    "context": {
+      "used_tokens": 74000,
+      "context_window": 128000,
+      "available_input": 110000,
+      "target_tokens": 88000,
+      "auto_compaction_threshold": 101200,
+      "compaction_state": "idle",
+      "limit_source": "static_provider"
+    },
+    "pending_permission": null,
+    "capabilities": {
+      "commands": [
+        "state.snapshot",
+        "turn.submit",
+        "turn.cancel",
+        "queue.submit",
+        "queue.delete",
+        "session.new",
+        "session.close",
+        "permission.respond",
+        "model.select",
+        "reasoning.select",
+        "shutdown"
+      ],
+      "models": [
+        {
+          "label": "opencode-go",
+          "detail": "OpenCode Go"
+        }
+      ],
+      "reasoning_efforts": [
+        {
+          "value": "medium",
+          "label": "Medium",
+          "description": "Balanced"
+        },
+        {
+          "value": "high",
+          "label": "High",
+          "description": "Difficult work"
+        }
+      ]
+    },
+    "truncated": false
+  },
+  "steps": [
+    {
+      "delay_ms": 120,
+      "event": {
+        "type": "tool.started",
+        "id": "read-context",
+        "name": "read",
+        "arguments": "{\"path\":\"src/core/context.rs\"}"
+      }
+    },
+    {
+      "delay_ms": 180,
+      "event": {
+        "type": "tool.finished",
+        "id": "read-context",
+        "status": "ok",
+        "output": [
+          "Context accounting already has a single source of truth."
+        ]
+      }
+    },
+    {
+      "delay_ms": 120,
+      "event": {
+        "type": "tool.started",
+        "id": "edit-footer",
+        "name": "edit",
+        "arguments": "{\"path\":\"src/tui/footer.rs\"}"
+      }
+    },
+    {
+      "delay_ms": 180,
+      "event": {
+        "type": "tool.finished",
+        "id": "edit-footer",
+        "status": "ok",
+        "output": [
+          "+21 -8"
+        ]
+      }
+    },
+    {
+      "delay_ms": 120,
+      "event": {
+        "type": "tool.started",
+        "id": "test-context",
+        "name": "test",
+        "arguments": "{\"command\":\"context_display\"}"
+      }
+    },
+    {
+      "delay_ms": 180,
+      "event": {
+        "type": "tool.finished",
+        "id": "test-context",
+        "status": "ok",
+        "output": [
+          "8 passed"
+        ]
+      }
+    },
+    {
+      "delay_ms": 120,
+      "event": {
+        "type": "assistant.delta",
+        "text": "Context is now visible as 74k / 128k · 58%. The detailed breakdown stays behind context inspection, so the conversation remains compact."
+      }
+    },
+    {
+      "delay_ms": 80,
+      "event": {
+        "type": "usage.updated",
+        "input_tokens": 74000,
+        "output_tokens": 420
+      }
+    },
+    {
+      "delay_ms": 80,
+      "event": {
+        "type": "run.finished"
+      }
+    }
+  ]
+}

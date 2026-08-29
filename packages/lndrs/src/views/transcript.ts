@@ -22,13 +22,13 @@ const COLORS = {
   user: "#f0c674",
 } as const;
 
-export interface TranscriptBlockView {
+export type TranscriptBlockView = {
   readonly id: string;
   readonly root: BoxRenderable;
   readonly itemKind: TranscriptItem["kind"];
   update(item: TranscriptItem): void;
   setExpanded(expanded: boolean): void;
-}
+};
 
 export class TranscriptView {
   readonly scroll: ScrollBoxRenderable;
@@ -107,7 +107,12 @@ export class TranscriptView {
 }
 
 function createTranscriptBlock(context: RenderContext, item: TranscriptItem): TranscriptBlockView {
-  const root = new BoxRenderable(context, { id: item.id, width: "100%", flexDirection: "column", marginBottom: 1 });
+  const root = new BoxRenderable(context, {
+    id: item.id,
+    width: "100%",
+    flexDirection: "column",
+    marginBottom: item.kind === "tool" ? 0 : 1,
+  });
   const primary = new TextRenderable(context, { id: `${item.id}-content`, content: "", width: "100%" });
   root.add(primary);
 

@@ -13,12 +13,12 @@ interface PendingRequest {
   reject: (error: Error) => void;
 }
 
-export interface FrontendClientOptions {
+export type FrontendClientOptions = {
   command?: string[];
   onEvent?: (event: FrontendEvent) => void;
   onSnapshot?: (snapshot: FrontendSnapshot) => void;
   onExit?: (code: number) => void;
-}
+};
 
 export class FrontendClient {
   readonly #command: string[];

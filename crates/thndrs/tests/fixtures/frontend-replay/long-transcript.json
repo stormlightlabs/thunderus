@@ -1,0 +1,743 @@
+{
+  "schema_version": "thndrs-frontend-replay-v1",
+  "name": "long-transcript",
+  "terminal": {
+    "width": 100,
+    "height": 30
+  },
+  "snapshot": {
+    "event_sequence": 0,
+    "session": {
+      "id": "replay-long-transcript",
+      "ephemeral": true,
+      "turn_count": 1
+    },
+    "workspace": "/work/thunderus",
+    "model": "opencode-go",
+    "reasoning_effort": "medium",
+    "run": {
+      "state": "working"
+    },
+    "transcript": [
+      {
+        "kind": "user",
+        "id": "user-0",
+        "text": "Historical request 0: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-0",
+        "text": "Historical response 0: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-1",
+        "text": "Historical request 1: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-1",
+        "text": "Historical response 1: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-2",
+        "text": "Historical request 2: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-2",
+        "text": "Historical response 2: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-3",
+        "text": "Historical request 3: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-3",
+        "text": "Historical response 3: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-4",
+        "text": "Historical request 4: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-4",
+        "text": "Historical response 4: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-5",
+        "text": "Historical request 5: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-5",
+        "text": "Historical response 5: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-6",
+        "text": "Historical request 6: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-6",
+        "text": "Historical response 6: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-7",
+        "text": "Historical request 7: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-7",
+        "text": "Historical response 7: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-8",
+        "text": "Historical request 8: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-8",
+        "text": "Historical response 8: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-9",
+        "text": "Historical request 9: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-9",
+        "text": "Historical response 9: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-10",
+        "text": "Historical request 10: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-10",
+        "text": "Historical response 10: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-11",
+        "text": "Historical request 11: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-11",
+        "text": "Historical response 11: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-12",
+        "text": "Historical request 12: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-12",
+        "text": "Historical response 12: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-13",
+        "text": "Historical request 13: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-13",
+        "text": "Historical response 13: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-14",
+        "text": "Historical request 14: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-14",
+        "text": "Historical response 14: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-15",
+        "text": "Historical request 15: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-15",
+        "text": "Historical response 15: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-16",
+        "text": "Historical request 16: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-16",
+        "text": "Historical response 16: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-17",
+        "text": "Historical request 17: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-17",
+        "text": "Historical response 17: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-18",
+        "text": "Historical request 18: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-18",
+        "text": "Historical response 18: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-19",
+        "text": "Historical request 19: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-19",
+        "text": "Historical response 19: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-20",
+        "text": "Historical request 20: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-20",
+        "text": "Historical response 20: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-21",
+        "text": "Historical request 21: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-21",
+        "text": "Historical response 21: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-22",
+        "text": "Historical request 22: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-22",
+        "text": "Historical response 22: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-23",
+        "text": "Historical request 23: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-23",
+        "text": "Historical response 23: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-24",
+        "text": "Historical request 24: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-24",
+        "text": "Historical response 24: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-25",
+        "text": "Historical request 25: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-25",
+        "text": "Historical response 25: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-26",
+        "text": "Historical request 26: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-26",
+        "text": "Historical response 26: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-27",
+        "text": "Historical request 27: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-27",
+        "text": "Historical response 27: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-28",
+        "text": "Historical request 28: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-28",
+        "text": "Historical response 28: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-29",
+        "text": "Historical request 29: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-29",
+        "text": "Historical response 29: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-30",
+        "text": "Historical request 30: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-30",
+        "text": "Historical response 30: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-31",
+        "text": "Historical request 31: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-31",
+        "text": "Historical response 31: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-32",
+        "text": "Historical request 32: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-32",
+        "text": "Historical response 32: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-33",
+        "text": "Historical request 33: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-33",
+        "text": "Historical response 33: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-34",
+        "text": "Historical request 34: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-34",
+        "text": "Historical response 34: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-35",
+        "text": "Historical request 35: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-35",
+        "text": "Historical response 35: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-36",
+        "text": "Historical request 36: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-36",
+        "text": "Historical response 36: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-37",
+        "text": "Historical request 37: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-37",
+        "text": "Historical response 37: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-38",
+        "text": "Historical request 38: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-38",
+        "text": "Historical response 38: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-39",
+        "text": "Historical request 39: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-39",
+        "text": "Historical response 39: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-40",
+        "text": "Historical request 40: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-40",
+        "text": "Historical response 40: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-41",
+        "text": "Historical request 41: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-41",
+        "text": "Historical response 41: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-42",
+        "text": "Historical request 42: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-42",
+        "text": "Historical response 42: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-43",
+        "text": "Historical request 43: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-43",
+        "text": "Historical response 43: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-44",
+        "text": "Historical request 44: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-44",
+        "text": "Historical response 44: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-45",
+        "text": "Historical request 45: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-45",
+        "text": "Historical response 45: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-46",
+        "text": "Historical request 46: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-46",
+        "text": "Historical response 46: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-47",
+        "text": "Historical request 47: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-47",
+        "text": "Historical response 47: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-48",
+        "text": "Historical request 48: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-48",
+        "text": "Historical response 48: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-49",
+        "text": "Historical request 49: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-49",
+        "text": "Historical response 49: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-50",
+        "text": "Historical request 50: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-50",
+        "text": "Historical response 50: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-51",
+        "text": "Historical request 51: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-51",
+        "text": "Historical response 51: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-52",
+        "text": "Historical request 52: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-52",
+        "text": "Historical response 52: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-53",
+        "text": "Historical request 53: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-53",
+        "text": "Historical response 53: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-54",
+        "text": "Historical request 54: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-54",
+        "text": "Historical response 54: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-55",
+        "text": "Historical request 55: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-55",
+        "text": "Historical response 55: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-56",
+        "text": "Historical request 56: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-56",
+        "text": "Historical response 56: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-57",
+        "text": "Historical request 57: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-57",
+        "text": "Historical response 57: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-58",
+        "text": "Historical request 58: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-58",
+        "text": "Historical response 58: the retained block stayed stable across updates.",
+        "streaming": false
+      },
+      {
+        "kind": "user",
+        "id": "user-59",
+        "text": "Historical request 59: inspect the rendering path."
+      },
+      {
+        "kind": "assistant",
+        "id": "assistant-59",
+        "text": "Historical response 59: the retained block stayed stable across updates.",
+        "streaming": false
+      }
+    ],
+    "queue": [],
+    "usage": {
+      "input_tokens": 8000,
+      "output_tokens": 0
+    },
+    "context": {
+      "used_tokens": 8000,
+      "context_window": 128000,
+      "available_input": 110000,
+      "target_tokens": 88000,
+      "auto_compaction_threshold": 101200,
+      "compaction_state": "idle",
+      "limit_source": "static_provider"
+    },
+    "capabilities": {
+      "commands": [
+        "permission.respond",
+        "model.select",
+        "reasoning.select",
+        "queue.delete",
+        "session.load"
+      ],
+      "models": [
+        {
+          "label": "opencode-go",
+          "detail": "OpenCode Go"
+        }
+      ],
+      "reasoning_efforts": [
+        {
+          "value": "medium",
+          "label": "Medium",
+          "description": "Balanced"
+        },
+        {
+          "value": "high",
+          "label": "High",
+          "description": "Difficult work"
+        }
+      ]
+    },
+    "truncated": false,
+    "sessions": [],
+    "pending_permission": null
+  },
+  "steps": [
+    {
+      "delay_ms": 80,
+      "event": {
+        "type": "assistant.delta",
+        "text": "New output remains responsive after the long history."
+      }
+    },
+    {
+      "delay_ms": 80,
+      "event": {
+        "type": "run.finished"
+      }
+    }
+  ]
+}

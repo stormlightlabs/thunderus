@@ -12,7 +12,7 @@ export type TranscriptItem =
   | { kind: "status"; id: string; text: string }
   | { kind: "error"; id: string; text: string };
 
-export interface ContextSummary {
+export type ContextSummary = {
   used_tokens: number;
   context_window: number;
   available_input: number;
@@ -20,44 +20,30 @@ export interface ContextSummary {
   auto_compaction_threshold: number;
   compaction_state: string;
   limit_source: string;
-}
+};
 
-export interface PermissionOption {
-  id: string;
-  name: string;
-  kind: string;
-}
+export type PermissionOption = { id: string; name: string; kind: string };
 
-export interface PendingPermission {
-  tool_call_id: string;
-  title: string;
-  selected: number;
-  options: PermissionOption[];
-}
+export type PendingPermission = { tool_call_id: string; title: string; selected: number; options: PermissionOption[] };
 
-export interface FrontendCapabilities {
+export type FrontendCapabilities = {
   commands: string[];
   models: Array<{ label: string; detail: string }>;
   reasoning_efforts: Array<{ value: string; label: string; description: string }>;
-}
+};
 
-export interface SessionOption {
+export type SessionOption = {
   id: string;
   title: string;
   model: string;
   input_tokens: number;
   output_tokens: number;
   current: boolean;
-}
+};
 
-export interface QueueItem {
-  id: string;
-  target: string;
-  text: string;
-  settlement: string;
-}
+export type QueueItem = { id: string; target: string; text: string; settlement: string };
 
-export interface FrontendSnapshot {
+export type FrontendSnapshot = {
   event_sequence: number;
   session: { id: string; ephemeral: boolean; turn_count: number };
   sessions?: SessionOption[];
@@ -72,7 +58,7 @@ export interface FrontendSnapshot {
   pending_permission?: PendingPermission | null;
   capabilities?: FrontendCapabilities;
   truncated: boolean;
-}
+};
 
 export type FrontendEvent =
   | { type: "run.started" }
@@ -109,10 +95,7 @@ export type ResponseResult =
   | { kind: "accepted" }
   | { kind: "shutdown" };
 
-export interface ResponseError {
-  code: string;
-  message: string;
-}
+export type ResponseError = { code: string; message: string };
 
 export type ProtocolMessage =
   | { type: "response"; version: number; id: string; ok: boolean; result?: ResponseResult; error?: ResponseError }

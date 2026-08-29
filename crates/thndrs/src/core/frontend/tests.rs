@@ -1,8 +1,11 @@
+use std::fs;
 use std::io::Cursor;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::*;
@@ -17,6 +20,55 @@ fn lines(bytes: &[u8]) -> Vec<Value> {
 
 fn command(id: &str, command: Command) -> CommandEnvelope {
     CommandEnvelope { version: PROTOCOL_VERSION, id: id.to_string(), command }
+}
+
+#[derive(Deserialize)]
+struct ReplayFixture {
+    schema_version: String,
+    name: String,
+    terminal: ReplayTerminal,
+    snapshot: FrontendSnapshot,
+    steps: Vec<ReplayStep>,
+}
+
+#[derive(Deserialize)]
+struct ReplayTerminal {
+    width: usize,
+    height: usize,
+}
+
+#[derive(Deserialize)]
+struct ReplayStep {
+    delay_ms: u64,
+    event: FrontendEvent,
+}
+
+#[test]
+fn frontend_replay_fixtures_match_the_rust_protocol() {
+    let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/frontend-replay");
+    let mut paths: Vec<PathBuf> = fs::read_dir(directory)
+        .expect("read frontend replay fixtures")
+        .map(|entry| entry.expect("read frontend replay fixture entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .collect();
+    paths.sort();
+    assert!(!paths.is_empty(), "frontend replay corpus is empty");
+
+    for path in paths {
+        let fixture: ReplayFixture = serde_json::from_slice(&fs::read(&path).expect("read frontend replay fixture"))
+            .unwrap_or_else(|error| panic!("parse {}: {error}", path.display()));
+        assert_eq!(fixture.schema_version, "thndrs-frontend-replay-v1");
+        assert_eq!(
+            path.file_stem().and_then(|stem| stem.to_str()),
+            Some(fixture.name.as_str())
+        );
+        assert!(fixture.terminal.width > 0 && fixture.terminal.height > 0);
+        assert!(fixture.steps.iter().all(|step| step.delay_ms <= 60_000));
+        let _ = fixture.snapshot;
+        for step in fixture.steps {
+            let _ = step.event;
+        }
+    }
 }
 
 #[test]

@@ -10,6 +10,8 @@
     "dev": "bun --preload ./svelte-plugin.ts src/main.ts",
     "start": "bun --preload ./svelte-plugin.ts src/main.ts",
     "test": "bun test --preload ./svelte-plugin.ts",
+    "test:smoke": "bun test --preload ./svelte-plugin.ts tests/cli.test.ts tests/replay.test.ts",
+    "replay:benchmark": "bun --preload ./svelte-plugin.ts src/replay-benchmark.ts",
     "lint": "tsc --noEmit",
     "format": "cd ../../docs && prettier --config .prettierrc --write ../packages/lndrs",
     "format:check": "cd ../../docs && prettier --config .prettierrc --check ../packages/lndrs",
