@@ -1,89 +1,70 @@
 # Landorus
 
-Landorus (`lndrs`) is an experimental alternative terminal frontend for
-Thunderus built with Bun, TypeScript, Svelte 5 reactivity, and OpenTUI.
+Landorus (`lndrs`) is an alternative terminal frontend for Thunderus built with
+Bun, TypeScript, Svelte 5, and OpenTUI.
 
-Its purpose is to test whether Thunderus benefits from separating its agent
-application core from its terminal presentation layer, and whether OpenTUI
-provides a simpler foundation for a polished interactive frontend than the
-current Ratatui implementation.
+The architecture experiment has already established the important boundary:
+Thunderus can expose a frontend-neutral application protocol while keeping
+providers, tools, permissions, sessions, context management, and agent
+lifecycle behavior in Rust.
 
-Landorus is a frontend experiment, not a second agent implementation.
+The next phase is product work. Landorus should become a useful, polished
+conversation-first coding-agent TUI rather than accumulate more experiment
+scaffolding.
 
-## Current status
+## Current baseline
 
-The experiment has already established its basic architecture:
+The `x/lndrs` branch already has:
 
-- the repository is a Bun workspace containing `docs` and `packages/*`;
-- Landorus lives in `packages/lndrs`;
-- `lndrs` launches a Rust `thndrs frontend --stdio` child;
-- the Rust application exposes a versioned NDJSON frontend protocol;
-- Svelte runes own reactive frontend state;
-- OpenTUI owns retained terminal renderables;
-- Svelte effects project state changes onto those renderables;
-- provider, tool, permission, context, session, and lifecycle behavior remains
-  Rust-owned.
+- a versioned `thndrs frontend --stdio` NDJSON application boundary;
+- a Bun workspace package in `packages/lndrs`;
+- Svelte rune state in `.svelte.ts` modules;
+- an OpenTUI retained render tree;
+- a scrolling semantic transcript with stable blocks;
+- multiline prompt editing, submission, cancellation, follow-up queueing, and
+  steering;
+- permissions, model/reasoning selection, context inspection, sessions, and
+  queue controls;
+- deterministic replay fixtures, render tests, integration tests, and
+  performance coverage.
 
-The remaining experiment is primarily a UI and interaction experiment.
+Those are foundations. They should now support feature work rather than become
+work items of their own.
 
 ## Goal
 
-Landorus should answer:
+Landorus should optimize for three things:
 
-1. Is a frontend-neutral Thunderus application boundary useful?
-2. Is OpenTUI easier to develop and polish than the Ratatui frontend?
-3. Can Svelte provide lightweight reactive state without requiring a custom
-   Svelte/OpenTUI renderer?
-4. Can the resulting frontend become pleasant enough for normal daily coding
-   work?
+1. **Actual feature work.** Add useful agent-facing surfaces such as richer
+   transcript rendering and focused inspection.
+2. **UI/UX quality.** Make streaming, tools, permissions, composer behavior,
+   overlays, status, focus, and narrow-terminal layouts feel deliberate.
+3. **Svelte-authored views.** Express application structure primarily through
+   `.svelte` markup compiled into OpenTUI renderables instead of hand-building
+   the full tree imperatively and synchronizing it through a separate
+   projection layer.
 
-Success requires a usable agent interaction loop, not feature-for-feature
-visual parity with Ratatui.
+Landorus does not need to copy Ratatui visually. It should preserve Thunderus
+semantics while using the frontend stack to simplify UI implementation.
 
 ## Non-goals
 
-The current experiment does not:
+This phase does not:
 
-- replace the Ratatui frontend;
-- implement provider or tool behavior in TypeScript;
-- use ACP as its native frontend protocol;
-- use Bun or Node FFI to embed Rust;
-- implement a custom Svelte renderer;
-- introduce agent orchestration or subagents;
-- implement a Fleet/dashboard interface for hypothetical future orchestration;
-- reproduce Ratatui layout choices merely for parity;
-- make the frontend protocol a public compatibility guarantee.
-
-A Fleet-like orchestration surface should only be reconsidered after Thunderus
-has actual multi-agent or multi-instance semantics worth visualizing.
-
-## Repository structure
-
-```text
-thunderus/
-├── package.json
-├── bun.lock
-├── docs/
-├── packages/
-│   └── lndrs/
-│       ├── bin/
-│       ├── src/
-│       ├── tests/
-│       ├── package.json
-│       └── svelte-plugin.ts
-└── crates/
-    └── thndrs/
-        └── src/core/frontend/
-```
-
-The root Bun workspace owns JavaScript dependency installation and quality
-commands. Landorus remains independently runnable from its package directory.
-
-The Rust Cargo workspace remains authoritative for the agent implementation.
+- move provider, tool, permission, session, queue, or context policy into
+  TypeScript;
+- make the frontend protocol a public compatibility guarantee;
+- introduce subagents, Fleet, Workbench, or dashboard surfaces;
+- add a permanent sidebar that reduces transcript width;
+- reproduce every Ratatui view solely for parity;
+- build a general-purpose Svelte/OpenTUI framework;
+- emulate a browser DOM in the terminal;
+- turn replay, benchmarking, source-line counts, or architectural comparison
+  into standalone milestones.
 
 ## Application boundary
 
-The dependency direction is:
+The dependency direction remains:
 
 ```text
                  Ratatui
@@ -97,15 +78,12 @@ ACP / other surfaces ─────────────┤
                               thndrs-agent
 ```
 
-Landorus never invokes providers, tools, or session storage directly.
-
 ### Rust owns
 
 - provider setup and requests;
 - prompt and context construction;
 - model continuation;
-- tool execution;
-- MCP;
+- tool execution and MCP;
 - permissions and authority;
 - workspace containment;
 - queue semantics;
@@ -117,423 +95,318 @@ Landorus never invokes providers, tools, or session storage directly.
 ### Landorus owns
 
 - terminal layout and visual hierarchy;
-- transcript rendering;
-- prompt editing;
-- focus;
-- scrolling;
-- keybindings;
-- local selection state;
-- disclosure state;
-- dialogs and pickers;
-- presentation timing;
-- translating UI actions into semantic frontend commands.
+- transcript presentation;
+- prompt editing and focus;
+- scrolling and navigation;
+- local disclosure and selection state;
+- dialogs, pickers, and inspectors;
+- presentation timing and animation;
+- translation of UI actions into semantic frontend commands.
 
-## Transport
+## Svelte markup and compiler bridge
 
-Landorus owns the user's terminal and launches:
+The current implementation uses Svelte primarily for rune state:
 
-```text
-thndrs frontend --stdio
-```
+- `svelte-plugin.ts` calls `compileModule` for `.svelte.ts`;
+- `root.ts`, `transcript.ts`, and `overlay.ts` build OpenTUI renderables
+  imperatively;
+- `projection.svelte.ts` mutates those retained renderables from `$effect`
+  blocks.
 
-Communication is versioned NDJSON over stdio.
+That should change.
 
-The transport remains intentionally local and simple:
+Landorus should author application views as `.svelte` components and compile
+their markup into OpenTUI renderables.
 
-```text
-Landorus
-   │
-   │ stdin: commands
-   │ stdout: responses + events
-   │ stderr: diagnostics
-   ▼
-Thunderus
-```
+Svelte does not currently provide an official OpenTUI rendering target, so
+Landorus should own a deliberately small compile-time bridge rather than a DOM
+shim or a general framework binding.
 
-The bridge must never enter raw terminal mode or write presentation output to
-stdout.
+The bridge should:
 
-Sockets, daemons, and multi-client synchronization are deferred until a real
-requirement exists.
+- use `svelte/compiler` to parse `.svelte` source;
+- keep `compileModule` for reusable `.svelte.ts` rune modules;
+- translate template structure into OpenTUI renderable creation;
+- generate reactive property and text updates for Svelte expressions;
+- preserve stable renderable instances across reactive updates;
+- support component composition and the control flow Landorus actually needs;
+- emit useful diagnostics for unsupported markup;
+- remain private to `packages/lndrs` until there is evidence it should be
+  generalized.
 
-## Protocol model
+Initial compiler support only needs:
 
-The frontend protocol consists of:
+- nested components/renderables;
+- static and expression-backed properties;
+- text and interpolated text;
+- `{#if}` blocks;
+- keyed `{#each}` blocks;
+- component composition;
+- event handlers;
+- renderable/component references;
+- lifecycle cleanup.
 
-- commands for semantic application actions;
-- direct responses for command completion;
-- ordered asynchronous events;
-- bounded snapshots for initialization and recovery.
+Do not chase complete Svelte DOM compatibility. Extend the compiler only when a
+real Landorus component requires it.
 
-The frontend consumes normalized Thunderus concepts rather than provider-native
-payloads.
-
-Protocol commands may be named before their implementation exists, but the UI
-must not expose unavailable behavior.
-
-Initialization exposes supported commands separately from provider-specific
-model and reasoning options. Landorus uses this state to omit unsupported
-controls instead of discovering support through failed commands.
-
-Landorus should track event sequence numbers. A detected gap should request a
-fresh snapshot rather than attempting to infer missing state.
-
-## Frontend stack
-
-Landorus uses:
+The UI should converge toward component boundaries such as:
 
 ```text
-Bun
-TypeScript
-Svelte 5 runes
-@opentui/core
+src/ui/
+├── App.svelte
+├── Stream.svelte
+├── Composer.svelte
+├── StatusLine.svelte
+├── blocks/
+│   ├── UserBlock.svelte
+│   ├── AssistantBlock.svelte
+│   ├── ReasoningBlock.svelte
+│   ├── ToolBlock.svelte
+│   ├── SkillBlock.svelte
+│   └── NoticeBlock.svelte
+├── overlays/
+│   ├── OverlayFrame.svelte
+│   ├── CommandPalette.svelte
+│   ├── PermissionPrompt.svelte
+│   ├── ModelPicker.svelte
+│   ├── SessionPicker.svelte
+│   ├── QueueInspector.svelte
+│   └── ContextInspector.svelte
+└── inspect/
+    ├── ToolOutput.svelte
+    ├── SourceView.svelte
+    └── DiffView.svelte
 ```
 
-Svelte is a state system, not the rendering target.
-
-`.svelte.ts` modules are compiled by the Bun preload plugin using Svelte's
-`compileModule`.
-
-OpenTUI renderables are created imperatively and retained.
-
-A custom Svelte/OpenTUI renderer should only be considered if repeated
-projection boilerplate becomes a demonstrated maintenance problem.
+Imperative OpenTUI code remains appropriate for narrow leaf adapters where a
+specialized renderable or lifecycle API is awkward to express in markup.
 
 ## UI direction
 
-Landorus is a **single-session, conversation-first interface**.
+Landorus remains a **single-session, conversation-first interface**.
 
 The normal screen has three persistent regions:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │                                                             │
-│ transcript stream                                           │
+│ Stream                                                      │
 │                                                             │
-│ user / assistant / reasoning / tools / status               │
+│ conversation + compact agent activity                       │
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
-│ prompt                                                      │
+│ composer                                                    │
 ├─────────────────────────────────────────────────────────────┤
-│ model · context · queue · run state                         │
+│ contextual status / hints                                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-There is no permanent sidebar.
+There is no permanent sidebar, dashboard, Workbench, or Fleet mode.
 
-There is no dashboard mode.
+Secondary information appears through transient overlays or focused
+inspection.
 
-There is no Workbench mode.
+### Visual language
 
-There is no Fleet mode while Thunderus remains a single-agent harness.
+The interface should be restrained and terminal-native rather than a collection
+of bordered panels.
 
-Additional information should use progressive disclosure:
+Use a small semantic palette:
 
-- expanded tool blocks;
-- command palette;
-- model/reasoning picker;
-- session picker;
-- permission dialog;
-- context inspector;
-- queue inspector;
-- diff/source inspection where useful.
+- **blue** for Landorus identity, active work, focus, and primary selection;
+- **yellow** for the user, attention, queued input, and permission emphasis;
+- terminal-aware neutral text for normal structure;
+- green and red only for success and failure semantics.
 
-These surfaces should temporarily overlay or replace part of the Stream rather
-than permanently reducing transcript width.
+Centralize these values as theme tokens. Do not scatter literal color values
+through components.
 
-## Stream design
+Spacing and hierarchy should carry more of the design than borders.
 
-The transcript is the primary interface.
+## Stream
 
-Its default presentation should remain quiet:
+The Stream is the primary interface and should become richer than styled plain
+text.
 
-```text
-you
-Refactor the prompt renderer and verify it.
+### Messages
 
-landorus
-I'll isolate the prompt state first, then update the focused snapshots.
+- user and final assistant output should be immediately scannable;
+- reasoning should remain secondary and quieter;
+- assistant Markdown should preserve useful structure;
+- code blocks should use OpenTUI code rendering where it improves readability;
+- diffs should use a dedicated diff treatment instead of raw unified text when
+  possible;
+- errors and exceptional states should have more weight than routine status.
 
-› read   src/ui/prompt.rs
-› edit   src/ui/prompt.rs                     +38 -21
+### Tool activity
 
-landorus
-The renderer is separated and the focused tests pass.
-```
-
-Operational detail is visible but compressed.
-
-A tool call should normally occupy one stable line or compact block. Its
-arguments, output, error details, and other metadata are available through
-expansion.
-
-Reasoning should be visually distinct but secondary to final output.
-
-Run state should be obvious without turning every agent action into dashboard
-chrome.
-
-Exceptional states deserve greater visual weight:
-
-- permission required;
-- retrying;
-- cancellation;
-- failure;
-- context pressure;
-- queued input;
-- completed changes ready for inspection.
-
-## Transcript rendering model
-
-The current bootstrap renders the transcript as one text projection. That is
-only a prototype.
-
-The production experiment should use a retained hierarchy:
+Routine tool use should stay compact:
 
 ```text
-ScrollBox
-├── UserBlock
-├── AssistantBlock
-├── ReasoningBlock
-├── ToolBlock
-├── AssistantBlock
-└── ...
+● read   src/ui/Composer.svelte
+● edit   src/ui/Composer.svelte                     +24 -11
+● test   packages/lndrs                              18 passed
 ```
 
-Each semantic transcript item has a stable protocol ID and a stable OpenTUI
-renderable.
+Running activity may use a subtle animated indicator. Completed tools settle to
+quiet success/failure states.
 
-Streaming must mutate the currently active block rather than reconstruct the
-complete transcript.
+Expansion should reveal arguments and a useful output preview. Long output,
+source, or diffs should open a focused inspector rather than expanding the
+Stream indefinitely.
 
-Tool lifecycle events update one tool block by tool-call ID.
+Keyboard navigation must provide the same disclosure path as the mouse.
 
-Completed blocks should remain untouched by subsequent streaming whenever
-possible.
+### Streaming and scrolling
 
-The transcript scroll surface should:
+Streaming should update the active semantic block in place. Presentation can be
+frame-coalesced while semantic events remain lossless.
 
-- follow new output while positioned at the bottom;
+The Stream should:
+
+- follow output while the user is at the bottom;
 - stop following after deliberate historical scrolling;
-- resume following when the user returns to the bottom;
-- preserve scroll position across unrelated state changes;
-- support viewport culling for large histories where appropriate.
+- show when newer output exists below the viewport;
+- return to live output with one command;
+- preserve position while overlays open and close;
+- remain responsive with long histories.
 
-Markdown, code, and diff renderables should be used where they materially
-improve readability, not merely because OpenTUI provides them.
+A small streaming cursor, pulse, or spinner is appropriate while work is
+active. Animation must never delay content delivery or input.
 
-## Presentation cadence
+## Composer
 
-Protocol event delivery is lossless.
+The composer should feel like the primary control surface rather than a fixed
+five-row box.
 
-Rendering does not need to occur once per protocol event.
+It should:
 
-Landorus may coalesce presentation updates over a short frame interval,
-especially during high-frequency assistant or reasoning deltas, provided that:
+- grow within a bounded height as the draft becomes multiline;
+- preserve drafts across overlays, failed submissions, and inspection;
+- distinguish normal submit, queued follow-up, and steering modes clearly;
+- make cancellation discoverable while a run is active;
+- surface queued input without requiring the queue inspector;
+- keep key hints short and mode-specific;
+- restore focus predictably after every transient surface.
 
-- semantic state receives every event in order;
-- cancellation and permission state remain responsive;
-- final rendered state is exact;
-- input latency does not noticeably increase.
+The footer should not concatenate every state into one long sentence. Show only
+high-value persistent state and move detail into overlays.
 
-Optimization should be driven by replay fixtures and measurements rather than
-arbitrary animation delays.
+## Overlays
 
-## Composer and focus
+Command palette, permissions, model/reasoning selection, session selection,
+queue inspection, and context inspection should share a consistent overlay
+language.
 
-The composer uses OpenTUI's multiline textarea facilities rather than a custom
-text editor.
+A common overlay shell should own:
 
-It should support:
+- responsive width and height;
+- title and optional description;
+- search/filter input where useful;
+- selection and empty states;
+- contextual key hints;
+- focus trapping and restoration;
+- escape/settlement behavior.
 
-- multiline editing;
-- submit;
-- explicit newline insertion;
-- paste;
-- queued follow-up input when supported;
-- steering when supported;
-- cancellation;
-- preservation of unsent input.
+Permission prompts are exceptional and should interrupt clearly without looking
+like a generic picker.
 
-Bindings belong to semantic frontend actions.
+Overlays must remain usable at 42×16 as well as normal terminal sizes.
 
-Simple global shortcuts may initially use renderer key events. Once multiple
-focus contexts or overlays exist, commands should move to a layered keymap so
-focused editors, dialogs, and global actions cannot conflict.
+## Focused inspection
 
-Bare printable global bindings must not intercept normal composer input.
+Landorus should add focused inspection for information too dense for the
+Stream:
 
-## Overlays and inspection
+- long tool output;
+- source/code output;
+- diffs;
+- detailed errors or diagnostics.
 
-Secondary application controls should be transient surfaces.
+Inspection temporarily replaces or overlays the Stream. Closing it restores the
+previous scroll position, composer draft, and focus.
 
-### Command palette
+This is a real feature surface, not a dashboard mode.
 
-The palette provides discoverability for commands such as:
+## Motion and presentation cadence
 
-```text
-session.new
-session.open
-model.select
-reasoning.select
-context.inspect
-queue.inspect
-transcript.bottom
-quit
-```
+Terminal animation should communicate activity rather than decorate idle
+screens.
 
-Only supported commands appear.
+Useful examples include:
 
-### Permissions
+- an active-run spinner or pulse;
+- a streaming cursor;
+- a brief state change when a tool settles;
+- restrained overlay focus/selection feedback.
 
-Permission requests interrupt the normal interaction loop with an explicit,
-focused decision surface.
+Animations must:
 
-The frontend never infers permission settlement.
+- stop when their state is no longer active;
+- use deterministic clocks in render tests;
+- avoid forcing a permanent high-FPS render loop;
+- preserve input latency and terminal correctness.
 
-### Context
+## Interaction architecture
 
-Normal context display remains compact:
+`AppState` can remain the semantic frontend state while it remains
+understandable.
 
-```text
-74k / 128k · 58%
-```
+Interaction code should move away from direct ownership of imperative view
+classes. Prefer semantic actions plus component callbacks/references so the UI
+tree can change without rewriting protocol behavior.
 
-A context inspector may expose additional normalized backend information such
-as compaction threshold, active skills, or retained context when the Rust
-application provides it.
+Keybindings should remain layered:
 
-Landorus must not reproduce context-selection policy.
+1. focused editor/control behavior;
+2. overlay/inspector behavior;
+3. Stream navigation and disclosure;
+4. global application commands.
 
-### Review and inspection
-
-Diffs, source output, long tool output, or diagnostics may open into a focused
-inspection surface.
-
-Inspection is temporary. Returning from it restores the conversation and input
-state.
-
-## State organization
-
-The bootstrap currently uses one `AppState`. Keep this until the state becomes
-difficult to reason about.
-
-Split state by responsibility only when useful, for example:
-
-```text
-state/
-├── app.svelte.ts
-├── transcript.svelte.ts
-├── composer.svelte.ts
-└── overlay.svelte.ts
-```
-
-Do not mechanically mirror the Rust application module structure.
-
-Similarly, evolve views according to actual UI responsibilities:
-
-```text
-views/
-├── root.ts
-├── transcript.ts
-├── blocks/
-│   ├── user.ts
-│   ├── assistant.ts
-│   ├── reasoning.ts
-│   └── tool.ts
-├── composer.ts
-├── status.ts
-└── overlays/
-```
-
-The exact split should emerge from implementation rather than being created
-preemptively.
+Bare printable global bindings must never steal composer input.
 
 ## Replay-driven development
 
-Deterministic protocol replay is the preferred UI development workflow.
+The existing replay corpus is infrastructure, not the product roadmap.
 
-Representative fixtures should cover:
+Use it to develop and regress:
 
-```text
-simple-turn
-streaming
-reasoning
-tool-heavy
-permission
-queue
-cancelled
-failure
-retry
-compaction
-long-transcript
-```
+- simple and streaming turns;
+- reasoning;
+- tool-heavy runs;
+- permissions;
+- queueing and steering;
+- cancellation and failures;
+- compaction/context pressure;
+- long transcripts;
+- narrow and wide layouts.
 
-Replay should support:
+When a new UI state matters, extend an existing fixture or add the smallest
+fixture that exercises it.
 
-- deterministic terminal dimensions;
-- immediate playback for automated tests;
-- optional original timing for manual streaming inspection;
-- running without provider credentials or network access.
+## Testing bar
 
-The same semantic fixture corpus should be usable by Rust protocol tests and
-Landorus state/render tests where practical.
+The frontend should keep three levels of coverage:
 
-## Testing
+- **state tests** for protocol-to-state semantics;
+- **component/render tests** for compiled Svelte views at deterministic terminal
+  sizes;
+- **integration tests** for the Rust bridge and complete interaction paths.
 
-Landorus uses three levels of tests.
+Tests should protect user-visible behavior, compiler correctness, focus,
+scrolling, and terminal cleanup. Avoid measurement work that does not protect or
+unlock a product decision.
 
-### State tests
+## Definition of a strong Landorus frontend
 
-Apply snapshots and frontend events to state and verify semantic results.
+This phase is successful when:
 
-### Render tests
-
-Use OpenTUI's deterministic test renderer at fixed terminal sizes.
-
-Important render tests should cover:
-
-- narrow terminals;
-- normal terminals;
-- long wrapped output;
-- active streaming;
-- expanded tools;
-- scrolled history;
-- composer focus;
-- permission overlays.
-
-### Integration tests
-
-Spawn the Rust frontend bridge against deterministic agent behavior and verify
-the complete interaction path.
-
-The TypeScript frontend should not require live provider credentials for CI.
-
-## Evaluation
-
-Landorus should be evaluated only after it supports normal daily agent use.
-
-Compare it with Ratatui on:
-
-- frontend-specific implementation size;
-- state/render synchronization complexity;
-- streaming smoothness;
-- input responsiveness;
-- terminal correctness;
-- startup latency;
-- steady-state CPU and memory;
-- long-transcript behavior;
-- test ergonomics;
-- cross-platform behavior;
-- packaging complexity;
-- ease of adding a new UI surface.
-
-Valid outcomes remain:
-
-1. keep Landorus experimental;
-2. support both frontends;
-3. begin gradual replacement of Ratatui;
-4. archive Landorus but retain the frontend protocol;
-5. archive the entire experiment.
-
-The experiment should optimize for learning, not for guaranteeing that Landorus
-wins.
+- the application UI is primarily authored in `.svelte` markup;
+- the Stream renders assistant output, tools, errors, code, and diffs clearly;
+- useful detail can be inspected without cluttering normal conversation;
+- composer, permissions, queueing, sessions, model selection, and cancellation
+  are comfortable from the keyboard;
+- active work feels alive without becoming noisy;
+- 42×16, 80×24, and 120×30 layouts all remain intentional;
+- normal coding tasks do not expose obvious UI dead ends;
+- replay and performance tests remain guardrails rather than the work itself.

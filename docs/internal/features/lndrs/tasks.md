@@ -68,29 +68,135 @@ Replay QA also covers terminal cleanup, Linux/macOS/Windows smoke jobs, startup,
 idle and long-replay memory, dense-stream CPU, input latency, and retained-view
 work over long completed history.
 
-## LNDRS-8: Evaluate the experiment
+## LNDRS-8: Compile Svelte markup to OpenTUI
 
-Dogfood Landorus on normal coding tasks and decide whether the experiment
-should continue.
+Replace the imperative application-view assembly with a small Landorus-owned
+compiler path for `.svelte` components.
+
+Use `svelte/compiler` to parse Svelte markup and lower the template subset
+Landorus needs into OpenTUI renderable creation and reactive updates. Keep
+`.svelte.ts` rune modules compiled with `compileModule`.
+
+Migrate the root application shell, composer, status line, Stream blocks, and
+overlay shell onto the new markup path as part of this task. Do not create a
+general-purpose Svelte/OpenTUI framework.
 
 ### Acceptance criteria
 
-- [ ] normal agent tasks can be completed without returning to Ratatui for the
+- [ ] `.svelte` files are loadable through the Bun development/test path;
+- [ ] markup can create nested OpenTUI renderables/components;
+- [ ] static and expression-backed props compile;
+- [ ] interpolated text updates reactively;
+- [ ] `{#if}` is supported;
+- [ ] keyed `{#each}` is supported for stable transcript/option identity;
+- [ ] event handlers and component/renderable refs work;
+- [ ] component teardown destroys owned renderables/effects cleanly;
+- [ ] unsupported template syntax produces actionable compile diagnostics;
+- [ ] `App.svelte`, `Composer.svelte`, `StatusLine.svelte`, Stream block
+      components, and the common overlay shell use the markup path;
+- [ ] `root.ts` and `projection.svelte.ts` are removed or reduced to narrow
+      runtime/compiler glue;
+- [ ] existing protocol/state semantics remain unchanged;
+- [ ] render tests exercise compiled components at 42×16, 80×24, and 120×30.
+
+## LNDRS-9: Polish the Stream
+
+Turn the functional transcript into the primary polished Landorus surface.
+
+Improve hierarchy, spacing, Markdown/code presentation, reasoning treatment,
+tool lifecycle presentation, keyboard disclosure, scrolling behavior, and live
+streaming feedback.
+
+### Acceptance criteria
+
+- [ ] blue is used for Landorus/active/focus semantics and yellow for
+      user/attention semantics through centralized theme tokens;
+- [ ] assistant Markdown is rendered readably;
+- [ ] code blocks use syntax-aware presentation where practical;
+- [ ] tool rows remain compact by default and expose detail on demand;
+- [ ] running tools have a subtle animated state that settles when complete;
+- [ ] tool expansion is keyboard accessible;
+- [ ] long tool output opens a focused inspection surface rather than expanding
+      the Stream indefinitely;
+- [ ] deliberate historical scrolling disables follow mode;
+- [ ] new output below a scrolled viewport is indicated clearly;
+- [ ] one action returns to live output;
+- [ ] reasoning remains visible but visually secondary;
+- [ ] failure, cancellation, permission, and retry states are visually distinct;
+- [ ] long-transcript replay remains responsive and deterministic.
+
+## LNDRS-10: Polish the composer and active-run UX
+
+Make the composer and run-state interaction feel like one coherent control
+surface.
+
+### Acceptance criteria
+
+- [ ] the composer grows with multiline drafts up to a sensible maximum height;
+- [ ] idle submit, follow-up queueing, and steering have distinct contextual
+      affordances;
+- [ ] queued input is visible without opening the queue inspector;
+- [ ] cancellation is discoverable during active work;
+- [ ] draft text survives overlays, inspection, failed submissions, and rejected
+      actions;
+- [ ] focus returns predictably after every transient surface;
+- [ ] footer/status content is concise and mode-specific rather than one
+      concatenated status sentence;
+- [ ] normal typing never conflicts with global bindings;
+- [ ] input remains responsive during dense streaming replay.
+
+## LNDRS-11: Unify overlays and focused inspection
+
+Replace the current fixed generic overlay treatment with responsive reusable
+Svelte components and add focused inspection for dense output.
+
+### Acceptance criteria
+
+- [ ] command palette, model picker, reasoning picker, session picker, queue
+      inspector, and context inspector share one responsive overlay shell;
+- [ ] overlays expose consistent search, selection, empty, help, and escape
+      behavior;
+- [ ] permission prompts use a distinct interrupting treatment;
+- [ ] overlay sizing remains usable at 42×16 and normal sizes;
+- [ ] long tool output can open in focused inspection;
+- [ ] source/code output can open in focused inspection;
+- [ ] diff content has a dedicated inspection presentation;
+- [ ] closing inspection restores Stream position, composer draft, and focus;
+- [ ] interaction code dispatches semantic actions instead of directly
+      orchestrating imperative view classes.
+
+## LNDRS-12: Add restrained motion and interaction polish
+
+Use terminal animation only where it improves perception of active work.
+
+### Acceptance criteria
+
+- [ ] active runs have a small deterministic spinner/pulse or streaming cursor;
+- [ ] tool settlement can provide brief visual feedback without persistent
+      animation;
+- [ ] overlays provide clear focus/selection feedback;
+- [ ] animations stop when their semantic state ends;
+- [ ] idle Landorus does not maintain an unnecessary high-FPS render loop;
+- [ ] replay/render tests can control the animation clock deterministically;
+- [ ] motion does not measurably degrade composer responsiveness or terminal
+      cleanup.
+
+## LNDRS-13: Close remaining daily-use UX gaps
+
+Use normal coding tasks to identify only concrete workflow gaps and fix the
+highest-value ones.
+
+This is not an architecture-evaluation task. Any work added here should result
+in a user-visible feature or interaction improvement.
+
+### Acceptance criteria
+
+- [ ] normal coding tasks can be completed without returning to Ratatui for the
       core interaction loop;
-- [ ] transcript scrolling remains predictable;
-- [ ] streaming feels stable and responsive;
-- [ ] composer input remains responsive during active output;
-- [ ] permissions, cancellation, queueing, model selection, and session resume
-      are usable;
-- [ ] remaining Ratatui parity gaps are documented explicitly;
-- [ ] frontend-specific source size is measured;
-- [ ] major frontend abstractions are identified and compared with Ratatui;
-- [ ] Svelte/OpenTUI projection boilerplate is evaluated from actual code rather
-      than anticipated complexity;
-- [ ] packaging implications are documented;
-- [ ] a recommendation records one of:
-  - keep experimental;
-  - support Landorus alongside Ratatui;
-  - begin gradual frontend replacement;
-  - archive Landorus but keep the frontend protocol;
-  - archive both.
+- [ ] no common workflow has an obvious keyboard/focus dead end;
+- [ ] permissions, cancellation, queueing, model selection, session resume, and
+      inspection are comfortable in normal use;
+- [ ] remaining parity gaps are documented only when they represent real
+      user-facing limitations;
+- [ ] new tasks discovered during dogfooding are phrased as concrete feature or
+      UX work, not evaluation/measurement work.
