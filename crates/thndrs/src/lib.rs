@@ -45,6 +45,31 @@ pub mod test_env {
         }
     }
 
+    /// Run `f` with `HOME` pointed at `home`, restoring the previous value.
+    ///
+    /// Holds [`lock`] for the duration, so a test that reads the home directory
+    /// does not observe another test's value. The guard is reentrant, so this
+    /// nests inside a helper that already holds it.
+    pub fn with_home<T>(home: &std::path::Path, f: impl FnOnce() -> T) -> T {
+        let _guard = lock();
+        let previous = std::env::var_os("HOME");
+
+        unsafe {
+            std::env::set_var("HOME", home);
+        }
+
+        let result = f();
+
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+
+        result
+    }
+
     pub fn lock() -> Guard {
         let nested = LOCK_DEPTH.with(|depth| {
             let nested = depth.get() > 0;

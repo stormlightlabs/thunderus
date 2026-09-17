@@ -865,6 +865,7 @@ fn provider_kind_routes_open_code_prefixes_separately() {
         ProviderKind::ChatGptCodex
     );
     assert_eq!(ProviderKind::for_model("big-pickle"), ProviderKind::Unsupported);
+    assert_eq!(ProviderKind::for_model("fake-agent"), ProviderKind::Fake);
 }
 
 #[test]
