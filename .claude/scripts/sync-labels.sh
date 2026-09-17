@@ -54,6 +54,22 @@ labels_present() {
   gh label list --limit 200 --json name --jq '.[].name' </dev/null
 }
 
+# How many issues carry a label. A query that fails or answers with something
+# other than a number must not read as "no issues use this label": deleting a
+# label strips it from every issue carrying it, so an unreadable count is a
+# refusal, not a zero.
+issues_with_label() {
+  local label="$1" count
+  if ! count=$(gh issue list --state all --label "$label" --limit 1 \
+    --json number --jq 'length' </dev/null); then
+    return 1
+  fi
+  case "$count" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$count"
+}
+
 echo "creating labels from $MANIFEST"
 # The manifest has one fixed shape: a group key, then a list of records with
 # name, color, and description. Parsed here directly so the script needs no
@@ -107,7 +123,10 @@ for label in "${STOCK[@]}"; do
   if ! grep -qxF "$label" <<<"$present"; then
     continue
   fi
-  count=$(gh issue list --state all --label "$label" --limit 1 --json number --jq 'length' </dev/null)
+  if ! count=$(issues_with_label "$label"); then
+    echo "  skipping '$label': could not read how many issues carry it"
+    continue
+  fi
   if [ "$count" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
     echo "  skipping '$label': still applied to at least one issue (use --force)"
     continue
@@ -133,8 +152,10 @@ done < <(parse_manifest "$MANIFEST")
 
 for label in "${STOCK[@]}"; do
   if grep -qxF "$label" <<<"$final"; then
-    count=$(gh issue list --state all --label "$label" --limit 1 --json number --jq 'length' </dev/null)
-    if [ "$count" -eq 0 ]; then
+    if ! count=$(issues_with_label "$label"); then
+      echo "  still present: $label, and its issue count could not be read"
+      failed=1
+    elif [ "$count" -eq 0 ]; then
       echo "  still present: $label"
       failed=1
     fi
