@@ -8,7 +8,8 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
           }
-        ]
+        ],
+        "matcher": "startup"
       }
     ]
   },
@@ -22,15 +23,19 @@
       "Bash(cargo fetch:*)",
       "Bash(cargo package:*)",
       "Bash(cargo insta:*)",
-      "Bash(pnpm --dir docs:*)",
+      "Bash(pnpm --dir docs install:*)",
+      "Bash(pnpm --dir docs build:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git show:*)",
-      "Bash(git branch:*)",
+      "Bash(git branch --list:*)",
+      "Bash(git branch --show-current)",
+      "Bash(git branch -vv)",
       "Bash(git worktree list:*)",
       "Bash(rg:*)",
-      "Bash(.claude/scripts/ulid.py:*)"
+      "Bash(.claude/scripts/ulid.py:*)",
+      "Bash(.claude/scripts/check-commit-message.py:*)"
     ]
   }
 }
