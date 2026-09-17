@@ -38,3 +38,28 @@ cargo fetch --locked >&2 || echo "warming the cargo registry failed" >&2
 
 # --frozen-lockfile matches the docs job in .github/workflows/ci.yml.
 pnpm --dir docs install --frozen-lockfile >&2 || echo "installing docs dependencies failed" >&2
+
+# freeze renders a committed .ansi capture to a picture for whoever wants to
+# look at one. No image is committed, so a missing renderer costs a picture and
+# never a capture run: this reports and carries on like the steps above.
+#
+# v0.2.2 drops \e[3m italic, \e[2m dim, \e[7m reverse, and basic backgrounds,
+# and renders bold, underline, every foreground, 256-color backgrounds, and
+# truecolor. ratatui_style sets ITALIC and DIM
+# (crates/thndrs/src/cli/renderer/ratatui.rs:77-93), so a regression in either
+# leaves the image unchanged and shows only in the ANSI diff. A frame correct in
+# the capture and wrong in the image is a freeze defect, not an application one.
+freeze_version=v0.2.2
+
+# go install writes to $(go env GOPATH)/bin, which is not on this image's PATH,
+# so an install that succeeds there still leaves a capture run with no renderer.
+# GOBIN puts the binary somewhere the shell looks.
+freeze_bin="${HOME:-/root}/.local/bin"
+mkdir -p "$freeze_bin" || echo "creating $freeze_bin failed" >&2
+GOBIN="$freeze_bin" go install "github.com/charmbracelet/freeze@${freeze_version}" >&2 ||
+  echo "installing freeze ${freeze_version} failed" >&2
+
+# An install that landed off PATH is indistinguishable from no install at all
+# for whoever renders a capture, and only the binary being reachable says which
+# happened.
+command -v freeze >&2 || echo "freeze is not on PATH; captures render as ANSI text alone" >&2
