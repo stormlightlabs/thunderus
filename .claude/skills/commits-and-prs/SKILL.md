@@ -20,6 +20,13 @@ it.
 
 Types used here: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`.
 
+`.claude/scripts/check-commit-message.py` enforces the shape: the type, the
+60-character subject, the blank line, and the 72-column body. Enable it locally
+once with `git config core.hooksPath .githooks`; CI runs the same script over a
+pull request's commits either way, so an unconfigured checkout is caught late
+rather than never. Fenced blocks, trailers, and unbreakable strings such as URLs
+are exempt from the column limit.
+
 The subject says what changed. The body says why, and only when the why is not
 obvious from the diff. A one-line commit is correct when the change explains
 itself.
@@ -48,9 +55,10 @@ commits.
 ## Attribution
 
 A commit written from an agent session is authored as
-`Claude <noreply@anthropic.com>`. GitHub marks a commit unverified when the
-committer is anything else, and an unverified commit on a protected branch is
-noise every reviewer has to dismiss.
+`Claude <noreply@anthropic.com>`, so the log says plainly which commits a person
+wrote and which an agent did. The Verified badge is a separate matter: it tracks
+a cryptographic signature, not the author address, and signing is out of scope
+here.
 
 Such a commit ends with the trailers the harness supplies:
 

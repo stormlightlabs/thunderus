@@ -35,11 +35,12 @@ them. Two are load-bearing:
 
 - The MCP issue update replaces an issue's whole label and assignee set, where
   `gh issue edit` changes only what it names.
-- No MCP tool defines a label. `.github/labels.yml` is applied by running
-  `.claude/scripts/sync-labels.sh` locally, or by dispatching
-  `.github/workflows/labels.yml`, which runs that same script on a runner with a
-  token scoped to labels. A run that wants a label the manifest does not define
-  is still blocked; the manifest changes first.
+- Label definitions do not go through MCP. `.github/labels.yml` is applied by
+  running `.claude/scripts/sync-labels.sh` locally, or by dispatching
+  `.github/workflows/labels.yml`, which runs that same script on a runner with
+  `issues: write`, the narrowest scope GitHub offers for labels. A run that
+  wants a label the manifest does not define is still blocked; the manifest
+  changes first.
 
 A cloud container starts with no Cargo registry, no `target/`, and no
 `docs/node_modules`, so `.claude/hooks/session-start.sh` warms the first and
@@ -173,6 +174,7 @@ changes once assigned. Update `last_updated` when the content changes.
 | `.claude/agents/`   | Subagent definitions for dispatch.                           |
 | `.claude/scripts/`  | Helper scripts. `sync-labels.sh` also runs in CI.            |
 | `.claude/hooks/`    | Session hooks. Dependency warming for cloud sessions.        |
+| `.githooks/`        | Git hooks. Enable with `git config core.hooksPath .githooks`. |
 | `.claude/settings.json` | Hook and permission configuration. Tracked.              |
 | `internal/`         | Plans, specs, ideas, QA notes. Not published by the docs site. |
 | `internal/ideas/`   | Output of rubber-duck sessions.                              |
@@ -198,11 +200,10 @@ and `adversarial-reviewer`.
 
 ## Not wired up yet
 
-- `edge` does not exist on the remote. Worktrees branch from it, pull requests
-  target it, and CI already has a push trigger for it. Nothing dispatches until
-  it is created and protected.
 - `.github/labels.yml` has never been applied. Run
   `.claude/scripts/sync-labels.sh --apply`, or dispatch the Labels workflow.
+  Dispatch needs `labels.yml` on the default branch first, which is `edge`; the
+  `ref` may then name any branch holding the file.
 - The repository has no issues, so no run has a parent to work from.
 - There are no tags. The release skill reads the previous version with
   `git describe --tags`, which fails until the first tag exists.

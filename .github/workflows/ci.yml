@@ -60,6 +60,22 @@ jobs:
           git diff --check
           git diff --exit-code
 
+  commits:
+    name: Commit messages
+    # Only a pull request has a range to check. A push to edge or main carries
+    # commits that were already checked on the branch they came from.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The default shallow clone cannot see the base commit.
+          fetch-depth: 0
+      - name: Check every commit message on the branch
+        run: |
+          .claude/scripts/check-commit-message.py --range \
+            "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+
   msrv:
     name: Rust 1.88 compatibility
     runs-on: ubuntu-latest

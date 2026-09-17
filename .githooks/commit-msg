@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Reject a commit message that breaks the rules in commits-and-prs.
+#
+# Enable it once per checkout:
+#
+#   git config core.hooksPath .githooks
+#
+# CI runs the same checker over a pull request's commits, so a checkout without
+# the hook is caught later rather than never.
+set -euo pipefail
+
+exec "$(git rev-parse --show-toplevel)/.claude/scripts/check-commit-message.py" "$1"
