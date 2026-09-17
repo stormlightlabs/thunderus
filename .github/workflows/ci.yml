@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, edge]
   pull_request:
 
 permissions:
@@ -54,7 +54,7 @@ jobs:
       - name: Verify the thndrs-agent package
         run: cargo package -p thndrs-agent --locked
       - name: Show the thndrs-agent archive contents
-        run: tar -tzf target/package/thndrs-agent-0.1.0.crate
+        run: tar -tzf target/package/thndrs-agent-*.crate
       - name: Check patches and generated changes
         run: |
           git diff --check
