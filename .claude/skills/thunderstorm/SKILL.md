@@ -41,9 +41,9 @@ Take sub-issues one at a time unless two are genuinely independent and own
 non-overlapping files. Two writers in one area produce rework, not throughput.
 
 Each implementer works in its own worktree, on either host. Two sharing a
-checkout share an index and a `HEAD`, and nothing in git stops them: they hold
-different branches, so the refusal that guards one branch in two worktrees
-never applies.
+checkout share one `HEAD`, and the second to create its branch takes the
+first's work onto it without git raising anything. The `worktree` skill has the
+mechanism.
 
 For each sub-issue:
 

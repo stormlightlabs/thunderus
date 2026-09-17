@@ -57,6 +57,39 @@ The `git log` line is local either way.
 Read the changed files around the diff, not only the diff. Read the issue the
 pull request closes. Read `CLAUDE.md` for the rules the change must satisfy.
 
+### Fix the commit before reading
+
+A branch moves while a review reads it. Take the head commit once and review
+that, so the findings describe one state of the tree:
+
+```sh
+git fetch origin <branch>
+commit=$(git rev-parse origin/<branch>)
+git show "$commit":<path>
+git diff origin/edge..."$commit"
+```
+
+The fetch is not optional. A cloud container clones a few branches at a shallow
+depth, so the branch under review is usually absent and `git show` fails on a
+commit the repository has never had.
+
+Do not read the change with `Read`, `Grep`, or `Glob`. Those read the working
+tree, which is whatever branch the session happens to sit on and is rarely the
+one under review. Where reading the tree is worth the setup, take a worktree
+that cannot move:
+
+```sh
+git worktree add --detach ../thndrs-worktrees/review-<n> "$commit"
+```
+
+Git allows that beside the worktree that holds the branch. Remove it when the
+pass ends.
+
+Write nothing inside the repository. A reviewer with no worktree of its own
+shares a checkout with whoever is writing there, and a findings file left in it
+is untracked work that belongs to nobody. Keep the comment body in the
+session's scratch directory.
+
 ## Judge against something
 
 A finding needs a source. Rank them:
@@ -90,8 +123,18 @@ case is speculation; drop it or mark it `nit`.
 
 ## Post the findings
 
-Post one comment per pass, not one per finding. End every comment with a
-signature naming the model and reasoning level:
+Post one comment per pass, not one per finding. Open it with the commit the
+pass read and the pull request it belongs to:
+
+```text
+Reviewed at <commit> on #<n>.
+```
+
+Both, not the commit alone. The branch is deleted when its pull request merges
+and the commit goes unreachable with it, so a review citing only a SHA is
+unreadable by the time anyone goes back to it.
+
+End every comment with a signature naming the model and reasoning level:
 
 ```text
 — <model-id> · <reasoning-level>

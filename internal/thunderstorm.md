@@ -29,10 +29,12 @@ does not start it in this run.
 A run works from a local checkout or from a cloud session on the web. The
 protocol is the same; the transport to GitHub is not.
 
-| Host          | GitHub through   | Worktrees                                       |
-| ------------- | ---------------- | ----------------------------------------------- |
-| Local         | `gh`             | As described under [Worktrees](#worktrees).     |
-| Cloud session | GitHub MCP tools | The same as local. See [Worktrees](#worktrees). |
+| Host          | GitHub through   |
+| ------------- | ---------------- |
+| Local         | `gh`             |
+| Cloud session | GitHub MCP tools |
+
+Worktrees work the same way on both, under [Worktrees](#worktrees).
 
 The `github-board` skill picks the transport and owns the differences between
 them. Two are load-bearing:
@@ -197,19 +199,23 @@ separates the session from the user's machine, not one dispatched implementer
 from the next. `.claude/agents/implementer.md` declares `isolation: worktree`,
 so a dispatched implementer is given one whether or not the run asks.
 
-Two implementers sharing a checkout share an index and a `HEAD`. Git refusing
-one branch in two worktrees does not catch that: they work different sub-issues
-on different branches, so that refusal never fires between them. What happens
-instead is an index lock collision if they are unlucky and interleaved staging
-if they are not, and only the first is loud.
+Two implementers sharing a checkout share one index and one `HEAD`, so they
+cannot hold a branch each. The second to start moves `HEAD` when it creates its
+branch, and the first's staged work rides along: it lands in the second's
+commit, every commit the first makes afterwards lands on the second's branch,
+and the first's branch never leaves `origin/edge`. The refusal that guards one
+branch in two worktrees does not fire, because there is only one worktree.
+`push-verified.sh` does not catch it either, because both pushes have a branch
+and both land; the only trace is that script naming a branch the run did not
+claim. An index lock collision is the rarer case and the only loud one.
 
-A reviewer gets none. It does not write, so what it needs is a tree that does
-not move while it reads, which is a commit rather than a directory. Read the
-files with `git show <commit>:<path>`, or take a detached worktree, and name
-the commit in the findings so a later reader knows what was reviewed. The
-adversarial pass on #1 reported reviewing `eb6e24f` after the branch had moved
-to `6679d6d`. The pass on #2 did not notice its branch move at all, which is
-the case naming the commit protects against.
+A reviewer gets none. It writes nothing into the tree, so what it needs is a
+tree that does not move while it reads, which is a commit rather than a
+directory. The `review` skill owns that discipline: fetch the branch, read
+through `git show <commit>:<path>`, and name the commit. Name the pull request
+with it. A branch is deleted when its pull request merges and the commit goes
+unreachable with it, so a review that cites a SHA alone is unreadable by the
+time anyone goes back to it.
 
 ## File conventions
 
