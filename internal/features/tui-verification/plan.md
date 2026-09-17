@@ -7,9 +7,16 @@ id: 01M2RNSY07A522766KBV2DPR41
 # TUI verification
 
 A pull request that changes the interface regenerates a fixed set of terminal
-captures and commits them. The review passes read the diff between that set and
-the set on `edge`. That diff is the first point in the loop where a reviewer
-sees the frame a change produced instead of the code that produced it.
+captures and posts them to the pull request as a comment. That comment is the
+first point in the loop where a reviewer sees the frame a change produced
+instead of the code that produced it, and it is where the feedback on that frame
+goes.
+
+No capture is committed. The frames are evidence attached to one pull request,
+read while that pull request is open, and they have no life after it merges. A
+tree of `.ansi` files would be an artifact the repository carries, regenerates,
+and argues about, and none of that is what a reviewer needs in order to say the
+spacing is wrong.
 
 The idea this comes from is `01M2RH1Z3FCE0WBY5H6G9VAGS0`, in
 `internal/ideas/tui-screenshot-verification.md`. It decided that captures are
@@ -20,10 +27,10 @@ answers those and fixes the vocabulary the issues use.
 
 ## What a capture is
 
-A capture is one named scenario, rendered at one stated geometry, stored as the
-ANSI text `tmux capture-pane` produced. A capture set is every scenario below,
-regenerated in one pass. Nothing is captured outside the set, so a pull request
-cannot choose the frame that flatters it.
+A capture is one named scenario, rendered at one stated geometry, taken from the
+pane as the text `tmux capture-pane` produced. A capture set is every scenario
+below, regenerated in one pass. Nothing is captured outside the set, so a pull
+request cannot choose the frame that flatters it.
 
 | Scenario                | Frame                                            |
 | ----------------------- | ------------------------------------------------ |
@@ -40,8 +47,27 @@ cannot choose the frame that flatters it.
 One further capture per built-in theme covers `eldritch-minimal`,
 `iceberg-dark`, and `catppuccin-mocha`, the three variants of `Theme` in
 `crates/thndrs/src/cli/mod.rs:31`. Twelve captures in total. A theme added to
-that enum adds a capture; the set and the enum are checked against each other
-rather than kept in step by memory.
+that enum adds a capture; the scenario list the harness reads and the enum are
+checked against each other rather than kept in step by memory.
+
+### Which of them are posted
+
+Nine of the twelve are posted. `Theme` selects a color palette and nothing else:
+it is documented as a color theme (`cli/mod.rs:27`), `renderer_palette` maps
+each variant to a `Palette` (`cli/renderer/style.rs:215-219`), and the bold,
+italic, underline, and dim modifiers are set per span at the call site rather
+than per theme. Strip the escapes and the three theme frames are identical text
+over the same fixture at the same geometry, so posting them fills the comment
+with three copies of one frame and shows a palette regression to nobody.
+`no-color` is the same case for a further reason: no renderer path reads
+`NO_COLOR` today, and until #52 lands the frame is the default palette under
+another name.
+
+Those four are captured and kept in scratch, where they hold their escapes and
+a reader can `cat` them or render them with freeze. The comment carries the
+nine scenarios in the table above, which differ in structure and so differ in
+text. A palette regression is caught by the snapshot tests and by the human
+confirmation at `status:verify`, neither of which reads a stripped frame.
 
 Geometry is 100 by 30 unless the scenario names another, matching the session
 the existing QA page opens. `narrow-60-cols` is 60 by 30 and `short-16-rows` is
@@ -61,9 +87,12 @@ layout defect.
 
 ## Determinism
 
-A capture set is comparable to the one before it only if the transcript behind
-it is identical, so every scenario past `startup` loads a session fixture and no
-scenario sends a prompt. `--session-dir` is global
+A frame is evidence about the interface only if the transcript behind it is
+fixed. A capture over a transcript that varies run to run shows a reviewer the
+transcript, and every disagreement about spacing turns into an argument about
+whether the two frames were even of the same thing. So every scenario past
+`startup` loads a session fixture and no scenario sends a prompt.
+`--session-dir` is global
 (`crates/thndrs/src/cli/mod.rs:278`) and `/resume <session-id>` already exists
 (`crates/thndrs/src/cli/app/commands.rs:80`), so a fixture directory plus a
 resume reaches a populated transcript with no model call.
@@ -97,44 +126,96 @@ run would then use.
 
 ## Evidence
 
-The committed captures are a baseline, replaced in place, under
-`internal/qa/captures/<scenario>.ansi`. A pull request that touches the
-renderer, the app, or the runtime terminal regenerates all twelve and commits
-them; one that touches neither commits nothing. The `## Verification` section
-that `commits-and-prs` defines names the scenarios whose capture changed and
-what the change was, and a review pass that disagrees with that reading has the
-diff to argue from.
+The evidence is a comment on the pull request. A pull request that touches the
+renderer, the app, or the runtime terminal runs the harness and posts one
+comment holding the nine frames above; one that touches none of them posts
+nothing. The reviewer reads the frames there and replies there. A remark about
+spacing, rhythm, or a wrong state belongs next to the frame that shows it, on
+the pull request that would change it.
 
-Replacing in place is what keeps this affordable. Per-pull-request attachments
-would grow without bound and could not be diffed, and an image cannot be
-reviewed as a diff at all.
+### What the comment holds
 
-Images stay derived. Freeze renders a committed `.ansi` file to a picture for
-whoever wants to look at one, and no image is committed. Freeze installs from
-`.claude/hooks/session-start.sh` at a pinned version in the report-and-continue
-style that hook already uses, and a capture run falls back to ANSI text alone
-when it is missing.
+The comment carries plain text. Each scenario is a fenced block inside a
+collapsed `<details>` whose summary names the scenario and its geometry, so a
+comment holding nine frames stays navigable. ANSI escapes are stripped before
+posting. `capture-pane -e` writes real ESC bytes, and a code fence renders those
+as invisible or replacement characters rather than as color, so leaving them in
+costs legibility and buys nothing.
+
+A posted frame carries at most its last 60 rows. A GitHub comment body stops at
+65,536 characters, and nine frames 100 columns wide reach that at about 66 rows
+each, so an unbudgeted set fails to post the first time it runs against a
+populated transcript. Sixty rows across nine frames is roughly 55,000
+characters, which leaves room for the markup around them.
+
+The full-height capture stays in scratch and the budget applies only to the
+posted copy. This is the one place where the comment is worse than the file it
+came from: turn rhythm over a long transcript is exactly what height was for,
+and 60 rows is two screens of it. Take it up by splitting the set across two
+comments if two screens turns out to be too few.
+
+### Who posts it
+
+The harness does not talk to GitHub. It takes a pull request number, writes the
+frames to scratch, and writes the comment body to a file; posting that file is
+the caller's, through whichever transport the run is already using. A script
+that shelled out to `gh` would break in a cloud session, which has none, and
+that is where captures are taken. `github-board` decides the transport, and it
+decides it once for the whole run.
+
+The comment is replaced rather than appended. A push that changes the interface
+regenerates the body and edits the existing capture comment in place, so the
+pull request holds the frames its current head produced and a reviewer never
+scrolls past four stale sets to reach them. Review replies stay on their own
+threads and survive the edit.
+
+The body opens with `<!-- thndrs-captures -->`, which is how a later run finds
+the comment to edit. Matching on the author and a title prefix would find the
+review passes' comments too, since those post to the same thread under the same
+account.
+
+### What the comment cannot carry
+
+Losing color in the pull request is the accepted cost. GitHub renders no ANSI in
+a comment, and there is no route by which an agent uploads an image to one, so
+the alternatives are a CI job this track rejects or a committed artifact this
+track exists to avoid. Structure, spacing, alignment, truncation, and rhythm all
+survive in plain text, and those are what a capture is read for. A defect that
+is only visible in color is not covered here and stays with the human
+confirmation at `status:verify`.
+
+The harness writes its `.ansi` files to ignored scratch space, and they are what
+the posted text is stripped from. They stay on disk after a run for whoever
+wants the colored frame: `cat` shows it in a terminal, and freeze renders it to
+an image locally. Freeze is a local convenience here
+rather than a step in the loop, installed from `.claude/hooks/session-start.sh`
+at a pinned version in the report-and-continue style that hook already uses. A
+capture run that does not find it posts its comment as usual.
 
 At v0.2.2 freeze drops `\e[3m` italic, `\e[2m` dim, `\e[7m` reverse, and basic
 backgrounds, while rendering bold, underline, every foreground, 256-color
 backgrounds, and truecolor. `ratatui_style` sets `ITALIC` and `DIM`
 (`crates/thndrs/src/cli/renderer/ratatui.rs:77-93`), so a regression in either
-leaves the image unchanged and shows in the ANSI diff. A frame correct in the
-ANSI capture and wrong in the image is a freeze defect. The application does not
-change to suit the renderer.
+leaves a freeze image unchanged. A frame correct in the `.ansi` file and wrong
+in the image is a freeze defect. The application does not change to suit the
+renderer.
 
 ## Who runs it
 
 Captures are agent-run. There is no CI job: a terminal job that flakes costs
 more trust than it returns, and a rubric score is a judgment rather than a pass
-or a fail. There is no new status label either. `implement` captures, the
-review passes read, and `status:verify` keeps whatever the captures do not
-cover.
+or a fail. There is no new status label either. `implement` captures and posts,
+the review passes read the comment, and `status:verify` keeps whatever the
+captures do not cover.
 
 Scoring uses the rubric carried over from `tui-design`: hierarchy, composition,
 rhythm, restraint, legibility, state craft, stability, and voice, each scored 0
 to 2, any zero blocking completion. The rubric is applied by whoever reads the
 captures, and its score belongs in a review comment rather than in a file.
+
+The repository owner is a reader of that comment too, not only the review
+passes. A capture set exists so that someone who will not run the binary can
+still say the spacing is wrong, on the pull request, while it is still open.
 
 The skills from `archive/x/lndrs` are rewritten rather than restored. What
 carries across is the mechanism: a private tmux server through `-L <socket>`,
@@ -147,15 +228,15 @@ it currently teaches the two mistakes above.
 ## Reference harnesses
 
 Comparative captures of other agents run in the container, through the same tmux
-geometry and the same freeze invocation as thndrs. A local terminal screenshot
-is faithful and not reproducible, and a reference set whose frames differ in
-font, width, theme, and zoom compares nothing. The attribute losses above apply
-to every harness equally, which is what makes the comparison hold.
+geometry as thndrs. A local terminal screenshot is faithful and not
+reproducible, and a reference set whose frames differ in font, width, theme, and
+zoom compares nothing.
 
-Those captures are not committed. What gets committed is the written comparison
-under `internal/qa/`, naming which harness each observation came from and at
-what version. The instruction from the archive stands: adopt patterns, not
-screenshots.
+Those captures are not committed either, and they are not posted. They are read
+once by whoever writes the comparison. What gets committed is the written
+comparison under `internal/qa/`, naming which harness each observation came from
+and at what version. The instruction from the archive stands: adopt patterns,
+not screenshots.
 
 Four harnesses install from npm in this container: `opencode-ai@1.18.31`,
 `@openai/codex@0.154.0`, `@sourcegraph/amp@0.0.1789675234-g2899fe`, and
@@ -180,6 +261,12 @@ rewrite.
 Snapshot tests, the release checklist in `internal/qa/README.md`, and the
 provider smoke tests are all unchanged. A capture set is evidence for a review,
 and none of those three is a review.
+
+Regression detection. Nothing is stored, so nothing compares this pull
+request's frames against the last one's mechanically. A reviewer judges the
+frames in front of them against what the interface should look like. Catching a
+frame that silently got worse over several pull requests is what the snapshot
+tests and `status:verify` are for.
 
 What the frames should show. A capture records what the interface did, and
 `../transcript/plan.md` (`01M2RP8M7WPM6D6SMA4TF6ZHKW`) decides the vocabulary a

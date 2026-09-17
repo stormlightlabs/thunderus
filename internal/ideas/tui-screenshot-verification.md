@@ -43,6 +43,13 @@ composer costs a live model call and differs from the one before it.
 
 ### What counts as evidence
 
+Two decisions in this section were later reversed by
+`../features/tui-verification/plan.md` (`01M2RNSY07A522766KBV2DPR41`), which
+posts the capture set to the pull request instead of committing it. The
+`## Verification` section no longer carries the evidence, and a reviewer reads
+stripped plain text in a comment rather than the ANSI and an image. The rest
+stands, and the two are left here as what the spec had to overturn.
+
 - The ANSI capture is the record. The image is derived from it, and a reviewer
   reads both.
 - Freeze renders evidence, not assertions. At v0.2.2 it drops `\e[3m` italic,
