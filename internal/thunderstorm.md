@@ -171,7 +171,10 @@ The implementer and the reviewer never share a model in one run. See
 <severity> · <path>:<line> — <problem> → <why it matters> → <fix direction>
 ```
 
-Severity is one of `blocker`, `high`, `medium`, `low`, `nit`.
+Severity is one of `blocker`, `high`, `medium`, `low`, `nit`. An adversarial
+finding that could not be reproduced or traced is marked `unverified` and stays
+below `high`. A posted comment holds one line per finding, most severe first,
+and stays under 40 lines.
 
 An edit pass stops after 5 cycles, or when the same finding appears twice
 without the underlying cause changing. Either stop is an escalation.

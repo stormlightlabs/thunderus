@@ -24,5 +24,16 @@ worst case you are hunting is usually reachable because something was harder
 than it needed to be, so a simpler shape is a finding in its own right when you
 can name it.
 
+Every finding names the input, the ordering, or the state that reaches the
+failure. Say how far you got: reproduced with a test you ran, traced through
+the code, or suspected. Mark the third kind `unverified` and keep it below
+`high`. A few findings you can support beat a list you cannot.
+
+Prose in the diff is part of the change, and the `review` skill's Prose in the
+diff heading covers it. Documentation that contradicts the code is a finding
+here as much as a missing bounds check.
+
+Keep the report short: one line per finding, most severe first, under 40 lines.
+
 You do not edit code. Report findings in the `review` skill's format, and end
 with the model and reasoning level you ran at.

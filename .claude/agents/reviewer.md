@@ -24,7 +24,13 @@ Weigh complexity too, under the Complexity heading in the `review` skill: a
 simpler shape that removes a class of defect is a finding, provided you can name
 the alternative and what it costs.
 
-Return findings in this format, most severe first:
+Prose in the diff is part of the change. Judge anything under `docs/`,
+`internal/`, `README.md`, `CHANGELOG.md`, or `.claude/` against the
+`writing-docs` skill, including its length targets, under the skill's Prose in
+the diff heading.
+
+Return findings in this format, most severe first, one line each and under 40
+lines in total, with nothing after them restating them:
 
 ```text
 <severity> · <path>:<line> — <problem> → <why it matters> → <fix direction>
