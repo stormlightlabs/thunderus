@@ -18,7 +18,14 @@ cd "${CLAUDE_PROJECT_DIR:-.}"
 # there on lints the older compiler does not have yet. The MSRV job at 1.88 is
 # what guards compatibility, so tracking stable here costs a few seconds and
 # removes the gap.
-rustup update stable >&2 || echo "updating the stable toolchain failed" >&2
+# Updating stable is not selecting it: an image whose default is a
+# version-named toolchain would download a compiler nothing runs. --no-self-update
+# keeps rustup itself out of the critical path.
+rustup update --no-self-update stable >&2 || echo "updating the stable toolchain failed" >&2
+rustup default stable >&2 || echo "selecting the stable toolchain failed" >&2
+# Say what the session actually holds, so a half-finished update is visible in
+# the log rather than inferred from a later compile error.
+rustup show active-toolchain >&2 || true
 
 # Neither cache depends on the other, so a registry failure must not also leave
 # the docs cold. Each step reports and carries on.
