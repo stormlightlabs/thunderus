@@ -27,6 +27,10 @@ Write the plan with `/spec-ify`, then file the work with `/decomp`.
 |     4 | [Providers](providers/plan.md)         | Adds native provider adapters and only then compatible endpoints and account-capacity work.                              |
 |     5 | [Image prompts](image-prompts/plan.md) | Uses the provider capability model to route and validate image input.                                                    |
 
+[TUI verification](tui-verification/plan.md) sits outside that sequence. It
+changes how interface work is reviewed rather than what ships, so it blocks
+nothing above and nothing above blocks it.
+
 ### Task Index
 
 - [MCP tasks](mcp/tasks.md)
