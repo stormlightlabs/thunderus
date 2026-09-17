@@ -39,10 +39,29 @@ Do not write:
   commit.
 - A body that restates the diff line by line.
 - A list of every file touched. That is what the diff is for.
-- Attribution to a model or tool unless the user asks for it.
+- Attribution to a model or tool in the subject or body. The trailers under
+  [Attribution](#attribution) carry that.
 
 One commit does one thing. A commit that needs "and" in its subject is two
 commits.
+
+## Attribution
+
+A commit written from an agent session is authored as
+`Claude <noreply@anthropic.com>`. GitHub marks a commit unverified when the
+committer is anything else, and an unverified commit on a protected branch is
+noise every reviewer has to dismiss.
+
+Such a commit ends with the trailers the harness supplies:
+
+```text
+Co-Authored-By: <model> <noreply@anthropic.com>
+Claude-Session: <session url>
+```
+
+The session link is the useful half: it is the only way back to the reasoning
+behind a change once the branch is merged. Nothing else in the message names a
+model. The subject and body describe the change, not what produced it.
 
 ## Pull request bodies
 
