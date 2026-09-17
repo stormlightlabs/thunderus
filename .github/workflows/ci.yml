@@ -39,6 +39,10 @@ jobs:
           cache-dependency-path: docs/pnpm-lock.yaml
       - name: Install documentation dependencies
         run: pnpm --dir docs install --frozen-lockfile
+      - name: Check internal document frontmatter
+        run: |
+          .claude/scripts/check-frontmatter-test.py
+          .claude/scripts/check-frontmatter.py
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Run strict Clippy

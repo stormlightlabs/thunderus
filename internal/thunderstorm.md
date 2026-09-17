@@ -204,6 +204,11 @@ id: <ULID>
 Generate the identifier with `.claude/scripts/ulid.py`. The identifier never
 changes once assigned. Update `last_updated` when the content changes.
 
+`.claude/scripts/check-frontmatter.py` checks the whole tree and runs in CI. It
+holds `internal/features/*/plan.md` and `tasks.md` back until their naming
+scheme is decided, because the rule that a name matches its filename would give
+five files named `plan`. That decision is issue 9.
+
 ## Layout
 
 | Path                    | Holds                                                          |
