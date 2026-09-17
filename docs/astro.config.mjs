@@ -131,6 +131,7 @@ export default defineConfig({
           items: [
             { label: "Workflow", slug: "docs/development/workflow" },
             { label: "Testing", slug: "docs/development/testing" },
+            { label: "Interactive TUI QA", slug: "docs/development/tui-qa" },
             { label: "Adding a Tool", slug: "docs/development/adding-a-tool" },
             { label: "Adding a Provider", slug: "docs/development/adding-a-provider" },
           ],
