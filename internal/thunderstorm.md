@@ -91,8 +91,8 @@ the next contributor a rule that no longer holds. Apply it with
 | ---------------------- | ------------------- | ------------------------------------------------------------------- |
 | `/r-d`, `/rubber-duck` | A topic             | Design discussion. Writes an entry to `internal/ideas/` on request. |
 | `/impl`, `/implement`  | Issue number        | Claims the issue, works it in a worktree, opens a pull request.     |
-| `/rev`                 | Branch or PR number | Standard review pass. Posts findings as comments.                   |
-| `/adv-rev`             | Branch or PR number | Adversarial review pass. Posts findings as comments.                |
+| `/rev`                 | Branch or PR number | Standard review pass. Comments only on the second pass.             |
+| `/adv-rev`             | Branch or PR number | Adversarial review pass. Always comments.                           |
 | `/edit`, `/revise`     | PR number           | Addresses review comments on that pull request.                     |
 
 ## Review sequence
@@ -100,13 +100,23 @@ the next contributor a rule that no longer holds. Apply it with
 Three review passes, each followed by an edit pass. No pass starts before the
 previous edit pass finishes.
 
-1. `/rev` posts findings as pull request comments.
-2. `/edit` addresses them.
-3. `/rev` runs again on the revised diff.
+1. `/rev` runs the first pass and reports to whoever dispatched it.
+2. `/edit` addresses those findings, which it is handed rather than reading
+   from the thread.
+3. `/rev` runs again on the revised diff and comments on what survived.
 4. `/edit` addresses the second round.
-5. `/adv-rev` runs the adversarial pass.
+5. `/adv-rev` runs the adversarial pass and always comments.
 6. `/edit` addresses the adversarial findings.
 7. A human reviews and merges to `edge`.
+
+Which pass is which comes from the dispatch, not from reading the thread. The
+`review` skill says why under Which passes post.
+
+The thread still records all three passes even though the first does not
+comment on it, because every `/edit` reply names the pass it answers and the
+signature that pass ran under. A first pass leaves its trace in the reply to
+it, which is also what makes the model rule in `internal/models.md` checkable
+after the fact.
 
 Reviews post from whichever account runs them: Claude, Codex, or the
 repository owner. Every comment ends with a signature naming the model and its

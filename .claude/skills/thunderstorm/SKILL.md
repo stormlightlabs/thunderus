@@ -60,6 +60,12 @@ to create.
 The sequence per pull request is `/rev`, `/edit`, `/rev`, `/edit`, `/adv-rev`,
 `/edit`. Then stop. A human merges to `edge`.
 
+Tell each pass which one it is, because nothing else can: a pass that reads the
+thread to work it out gets the answer wrong. The first `/rev` reports its
+findings to you and posts nothing, so hand them to the `/edit` that follows.
+They are its only input. From the second pass on, each pass comments for
+itself.
+
 ## Report and stop
 
 Pause after each sub-issue reaches `status:review` and report:
