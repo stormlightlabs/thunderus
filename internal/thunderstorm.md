@@ -79,7 +79,10 @@ duplicating its sub-issues' state on the parent gives that copy somewhere to
 drift.
 
 The full label set, including `area:*`, `risk:*`, `type:*`, and `kind:epic` for
-the issues runs work through, lives in `.github/labels.yml`. Apply it with
+the issues runs work through, lives in `.github/labels.yml`. Its `retired:` group
+names labels this repository has stopped defining, which the sync deletes: a
+rename that only adds the new name leaves the old one in the picker, teaching
+the next contributor a rule that no longer holds. Apply it with
 `.claude/scripts/sync-labels.sh`.
 
 ## Commands

@@ -8,6 +8,9 @@
 # risk:    blast radius if the change is wrong.
 # kind:    what shape of issue this is. An epic holds sub-issues and is never
 #          claimed; an issue without a kind is a unit of work.
+# retired: names this repository used to define. The sync deletes them, so a
+#          rename does not leave the old label behind. Only a name is required;
+#          the description says what replaced it.
 
 status:
   - name: "status:queued"
@@ -110,3 +113,7 @@ kind:
   - name: "kind:epic"
     color: "1f2933"
     description: "A goal and its stop rule. Sub-issues are the work."
+
+retired:
+  - name: "run"
+    description: "Renamed to kind:epic. A run is a pass over an epic, not the epic."
