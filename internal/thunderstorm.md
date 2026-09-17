@@ -29,10 +29,10 @@ does not start it in this run.
 A run works from a local checkout or from a cloud session on the web. The
 protocol is the same; the transport to GitHub is not.
 
-| Host          | GitHub through   | Worktrees                                               |
-| ------------- | ---------------- | ------------------------------------------------------- |
-| Local         | `gh`             | As described under [Worktrees](#worktrees).             |
-| Cloud session | GitHub MCP tools | One writer needs none. Two still do, whatever the host. |
+| Host          | GitHub through   | Worktrees                                       |
+| ------------- | ---------------- | ----------------------------------------------- |
+| Local         | `gh`             | As described under [Worktrees](#worktrees).     |
+| Cloud session | GitHub MCP tools | The same as local. See [Worktrees](#worktrees). |
 
 The `github-board` skill picks the transport and owns the differences between
 them. Two are load-bearing:
@@ -189,28 +189,27 @@ meant to parallelize.
 Remove the worktree when the run ends. A removal that fails because of
 uncommitted changes is an escalation, not something to force.
 
-### One writer, or two
+### Who gets one
 
-What a worktree isolates is one writer from another, so the condition is the
-number of concurrent writers rather than the host. A cloud session working one
-sub-issue at a time needs none: the container is the isolation, there is no
-primary checkout to protect, and nothing else is building.
+Every implementer gets a worktree, on either host. What a worktree separates is
+one writer from another, and a cloud container does not do that job: it
+separates the session from the user's machine, not one dispatched implementer
+from the next. `.claude/agents/implementer.md` declares `isolation: worktree`,
+so a dispatched implementer is given one whether or not the run asks.
 
-Dispatch is allowed to run two implementers at once when they own
-non-overlapping files, and that is where the reasoning changes. Locally, git
-refuses to check out one branch in two worktrees, so a second writer is stopped
-before it starts. Two implementers inside one container are not two worktrees;
-they are two processes in one, sharing an index, a `HEAD` and a `target/`. Git
-raises nothing. The result is interleaved commits and a branch neither of them
-meant to write, which is worse than the refusal it replaced.
+Two implementers sharing a checkout share an index and a `HEAD`. Git refusing
+one branch in two worktrees does not catch that: they work different sub-issues
+on different branches, so that refusal never fires between them. What happens
+instead is an index lock collision if they are unlucky and interleaved staging
+if they are not, and only the first is loud.
 
-So a run that dispatches concurrently creates a worktree per writer wherever it
-runs, and a run that dispatches one at a time creates none.
-
-A reviewer is a third case and needs neither. It does not write, so it wants a
-tree that does not move under it: give it the commit it is reviewing. Two
-adversarial passes on 2026-09-17 reported head drift because the branch gained
-commits while they read it, and both said so in their findings.
+A reviewer gets none. It does not write, so what it needs is a tree that does
+not move while it reads, which is a commit rather than a directory. Read the
+files with `git show <commit>:<path>`, or take a detached worktree, and name
+the commit in the findings so a later reader knows what was reviewed. The
+adversarial pass on #1 reported reviewing `eb6e24f` after the branch had moved
+to `6679d6d`. The pass on #2 did not notice its branch move at all, which is
+the case naming the commit protects against.
 
 ## File conventions
 

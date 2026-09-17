@@ -40,10 +40,10 @@ cannot state is not ready to start.
 Take sub-issues one at a time unless two are genuinely independent and own
 non-overlapping files. Two writers in one area produce rework, not throughput.
 
-Dispatching two at once means a worktree each, in a cloud session as much as a
-local one. Two implementers in one container share an index and a `HEAD`, and
-git raises nothing, so the cost of the second writer is paid in isolation or in
-a branch neither of them meant to write.
+Each implementer works in its own worktree, on either host. Two sharing a
+checkout share an index and a `HEAD`, and nothing in git stops them: they hold
+different branches, so the refusal that guards one branch in two worktrees
+never applies.
 
 For each sub-issue:
 

@@ -22,15 +22,18 @@ Branch from `origin/edge`, not from whatever the user has checked out. The
 baseline should match the branch the pull request will target.
 
 Work with no issue behind it still branches under `agent/`, named for the work:
-`agent/git-hygiene`. A cloud session working one sub-issue at a time skips the
-worktree, because its container already isolates the checkout, but it renames
-its branch to match this convention before the first push.
+`agent/git-hygiene`. A cloud session renames its branch to match this
+convention before the first push.
 
-Skipping is about there being one writer, not about the host. Two implementers
-dispatched at once need a worktree each wherever they run: inside one container
-they share an index and a `HEAD`, and the refusal that protects them locally
-never fires. A reviewer needs neither, only the commit it is reviewing, so that
-the tree does not move while it reads.
+A container is not a substitute for a worktree. It separates the session from
+the user's machine; a worktree separates one writer from the next, and two
+implementers in one container share an index and a `HEAD` regardless of which
+host they run on. A dispatched implementer already declares
+`isolation: worktree`, so it has one before this skill is consulted.
+
+A reviewer needs no worktree at all, only the commit it is reviewing: read with
+`git show <commit>:<path>`, or take a detached worktree, and name the commit in
+the findings.
 
 Git refuses to check out one branch in two worktrees, which enforces one owner
 per branch without any extra bookkeeping.
