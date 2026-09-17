@@ -28,32 +28,50 @@ concurrency:
   group: labels-${{ github.ref }}
   cancel-in-progress: false
 
+# A pull request runs its own copy of sync-labels.sh, and the paths filter
+# includes that script, so the dry run must not hold a token that can write
+# labels: a branch editing the script would otherwise reach the real label set
+# before any human read the diff. Permissions cannot be expressions, so the two
+# modes are separate jobs.
 jobs:
-  sync:
-    name: Sync the label set
+  dry-run:
+    name: Show what would change
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Labels live under the issues scope. A pull request from a fork gets a
-      # read-only token regardless, which is enough for the dry run below.
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report the difference from the manifest
+        env:
+          # gh is preinstalled on the runner but reads its token from here.
+          GH_TOKEN: ${{ github.token }}
+        run: .claude/scripts/sync-labels.sh
+
+  apply:
+    name: Sync the label set
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The narrowest scope GitHub offers for labels. It also permits editing
+      # and commenting on issues; there is no labels-only scope.
       issues: write
     steps:
       - uses: actions/checkout@v4
       - name: Apply the manifest
         env:
-          # gh is preinstalled on the runner but reads its token from here.
           GH_TOKEN: ${{ github.token }}
           APPLY: ${{ inputs.apply }}
           FORCE: ${{ inputs.force }}
         run: |
           args=()
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ "$APPLY" = "true" ]; then
-              args+=(--apply)
-            fi
-            if [ "$FORCE" = "true" ]; then
-              args+=(--force)
-            fi
+          if [ "$APPLY" = "true" ]; then
+            args+=(--apply)
+          fi
+          if [ "$FORCE" = "true" ]; then
+            args+=(--force)
           fi
           echo "running sync-labels.sh ${args[*]:-(dry run)}"
           .claude/scripts/sync-labels.sh "${args[@]}"
