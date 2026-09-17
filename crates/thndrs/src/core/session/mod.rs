@@ -13,6 +13,12 @@ mod context_changes;
 mod context_export;
 mod contracts;
 mod export;
+// Deterministic capture fixtures. A development concern, so it is behind
+// `dev-fixtures` and out of the published library surface. The module header
+// carries the rest; an outer doc comment here would resolve this module's
+// intra-doc links in the parent's scope, where its items are not in scope.
+#[cfg(any(test, feature = "dev-fixtures"))]
+pub mod fixtures;
 mod inventory;
 mod lifecycle;
 mod reader;

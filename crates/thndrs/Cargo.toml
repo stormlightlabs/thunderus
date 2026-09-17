@@ -17,6 +17,15 @@ include = ["/Cargo.toml", "/LICENSE", "/README.md", "/benches/**", "/src/**", "/
 [lib]
 name = "thndrs_lib"
 
+[features]
+# Deterministic session fixtures for terminal capture runs. Development only:
+# it compiles the generator and the example that writes its output.
+dev-fixtures = []
+
+[[example]]
+name = "session_fixtures"
+required-features = ["dev-fixtures"]
+
 [dependencies]
 agent-client-protocol.workspace = true
 clap.workspace = true
