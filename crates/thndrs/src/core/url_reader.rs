@@ -582,12 +582,17 @@ mod tests {
         }
     }
 
+    /// An agent configured like [`public_fetch_agent`], resolving through the
+    /// caller's resolver.
+    ///
+    /// `proxy(None)` is what makes the redirect guard testable: a proxy
+    /// resolves the destination itself, so leaving it enabled means the
+    /// resolver given here never runs and the guard under test is never
+    /// exercised. A test built on this agent then passes without asserting
+    /// anything, wherever a proxy is configured in the environment.
     fn test_agent(timeout: Duration, resolver: impl Resolver) -> ureq::Agent {
         let config = ureq::Agent::config_builder()
             .max_redirects(0)
-            // Mirrors public_fetch_agent. Without it, a proxy in the
-            // environment resolves the destination itself, the test's resolver
-            // never runs, and the redirect guard under test is not exercised.
             .proxy(None)
             .timeout_global(Some(timeout))
             .build();
