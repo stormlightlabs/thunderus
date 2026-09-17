@@ -204,6 +204,17 @@ id: <ULID>
 Generate the identifier with `.claude/scripts/ulid.py`. The identifier never
 changes once assigned. Update `last_updated` when the content changes.
 
+`.claude/scripts/check-frontmatter.py` checks the whole tree and runs in CI,
+where `--since` also compares each identifier against the pull request's base
+commit. The tree alone cannot show an identifier that changed, and a changed one
+orphans every issue citing it.
+
+The name rule is waived for `internal/features/*/plan.md` and `tasks.md` until
+their scheme is decided, because a name matching its filename would give five
+files named `plan`. That decision is issue 9. Nothing else is waived: once one
+of those files carries a block, its date and its identifier answer to the check
+like any other.
+
 ## Layout
 
 | Path                    | Holds                                                          |

@@ -1,3 +1,9 @@
+---
+name: features
+last_updated: 2026-09-17
+id: 01M2RFP6G4RZZ4BRH6HSYP29BM
+---
+
 # Feature plans
 
 Each feature track has one directory containing its design and unfinished

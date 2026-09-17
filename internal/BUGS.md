@@ -1,3 +1,9 @@
+---
+name: bugs
+last_updated: 2026-09-17
+id: 01M2RFP6G4NBXT94SAAYZ1D1FH
+---
+
 # Bugs
 
 ## UI
