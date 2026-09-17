@@ -40,6 +40,13 @@ cannot state is not ready to start.
 Take sub-issues one at a time unless two are genuinely independent and own
 non-overlapping files. Two writers in one area produce rework, not throughput.
 
+Read each sub-issue's `blocked_by` before claiming it, through the
+**Dependencies** section of `github-board`. An issue whose blockers are still
+open is not claimable, whatever its status label says, and dispatching one
+anyway produces a worker with nothing to build on. Independent in the dependency
+graph is not the same as safe to run at once: check the file ownership the epic
+records before taking two at a time.
+
 Each implementer works in its own worktree, on either host. Two sharing a
 checkout share one `HEAD`, and the second to create its branch takes the
 first's work onto it without git raising anything. The `worktree` skill has the
