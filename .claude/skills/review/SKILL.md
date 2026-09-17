@@ -57,6 +57,39 @@ The `git log` line is local either way.
 Read the changed files around the diff, not only the diff. Read the issue the
 pull request closes. Read `CLAUDE.md` for the rules the change must satisfy.
 
+### Fix the commit before reading
+
+A branch moves while a review reads it. Take the head commit once and review
+that, so the findings describe one state of the tree:
+
+```sh
+git fetch origin <branch>
+commit=$(git rev-parse origin/<branch>)
+git show "$commit":<path>
+git diff origin/edge..."$commit"
+```
+
+The fetch is not optional. A cloud container clones a few branches at a shallow
+depth, so the branch under review is usually absent and `git show` fails on a
+commit the repository has never had.
+
+Do not read the change with `Read`, `Grep`, or `Glob`. Those read the working
+tree, which is whatever branch the session happens to sit on and is rarely the
+one under review. Where reading the tree is worth the setup, take a worktree
+that cannot move:
+
+```sh
+git worktree add --detach ../thndrs-worktrees/review-<n> "$commit"
+```
+
+Git allows that beside the worktree that holds the branch. Remove it when the
+pass ends.
+
+Write nothing inside the repository. A reviewer with no worktree of its own
+shares a checkout with whoever is writing there, and a findings file left in it
+is untracked work that belongs to nobody. Keep the comment body in the
+session's scratch directory.
+
 ## Judge against something
 
 A finding needs a source. Rank them:
@@ -88,10 +121,55 @@ One line per finding:
 State what breaks and with what input. A finding that cannot name a failing
 case is speculation; drop it or mark it `nit`.
 
+## Which passes post
+
+Findings go to whoever invoked the pass, in full, every time. The question here
+is only which passes also comment on the pull request.
+
+| Pass            | Comments on the pull request                            |
+| --------------- | ------------------------------------------------------- |
+| First standard  | No.                                                     |
+| Second standard | Yes, on what survived the first, or to say nothing did. |
+| Adversarial     | Yes, including to say it found nothing.                 |
+
+A first pass does not comment because most of what it finds is fixed within the
+hour, and a reader scrolling through resolved findings learns nothing about the
+change. What outlived a round of fixes is the part worth recording. An
+adversarial pass is the last thing before a human reads the diff, so the record
+has to show it ran.
+
+The invoker says which pass this is. `/rev` takes it as an argument and the
+sequence in `.claude/skills/thunderstorm/SKILL.md` fixes it at dispatch. Do not
+infer it from the thread. A pass that found nothing leaves nothing behind, an
+`/edit` reply is signed and finding-shaped, and a comment can be edited or
+deleted after the fact, so the thread answers the question wrongly in three
+directions. Where no pass is named, this is a first pass: report to the invoker
+and do not post.
+
+Open a comment by naming the pass that wrote it. A second-pass comment is then
+the evidence that a first pass ran.
+
+A pass that does not comment still has to reach a human, and its findings are
+the next `/edit` pass's only input. Print them and return them to the invoker.
+An orchestrator that dispatched the pass hands them to `/edit` itself, and
+hands them to the second pass as well: "what survived the first" is not
+something the second pass can work out on its own, having never seen the
+first.
+
 ## Post the findings
 
-Post one comment per pass, not one per finding. End every comment with a
-signature naming the model and reasoning level:
+Post one comment per pass, not one per finding. Open it with the commit the
+pass read and the pull request it belongs to:
+
+```text
+Reviewed at <commit> on #<n>.
+```
+
+Both, not the commit alone. The branch is deleted when its pull request merges
+and the commit goes unreachable with it, so a review citing only a SHA is
+unreadable by the time anyone goes back to it.
+
+End every comment with a signature naming the model and reasoning level:
 
 ```text
 — <model-id> · <reasoning-level>
@@ -102,13 +180,15 @@ gh pr comment <n> --body-file <file>
 # MCP: add_issue_comment with issue_number set to the pull request number.
 ```
 
-Print the same findings in chat. Ask before posting when no pull request is
-open, and never post to a repository the user did not name.
+Print the findings in chat whichever way the pass goes, including when nothing
+is posted. Ask before posting when no pull request is open, and never post to a
+repository the user did not name.
 
 ## Stop conditions
 
 - Report `No findings` rather than inventing something to justify the pass.
-- Do not repeat a finding already posted and addressed in an earlier pass.
+- Do not repeat a finding an earlier pass raised and an edit pass addressed,
+  whether it was posted to the thread or handed to you by your invoker.
 - If the same finding survives two edit passes without the cause changing, stop
   and escalate to the user rather than posting it a third time.
 - Cap a review-and-edit cycle at 5 rounds.

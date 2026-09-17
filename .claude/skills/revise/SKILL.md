@@ -23,6 +23,12 @@ Through MCP: `pull_request_read` methods `get`, `get_diff`, then
 `get_review_comments` for findings left on lines and `get_comments` for findings
 left on the pull request itself. A review pass may use either, so read both.
 
+A first standard pass does not comment on the pull request, so its findings
+reach you from whoever invoked this edit pass rather than from the thread. Take
+what you are handed as the pass, and read the thread as well: a second or
+adversarial pass posts there. Where nothing was handed over and the thread
+holds no findings, say so and stop rather than inventing a pass to address.
+
 Collect every finding from the most recent review pass. Earlier passes are
 history; do not re-address a finding already resolved unless it recurred.
 
@@ -75,7 +81,9 @@ Run `pnpm --dir docs build` when anything under `docs/` changed.
 
 Commit with the `commits-and-prs` skill, push to the same branch with
 `.claude/scripts/push-verified.sh`, then post one reply comment listing each
-finding and its outcome. Sign it:
+finding and its outcome. Name the pass you are answering and the signature it
+ran under, because a first pass posts nothing and this reply is the only record
+that it ran. Sign the reply yourself as well:
 
 A reply that names a commit is a claim about the remote, so confirm the push
 landed before writing one. `git push` exits zero for a push that carried

@@ -40,6 +40,11 @@ cannot state is not ready to start.
 Take sub-issues one at a time unless two are genuinely independent and own
 non-overlapping files. Two writers in one area produce rework, not throughput.
 
+Each implementer works in its own worktree, on either host. Two sharing a
+checkout share one `HEAD`, and the second to create its branch takes the
+first's work onto it without git raising anything. The `worktree` skill has the
+mechanism.
+
 For each sub-issue:
 
 1. Claim it through the `github-board` skill.
@@ -59,6 +64,13 @@ to create.
 
 The sequence per pull request is `/rev`, `/edit`, `/rev`, `/edit`, `/adv-rev`,
 `/edit`. Then stop. A human merges to `edge`.
+
+Tell each pass which one it is, because nothing else can: a pass that reads the
+thread to work it out gets the answer wrong. The first `/rev` reports its
+findings to you and posts nothing, so hand them to the `/edit` that follows and
+to the second `/rev`. They are the edit pass's only input, and the second pass
+cannot say what survived the first without them. From the second pass on, each
+pass comments for itself.
 
 ## Report and stop
 

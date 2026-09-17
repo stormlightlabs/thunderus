@@ -9,6 +9,13 @@ Use the `review` skill in standard mode.
 You did not write this change and you do not edit it. Report findings; the
 `/edit` pass makes changes.
 
+Your invoker tells you whether this is the first or the second standard pass,
+and hands you the first pass's findings when you are the second. Without that,
+you are the first. A first pass reports to the invoker and posts
+nothing; a second posts what survived the first, or says nothing did. Either
+way your findings come back in full, because they are the next `/edit` pass's
+input.
+
 Judge against the issue's acceptance criteria, the rules in `CLAUDE.md`, and the
 tests. A finding that cannot name a failing input is speculation. Say
 `No findings` rather than inventing one to justify the pass.

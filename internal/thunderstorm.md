@@ -29,10 +29,12 @@ does not start it in this run.
 A run works from a local checkout or from a cloud session on the web. The
 protocol is the same; the transport to GitHub is not.
 
-| Host          | GitHub through   | Worktrees                                              |
-| ------------- | ---------------- | ------------------------------------------------------ |
-| Local         | `gh`             | As described under [Worktrees](#worktrees).            |
-| Cloud session | GitHub MCP tools | One ephemeral container, one issue. Skip the worktree. |
+| Host          | GitHub through   |
+| ------------- | ---------------- |
+| Local         | `gh`             |
+| Cloud session | GitHub MCP tools |
+
+Worktrees work the same way on both, under [Worktrees](#worktrees).
 
 The `github-board` skill picks the transport and owns the differences between
 them. Two are load-bearing:
@@ -122,8 +124,8 @@ the run and starts at `/impl`.
 | `/decomp`, `/decompose` | An idea, spec, or finding | Files one epic and the sub-issues under it.                                        |
 | `/thunderstorm`         | Epic issue number         | One run over the epic. Claims each sub-issue, dispatches it, and reports.          |
 | `/impl`, `/implement`   | Issue number              | Claims the issue, works it in a worktree, opens a pull request.                    |
-| `/rev`                  | Branch or PR number       | Standard review pass. Posts findings as comments.                                  |
-| `/adv-rev`              | Branch or PR number       | Adversarial review pass. Posts findings as comments.                               |
+| `/rev`                  | Branch or PR number       | Standard review pass. Comments only on the second pass.                            |
+| `/adv-rev`              | Branch or PR number       | Adversarial review pass. Always comments.                                          |
 | `/edit`, `/revise`      | PR number                 | Addresses review comments on that pull request.                                    |
 
 ## Review sequence
@@ -131,13 +133,23 @@ the run and starts at `/impl`.
 Three review passes, each followed by an edit pass. No pass starts before the
 previous edit pass finishes.
 
-1. `/rev` posts findings as pull request comments.
-2. `/edit` addresses them.
-3. `/rev` runs again on the revised diff.
+1. `/rev` runs the first pass and reports to whoever dispatched it.
+2. `/edit` addresses those findings, which it is handed rather than reading
+   from the thread.
+3. `/rev` runs again on the revised diff and comments on what survived.
 4. `/edit` addresses the second round.
-5. `/adv-rev` runs the adversarial pass.
+5. `/adv-rev` runs the adversarial pass and always comments.
 6. `/edit` addresses the adversarial findings.
 7. A human reviews and merges to `edge`.
+
+Which pass is which comes from the dispatch, not from reading the thread. The
+`review` skill says why under Which passes post.
+
+The thread still records all three passes even though the first does not
+comment on it, because every `/edit` reply names the pass it answers and the
+signature that pass ran under. A first pass leaves its trace in the reply to
+it, which is also what makes the model rule in `internal/models.md` checkable
+after the fact.
 
 Reviews post from whichever account runs them: Claude, Codex, or the
 repository owner. Every comment ends with a signature naming the model and its
@@ -220,6 +232,32 @@ meant to parallelize.
 Remove the worktree when the run ends. A removal that fails because of
 uncommitted changes is an escalation, not something to force.
 
+### Who gets one
+
+Every implementer gets a worktree, on either host. What a worktree separates is
+one writer from another, and a cloud container does not do that job: it
+separates the session from the user's machine, not one dispatched implementer
+from the next. `.claude/agents/implementer.md` declares `isolation: worktree`,
+so a dispatched implementer is given one whether or not the run asks.
+
+Two implementers sharing a checkout share one index and one `HEAD`, so they
+cannot hold a branch each. The second to start moves `HEAD` when it creates its
+branch, and the first's staged work rides along: it lands in the second's
+commit, every commit the first makes afterwards lands on the second's branch,
+and the first's branch never leaves `origin/edge`. The refusal that guards one
+branch in two worktrees does not fire, because there is only one worktree.
+`push-verified.sh` does not catch it either, because both pushes have a branch
+and both land; the only trace is that script naming a branch the run did not
+claim. An index lock collision is the rarer case and the only loud one.
+
+A reviewer gets none. It writes nothing into the tree, so what it needs is a
+tree that does not move while it reads, which is a commit rather than a
+directory. The `review` skill owns that discipline: fetch the branch, read
+through `git show <commit>:<path>`, and name the commit. Name the pull request
+with it. A branch is deleted when its pull request merges and the commit goes
+unreachable with it, so a review that cites a SHA alone is unreadable by the
+time anyone goes back to it.
+
 ## File conventions
 
 Every file under `internal/` starts with YAML frontmatter:
@@ -234,6 +272,17 @@ id: <ULID>
 
 Generate the identifier with `.claude/scripts/ulid.py`. The identifier never
 changes once assigned. Update `last_updated` when the content changes.
+
+`.claude/scripts/check-frontmatter.py` checks the whole tree and runs in CI,
+where `--since` also compares each identifier against the pull request's base
+commit. The tree alone cannot show an identifier that changed, and a changed one
+orphans every issue citing it.
+
+The name rule is waived for `internal/features/*/plan.md` and `tasks.md` until
+their scheme is decided, because a name matching its filename would give five
+files named `plan`. That decision is issue 9. Nothing else is waived: once one
+of those files carries a block, its date and its identifier answer to the check
+like any other.
 
 ## Layout
 

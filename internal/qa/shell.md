@@ -1,3 +1,9 @@
+---
+name: shell
+last_updated: 2026-09-17
+id: 01M2RFP6G4A4VW1QGZWWXECATT
+---
+
 # Shell installer release checklist
 
 Complete the [common release gate](README.md#common-release-gate),
