@@ -1,0 +1,59 @@
+name: Labels
+
+# Applying .github/labels.yml needs a token that may write labels. Rather than
+# put one in every checkout, the sync runs here: a local session invokes the
+# script directly, and a cloud session dispatches this workflow instead.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Create and update labels. Leave unchecked for a dry run."
+        type: boolean
+        default: false
+      force:
+        description: "Also delete stock labels that are still applied to an issue."
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - .github/labels.yml
+      - .github/workflows/labels.yml
+      - .claude/scripts/sync-labels.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: labels-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync the label set
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Labels live under the issues scope. A pull request from a fork gets a
+      # read-only token regardless, which is enough for the dry run below.
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply the manifest
+        env:
+          # gh is preinstalled on the runner but reads its token from here.
+          GH_TOKEN: ${{ github.token }}
+          APPLY: ${{ inputs.apply }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          args=()
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$APPLY" = "true" ]; then
+              args+=(--apply)
+            fi
+            if [ "$FORCE" = "true" ]; then
+              args+=(--force)
+            fi
+          fi
+          echo "running sync-labels.sh ${args[*]:-(dry run)}"
+          .claude/scripts/sync-labels.sh "${args[@]}"

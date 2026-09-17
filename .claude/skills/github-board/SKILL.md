@@ -28,8 +28,8 @@ Two differences decide correctness, so read them before the first write:
   `assignees`. Read the current labels first and send the full intended set,
   or the `type:*`, `area:*`, and `risk:*` labels are silently dropped.
 - The MCP surface cannot define labels. It has no create, update, or delete for
-  a label, only `get_label`. Applying `.github/labels.yml` is local-only work;
-  see [Label definitions](#label-definitions).
+  a label, only `get_label`. A cloud session applies the manifest by dispatching
+  a workflow; see [Label definitions](#label-definitions).
 
 ## Read
 
@@ -120,13 +120,24 @@ Link it from the originating issue with a comment. Do not start it in this run.
 
 ## Label definitions
 
-The label set lives in `.github/labels.yml` and is applied with
-`.claude/scripts/sync-labels.sh --apply`. That script needs `gh` and cannot run
-in a cloud session, because no MCP tool creates or edits a label definition.
+The label set lives in `.github/labels.yml`. Applying it needs a token that may
+write labels, so it runs in one of two places:
 
-A cloud run that needs a label the repository does not define is blocked, not
-free to invent one. Report the missing label and stop; a local run applies the
-manifest.
+| Session | How                                                                      |
+| ------- | ------------------------------------------------------------------------ |
+| Local   | `.claude/scripts/sync-labels.sh` for a dry run, `--apply` to make changes. |
+| Cloud   | Dispatch `.github/workflows/labels.yml`, which runs the same script.       |
+
+From a cloud session that means `actions_run_trigger` method `run_workflow`,
+`workflow_id` `labels.yml`, `ref` the default branch, and `inputs`
+`{"apply": "true"}`. Omitting `apply` gives the dry run. Watch the result with
+`actions_list` method `list_workflow_runs` and read the job log before claiming
+the labels changed: the script verifies its own work and exits non-zero when the
+final state does not match the manifest.
+
+One thing the workflow will not do is invent a label. A run that needs a label
+the manifest does not define is blocked. Add it to `.github/labels.yml` in a
+pull request, then sync.
 
 ## Rules
 

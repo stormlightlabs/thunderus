@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Apply .github/labels.yml to the repository and remove GitHub's stock labels.
 #
-# Local only. Label definitions are the one board operation the GitHub MCP
-# surface cannot perform: it reads a label but never creates, edits, or deletes
-# one. A cloud session that finds a label missing reports it and stops.
+# Needs a token that may write labels, which is why it runs in two places: here
+# in a local checkout, or on a runner through .github/workflows/labels.yml. The
+# GitHub MCP surface reads a label but never creates, edits, or deletes one, so
+# a cloud session dispatches that workflow rather than calling this directly.
 #
 #   .claude/scripts/sync-labels.sh            # show what would change
 #   .claude/scripts/sync-labels.sh --apply    # make the changes
@@ -27,8 +28,8 @@ for arg in "$@"; do
 done
 
 command -v gh >/dev/null || {
-  echo "gh is required: label definitions are local-only, run this from a" >&2
-  echo "local checkout rather than a cloud session" >&2
+  echo "gh is required. Run this from a local checkout, or dispatch the" >&2
+  echo "Labels workflow (.github/workflows/labels.yml) instead." >&2
   exit 1
 }
 test -f "$MANIFEST" || { echo "missing $MANIFEST" >&2; exit 1; }
