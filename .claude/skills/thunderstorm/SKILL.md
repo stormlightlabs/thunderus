@@ -62,9 +62,10 @@ The sequence per pull request is `/rev`, `/edit`, `/rev`, `/edit`, `/adv-rev`,
 
 Tell each pass which one it is, because nothing else can: a pass that reads the
 thread to work it out gets the answer wrong. The first `/rev` reports its
-findings to you and posts nothing, so hand them to the `/edit` that follows.
-They are its only input. From the second pass on, each pass comments for
-itself.
+findings to you and posts nothing, so hand them to the `/edit` that follows and
+to the second `/rev`. They are the edit pass's only input, and the second pass
+cannot say what survived the first without them. From the second pass on, each
+pass comments for itself.
 
 ## Report and stop
 

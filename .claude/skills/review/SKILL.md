@@ -118,7 +118,10 @@ the evidence that a first pass ran.
 
 A pass that does not comment still has to reach a human, and its findings are
 the next `/edit` pass's only input. Print them and return them to the invoker.
-An orchestrator that dispatched the pass hands them to `/edit` itself.
+An orchestrator that dispatched the pass hands them to `/edit` itself, and
+hands them to the second pass as well: "what survived the first" is not
+something the second pass can work out on its own, having never seen the
+first.
 
 ## Post the findings
 
