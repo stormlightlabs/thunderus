@@ -97,21 +97,22 @@ exempts the same prefix (`crates/thndrs/src/cli/commands/setup.rs:30`), so
 configuration loads and no recovery overlay opens. Every capture launches from:
 
 ```sh
-thndrs --cwd <workspace> --model fake-agent --ephemeral --tick-rate-ms 100
+thndrs --cwd <workspace> --session-dir <scratch> --model fake-agent --tick-rate-ms 100
 ```
 
-Scenario flags extend that line; the `--session-dir` and `/resume` above are
-what the populated scenarios add to it.
+That line carries no `--ephemeral`, and adding it breaks eleven of the twelve
+captures: `resume_session` rejects an ephemeral run outright
+(`crates/thndrs/src/cli/app.rs:1613`), so `/resume` cannot reach a fixture. The
+scratch session directory the generator writes into is what keeps a capture run
+out of the real session store instead.
 
 No new route was needed, and the fake route cannot stand in for a real one.
 `ProviderKind::for_model` maps it to `ProviderKind::Fake`
-(`crates/thndrs/src/core/agent.rs:65`), which emits scripted events in process,
-so a turn taken on it reads no credential, writes none, and sends no provider
-request. Tests in `crates/thndrs/src/cli/app/tests/setup.rs` and
-`crates/thndrs/src/cli/mod.rs` hold all three: under an empty `HOME` with no
-provider environment variable set, startup leaves the setup overlay closed, both
-credential stores and `auth.json` stay absent, every supported provider stays
-unauthenticated, and the configuration check accepts the model.
+(`crates/thndrs/src/core/agent.rs:65`), which emits scripted events in process.
+Tests in `crates/thndrs/src/cli/app/tests/setup.rs` and
+`crates/thndrs/src/cli/mod.rs` hold that under an empty `HOME` with no provider
+environment variable set: a whole turn on the route dispatches no provider
+request and leaves every credential store absent.
 
 ## Evidence
 
