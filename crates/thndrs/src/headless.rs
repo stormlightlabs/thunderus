@@ -1527,7 +1527,14 @@ mod tests {
         canceller.join().expect("canceller joins");
 
         assert_eq!(error.exit.code(), EXIT_CANCELLED);
+        // The fixture streams this line before it waits for the cancel, so
+        // which of the two lands first decides whether it reaches stdout.
+        // Cancelling does not retract text already streamed, it only changes
+        // the exit code, so both orderings are correct and nothing else is.
         let written = String::from_utf8(stdout).expect("stdout is UTF-8");
-        assert!(written.is_empty(), "cancelled run wrote to stdout: {written:?}");
+        assert!(
+            written.is_empty() || written == "waiting for cancellation\n",
+            "cancelled run wrote unexpected stdout: {written:?}"
+        );
     }
 }
