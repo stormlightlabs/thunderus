@@ -40,6 +40,11 @@ cannot state is not ready to start.
 Take sub-issues one at a time unless two are genuinely independent and own
 non-overlapping files. Two writers in one area produce rework, not throughput.
 
+Each implementer works in its own worktree, on either host. Two sharing a
+checkout share one `HEAD`, and the second to create its branch takes the
+first's work onto it without git raising anything. The `worktree` skill has the
+mechanism.
+
 For each sub-issue:
 
 1. Claim it through the `github-board` skill.
