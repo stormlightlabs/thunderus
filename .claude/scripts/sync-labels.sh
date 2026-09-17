@@ -40,6 +40,10 @@ STOCK=(
   "help wanted" "invalid" "question" "wontfix"
 )
 
+# Stock labels this run left in place, reported at the end so a green log does
+# not read as "nothing remains".
+KEPT=()
+
 # Commands run inside read loops get stdin from /dev/null so they cannot
 # consume the loop's input.
 run() {
@@ -130,10 +134,12 @@ for label in "${STOCK[@]}"; do
   fi
   if ! count=$(issues_with_label "$label"); then
     echo "  skipping '$label': could not read what carries it"
+    KEPT+=("$label (unreadable)")
     continue
   fi
   if [ "$count" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
     echo "  skipping '$label': still applied to an issue or pull request (use --force)"
+    KEPT+=("$label (in use)")
     continue
   fi
   run gh label delete "$label" --yes
@@ -171,4 +177,9 @@ if [ "$failed" -eq 1 ]; then
   echo "  label sync incomplete. re-run."
   exit 1
 fi
-echo "  labels match the manifest."
+if [ "${#KEPT[@]}" -gt 0 ]; then
+  echo "  labels match the manifest; kept ${#KEPT[@]} stock label(s):"
+  printf '    %s\n' "${KEPT[@]}"
+  exit 0
+fi
+echo "  labels match the manifest, and no stock label remains."
