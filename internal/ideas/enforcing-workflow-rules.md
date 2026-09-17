@@ -10,8 +10,10 @@ id: 01M2RH6SW2KZHH0V3BRW0NVMKT
 
 The workflow states rules as musts and checks almost none of them.
 `internal/thunderstorm.md` and `.claude/skills/github-board/SKILL.md` carry
-thirteen sentences between them phrased as a prohibition or an obligation. Two
-workflows exist, `ci.yml` and `labels.yml`, and neither reads an issue.
+nine sentences between them phrased as a prohibition or an obligation. Two
+workflows exist, `ci.yml` and `labels.yml`. Neither is triggered by an issue
+event and neither checks issue state, though `labels.yml` reads issues to count
+what carries a label.
 
 The board is the part that matters. Status is the state, and `github-board`
 says two status labels on one issue make the loop "pick the wrong transition".
@@ -25,14 +27,16 @@ that had a check were the ones that held:
 | Five commit messages over the limits | The commit-msg hook, once it ran |
 | Doubled blank lines from an edit     | `cargo fmt` in CI                |
 | A parse failure reported as success  | The label sync test, once it ran |
-| Two false claims that a push landed  | A check that had to be invoked   |
+| Two false claims that a push landed  | Nothing, until CI showed no run  |
 | A false claim that a rename was done | An adversarial reviewer          |
 
 The last two rows are the argument against enforcement as the whole answer.
 Both were assertions made without the verification they implied: a push
 reported from an exit code rather than from the remote, and a repository-wide
 claim made from a search of three directories. No check catches a confident
-statement about work that was not done. A reviewer did.
+statement about work that was not done. `push-verified.sh` exists because of
+the first, but it was written afterwards and caught nothing; a missing CI run
+did. A reviewer caught the second.
 
 ## Decisions
 
@@ -67,10 +71,10 @@ the class review covers is the more expensive one.
 
 ## Open
 
-Whether board violations actually occur. Six issues and one epic exist as of
-this writing, all conforming, none of them worked by a run yet. If twenty
-issues pass through without a violation the check is ceremony and should be
-deleted rather than kept for its own sake.
+Whether board violations actually occur. Every open issue conforms as of this
+writing, and none has been worked by a run. If twenty pass through without a
+violation the check is ceremony and should be deleted rather than kept for its
+own sake.
 
 What level a board check should sit at if violations turn out to be common
 rather than rare. Detection assumes someone reads the comment.
