@@ -67,6 +67,13 @@ replacement:
 1. `issue_read` method `get_labels` for issue `<n>`.
 2. Drop the old `status:*` entry, add the new one, keep every other label.
 3. `issue_write` method `update` with the complete `labels` array.
+4. Read the labels again and compare them with the set you sent.
+
+The write carries no condition, so a label added between steps 1 and 3 is
+removed by step 3 and nothing notices. Keep the window to one read followed
+immediately by one write, and let step 4 catch what still slipped through:
+report the difference rather than writing again, because a second replacement
+races the same way.
 
 Never add a status label without removing the previous one. Two status labels on
 one issue make the board unreadable and the loop will pick the wrong transition.
@@ -83,24 +90,38 @@ one issue make the board unreadable and the loop will pick the wrong transition.
 
 ## Claim
 
-A claim is an assignment plus a status transition, in that order:
+A `status:queued` issue has no owner, so an issue that already carries an
+assignee is not claimable, whoever put them there. Read it first and move on if
+anyone holds it.
+
+A claim is a status transition followed by an assignment, in that order:
 
 ```sh
-gh issue edit <n> --add-assignee @me
 gh issue edit <n> --remove-label "status:queued" --add-label "status:claimed"
+gh issue edit <n> --add-assignee @me
 ```
 
-Through MCP, `@me` has no equivalent: call `get_me` for the login, then send it
-in the `assignees` array of an `issue_write` update, together with the full
-label set from the transition above. One update call does both.
+The order is what makes an interrupted claim safe. A session killed between the
+two calls leaves `status:claimed` with no assignee, which the 24-hour rule
+returns to the queue. Assigning first would leave an owned issue still reading
+`status:queued`, which the next claimant takes as free.
 
-`assignees` replaces, exactly as `labels` does, so read the current assignees
-with the labels and send them back alongside the claim. Sending the login alone
-unassigns whoever was already there, and the re-read below cannot tell that
-apart from a clean claim.
+Through MCP, `@me` has no equivalent: call `get_me` for the login and send it in
+the `assignees` array of an `issue_write` update, together with the full label
+set from the transition above. One update call does both, and because
+`assignees` replaces, it sends exactly `[me]`.
 
-Re-read the issue after claiming. If the assignee is not the expected account,
-another run took it first; release the claim and pick a different issue.
+Re-read after claiming. The claim succeeded only when `assignees` is exactly
+your login and nothing else. Two `gh` runs that claim at once both succeed at
+`--add-assignee`, which adds rather than replaces, so each finds itself present
+and each believes it won; comparing against the whole list is what tells them
+apart.
+
+Losing the race means removing your own assignment and nothing else. Do not
+change the status label: `status:claimed` belongs to the run that won it, and
+moving the issue back to `status:queued` hands the work in progress to a third
+run. If both runs back off, the issue is left claimed with no assignee, which
+the 24-hour rule already covers.
 
 ## Block
 
@@ -143,8 +164,10 @@ write labels, so it runs in one of two places:
 | Cloud   | Dispatch `.github/workflows/labels.yml`, which runs the same script.       |
 
 From a cloud session that means `actions_run_trigger` method `run_workflow`,
-`workflow_id` `labels.yml`, `ref` the default branch, and `inputs`
-`{"apply": "true"}`. Omitting `apply` gives the dry run. Watch the result with
+`workflow_id` `labels.yml`, `ref` `edge`, and `inputs` `{"apply": "true"}`.
+Dispatch on `edge` and nothing else: the job refuses any other ref, because a
+dispatch runs the script as it exists on the ref it names, and only the default
+branch has been through review. Omitting `apply` gives the dry run. Watch the result with
 `actions_list` method `list_workflow_runs` and read the job log before claiming
 the labels changed: the script verifies its own work and exits non-zero when the
 final state does not match the manifest.

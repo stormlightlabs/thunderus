@@ -230,8 +230,10 @@ and `adversarial-reviewer`.
 
 - `.github/labels.yml` has never been applied. Run
   `.claude/scripts/sync-labels.sh --apply`, or dispatch the Labels workflow.
-  Dispatch needs `labels.yml` on the default branch first, which is `edge`; the
-  `ref` may then name any branch holding the file.
+  Dispatch needs `labels.yml` on the default branch first, which is `edge`, and
+  the apply job refuses any other `ref`: a dispatch runs the script as it exists
+  on the ref it names, so applying from an unreviewed branch would hand a
+  label-writing token to whatever that branch contains.
 - The repository has no issues, so no run has a parent to work from.
 - There are no tags. The release skill reads the previous version with
   `git describe --tags`, which fails until the first tag exists.
