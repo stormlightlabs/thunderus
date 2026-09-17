@@ -74,11 +74,16 @@ composer costs a live model call and differs from the one before it.
   captures whatever flatters it.
 - Reference harnesses run through the same tmux geometry and the same freeze
   invocation as thndrs, because published screenshots differ in font, width,
-  theme, and zoom. `opencode-ai@1.18.31`, `@openai/codex@0.154.0`, and
-  `@sourcegraph/amp@0.0.1789675234-g2899fe` install from npm in this container.
-  `@factory-ai/cli` does not resolve. Grok Build is Rust source under
-  `xai-org/grok-build` and gets read rather than run. The archived instruction
-  holds: adopt patterns, not screenshots.
+  theme, and zoom. Four install from npm in this container:
+  `opencode-ai@1.18.31`, `@openai/codex@0.154.0`,
+  `@sourcegraph/amp@0.0.1789675234-g2899fe`, and
+  `@earendil-works/pi-coding-agent@0.85.1`. `@factory-ai/cli` does not resolve,
+  and Grok Build ships as Rust source under `xai-org/grok-build`, so both get
+  read rather than run.
+- Read `@earendil-works/pi-tui` alongside its harness. Pi publishes its
+  terminal UI as a separate library with differential rendering, which makes
+  its layout decisions legible in source rather than inferred from a frame.
+  The archived instruction holds: adopt patterns, not screenshots.
 
 ### What the interface is
 
@@ -99,10 +104,6 @@ composer costs a live model call and differs from the one before it.
   completion.
 
 ## Open
-
-Which `pi` and `grok` packages are meant. The registry holds `@badlogic/pi`
-0.1.1, `pi-coder` 0.7.0, `@vibe-kit/grok-cli` 0.0.34, and `grok-cli` 1.0.5,
-which are separate projects. Name the intended two.
 
 Whether comparative captures run in the container or on a local machine. Freeze
 embeds JetBrains Mono and depends on no system font, so container captures are
@@ -137,3 +138,7 @@ on how much of the redesign animates.
   container, not read from its documentation.
 - [tmux manual](https://man.openbsd.org/tmux.1): `-L`, `capture-pane -e -N -S`,
   `send-keys -l`, and `resize-window`.
+- [Pi](https://github.com/earendil-works/pi) and
+  [Grok Build](https://github.com/xai-org/grok-build): the two reference
+  harnesses named on the pull request. Pi publishes `pi-coding-agent` and
+  `pi-tui` to npm; Grok Build is source only.
