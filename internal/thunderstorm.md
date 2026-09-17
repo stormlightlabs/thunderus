@@ -29,10 +29,10 @@ does not start it in this run.
 A run works from a local checkout or from a cloud session on the web. The
 protocol is the same; the transport to GitHub is not.
 
-| Host          | GitHub through   | Worktrees                                              |
-| ------------- | ---------------- | ------------------------------------------------------ |
-| Local         | `gh`             | As described under [Worktrees](#worktrees).            |
-| Cloud session | GitHub MCP tools | One ephemeral container, one issue. Skip the worktree. |
+| Host          | GitHub through   | Worktrees                                               |
+| ------------- | ---------------- | ------------------------------------------------------- |
+| Local         | `gh`             | As described under [Worktrees](#worktrees).             |
+| Cloud session | GitHub MCP tools | One writer needs none. Two still do, whatever the host. |
 
 The `github-board` skill picks the transport and owns the differences between
 them. Two are load-bearing:
@@ -188,6 +188,29 @@ meant to parallelize.
 
 Remove the worktree when the run ends. A removal that fails because of
 uncommitted changes is an escalation, not something to force.
+
+### One writer, or two
+
+What a worktree isolates is one writer from another, so the condition is the
+number of concurrent writers rather than the host. A cloud session working one
+sub-issue at a time needs none: the container is the isolation, there is no
+primary checkout to protect, and nothing else is building.
+
+Dispatch is allowed to run two implementers at once when they own
+non-overlapping files, and that is where the reasoning changes. Locally, git
+refuses to check out one branch in two worktrees, so a second writer is stopped
+before it starts. Two implementers inside one container are not two worktrees;
+they are two processes in one, sharing an index, a `HEAD` and a `target/`. Git
+raises nothing. The result is interleaved commits and a branch neither of them
+meant to write, which is worse than the refusal it replaced.
+
+So a run that dispatches concurrently creates a worktree per writer wherever it
+runs, and a run that dispatches one at a time creates none.
+
+A reviewer is a third case and needs neither. It does not write, so it wants a
+tree that does not move under it: give it the commit it is reviewing. Two
+adversarial passes on 2026-09-17 reported head drift because the branch gained
+commits while they read it, and both said so in their findings.
 
 ## File conventions
 
