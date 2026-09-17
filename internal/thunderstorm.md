@@ -40,7 +40,7 @@ them. Two are load-bearing:
 - The MCP issue update replaces an issue's whole label and assignee set, where
   `gh issue edit` changes only what it names.
 - Label definitions do not go through MCP. `.github/labels.yml` is applied by
-  running `.claude/scripts/sync-labels.sh` locally, or by dispatching
+  running `.claude/scripts/sync-labels.py` locally, or by dispatching
   `.github/workflows/labels.yml`, which runs that same script on a runner with
   `issues: write`, the narrowest scope GitHub offers for labels. A run that
   wants a label the manifest does not define is still blocked; the manifest
@@ -83,7 +83,7 @@ the issues runs work through, lives in `.github/labels.yml`. Its `retired:` grou
 names labels this repository has stopped defining, which the sync deletes: a
 rename that only adds the new name leaves the old one in the picker, teaching
 the next contributor a rule that no longer holds. Apply it with
-`.claude/scripts/sync-labels.sh`.
+`.claude/scripts/sync-labels.py`.
 
 ## Commands
 
@@ -211,7 +211,7 @@ changes once assigned. Update `last_updated` when the content changes.
 | `.claude/skills/`       | Skills. `.agents/skills` symlinks here.                        |
 | `.claude/commands/`     | Slash commands.                                                |
 | `.claude/agents/`       | Subagent definitions for dispatch.                             |
-| `.claude/scripts/`      | Helper scripts. `sync-labels.sh` also runs in CI.              |
+| `.claude/scripts/`      | Helper scripts. `sync-labels.py` also runs in CI.              |
 | `.claude/hooks/`        | Session hooks. Dependency warming for cloud sessions.          |
 | `.githooks/`            | Git hooks. Enable with `git config core.hooksPath .githooks`.  |
 | `.claude/settings.json` | Hook and permission configuration. Tracked.                    |
@@ -240,7 +240,7 @@ and `adversarial-reviewer`.
 ## Not wired up yet
 
 - `.github/labels.yml` has never been applied. Run
-  `.claude/scripts/sync-labels.sh --apply`, or dispatch the Labels workflow.
+  `.claude/scripts/sync-labels.py --apply`, or dispatch the Labels workflow.
   Dispatch needs `labels.yml` on the default branch first, which is `edge`, and
   the apply job refuses any other `ref`: a dispatch runs the script as it exists
   on the ref it names, so applying from an unreviewed branch would hand a

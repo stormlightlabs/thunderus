@@ -1,5 +1,5 @@
 # Label set for the thunderstorm workflow.
-# Apply with .claude/scripts/sync-labels.sh
+# Apply with .claude/scripts/sync-labels.py
 #
 # status:  exactly one per issue. The workflow's authoritative state.
 # blocked: required alongside status:blocked. Says why.

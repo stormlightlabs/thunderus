@@ -162,7 +162,7 @@ write labels, so it runs in one of two places:
 
 | Session | How                                                                        |
 | ------- | -------------------------------------------------------------------------- |
-| Local   | `.claude/scripts/sync-labels.sh` for a dry run, `--apply` to make changes. |
+| Local   | `.claude/scripts/sync-labels.py` for a dry run, `--apply` to make changes. |
 | Cloud   | Dispatch `.github/workflows/labels.yml`, which runs the same script.       |
 
 From a cloud session that means `actions_run_trigger` method `run_workflow`,
