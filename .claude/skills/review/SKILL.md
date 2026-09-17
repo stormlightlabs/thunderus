@@ -21,6 +21,22 @@ current branch.
 An adversarial pass assumes the standard passes already ran. It looks for what
 they would miss, not for the same findings again.
 
+### What the adversarial pass owes
+
+The standard passes read the change as written. The adversarial pass reads it
+as hostile input, an unlucky interleaving, or a caller who ignores the
+documentation would.
+
+- Name the input, the ordering, or the state that produces the failure. A
+  worst case with no path to it is not a finding.
+- Say how far you got: reproduced with a test you ran, traced through the
+  code, or suspected. Mark the third kind `unverified` and keep it out of the
+  `blocker` and `high` rows.
+- Prefer a few findings you can support to a list you cannot. One proven race
+  changes the diff. Six guesses cost the next editor a day.
+- Read the tests for what they do not assert. A test that passes against the
+  old behavior and the new one covers neither.
+
 ### Complexity
 
 Both passes weigh complexity, because a defect is cheaper to prevent than to
@@ -42,53 +58,19 @@ either.
 
 ## Gather context first
 
-The `github-board` skill's Transport section decides whether this run uses `gh`
-or the GitHub MCP tools. Use the same transport for everything below.
-
-```sh
-gh pr view <n> --json title,body,headRefName,baseRefName,files
-gh pr diff <n>
-git log --oneline origin/edge..<branch>
-```
-
-Through MCP: `pull_request_read` methods `get`, `get_files`, and `get_diff`.
-The `git log` line is local either way.
-
 Read the changed files around the diff, not only the diff. Read the issue the
 pull request closes. Read `CLAUDE.md` for the rules the change must satisfy.
 
-### Fix the commit before reading
+Four rules govern how a pass reads, and `references/reading-the-diff.md` gives
+the commands and the reasons:
 
-A branch moves while a review reads it. Take the head commit once and review
-that, so the findings describe one state of the tree:
-
-```sh
-git fetch origin <branch>
-commit=$(git rev-parse origin/<branch>)
-git show "$commit":<path>
-git diff origin/edge..."$commit"
-```
-
-The fetch is not optional. A cloud container clones a few branches at a shallow
-depth, so the branch under review is usually absent and `git show` fails on a
-commit the repository has never had.
-
-Do not read the change with `Read`, `Grep`, or `Glob`. Those read the working
-tree, which is whatever branch the session happens to sit on and is rarely the
-one under review. Where reading the tree is worth the setup, take a worktree
-that cannot move:
-
-```sh
-git worktree add --detach ../thndrs-worktrees/review-<n> "$commit"
-```
-
-Git allows that beside the worktree that holds the branch. Remove it when the
-pass ends.
-
-Write nothing inside the repository. A reviewer with no worktree of its own
-shares a checkout with whoever is writing there, and a findings file left in it
-is untracked work that belongs to nobody. Keep the comment body in the
-session's scratch directory.
+- Use the transport the `github-board` skill's Transport section names, `gh` or
+  the GitHub MCP tools, for the whole pass.
+- Fetch the branch first. A shallow cloud clone usually does not have it.
+- Pin the head commit once and review that commit, so every finding describes
+  one state of the tree.
+- Do not read the change with `Read`, `Grep`, or `Glob`, and write nothing
+  inside the repository. Both reach whatever branch the checkout sits on.
 
 ## Judge against something
 
@@ -101,6 +83,23 @@ A finding needs a source. Rank them:
 4. Behavior a user can observe.
 
 Taste alone is a `nit` at most. Model disagreement is not a finding.
+
+### Prose in the diff
+
+A diff touching `docs/`, `internal/`, `README.md`, `CHANGELOG.md`, or
+`.claude/` is a change under review like any other. Judge its prose against the
+`writing-docs` skill.
+
+| What you find                                    | Severity |
+| ------------------------------------------------ | -------- |
+| Documentation contradicts the code it describes  | `high`   |
+| User-visible behavior changed, documents did not | `medium` |
+| Past a soft limit or a length target             | `low`    |
+| Writing tells, heading case, term drift          | `nit`    |
+
+Length is a finding when a reader reaches the answer only by scrolling past
+something that repeats the code, the tests, or another page. Name that part and
+what it repeats. "Too long" on its own is not a finding.
 
 ## Finding format
 
@@ -121,6 +120,18 @@ One line per finding:
 State what breaks and with what input. A finding that cannot name a failing
 case is speculation; drop it or mark it `nit`.
 
+## Keep the report readable
+
+A report is prose in this repository, so the `writing-docs` length targets
+cover it too.
+
+- One line per finding, most severe first. No preamble, and no closing section
+  restating the lines above it.
+- Keep a comment under 40 lines. Past ten findings, give the ten that matter
+  and say how many `nit` rows you left out.
+- Cite `<path>:<line>` instead of quoting the diff back at its author.
+- Group repeats. One finding naming every site beats one finding per site.
+
 ## Which passes post
 
 Findings go to whoever invoked the pass, in full, every time. The question here
@@ -140,21 +151,17 @@ has to show it ran.
 
 The invoker says which pass this is. `/rev` takes it as an argument and the
 sequence in `.claude/skills/thunderstorm/SKILL.md` fixes it at dispatch. Do not
-infer it from the thread. A pass that found nothing leaves nothing behind, an
-`/edit` reply is signed and finding-shaped, and a comment can be edited or
-deleted after the fact, so the thread answers the question wrongly in three
-directions. Where no pass is named, this is a first pass: report to the invoker
-and do not post.
+infer it from the thread, which answers the question wrongly in three
+directions: a pass that found nothing leaves nothing behind, an `/edit` reply
+is signed and finding-shaped, and a comment can be edited or deleted after the
+fact. Where no pass is named, this is a first pass. Open each comment by naming
+the pass that wrote it, which is what makes a second-pass comment evidence that
+a first pass ran.
 
-Open a comment by naming the pass that wrote it. A second-pass comment is then
-the evidence that a first pass ran.
-
-A pass that does not comment still has to reach a human, and its findings are
-the next `/edit` pass's only input. Print them and return them to the invoker.
-An orchestrator that dispatched the pass hands them to `/edit` itself, and
-hands them to the second pass as well: "what survived the first" is not
-something the second pass can work out on its own, having never seen the
-first.
+A pass that posts nothing still owes its findings to the invoker, because they
+are the next `/edit` pass's only input. An orchestrator hands them to `/edit`
+and to the second pass both: "what survived the first" is not something the
+second pass can work out, having never seen the first.
 
 ## Post the findings
 
@@ -180,9 +187,8 @@ gh pr comment <n> --body-file <file>
 # MCP: add_issue_comment with issue_number set to the pull request number.
 ```
 
-Print the findings in chat whichever way the pass goes, including when nothing
-is posted. Ask before posting when no pull request is open, and never post to a
-repository the user did not name.
+Ask before posting when no pull request is open, and never post to a repository
+the user did not name.
 
 ## Stop conditions
 
