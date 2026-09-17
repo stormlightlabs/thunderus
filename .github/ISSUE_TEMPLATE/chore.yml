@@ -1,0 +1,61 @@
+name: Chore
+description: Tooling, CI, dependencies, cleanup, or repository housekeeping.
+labels: ["type:chore", "status:queued"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs doing
+      description: The work itself. One paragraph.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-now
+    attributes:
+      label: Why now
+      description: >
+        What this unblocks or what it costs to leave alone. Cleanup with no
+        consequence can wait.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How a reviewer decides this is done.
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - agent
+        - tui
+        - provider
+        - tools
+        - mcp
+        - acp
+        - session
+        - docs
+        - ci
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - low — contained, easy to revert
+        - medium — crosses a module or changes observable behavior
+        - high — touches released behavior, data, or security
+    validations:
+      required: true

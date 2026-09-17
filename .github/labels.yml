@@ -1,0 +1,111 @@
+# Label set for the thunderstorm workflow.
+# Apply with .claude/scripts/sync-labels.sh
+#
+# status:  exactly one per issue. The workflow's authoritative state.
+# blocked: required alongside status:blocked. Says why.
+# type:    what kind of change. Matches the commit type.
+# area:    what part of the system. Several allowed.
+# risk:    blast radius if the change is wrong.
+# run:     marks a parent issue whose sub-issues are the units of work.
+
+status:
+  - name: "status:queued"
+    color: "c5d9ed"
+    description: "Ready to work. No owner."
+  - name: "status:claimed"
+    color: "8ab4dd"
+    description: "Owned by a run. Worktree exists."
+  - name: "status:review"
+    color: "5a8fc4"
+    description: "Pull request open. Review passes in progress."
+  - name: "status:verify"
+    color: "2f5f96"
+    description: "Merged to edge. Waiting on human confirmation."
+  - name: "status:blocked"
+    color: "8b2f2f"
+    description: "Cannot proceed. Needs a blocked: reason."
+  - name: "status:done"
+    color: "2f6b3f"
+    description: "Released from main."
+  - name: "status:dropped"
+    color: "6e6e6e"
+    description: "Abandoned. Reason in a closing comment."
+
+blocked:
+  - name: "blocked:decision"
+    color: "c4633a"
+    description: "Needs a decision the issue does not record."
+  - name: "blocked:spec"
+    color: "c4633a"
+    description: "Acceptance criteria are missing or unverifiable."
+  - name: "blocked:upstream"
+    color: "c4633a"
+    description: "Waiting on a dependency or external change."
+  - name: "blocked:flake"
+    color: "c4633a"
+    description: "Blocked by a non-deterministic failure."
+
+type:
+  - name: "type:feat"
+    color: "7b5ea7"
+    description: "New behavior."
+  - name: "type:fix"
+    color: "7b5ea7"
+    description: "Wrong behavior corrected."
+  - name: "type:docs"
+    color: "7b5ea7"
+    description: "Documentation only."
+  - name: "type:refactor"
+    color: "7b5ea7"
+    description: "No behavior change."
+  - name: "type:test"
+    color: "7b5ea7"
+    description: "Test coverage only."
+  - name: "type:chore"
+    color: "7b5ea7"
+    description: "Tooling, CI, dependencies, housekeeping."
+
+area:
+  - name: "area:agent"
+    color: "3f8f87"
+    description: "thndrs-agent: loop, contracts, context control."
+  - name: "area:tui"
+    color: "3f8f87"
+    description: "Terminal interface and renderer."
+  - name: "area:provider"
+    color: "3f8f87"
+    description: "Provider adapters and wire formats."
+  - name: "area:tools"
+    color: "3f8f87"
+    description: "Built-in tools and execution policy."
+  - name: "area:mcp"
+    color: "3f8f87"
+    description: "MCP servers, catalog, and trust."
+  - name: "area:acp"
+    color: "3f8f87"
+    description: "ACP client and server modes."
+  - name: "area:session"
+    color: "3f8f87"
+    description: "Session persistence and transcripts."
+  - name: "area:docs"
+    color: "3f8f87"
+    description: "Docs site and internal documents."
+  - name: "area:ci"
+    color: "3f8f87"
+    description: "CI, release, packaging, repository tooling."
+
+risk:
+  - name: "risk:low"
+    color: "d9d27a"
+    description: "Contained. Easy to revert."
+  - name: "risk:medium"
+    color: "d9a03a"
+    description: "Crosses a module or changes observable behavior."
+  - name: "risk:high"
+    color: "b5442f"
+    description: "Touches released behavior, data, or security."
+
+run:
+  - name: "run"
+    color: "1f2933"
+    description: "Parent issue. Its sub-issues are the units of work."

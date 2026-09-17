@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://thndrs.stormlightlabs.org/docs/
+    about: Setup, configuration, sessions, diagnostics, and tool safety.
+  - name: Contributing
+    url: https://github.com/stormlightlabs/thunderus/blob/main/CONTRIBUTING.md
+    about: This project is not currently accepting outside contributions.

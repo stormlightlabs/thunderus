@@ -1,0 +1,87 @@
+name: Bug
+description: Something behaves differently than it should.
+labels: ["type:fix", "status:queued"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Observed behavior. Paste the error, output, or screenshot.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The smallest sequence that shows the problem. Include the command line,
+        the model if relevant, and the terminal size for interface problems.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`thndrs --version`, or the commit if built from source."
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, terminal emulator, and shell.
+      placeholder: Linux 6.18, WezTerm, zsh
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - agent
+        - tui
+        - provider
+        - tools
+        - mcp
+        - acp
+        - session
+        - docs
+        - ci
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      description: What the defect costs while it is unfixed.
+      options:
+        - low — contained, easy to revert
+        - medium — crosses a module or changes observable behavior
+        - high — touches released behavior, data, or security
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything already ruled out, or a suspected cause with evidence.
+    validations:
+      required: false

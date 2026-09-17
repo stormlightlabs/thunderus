@@ -1,0 +1,100 @@
+name: Task
+description: One unit of work a single run can finish. The default issue type.
+labels: ["status:queued"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A task is what `/impl` claims. Keep it to one change with one pull
+        request. If it needs several, open a Run instead and file these as its
+        sub-issues.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What needs to change
+      description: The change itself, not the background. One paragraph.
+      placeholder: Collapse the nested `if` in the instance percentage check so clippy passes under `-D warnings`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >
+        How a reviewer decides this is done. Each line must be checkable by
+        running something or reading something. A task with no verifiable
+        criteria gets `blocked:spec` and goes back.
+      value: |
+        - [ ]
+        - [ ]
+      placeholder: |
+        - [ ] `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` exits 0
+        - [ ] No behavior change; existing tests unchanged
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >
+        Where to start. Link the idea file, spec, failing run, or prior issue.
+        Name the files if you know them.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - agent
+        - tui
+        - provider
+        - tools
+        - mcp
+        - acp
+        - session
+        - docs
+        - ci
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      description: What happens if this change is wrong.
+      options:
+        - low — contained, easy to revert
+        - medium — crosses a module or changes observable behavior
+        - high — touches released behavior, data, or security
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type
+      options:
+        - feat
+        - fix
+        - docs
+        - refactor
+        - test
+        - chore
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: >
+        Adjacent work a run should file separately rather than absorb. Leave
+        empty if nothing comes to mind.
+    validations:
+      required: false

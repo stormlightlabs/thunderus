@@ -1,0 +1,73 @@
+name: Run
+description: A parent issue whose sub-issues are the units of work. One thunderstorm run.
+labels: ["run", "status:queued"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A run is the loop. It ends when every sub-issue reaches a terminal
+        state, the budget is spent, or a worker escalates. Add sub-issues after
+        opening this; they are the things `/impl` claims.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What is different when this run is finished.
+    validations:
+      required: true
+
+  - type: textarea
+    id: done-when
+    attributes:
+      label: Done when
+      description: >
+        The condition that ends the run, checkable without judgment. This is the
+        stop rule.
+      placeholder: |
+        Every sub-issue is status:done, and `cargo test --workspace` and
+        `pnpm --dir docs build` both pass on edge.
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: Planned sub-issues
+      description: >
+        One line each. File them as sub-issues after opening this, then link
+        them here. Do not nest deeper than one level.
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Source
+      description: The idea file, spec, or discussion this came from.
+    validations:
+      required: false
+
+  - type: textarea
+    id: not-in-this-run
+    attributes:
+      label: Not in this run
+      description: >
+        Scope this run must not absorb. A worker that finds work here files it
+        separately.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - low — contained, easy to revert
+        - medium — crosses a module or changes observable behavior
+        - high — touches released behavior, data, or security
+    validations:
+      required: true
