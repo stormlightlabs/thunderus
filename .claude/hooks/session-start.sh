@@ -51,15 +51,25 @@ pnpm --dir docs install --frozen-lockfile >&2 || echo "installing docs dependenc
 # the capture and wrong in the image is a freeze defect, not an application one.
 freeze_version=v0.2.2
 
-# go install writes to $(go env GOPATH)/bin, which is not on this image's PATH,
-# so an install that succeeds there still leaves a capture run with no renderer.
-# GOBIN puts the binary somewhere the shell looks.
-freeze_bin="${HOME:-/root}/.local/bin"
-mkdir -p "$freeze_bin" || echo "creating $freeze_bin failed" >&2
-GOBIN="$freeze_bin" go install "github.com/charmbracelet/freeze@${freeze_version}" >&2 ||
-  echo "installing freeze ${freeze_version} failed" >&2
+# go install writes to $(go env GOPATH)/bin, which this image does not carry on
+# PATH, so an install that succeeds there still leaves a capture run with no
+# renderer. GOBIN puts the binary where the shell looks, and go install creates
+# that directory. Without HOME there is no directory to guess, so that case
+# reports rather than writing to an invented path.
+if [ -n "${HOME:-}" ]; then
+  freeze_bin="$HOME/.local/bin"
+  GOBIN="$freeze_bin" go install "github.com/charmbracelet/freeze@${freeze_version}" >&2 ||
+    echo "installing freeze ${freeze_version} into $freeze_bin failed" >&2
+else
+  echo "HOME is unset, so there is nowhere on PATH to install freeze" >&2
+fi
 
-# An install that landed off PATH is indistinguishable from no install at all
-# for whoever renders a capture, and only the binary being reachable says which
-# happened.
-command -v freeze >&2 || echo "freeze is not on PATH; captures render as ANSI text alone" >&2
+# A freeze on PATH is not necessarily the one just installed. An install that
+# failed behind an older binary would otherwise look like a success, and the
+# attribute losses recorded above hold for one version. Comparing the version
+# reports both cases; a format change in that line reports a false miss, which
+# costs a message and never the run.
+installed=$(freeze --version 2>/dev/null) || installed=""
+if [ "$installed" != "freeze version ${freeze_version}" ]; then
+  echo "freeze ${freeze_version} is not on PATH (found ${installed:-nothing}); captures render as ANSI text alone" >&2
+fi
