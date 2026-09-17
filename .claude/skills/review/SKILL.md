@@ -21,6 +21,25 @@ current branch.
 An adversarial pass assumes the standard passes already ran. It looks for what
 they would miss, not for the same findings again.
 
+### Complexity
+
+Both passes weigh complexity, because a defect is cheaper to prevent than to
+find. Ask of each change:
+
+- Is this harder than the problem it solves? Name the simpler version and what
+  it would cost.
+- Does it add a trait, a layer, or a configuration point that one concrete
+  helper would cover? `CLAUDE.md` asks for traits only at real boundaries.
+- How many things must a reader hold at once to know this is correct? A branch
+  nested inside a closure inside a retry is three.
+- Does it repeat something the codebase already does, under a new name?
+- Could a check replace the care this asks of the next person to touch it?
+
+Report complexity the way you report a defect: what it costs, and what to do
+instead. "Simpler would be better" without a concrete alternative is not a
+finding. A change that is merely longer than you would have written it is not
+either.
+
 ## Gather context first
 
 The `github-board` skill's Transport section decides whether this run uses `gh`
