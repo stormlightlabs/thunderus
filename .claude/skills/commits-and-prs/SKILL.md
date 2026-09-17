@@ -108,4 +108,5 @@ that does not describe a behavior change.
 
 - Pad a body to look thorough.
 - Claim a check ran when it did not.
-- Sign a commit as a model. Review comments carry signatures; commits do not.
+- Sign a commit body as a model. A review comment carries a signature; a commit
+  carries the trailers under [Attribution](#attribution) and nothing else.
