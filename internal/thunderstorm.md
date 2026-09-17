@@ -85,15 +85,40 @@ rename that only adds the new name leaves the old one in the picker, teaching
 the next contributor a rule that no longer holds. Apply it with
 `.claude/scripts/sync-labels.py`.
 
+## Stages
+
+Work moves through these. The bracketed stage is skipped whenever it would add
+nothing.
+
+```text
+/r-d          an idea            internal/ideas/
+[/spec-ify]   a design           internal/features/<name>/plan.md
+/decomp       an epic and sub-issues
+/impl         a pull request
+/rev, /adv-rev, /edit            review passes and their fixes
+a human       merges to edge
+```
+
+A spec is written only when a sub-issue's stop rule cannot be written without
+deciding something first. Most work skips it: a finding, a bug, or a chore
+usually arrives with its criteria already stated, and a spec for one of those
+is a summary with more words.
+
+`decompose` is where a document becomes claimable work, and it is the only
+stage that files issues. `github-board` performs those writes but decides
+nothing about what to write.
+
 ## Commands
 
-| Command                | Argument            | Does                                                                |
-| ---------------------- | ------------------- | ------------------------------------------------------------------- |
-| `/r-d`, `/rubber-duck` | A topic             | Design discussion. Writes an entry to `internal/ideas/` on request. |
-| `/impl`, `/implement`  | Issue number        | Claims the issue, works it in a worktree, opens a pull request.     |
-| `/rev`                 | Branch or PR number | Standard review pass. Posts findings as comments.                   |
-| `/adv-rev`             | Branch or PR number | Adversarial review pass. Posts findings as comments.                |
-| `/edit`, `/revise`     | PR number           | Addresses review comments on that pull request.                     |
+| Command                 | Argument                  | Does                                                                               |
+| ----------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
+| `/r-d`, `/rubber-duck`  | A topic                   | Design discussion. Writes an entry to `internal/ideas/` on request.                |
+| `/spec-ify`, `/specify` | An idea or topic          | One design to `internal/features/<name>/plan.md`. Only when a decision is missing. |
+| `/decomp`, `/decompose` | An idea, spec, or finding | Files one epic and the sub-issues under it.                                        |
+| `/impl`, `/implement`   | Issue number              | Claims the issue, works it in a worktree, opens a pull request.                    |
+| `/rev`                  | Branch or PR number       | Standard review pass. Posts findings as comments.                                  |
+| `/adv-rev`              | Branch or PR number       | Adversarial review pass. Posts findings as comments.                               |
+| `/edit`, `/revise`      | PR number                 | Addresses review comments on that pull request.                                    |
 
 ## Review sequence
 
@@ -217,6 +242,7 @@ changes once assigned. Update `last_updated` when the content changes.
 | `.claude/settings.json` | Hook and permission configuration. Tracked.                    |
 | `internal/`             | Plans, specs, ideas, QA notes. Not published by the docs site. |
 | `internal/ideas/`       | Output of rubber-duck sessions.                                |
+| `internal/features/`    | One directory per feature track, holding its `plan.md`.        |
 | `CLAUDE.md`             | Repository instructions. `AGENTS.md` symlinks here.            |
 
 ## Skills
@@ -231,6 +257,8 @@ changes once assigned. Update `last_updated` when the content changes.
 | `worktree`        | Provisioning, build isolation, removal.                      |
 | `release`         | `edge` to `main`, tag, changelog, publish.                   |
 | `rubber-duck`     | Design discussion and idea files.                            |
+| `specify`         | One design, when issues need a decision made first.          |
+| `decompose`       | Cutting an idea or spec into an epic and its sub-issues.     |
 | `writing-docs`    | Prose in the docs site, `internal/`, and chat.               |
 | `commits-and-prs` | Commit messages, pull request bodies, changelog entries.     |
 
