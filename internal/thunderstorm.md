@@ -44,8 +44,13 @@ them. Two are load-bearing:
 
 A cloud container starts with no Cargo registry, no `target/`, and no
 `docs/node_modules`, so `.claude/hooks/session-start.sh` warms the first and
-third before the session begins. It exits immediately outside the cloud, where
-a checkout already has them. `.claude/settings.json` registers it.
+third before the session begins. It also runs `rustup update stable`, because
+the image pins whatever stable was current when it was built while CI installs
+the current one, and a check that passes against the older compiler can still
+fail on CI. The 1.88 job is what guards compatibility, not the age of the
+toolchain a session happens to hold. The hook exits immediately outside the
+cloud, where a checkout already has all of this.
+`.claude/settings.json` registers it.
 
 ## Statuses
 

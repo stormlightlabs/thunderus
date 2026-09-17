@@ -13,6 +13,13 @@ fi
 
 cd "${CLAUDE_PROJECT_DIR:-.}"
 
+# The image ships whatever stable was current when it was built, while CI
+# installs the current stable on every run. Checks that pass here then fail
+# there on lints the older compiler does not have yet. The MSRV job at 1.88 is
+# what guards compatibility, so tracking stable here costs a few seconds and
+# removes the gap.
+rustup update stable >&2 || echo "updating the stable toolchain failed" >&2
+
 # Neither cache depends on the other, so a registry failure must not also leave
 # the docs cold. Each step reports and carries on.
 #
