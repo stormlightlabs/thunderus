@@ -103,7 +103,11 @@ composer costs a live model call and differs from the one before it.
   craft, stability, and voice, each scored 0 to 2, any zero blocking
   completion.
 
-## Open
+## Open questions, now decided
+
+All three are answered in `../features/tui-verification/plan.md`
+(`01M2RNSY07A522766KBV2DPR41`). They stay here as the record of what that spec
+had to settle.
 
 Whether comparative captures run in the container or on a local machine. Freeze
 embeds JetBrains Mono and depends on no system font, so container captures are
