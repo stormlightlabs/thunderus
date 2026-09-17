@@ -1371,4 +1371,51 @@ mod tests {
 
         assert!(Cli::try_parse_from(["thndrs", "context", "--include-content"]).is_err());
     }
+
+    /// Every command path in the tree, paired with its rendered long help.
+    fn help_tree(command: &clap::Command, path: &str) -> Vec<(String, String)> {
+        let mut owned = command.clone();
+        let mut rendered = vec![(path.to_string(), owned.render_long_help().to_string())];
+        for subcommand in command.get_subcommands() {
+            let child = format!("{path} {}", subcommand.get_name());
+            rendered.extend(help_tree(subcommand, &child));
+        }
+        rendered
+    }
+
+    #[test]
+    fn top_level_commands_are_the_published_set() {
+        let command = Cli::command();
+        let names: Vec<&str> = command.get_subcommands().map(clap::Command::get_name).collect();
+
+        assert_eq!(
+            names,
+            vec![
+                "setup", "login", "logout", "auth", "doctor", "config", "acp", "mcp", "skills", "run", "review",
+                "context", "usage", "session", "debug",
+            ]
+        );
+    }
+
+    #[test]
+    fn no_help_output_advertises_a_fixture_generator() {
+        for (path, help) in help_tree(&Cli::command(), "thndrs") {
+            assert!(
+                !help.to_lowercase().contains("fixture"),
+                "`{path} --help` mentions fixtures; the generator is not a user-visible command"
+            );
+        }
+
+        for argv in [
+            ["thndrs", "fixtures"],
+            ["thndrs", "fixture"],
+            ["thndrs", "session-fixtures"],
+        ] {
+            assert!(
+                Cli::try_parse_from(argv).is_err(),
+                "`{}` parses as a command",
+                argv.join(" ")
+            );
+        }
+    }
 }

@@ -13,6 +13,7 @@ mod context_changes;
 mod context_export;
 mod contracts;
 mod export;
+pub mod fixtures;
 mod inventory;
 mod lifecycle;
 mod reader;
