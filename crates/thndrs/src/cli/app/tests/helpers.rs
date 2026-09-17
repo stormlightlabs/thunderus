@@ -60,6 +60,29 @@ pub fn with_provider_env_removed<T>(f: impl FnOnce() -> T) -> T {
     result
 }
 
+/// A synthetic ChatGPT Codex access token carrying the `chatgpt_account_id`
+/// claim that [`crate::thndrs_core::auth::chatgpt_account_id_from_jwt`] reads.
+///
+/// The signature is not verified, so the token only has to decode.
+pub const CHATGPT_CODEX_TEST_TOKEN: &str =
+    "header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF90ZXN0In19.sig";
+
+/// A synthetic stored ChatGPT Codex credential.
+///
+/// Write it inside [`with_setup_home`] so provider authentication reads this
+/// instead of the credential file belonging to whoever runs the test. Keeping
+/// the credential in the file rather than the environment also preserves the
+/// stored-credential recovery path, which the environment token would replace
+/// with the rejected-environment-credential path.
+pub fn chatgpt_codex_test_credentials() -> auth::ChatGptCodexCredentials {
+    auth::ChatGptCodexCredentials {
+        access_token: CHATGPT_CODEX_TEST_TOKEN.to_string(),
+        refresh_token: "refresh-token-test".to_string(),
+        expires_at_ms: u64::MAX,
+        account_id: "acct_test".to_string(),
+    }
+}
+
 pub fn with_setup_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
     let _guard = crate::test_env::lock();
     let old_home = std::env::var_os("HOME");

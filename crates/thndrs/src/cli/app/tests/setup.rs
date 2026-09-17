@@ -117,7 +117,10 @@ fn opencode_provider_failure_is_actionable_and_restores_prompt_draft() {
 
 #[test]
 fn chatgpt_provider_failure_opens_browser_reauthentication_and_restores_prompt_draft() {
-    with_provider_env_removed(|| {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    with_setup_home(&home, || {
+        auth::write_chatgpt_codex_credentials(&chatgpt_codex_test_credentials()).expect("seed credential");
         let mut app = fresh_app();
         app.runtime.model = "chatgpt-codex/gpt-5.5".to_string();
         app.runtime.cli.model = app.runtime.model.clone();
