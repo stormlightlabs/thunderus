@@ -141,8 +141,9 @@ No new route was needed, and the fake route cannot stand in for a real one.
 (`crates/thndrs/src/core/agent.rs:65`), which emits scripted events in process.
 Tests in `crates/thndrs/src/cli/app/tests/setup.rs` and
 `crates/thndrs/src/cli/mod.rs` hold that under an empty `HOME` with no provider
-environment variable set: a whole turn on the route dispatches no provider
-request and leaves every credential store absent.
+environment variable set. One reaches the surface with every credential store
+absent; the other seeds a credential a real provider would load, and asserts the
+turn dispatches nothing and leaves that store byte-identical.
 
 ## Evidence
 
