@@ -1,7 +1,8 @@
 //! `thndrs` library entrypoint.
 //!
-//! Terminal setup, command routing, and the interactive loop live in
-//! [`runtime`]; this module keeps the public library surface small.
+//! Terminal setup, command routing, and the interactive loop live in the
+//! private `runtime` module; this module keeps the public library surface
+//! small.
 
 pub mod cli;
 pub mod server;
