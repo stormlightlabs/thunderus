@@ -63,8 +63,9 @@ layout defect.
 
 A capture set is comparable to the one before it only if the transcript behind
 it is identical, so every scenario past `startup` loads a session fixture and no
-scenario sends a prompt. `--session-dir` is global
-(`crates/thndrs/src/cli/mod.rs:278`) and `/resume <session-id>` already exists
+scenario sends a prompt. `--session-dir` is a top-level flag rather
+than a global one (`crates/thndrs/src/cli/mod.rs:278`), so it goes before any
+subcommand, and `/resume <session-id>` already exists
 (`crates/thndrs/src/cli/app/commands.rs:80`), so a fixture directory plus a
 resume reaches a populated transcript with no model call.
 
