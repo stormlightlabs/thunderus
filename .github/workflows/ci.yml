@@ -64,6 +64,12 @@ jobs:
     name: Commit messages
     # Only a pull request has a range to check. A push to edge or main carries
     # commits that were already checked on the branch they came from.
+    #
+    # This job reports and never fails. A message is cheap to fix while it sits
+    # in the editor, which is where the commit-msg hook catches it, and dear to
+    # fix afterwards: rewriting a pushed branch to correct a character count
+    # costs more than the character count is worth. The warnings and the job
+    # summary keep the state visible without gating the branch on it.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -71,10 +77,19 @@ jobs:
         with:
           # The default shallow clone cannot see the base commit.
           fetch-depth: 0
-      - name: Check every commit message on the branch
+      - name: Report every commit message on the branch
         run: |
-          .claude/scripts/check-commit-message.py --range \
-            "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          .claude/scripts/check-commit-message.py --warn --range \
+            "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
+            | tee "$RUNNER_TEMP/commits.txt"
+          {
+            echo "### Commit messages"
+            echo
+            echo '```text'
+            # The ::warning:: lines are annotations, not summary content.
+            grep -v '^::' "$RUNNER_TEMP/commits.txt" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   msrv:
     name: Rust 1.88 compatibility

@@ -20,12 +20,18 @@ it.
 
 Types used here: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`.
 
-`.claude/scripts/check-commit-message.py` enforces the shape: the type, the
-60-character subject, the blank line, and the 72-column body. Enable it locally
-once with `git config core.hooksPath .githooks`; CI runs the same script over a
-pull request's commits either way, so an unconfigured checkout is caught late
-rather than never. Fenced blocks, trailers, and unbreakable strings such as URLs
-are exempt from the column limit.
+`.claude/scripts/check-commit-message.py` checks the shape: the type, the
+60-character subject, the blank line, and the 72-column body. Fenced blocks,
+trailers, and unbreakable strings such as URLs are exempt from the column limit.
+
+It runs in two places and only one of them blocks. Enable the hook locally once
+with `git config core.hooksPath .githooks`, and it rejects a message while that
+message is still in the editor, where fixing it costs a keystroke. CI runs the
+same script over a pull request's commits with `--warn`: the violations appear
+as annotations and in the job summary, and the job passes anyway, because the
+only way to correct a pushed message is to rewrite history that someone may
+already have pulled. A rule worth a rebase is a rule worth catching at the
+hook.
 
 The subject says what changed. The body says why, and only when the why is not
 obvious from the diff. A one-line commit is correct when the change explains

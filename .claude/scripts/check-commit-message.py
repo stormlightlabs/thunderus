@@ -6,11 +6,19 @@ range:
 
     check-commit-message.py .git/COMMIT_EDITMSG
     check-commit-message.py --range origin/edge..HEAD
+    check-commit-message.py --range origin/edge..HEAD --warn
 
-Exits non-zero and names every violation. The limits below are the whole
-policy; change them here and the hook, CI, and the skill stay in step.
+Without `--warn` a violation exits non-zero, which is what the commit-msg hook
+wants: the message is still in the editor and costs nothing to fix. With
+`--warn` the same violations are reported and the exit code stays zero, which
+is what CI wants, because the only way to fix a message already pushed is to
+rewrite history that someone may have pulled.
+
+The limits below are the whole policy; change them here and the hook, CI, and
+the skill stay in step.
 """
 
+import os
 import re
 import subprocess
 import sys
@@ -74,8 +82,10 @@ def check(message: str) -> list[str]:
 
 def main() -> int:
     argv = sys.argv[1:]
+    warn = "--warn" in argv
+    argv = [argument for argument in argv if argument != "--warn"]
     if not argv:
-        sys.exit("usage: check-commit-message.py <file> | --range <revisions>")
+        sys.exit("usage: check-commit-message.py <file> | --range <revisions> [--warn]")
 
     if argv[0] == "--range":
         if len(argv) != 2:
@@ -92,6 +102,11 @@ def main() -> int:
         with open(argv[0], encoding="utf-8") as handle:
             entries = [handle.read()]
 
+    # Warnings are results rather than errors, so they belong on stdout where a
+    # job summary or a pipe can pick them up.
+    stream = sys.stdout if warn else sys.stderr
+    annotate = warn and os.environ.get("GITHUB_ACTIONS") == "true"
+
     failed = 0
     for entry in entries:
         if argv[0] == "--range":
@@ -106,18 +121,25 @@ def main() -> int:
                 (line for line in message.splitlines() if not line.startswith("#")),
                 "",
             )
-            print(f"{label}{subject}", file=sys.stderr)
+            print(f"{label}{subject}", file=stream)
             for problem in problems:
-                print(f"  {problem}", file=sys.stderr)
+                print(f"  {problem}", file=stream)
+            if annotate:
+                joined = "; ".join(problems)
+                print(f"::warning title=Commit message::{label}{joined}")
 
-    if failed:
-        print(
-            f"\n{failed} commit message(s) rejected. The rules live in "
-            ".claude/skills/commits-and-prs/SKILL.md.",
-            file=sys.stderr,
-        )
-        return 1
-    return 0
+    total = len(entries)
+    if not failed:
+        print(f"{total} commit message(s) checked, all clean.", file=stream)
+        return 0
+
+    verdict = "carry warnings" if warn else "rejected"
+    print(
+        f"\n{failed} of {total} commit message(s) {verdict}. The rules live in "
+        ".claude/skills/commits-and-prs/SKILL.md.",
+        file=stream,
+    )
+    return 0 if warn else 1
 
 
 if __name__ == "__main__":
