@@ -151,6 +151,15 @@ export default defineConfig({
               ],
             },
             {
+              label: "Agent Workflow",
+              collapsed: true,
+              items: [
+                { label: "Loop Engineering", slug: "docs/notebook/loop-engineering" },
+                { label: "Worktrees", slug: "docs/notebook/worktrees" },
+                { label: "Task Boards", slug: "docs/notebook/agent-task-boards" },
+              ],
+            },
+            {
               label: "Prompts",
               collapsed: true,
               items: [
