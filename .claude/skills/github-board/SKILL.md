@@ -181,8 +181,9 @@ pull request, then sync.
 ## Rules
 
 - One writer at a time. Two runs editing one issue produce a board nobody trusts.
-- Do not close an issue to express any state other than `dropped`. `status:done`
-  is set at release.
+- Open and closed is not the status; the `status:*` label is. A pull request
+  carrying `Closes #N` closes its issue on merge, so `status:verify` and
+  `status:done` are set on an issue that is already closed.
 - Do not edit an issue body written by a human. Add a comment instead.
 - Do not invent labels. The set lives in `.github/labels.yml`.
 - Report what changed. A status transition nobody announced is a transition

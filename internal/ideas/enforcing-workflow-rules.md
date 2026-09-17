@@ -106,8 +106,8 @@ merge, which is what the keyword is for. Issue #8 is closed now, labelled
 
 Honouring that rule would mean banning closing keywords, or reopening issues by
 hand after every merge. A check written from it would fire on every issue the
-workflow completes. Delete the rule. `status:verify` and `status:done` describe
-a release, and the release is where they belong.
+workflow completes. The rule is gone from `github-board`, which now says the
+`status:*` label carries the status and open-or-closed does not.
 
 Shipping a check does not oblige deleting the prose. Step 3 of Recording a
 failure mode says to delete guidance once a check covers it, because a rule

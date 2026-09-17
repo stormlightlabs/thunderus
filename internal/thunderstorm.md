@@ -72,7 +72,11 @@ Status is a label. One status label per issue.
 
 `status:claimed` for more than 24 hours with no pull request returns to
 `status:queued` and its worktree is removed. `status:blocked` for more than 7
-days goes to the triage inbox. Nothing closes automatically.
+days goes to the triage inbox.
+
+A merging pull request closes the issue its body names with `Closes #N`. An
+issue therefore reaches `status:verify` and `status:done` already closed. The
+label carries the status; open and closed does not.
 
 An epic carries no status. It is not work, so there is nothing to claim, and
 duplicating its sub-issues' state on the parent gives that copy somewhere to
