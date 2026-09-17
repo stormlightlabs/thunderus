@@ -56,10 +56,11 @@ the current one, and a check that passes against the older compiler can still
 fail on CI. The 1.88 job is what guards compatibility, not the age of the
 toolchain a session happens to hold. It installs `freeze` at a pinned version
 too, because a container carries no renderer and a capture run there would
-otherwise produce ANSI text nobody can look at. Every step reports a failure to
-stderr and carries on, so a missing renderer costs a picture rather than a run.
-The hook exits immediately outside the cloud, where a checkout already has all
-of this.
+otherwise produce ANSI text nobody can look at. No step's failure fails the
+hook, so a missing renderer costs a picture rather than a run, and
+`.claude/hooks/session-start-test.py` holds that rule in place against stub
+toolchains. The hook exits immediately outside the cloud, where a checkout
+already has all of this.
 `.claude/settings.json` registers it.
 
 ## Statuses
