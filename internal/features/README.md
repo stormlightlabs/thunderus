@@ -31,6 +31,10 @@ Write the plan with `/spec-ify`, then file the work with `/decomp`.
 changes how interface work is reviewed rather than what ships, so it blocks
 nothing above and nothing above blocks it.
 
+[Transcript](transcript/plan.md) sits outside it too. It decides the
+vocabulary the `## UI` items in `../BUGS.md` are cut from, and nothing in the
+table depends on that vocabulary.
+
 ### Task Index
 
 - [MCP tasks](mcp/tasks.md)

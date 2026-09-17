@@ -180,3 +180,7 @@ rewrite.
 Snapshot tests, the release checklist in `internal/qa/README.md`, and the
 provider smoke tests are all unchanged. A capture set is evidence for a review,
 and none of those three is a review.
+
+What the frames should show. A capture records what the interface did, and
+`../transcript/plan.md` (`01M2RP8M7WPM6D6SMA4TF6ZHKW`) decides the vocabulary a
+reviewer reads it against.
