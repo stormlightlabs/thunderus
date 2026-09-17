@@ -39,9 +39,11 @@ cargo fetch --locked >&2 || echo "warming the cargo registry failed" >&2
 # --frozen-lockfile matches the docs job in .github/workflows/ci.yml.
 pnpm --dir docs install --frozen-lockfile >&2 || echo "installing docs dependencies failed" >&2
 
-# freeze renders a committed .ansi capture to a picture for whoever wants to
-# look at one. No image is committed, so a missing renderer costs a picture and
-# never a capture run: this reports and carries on like the steps above.
+# freeze renders a capture to an image for whoever wants to look at one. The
+# harness writes its .ansi files to ignored scratch space and posts the frames
+# to the pull request as stripped text, so a missing renderer costs that image
+# and never a capture run: this reports and carries on like the steps above.
+# internal/features/tui-verification/plan.md holds the rest of that decision.
 #
 # v0.2.2 drops \e[3m italic, \e[2m dim, \e[7m reverse, and basic backgrounds,
 # and renders bold, underline, every foreground, 256-color backgrounds, and

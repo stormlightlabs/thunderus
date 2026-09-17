@@ -21,6 +21,7 @@ session's context, and a package list there costs tokens on every session.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -30,6 +31,12 @@ HOOK = HOOKS / "session-start.sh"
 REPOSITORY = HOOKS.parent.parent
 
 TOOLS = ("rustup", "cargo", "pnpm", "go")
+
+# The stubs are the whole PATH, so a freeze the machine already carries cannot
+# answer for one the hook installed. Nothing else on PATH is needed: the hook
+# calls no other command, and bash is launched by the path it resolves to here
+# rather than through the PATH the hook is handed.
+BASH = shutil.which("bash") or "/bin/bash"
 
 failures: list[str] = []
 
@@ -65,7 +72,7 @@ def run(
         log = directory / "calls.txt"
         log.touch()
         environment = {
-            "PATH": f"{binaries}:/usr/bin:/bin",
+            "PATH": str(binaries),
             "STUB_LOG": str(log),
             "CLAUDE_PROJECT_DIR": str(REPOSITORY),
         }
@@ -74,7 +81,7 @@ def run(
         if home:
             environment["HOME"] = str(directory / "home")
         completed = subprocess.run(
-            ["bash", str(HOOK)], env=environment, capture_output=True, text=True, check=False
+            [BASH, str(HOOK)], env=environment, capture_output=True, text=True, check=False
         )
         return completed, log.read_text()
 
