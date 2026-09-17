@@ -54,14 +54,19 @@ labels_present() {
   gh label list --limit 200 --json name --jq '.[].name' </dev/null
 }
 
-# How many issues carry a label. A query that fails or answers with something
-# other than a number must not read as "no issues use this label": deleting a
-# label strips it from every issue carrying it, so an unreadable count is a
-# refusal, not a zero.
+# How many issues and pull requests carry a label. A query that fails or answers
+# with something other than a number must not read as "nothing uses this label":
+# deleting a label strips it from everything carrying it, so an unreadable count
+# is a refusal, not a zero.
+#
+# The REST issues endpoint is used rather than `gh issue list` because that
+# command omits pull requests, which carry labels just as issues do. Passing the
+# name as a query field keeps labels with spaces, such as "good first issue",
+# encoded correctly.
 issues_with_label() {
   local label="$1" count
-  if ! count=$(gh issue list --state all --label "$label" --limit 1 \
-    --json number --jq 'length' </dev/null); then
+  if ! count=$(gh api -X GET "repos/{owner}/{repo}/issues" \
+    -f state=all -f labels="$label" -F per_page=1 --jq 'length' </dev/null); then
     return 1
   fi
   case "$count" in
@@ -124,11 +129,11 @@ for label in "${STOCK[@]}"; do
     continue
   fi
   if ! count=$(issues_with_label "$label"); then
-    echo "  skipping '$label': could not read how many issues carry it"
+    echo "  skipping '$label': could not read what carries it"
     continue
   fi
   if [ "$count" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
-    echo "  skipping '$label': still applied to at least one issue (use --force)"
+    echo "  skipping '$label': still applied to an issue or pull request (use --force)"
     continue
   fi
   run gh label delete "$label" --yes
@@ -153,7 +158,7 @@ done < <(parse_manifest "$MANIFEST")
 for label in "${STOCK[@]}"; do
   if grep -qxF "$label" <<<"$final"; then
     if ! count=$(issues_with_label "$label"); then
-      echo "  still present: $label, and its issue count could not be read"
+      echo "  still present: $label, and what carries it could not be read"
       failed=1
     elif [ "$count" -eq 0 ]; then
       echo "  still present: $label"
