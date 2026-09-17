@@ -807,8 +807,9 @@ fn accepting_model_picker_selection_saves_project_config() {
 #[test]
 fn fake_agent_model_reaches_the_transcript_surface_without_a_credential() {
     let home = tempfile::tempdir().expect("create temp home");
+    let workspace = tempfile::tempdir().expect("create temp workspace");
     with_setup_home(home.path(), || {
-        let cwd = home.path().to_path_buf();
+        let cwd = workspace.path().to_path_buf();
         let cli = Cli { cwd: cwd.clone(), model: "fake-agent".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.session.writer = None;
@@ -854,8 +855,9 @@ fn fake_agent_model_reaches_the_transcript_surface_without_a_credential() {
 #[test]
 fn a_turn_on_the_fake_route_dispatches_nothing_and_touches_no_credential() {
     let home = tempfile::tempdir().expect("create temp home");
+    let workspace = tempfile::tempdir().expect("create temp workspace");
     with_setup_home(home.path(), || {
-        let cwd = home.path().to_path_buf();
+        let cwd = workspace.path().to_path_buf();
         let store = auth::project_credentials_path(&cwd);
         auth::set_credential(&store, auth::OPENCODE_ZEN_KEY_ENV, "seeded-key-no-run-may-use")
             .expect("seed a credential a real provider would load");
@@ -886,7 +888,13 @@ fn a_turn_on_the_fake_route_dispatches_nothing_and_touches_no_credential() {
         assert_eq!(
             auth::read_credentials(&store).expect("read store after the turn"),
             seeded,
-            "the route must leave the credential store byte-identical"
+            "the route must leave the project credential store byte-identical"
+        );
+        assert!(
+            !auth::global_credentials_path()
+                .expect("global credential path")
+                .exists(),
+            "the route must not copy the credential into the global store"
         );
     });
 }

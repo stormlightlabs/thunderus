@@ -1380,8 +1380,13 @@ mod tests {
     /// `is_explicit_setup_recovery` skips the check entirely whenever `--model`
     /// is on the command line. A `--model` spelling of this test would load for
     /// a retired provider too, and so would prove nothing.
+    ///
+    /// `HOME` is pointed at a temporary directory because `load_effective`
+    /// reads the global config before the project layer, and an unparseable one
+    /// belonging to whoever runs the test would fail the load.
     #[test]
     fn fake_agent_model_survives_the_unsupported_route_check() {
+        let home = tempfile::tempdir().expect("create temp home");
         let tmp = tempfile::tempdir().expect("create temp dir");
         let workspace = tmp.path().join("workspace");
         fs::create_dir_all(workspace.join(".thndrs")).expect("create project config dir");
@@ -1391,9 +1396,11 @@ mod tests {
         )
         .expect("write project config");
 
-        let cli = Cli::try_parse_configured_from_env(["thndrs", "--cwd", &workspace.display().to_string()], &[])
-            .expect("parse args")
-            .expect("load config");
+        let cli = crate::test_env::with_home(home.path(), || {
+            Cli::try_parse_configured_from_env(["thndrs", "--cwd", &workspace.display().to_string()], &[])
+                .expect("parse args")
+                .expect("load config")
+        });
 
         assert_eq!(cli.model, "fake-agent");
         assert!(!commands::setup::model_uses_unsupported_route(&cli.model));

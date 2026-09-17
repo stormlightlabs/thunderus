@@ -95,8 +95,9 @@ whether the two frames were even of the same thing. So every scenario past
 `--session-dir` is a top-level flag rather than a global one
 (`crates/thndrs/src/cli/mod.rs:278`), so it goes before any subcommand, and
 `/resume <session-id>` already exists
-(`crates/thndrs/src/cli/app/commands.rs:80`), so a fixture directory plus a
-resume reaches a populated transcript with no model call.
+(`crates/thndrs/src/cli/app/commands.rs:80`), so a scratch session directory
+holding the fixture, plus a resume, reaches a populated transcript with no model
+call. That directory is the `<scratch>` the launch line below passes.
 
 Fixtures are generated from typed records, not recorded and not hand-written.
 `SessionRecord` is a serde-tagged enum whose every variant carries
@@ -141,9 +142,11 @@ No new route was needed, and the fake route cannot stand in for a real one.
 (`crates/thndrs/src/core/agent.rs:65`), which emits scripted events in process.
 Tests in `crates/thndrs/src/cli/app/tests/setup.rs` and
 `crates/thndrs/src/cli/mod.rs` hold that under an empty `HOME` with no provider
-environment variable set. One reaches the surface with every credential store
-absent; the other seeds a credential a real provider would load, and asserts the
-turn dispatches nothing and leaves that store byte-identical.
+environment variable set, and with the workspace and the home directory kept
+apart so the project and global stores are separate files. One reaches the
+surface with both stores absent; the other seeds a credential a real provider
+would load, and asserts the turn dispatches nothing, leaves that store
+byte-identical, and writes nothing to the other.
 
 ## Evidence
 
