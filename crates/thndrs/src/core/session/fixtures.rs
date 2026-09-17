@@ -50,9 +50,10 @@ const FIXTURE_STEP_SECONDS: u64 = 7;
 /// Scratch directory for generated fixtures, under the workspace root.
 const DEFAULT_FIXTURE_DIR: [&str; 3] = ["target", "tui-fixtures", "sessions"];
 
-/// Directories between this crate's manifest and the workspace root:
-/// `<workspace>/crates/thndrs`.
-const CRATE_DEPTH_FROM_WORKSPACE_ROOT: usize = 2;
+/// Manifest key that marks a workspace root. Only the root manifest carries a
+/// top-level `workspace` table; a member's `workspace = true` inheritance sits
+/// under `[package]`.
+const WORKSPACE_MANIFEST_KEY: &str = "workspace";
 
 /// One capture scenario that resumes a fixture session.
 ///
@@ -338,19 +339,19 @@ impl FixtureBuilder {
 ///
 /// Absolute, under the workspace root's `target/`, which `.gitignore` covers,
 /// so a generation run leaves the working tree clean. The path is anchored at
-/// this crate's manifest rather than at the current directory: `cargo run`
-/// inherits the directory it was invoked from, and `/target` in `.gitignore`
-/// matches the workspace root alone, so a relative path resolved from
-/// `crates/thndrs` would write eleven tracked-looking files.
-pub fn default_fixture_dir() -> PathBuf {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let root = manifest
-        .ancestors()
-        .nth(CRATE_DEPTH_FROM_WORKSPACE_ROOT)
-        .unwrap_or(manifest);
-    DEFAULT_FIXTURE_DIR
-        .iter()
-        .fold(root.to_path_buf(), |path, part| path.join(part))
+/// the workspace rather than at the current directory: `cargo run` inherits the
+/// directory it was invoked from, and `/target` in `.gitignore` matches the
+/// workspace root alone, so a relative path resolved from `crates/thndrs` would
+/// write eleven tracked-looking files.
+///
+/// The root is the nearest manifest at or above this crate carrying
+/// `[workspace]`, read at runtime rather than counted in directories, so a
+/// layout change fails here instead of naming a directory git does not ignore.
+/// A build with no workspace above it, such as one from a registry copy of this
+/// crate, has no such directory and is an error rather than a guess.
+pub fn default_fixture_dir() -> std::io::Result<PathBuf> {
+    let root = workspace_root()?;
+    Ok(DEFAULT_FIXTURE_DIR.iter().fold(root, |path, part| path.join(part)))
 }
 
 /// Write one session file per capture scenario past `startup` into `dir`.
@@ -579,6 +580,31 @@ fn theme_slug(theme: Theme) -> &'static str {
     }
 }
 
+/// The workspace root above this crate, by its manifest rather than by depth.
+fn workspace_root() -> std::io::Result<PathBuf> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .ancestors()
+        .find(|directory| is_workspace_root(directory))
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("no `[workspace]` manifest at or above `{}`", manifest_dir.display()),
+            )
+        })
+}
+
+/// Whether `directory` holds a manifest with a top-level `workspace` table.
+fn is_workspace_root(directory: &Path) -> bool {
+    let Ok(manifest) = std::fs::read_to_string(directory.join("Cargo.toml")) else {
+        return false;
+    };
+    manifest
+        .parse::<toml::Table>()
+        .is_ok_and(|table| table.contains_key(WORKSPACE_MANIFEST_KEY))
+}
+
 /// The writer lock guarding a session file, as [`SessionWriter`] names it.
 fn writer_lock_path(path: &Path) -> PathBuf {
     let file_name = path
@@ -608,6 +634,25 @@ mod tests {
 
     fn generated_in(dir: &Path) -> Vec<GeneratedFixture> {
         generate(dir).expect("generate fixtures")
+    }
+
+    /// Every record's `time`, read back off the serialized form so a variant
+    /// that stops carrying one fails here.
+    fn record_times(records: &[SessionRecord]) -> Vec<String> {
+        records
+            .iter()
+            .map(|record| {
+                serde_json::to_value(record)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("time")
+                            .and_then(|time| time.as_str())
+                            .map(ToString::to_string)
+                    })
+                    .expect("record carries a time")
+            })
+            .collect()
     }
 
     #[test]
@@ -741,25 +786,32 @@ mod tests {
     }
 
     #[test]
-    fn timestamps_are_fixed_and_iso_8601() {
+    fn timestamps_are_the_same_on_any_day() {
         for scenario in FixtureScenario::all() {
-            let records = scenario.records();
-            let SessionRecord::SessionMeta { time, .. } = &records[0] else {
-                panic!("{} does not open with metadata", scenario.name());
+            let times = record_times(&scenario.records());
+            let last = match scenario {
+                FixtureScenario::PickerOpen
+                | FixtureScenario::NarrowSixtyColumns
+                | FixtureScenario::ShortSixteenRows
+                | FixtureScenario::NoColor
+                | FixtureScenario::ThemeVariant(_) => "2026-01-05T09:01:52Z",
+                FixtureScenario::PermissionPrompt => "2026-01-05T09:02:06Z",
+                FixtureScenario::StreamingMidTool => "2026-01-05T09:02:13Z",
+                FixtureScenario::ToolOutputTruncated | FixtureScenario::Error => "2026-01-05T09:02:20Z",
             };
-            assert_eq!(time, "2026-01-05T09:00:00Z");
-            for record in &records {
-                let time = serde_json::to_value(record)
-                    .ok()
-                    .and_then(|value| {
-                        value
-                            .get("time")
-                            .and_then(|time| time.as_str())
-                            .map(ToString::to_string)
-                    })
-                    .expect("record carries a time");
-                assert!(time.contains('T') && time.ends_with('Z'), "`{time}` is not ISO 8601");
-            }
+
+            assert_eq!(
+                times.first().map(String::as_str),
+                Some("2026-01-05T09:00:00Z"),
+                "{}",
+                scenario.name()
+            );
+            assert_eq!(times.last().map(String::as_str), Some(last), "{}", scenario.name());
+            assert!(
+                times.windows(2).all(|pair| pair[0] < pair[1]),
+                "{} does not advance its clock",
+                scenario.name()
+            );
         }
     }
 
@@ -850,22 +902,31 @@ mod tests {
     }
 
     #[test]
-    fn the_default_directory_is_ignored_scratch() {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let workspace_root = manifest
+    fn the_default_directory_is_one_git_ignores() {
+        let dir = default_fixture_dir().expect("a workspace above this crate");
+        let root = dir
             .ancestors()
-            .nth(CRATE_DEPTH_FROM_WORKSPACE_ROOT)
-            .expect("the crate sits two directories under the workspace root");
-        let dir = default_fixture_dir();
+            .nth(DEFAULT_FIXTURE_DIR.len())
+            .expect("the default sits under a root");
+        let ignore_rules = std::fs::read_to_string(root.join(".gitignore")).expect("the root carries a .gitignore");
 
         assert!(
             dir.is_absolute(),
             "a relative default resolves against the caller's directory"
         );
+        assert!(
+            ignore_rules.lines().any(|rule| rule.trim() == "/target"),
+            "`{}` does not ignore the directory the default names",
+            root.display()
+        );
         assert_eq!(
-            dir,
-            workspace_root.join("target").join("tui-fixtures").join("sessions"),
-            "only the workspace root's `target/` is the `/target` that `.gitignore` names"
+            dir.strip_prefix(root).ok(),
+            Some(Path::new("target/tui-fixtures/sessions")),
+            "only the root's own `target/` is the `/target` that rule names"
+        );
+        assert!(
+            Path::new(env!("CARGO_MANIFEST_DIR")).starts_with(root),
+            "the default belongs to a workspace this crate is part of"
         );
     }
 

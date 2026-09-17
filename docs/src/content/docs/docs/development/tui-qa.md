@@ -45,18 +45,19 @@ change to the record enum breaks the build rather than a QA run:
 
 ```sh
 cargo build -p thndrs
-cargo run -p thndrs --features dev-fixtures --example session_fixtures \
-  -- target/tui-fixtures/sessions
+cargo run -p thndrs --features dev-fixtures --example session_fixtures
 tmux new-session -d -x 100 -y 30 -s "$qa_session" \
   "./target/debug/thndrs --session-dir target/tui-fixtures/sessions"
 tmux send-keys -t "$qa_session":0.0 '/resume picker-open' Enter
 ```
 
 The generator is behind the `dev-fixtures` feature, so it stays out of a
-released build. Pass the directory or let it default to the workspace root's
-`target/tui-fixtures/sessions`; the default is anchored at the crate rather
-than at the shell's directory, because `/target` in `.gitignore` matches the
-workspace root alone.
+released build. With no argument it writes to the workspace root's
+`target/tui-fixtures/sessions`, found by walking up to the manifest carrying
+`[workspace]`. Run it from wherever you like; a relative path passed to it
+resolves against your shell, and `/target` in `.gitignore` matches the
+workspace root alone, so the two are not the same directory from
+`crates/thndrs`.
 
 One session per scenario, named for the scenario, so the `/resume` argument and
 the check are the same word: `picker-open`, `streaming-mid-tool`,
