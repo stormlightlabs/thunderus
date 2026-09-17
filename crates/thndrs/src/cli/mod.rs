@@ -1373,26 +1373,27 @@ mod tests {
     }
 
     /// The capture harness needs a model that loads with no provider
-    /// environment variable set, so `--model fake-agent` must survive the
+    /// environment variable set, so `fake-agent` must survive the
     /// unsupported-route check that rejects a retired provider.
+    ///
+    /// The model comes from the project config rather than `--model`, because
+    /// `is_explicit_setup_recovery` skips the check entirely whenever `--model`
+    /// is on the command line. A `--model` spelling of this test would load for
+    /// a retired provider too, and so would prove nothing.
     #[test]
     fn fake_agent_model_survives_the_unsupported_route_check() {
         let tmp = tempfile::tempdir().expect("create temp dir");
         let workspace = tmp.path().join("workspace");
-        fs::create_dir_all(&workspace).expect("create workspace");
-
-        let cli = Cli::try_parse_configured_from_env(
-            [
-                "thndrs",
-                "--cwd",
-                &workspace.display().to_string(),
-                "--model",
-                "fake-agent",
-            ],
-            &[],
+        fs::create_dir_all(workspace.join(".thndrs")).expect("create project config dir");
+        fs::write(
+            workspace.join(".thndrs").join("config.toml"),
+            "model = \"fake-agent\"\n",
         )
-        .expect("parse args")
-        .expect("load config");
+        .expect("write project config");
+
+        let cli = Cli::try_parse_configured_from_env(["thndrs", "--cwd", &workspace.display().to_string()], &[])
+            .expect("parse args")
+            .expect("load config");
 
         assert_eq!(cli.model, "fake-agent");
         assert!(!commands::setup::model_uses_unsupported_route(&cli.model));

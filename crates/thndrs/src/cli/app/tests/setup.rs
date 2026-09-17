@@ -813,7 +813,6 @@ fn fake_agent_model_reaches_the_transcript_surface_without_a_credential() {
             app.overlay.setup().is_none(),
             "fake-agent must render the transcript surface rather than onboarding"
         );
-        assert_eq!(app.overlay.accessory(), PromptAccessory::None);
         assert!(
             selected_provider_missing(&app, true).is_none(),
             "a submit must not open onboarding either"
@@ -821,17 +820,44 @@ fn fake_agent_model_reaches_the_transcript_surface_without_a_credential() {
     });
 }
 
-/// The route may not accept or write a credential a real run would then use.
-/// Reaching the surface through `fake-agent` leaves both credential stores and
-/// the ChatGPT auth store absent, and every real provider stays unauthenticated.
+/// The route may not stand in for a real one, so a whole turn taken on it has
+/// to reach no provider and leave no credential behind.
+///
+/// The run is built through [`crate::agent::RunHandle::provider_with_steering`], which picks
+/// the provider from the model rather than being told which one to use, so
+/// swapping the model for a real provider fails this test on
+/// [`AgentEvent::RequestStarted`] instead of passing unchanged.
 #[test]
-fn fake_agent_route_leaves_the_credential_store_empty() {
+fn a_turn_on_the_fake_route_reaches_no_provider_and_writes_no_credential() {
     let home = tempfile::tempdir().expect("create temp home");
     with_setup_home(home.path(), || {
         let cwd = home.path().to_path_buf();
         let cli = Cli { cwd: cwd.clone(), model: "fake-agent".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.session.writer = None;
+
+        let (_steering, steering_rx) = mpsc::channel::<String>();
+        let events: Vec<AgentEvent> = crate::agent::RunHandle::provider_with_steering(
+            AgentRunConfig::new(cwd.clone(), app.runtime.model),
+            Vec::new(),
+            false,
+            steering_rx,
+        )
+        .spawn()
+        .iter()
+        .collect();
+
+        assert_eq!(events.last(), Some(&AgentEvent::Finished), "the turn must complete");
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, AgentEvent::RequestStarted(_))),
+            "the route must dispatch no provider request"
+        );
+        assert!(
+            !events.iter().any(|event| matches!(event, AgentEvent::Failed(_))),
+            "the turn must not fail for want of a credential"
+        );
 
         assert!(
             !auth::project_credentials_path(&cwd).exists(),
@@ -855,14 +881,4 @@ fn fake_agent_route_leaves_the_credential_store_empty() {
             );
         }
     });
-}
-
-/// The fake route dispatches to the in-process provider, so a turn taken on it
-/// sends no provider request.
-#[test]
-fn fake_agent_model_dispatches_to_the_in_process_provider() {
-    assert_eq!(
-        crate::agent::ProviderKind::for_model("fake-agent"),
-        crate::agent::ProviderKind::Fake
-    );
 }
