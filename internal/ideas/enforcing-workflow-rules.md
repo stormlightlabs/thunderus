@@ -8,9 +8,13 @@ id: 01M2RH6SW2KZHH0V3BRW0NVMKT
 
 ## Problem
 
-The workflow states rules as musts and checks almost none of them.
+The workflow states rules and checks almost none of them.
 `internal/thunderstorm.md` and `.claude/skills/github-board/SKILL.md` carry
-nine sentences between them phrased as a prohibition or an obligation. Two
+theirs in the imperative: prohibitions such as "Do not invent labels", and bare
+obligations such as "One writer at a time" and "Remove the worktree when the run
+ends". Neither file uses the word "must" even once, so counting the rules by
+keyword does not work; two drafts of this file reported two different totals and
+neither survived a recount. The shape is the point, not the number. Two
 workflows exist, `ci.yml` and `labels.yml`. Neither is triggered by an issue
 event and neither checks issue state, though `labels.yml` reads issues to count
 what carries a label.
@@ -24,11 +28,18 @@ that had a check were the ones that held:
 
 | What went wrong                      | Caught by                        |
 | ------------------------------------ | -------------------------------- |
-| Five commit messages over the limits | The commit-msg hook, once it ran |
+| Five commit messages over the limits | The commit-msg hook, locally     |
 | Doubled blank lines from an edit     | `cargo fmt` in CI                |
 | A parse failure reported as success  | The label sync test, once it ran |
 | Two false claims that a push landed  | Nothing, until CI showed no run  |
 | A false claim that a rename was done | An adversarial reviewer          |
+
+The first row overstates its check. The hook grades what a committer writes
+locally, but GitHub composes a squash message server-side and appends ` (#NN)`,
+so neither the hook nor the CI `commits` job ever sees the message that lands on
+`edge`. Of the three squashes merged since the hook shipped, two are over the
+59-character subject limit it enforces: `3af907e` at 62 and `f51217e` at 65. The
+check is real and the merge path goes around it.
 
 The last two rows are the argument against enforcement as the whole answer.
 Both were assertions made without the verification they implied: a push
@@ -45,19 +56,37 @@ a state impossible, detection names it, blocking refuses to continue. Only
 blocking creates pressure to bypass, and conflating the three is how a rule
 that deserved a whisper ends up stopping work.
 
-Enforce the board invariants, at detection. One `status:*` per issue, an epic
-carries none, `status:claimed` has an assignee, `status:blocked` has a
-`blocked:*` reason. These are machine-checkable without judgment, they fail
-silently today, and the board is what routes every run.
+Enforce the board invariants, at detection. They are machine-checkable without
+judgment, they fail silently today, and the board is what routes every run.
+Take them from their definitions rather than restating them here: the Statuses
+table in `thunderstorm.md` and the Claim and Rules sections of `github-board`. A
+draft of this file listed four from memory and had already lost three — that an
+epic has no owner as well as no status, that an issue carrying an assignee is
+not claimable, and that a claim succeeds only when `assignees` is exactly the
+claimant. That is the drift `thunderstorm.md` names when it says a duplicated
+state gives the copy somewhere to drift.
+
+Write each check from the definition, not from the short form, because the short
+form misfires. "`status:claimed` has an assignee" reads like an invariant and is
+not one: `github-board` orders the label before the assignment deliberately, so
+that a session killed between the two calls leaves the issue claimed by nobody
+rather than owned but queued. That state is designed for, and `thunderstorm.md`
+already disposes of it — claimed for more than 24 hours with no pull request
+returns to the queue. The check is the 24 hours, not the assignee.
 
 A board check does not block a merge. The board and the code are separate
 systems; a mislabelled issue is not a reason to stop a green pull request.
 
 Do not enforce the process rules: a worktree per concurrent writer, the review
-sequence, the model assignments. None is observable from outside the session
-that performed it, so a check would inspect artifacts a careless run produces
-just as well as a careful one. That buys the appearance of rigour and none of
-it.
+sequence, the model assignments. The first is genuinely invisible from outside
+the session that performed it. The other two are not — `thunderstorm.md`
+requires every review comment to end with a signature naming the model and its
+reasoning level, `internal/models.md` repeats it, and an implementer's model
+reaches the pull request in a `Co-Authored-By:` trailer. But what those
+artifacts record is what the session said about itself. A check over them reads
+a claim, not a fact, and a run that skipped a pass is the run least likely to
+say so. That is the same class as the two false push claims above, which is why
+the answer there is a reviewer and not a check.
 
 A guard that misfires is worse than the rule written down. The commit-msg hook
 shipped rejecting `git commit -v` on its own diff and refusing `git merge`
@@ -65,34 +94,66 @@ outright, both found in adversarial review. The only way past either was
 `--no-verify`, which also skips the check for the next message, so a false
 positive does not cost one commit, it costs the rule.
 
+Some rules should be deleted rather than checked. `github-board` says "Do not
+close an issue to express any state other than `dropped`", and every merge
+contradicts it: a pull request body carrying `Closes #N` closes the issue when
+it merges, which is how GitHub works and what the keyword is for. Issue #8 is
+closed now, labelled `status:review`, by that route. Honouring the rule would
+mean banning closing keywords or reopening issues by hand after every merge, and
+a check written from it would fire on every issue the workflow completes. The
+rule is the defect, not the behaviour. `status:verify` and `status:done`
+describe a release and belong to the release, not to whether the issue is open.
+
+Deleting the prose does not follow from shipping a check. Step 3 of Recording a
+failure mode says to delete guidance once a check covers it, because a rule
+stated twice trains people to skim. That holds where the check prevents or
+blocks. A detection check only names what it finds, in a comment someone has to
+read, so the prose is still the thing that tells a run what to do. Step 3
+applies at prevention and blocking; at detection the rule stays written down.
+
 Enforcement and review are not substitutes. Checks catch drift; the adversarial
 pass catches claims. Dropping either leaves a class of failure uncovered, and
 the class review covers is the more expensive one.
 
 ## Open
 
-Whether board violations actually occur. Every open issue conforms as of this
-writing, and none has been worked by a run. If twenty pass through without a
-violation the check is ceremony and should be deleted rather than kept for its
-own sake.
+Whether board violations actually occur. One issue has now been through a full
+pass: #8 went `queued` to `claimed` to `review` with pull request #10 open, and
+conformed at every step. It ended closed at `status:review` rather than reaching
+`verify`, by the auto-close above, which these decisions treat as correct. That
+is one clean pass. If twenty issues pass through without a violation the check
+is ceremony and should be deleted rather than kept for its own sake — but
+nothing counts completed passes today, so the twenty cannot be observed until
+the count has somewhere to live.
 
 What level a board check should sit at if violations turn out to be common
-rather than rare. Detection assumes someone reads the comment.
+rather than rare. Detection assumes someone reads the comment. Settled by the
+first violation that reaches a merge unnoticed: if the comment was posted and
+nobody acted on it, detection is the wrong level.
 
-How to make a self-invoked check automatic. `.claude/scripts/push-verified.sh`
-prevents exactly the failure you have when you are not thinking about it, and
-it only runs when someone remembers to call it. Nothing in git can force it: a
-pre-push hook is not run when the push has no ref to update, which is the case
-it exists for.
+Whether a pre-push hook should carry `push-verified.sh`. The reason recorded for
+it being self-invoked is wrong. `internal/thunderstorm.md` and the script's own
+header say git runs no pre-push hook when the push has no ref to update;
+reproduced on git 2.43.0, a no-op push runs the hook with empty stdin and prints
+`Everything up-to-date`, and a hook refusing on empty stdin fails the push with
+exit 1. The detached-HEAD case does not arise by default either: under
+`push.default=simple` git refuses with `You are not currently on a branch`, and
+`Everything up-to-date` from a detached HEAD needs `push.default=matching`. So a
+hook is a candidate here rather than an impossibility, and both places recording
+the old reason need correcting.
 
 ## Sources
 
 - `internal/thunderstorm.md` (`01M2PWX233GKXE5M9SPTNTGN0D`) and
-  `.claude/skills/github-board/SKILL.md`, for the rules stated as musts and the
-  claim that two status labels misroute the loop.
+  `.claude/skills/github-board/SKILL.md`, for the rules stated in the
+  imperative, the claim that two status labels misroute the loop, the claim
+  order, the 24-hour rule, and step 3 of Recording a failure mode.
 - #1 and #2, for the failures in the table and the checks added in response.
-- The adversarial review on #2, for the commit-msg hook defects: a verbose
+- The adversarial review on #1, for the commit-msg hook defects: a verbose
   commit graded on its appended diff, and a merge commit rejected for the
   message git writes itself.
 - `.github/workflows/`, for the two workflows that exist and the absence of any
   trigger on an issue event.
+- #8 and #10, for the one completed pass and for the auto-close.
+- git 2.43.0, for the pre-push behaviour, reproduced against a scratch remote
+  rather than recalled.
