@@ -6,15 +6,16 @@ id: 01M2RFP6G4RZZ4BRH6HSYP29BM
 
 # Feature plans
 
-Each feature track has one directory containing its design and unfinished
-implementation work:
+Each feature track has one directory holding its design:
 
 ```text
-features/<feature-name>/{plan,tasks}.md
+features/<feature-name>/plan.md
 ```
 
-Checked tasks describe completed work. A completed track stays here until it
-ships; its durable decisions can then move to `../archive/`.
+A completed track stays here until it ships; its durable decisions can then
+move to `../archive/`.
+
+Write the plan with `/spec-ify`, then file the work with `/decomp`.
 
 ## Sequence
 

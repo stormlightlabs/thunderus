@@ -87,15 +87,46 @@ rename that only adds the new name leaves the old one in the picker, teaching
 the next contributor a rule that no longer holds. Apply it with
 `.claude/scripts/sync-labels.py`.
 
+## Stages
+
+Work moves through these. The bracketed stage is skipped whenever it would add
+nothing.
+
+```text
+/r-d            an idea            internal/ideas/
+[/spec-ify]     a design           internal/features/<name>/plan.md
+/decomp         an epic and sub-issues
+/thunderstorm   one run over that epic, dispatching the stages below
+/impl           a pull request
+/rev, /adv-rev, /edit              review passes and their fixes
+a human         merges to edge
+```
+
+A spec is written only when a sub-issue's stop rule cannot be written without
+deciding something first. Most work skips it: a finding, a bug, or a chore
+usually arrives with its criteria already stated, and a spec for one of those
+is a summary with more words.
+
+`decompose` is where a document becomes claimable work, and it is the only
+stage that files issues. `github-board` performs those writes but decides
+nothing about what to write.
+
+A run is what carries a sub-issue from queued to merged: `/thunderstorm` claims
+each one and dispatches the stages under it. One issue worked on its own skips
+the run and starts at `/impl`.
+
 ## Commands
 
-| Command                | Argument            | Does                                                                |
-| ---------------------- | ------------------- | ------------------------------------------------------------------- |
-| `/r-d`, `/rubber-duck` | A topic             | Design discussion. Writes an entry to `internal/ideas/` on request. |
-| `/impl`, `/implement`  | Issue number        | Claims the issue, works it in a worktree, opens a pull request.     |
-| `/rev`                 | Branch or PR number | Standard review pass. Comments only on the second pass.             |
-| `/adv-rev`             | Branch or PR number | Adversarial review pass. Always comments.                           |
-| `/edit`, `/revise`     | PR number           | Addresses review comments on that pull request.                     |
+| Command                 | Argument                  | Does                                                                               |
+| ----------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
+| `/r-d`, `/rubber-duck`  | A topic                   | Design discussion. Writes an entry to `internal/ideas/` on request.                |
+| `/spec-ify`, `/specify` | An idea or topic          | One design to `internal/features/<name>/plan.md`. Only when a decision is missing. |
+| `/decomp`, `/decompose` | An idea, spec, or finding | Files one epic and the sub-issues under it.                                        |
+| `/thunderstorm`         | Epic issue number         | One run over the epic. Claims each sub-issue, dispatches it, and reports.          |
+| `/impl`, `/implement`   | Issue number              | Claims the issue, works it in a worktree, opens a pull request.                    |
+| `/rev`                  | Branch or PR number       | Standard review pass. Comments only on the second pass.                            |
+| `/adv-rev`              | Branch or PR number       | Adversarial review pass. Always comments.                                          |
+| `/edit`, `/revise`      | PR number                 | Addresses review comments on that pull request.                                    |
 
 ## Review sequence
 
@@ -256,6 +287,12 @@ files named `plan`. That decision is issue 9. Nothing else is waived: once one
 of those files carries a block, its date and its identifier answer to the check
 like any other.
 
+An issue cut from a document cites that document's identifier — this one is
+`01M2PWX233GKXE5M9SPTNTGN0D` — so the trail is readable from either end. What
+no document carries is a list of pending work: the board holds that, and a list
+of gaps goes stale the moment one closes. Two bullets in the list this document
+replaced were already false within hours of being written.
+
 ## Layout
 
 | Path                    | Holds                                                          |
@@ -269,6 +306,7 @@ like any other.
 | `.claude/settings.json` | Hook and permission configuration. Tracked.                    |
 | `internal/`             | Plans, specs, ideas, QA notes. Not published by the docs site. |
 | `internal/ideas/`       | Output of rubber-duck sessions.                                |
+| `internal/features/`    | One directory per feature track, holding its `plan.md`.        |
 | `CLAUDE.md`             | Repository instructions. `AGENTS.md` symlinks here.            |
 
 ## Skills
@@ -283,18 +321,10 @@ like any other.
 | `worktree`        | Provisioning, build isolation, removal.                      |
 | `release`         | `edge` to `main`, tag, changelog, publish.                   |
 | `rubber-duck`     | Design discussion and idea files.                            |
+| `specify`         | One design, when issues need a decision made first.          |
+| `decompose`       | Cutting an idea or spec into an epic and its sub-issues.     |
 | `writing-docs`    | Prose in the docs site, `internal/`, and chat.               |
 | `commits-and-prs` | Commit messages, pull request bodies, changelog entries.     |
 
 Subagents for dispatch live in `.claude/agents/`: `implementer`, `reviewer`,
 and `adversarial-reviewer`.
-
-## What is not done yet
-
-Pending work lives on the board, not here. A list of gaps in a document goes
-stale the moment one is closed, and nobody reviews a document to find out what
-changed: two bullets in the list this replaced were already false within hours
-of being written.
-
-Issues that come from this document cite `01M2PWX233GKXE5M9SPTNTGN0D` so the
-trail back is readable from either end.
