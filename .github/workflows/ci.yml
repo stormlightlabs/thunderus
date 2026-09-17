@@ -21,10 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check internal document frontmatter
-        run: |
-          .claude/scripts/check-frontmatter-test.py
-          .claude/scripts/check-frontmatter.py
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -63,6 +59,27 @@ jobs:
         run: |
           git diff --check
           git diff --exit-code
+
+  documents:
+    name: Internal documents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # --since reads the base commit, which a shallow clone does not have.
+          fetch-depth: 0
+      - name: Check the checker
+        run: .claude/scripts/check-frontmatter-test.py
+      - name: Check every internal document
+        run: .claude/scripts/check-frontmatter.py
+      # An identifier that changes orphans every issue citing it, and no
+      # snapshot of the tree can see that. Only a pull request has a base to
+      # compare against.
+      - name: Check no identifier changed
+        if: github.event_name == 'pull_request'
+        run: |
+          .claude/scripts/check-frontmatter.py \
+            --since "${{ github.event.pull_request.base.sha }}"
 
   commits:
     name: Commit messages
