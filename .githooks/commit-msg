@@ -9,4 +9,17 @@
 # the hook is caught later rather than never.
 set -euo pipefail
 
-exec "$(git rev-parse --show-toplevel)/.claude/scripts/check-commit-message.py" "$1"
+root=$(git rev-parse --show-toplevel)
+git_dir=$(git rev-parse --git-dir)
+
+# Git runs this hook for merges and reverts too, and writes those messages
+# itself: "Merge branch 'x' into edge" has no type prefix and would be rejected,
+# leaving --no-verify as the only way through, which also skips the check for
+# the next message an author actually writes.
+for generated in MERGE_HEAD REVERT_HEAD CHERRY_PICK_HEAD; do
+  if [ -e "$git_dir/$generated" ]; then
+    exit 0
+  fi
+done
+
+exec "$root/.claude/scripts/check-commit-message.py" "$1"
