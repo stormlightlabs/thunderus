@@ -585,6 +585,10 @@ mod tests {
     fn test_agent(timeout: Duration, resolver: impl Resolver) -> ureq::Agent {
         let config = ureq::Agent::config_builder()
             .max_redirects(0)
+            // Mirrors public_fetch_agent. Without it, a proxy in the
+            // environment resolves the destination itself, the test's resolver
+            // never runs, and the redirect guard under test is not exercised.
+            .proxy(None)
             .timeout_global(Some(timeout))
             .build();
         ureq::Agent::with_parts(config, DefaultConnector::default(), resolver)

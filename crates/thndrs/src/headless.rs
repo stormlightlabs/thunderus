@@ -1527,6 +1527,7 @@ mod tests {
         canceller.join().expect("canceller joins");
 
         assert_eq!(error.exit.code(), EXIT_CANCELLED);
-        assert!(String::from_utf8(stdout).expect("stdout is UTF-8").is_empty());
+        let written = String::from_utf8(stdout).expect("stdout is UTF-8");
+        assert!(written.is_empty(), "cancelled run wrote to stdout: {written:?}");
     }
 }
