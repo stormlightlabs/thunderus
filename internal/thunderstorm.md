@@ -237,17 +237,12 @@ changes once assigned. Update `last_updated` when the content changes.
 Subagents for dispatch live in `.claude/agents/`: `implementer`, `reviewer`,
 and `adversarial-reviewer`.
 
-## Not wired up yet
+## What is not done yet
 
-- `.github/labels.yml` has never been applied. Run
-  `.claude/scripts/sync-labels.py --apply`, or dispatch the Labels workflow.
-  Dispatch needs `labels.yml` on the default branch first, which is `edge`, and
-  the apply job refuses any other `ref`: a dispatch runs the script as it exists
-  on the ref it names, so applying from an unreviewed branch would hand a
-  label-writing token to whatever that branch contains.
-- The repository has no issues, so no run has an epic to work through.
-- There are no tags. The release skill reads the previous version with
-  `git describe --tags`, which fails until the first tag exists.
-- OpenCode Go and Cursor have no role assignments in [models.md](models.md).
-- No harness triggers a run automatically, by design. Runs start when a human
-  invokes one.
+Pending work lives on the board, not here. A list of gaps in a document goes
+stale the moment one is closed, and nobody reviews a document to find out what
+changed: two bullets in the list this replaced were already false within hours
+of being written.
+
+Issues that come from this document cite `01M2PWX233GKXE5M9SPTNTGN0D` so the
+trail back is readable from either end.

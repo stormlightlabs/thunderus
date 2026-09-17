@@ -85,6 +85,20 @@ nothing.
 — <model-id> · <reasoning-level>
 ```
 
+## Resolve the threads
+
+Resolve each thread you addressed. A thread stays open only while something is
+still owed on it.
+
+Resolve with a comment only where one is needed: a finding you are not acting
+on and why, a disagreement, or an outcome the diff does not show. A thread whose
+fix is visible in the diff, and already named in the reply listing outcomes,
+needs no second note saying the same thing.
+
+Two threads are not yours to resolve. One that asks a question or waits on a
+decision belongs to whoever answers it. One you opened as a reviewer is never
+resolved by you: marking your own finding closed hides whether anyone agreed.
+
 ## Stop conditions
 
 - Stop after 5 review-and-edit rounds on one pull request.
