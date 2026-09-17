@@ -41,11 +41,11 @@ user's primary checkout.
 Every finding gets one of three outcomes, and every outcome is recorded in the
 reply comment:
 
-| Outcome        | When                                                              |
-| -------------- | ------------------------------------------------------------------ |
-| Fixed          | The finding is right. Fix the cause, not the symptom.             |
-| Not a defect   | The finding is wrong. Say why, with the code or test that shows it. |
-| Deferred       | Real but out of scope. File an issue and link it.                 |
+| Outcome      | When                                                                |
+| ------------ | ------------------------------------------------------------------- |
+| Fixed        | The finding is right. Fix the cause, not the symptom.               |
+| Not a defect | The finding is wrong. Say why, with the code or test that shows it. |
+| Deferred     | Real but out of scope. File an issue and link it.                   |
 
 Disagreeing with a reviewer is allowed and expected. Say so plainly instead of
 making a change you believe is wrong.

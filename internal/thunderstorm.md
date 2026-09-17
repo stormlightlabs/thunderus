@@ -25,9 +25,9 @@ does not start it in this run.
 A run works from a local checkout or from a cloud session on the web. The
 protocol is the same; the transport to GitHub is not.
 
-| Host          | GitHub through   | Worktrees                          |
-| ------------- | ---------------- | ---------------------------------- |
-| Local         | `gh`             | As described under [Worktrees](#worktrees). |
+| Host          | GitHub through   | Worktrees                                              |
+| ------------- | ---------------- | ------------------------------------------------------ |
+| Local         | `gh`             | As described under [Worktrees](#worktrees).            |
 | Cloud session | GitHub MCP tools | One ephemeral container, one issue. Skip the worktree. |
 
 The `github-board` skill picks the transport and owns the differences between
@@ -76,13 +76,13 @@ for parent issues, lives in `.github/labels.yml`. Apply it with
 
 ## Commands
 
-| Command                | Argument           | Does                                                               |
-| ---------------------- | ------------------ | ------------------------------------------------------------------ |
-| `/r-d`, `/rubber-duck` | A topic            | Design discussion. Writes an entry to `internal/ideas/` on request. |
-| `/impl`, `/implement`  | Issue number       | Claims the issue, works it in a worktree, opens a pull request.    |
-| `/rev`                 | Branch or PR number | Standard review pass. Posts findings as comments.                  |
-| `/adv-rev`             | Branch or PR number | Adversarial review pass. Posts findings as comments.               |
-| `/edit`, `/revise`     | PR number          | Addresses review comments on that pull request.                    |
+| Command                | Argument            | Does                                                                |
+| ---------------------- | ------------------- | ------------------------------------------------------------------- |
+| `/r-d`, `/rubber-duck` | A topic             | Design discussion. Writes an entry to `internal/ideas/` on request. |
+| `/impl`, `/implement`  | Issue number        | Claims the issue, works it in a worktree, opens a pull request.     |
+| `/rev`                 | Branch or PR number | Standard review pass. Posts findings as comments.                   |
+| `/adv-rev`             | Branch or PR number | Adversarial review pass. Posts findings as comments.                |
+| `/edit`, `/revise`     | PR number           | Addresses review comments on that pull request.                     |
 
 ## Review sequence
 
@@ -124,11 +124,11 @@ without the underlying cause changing. Either stop is an escalation.
 
 ## Branches
 
-| Branch      | Holds                                    | Accepts                        |
-| ----------- | ---------------------------------------- | ------------------------------ |
-| `main`      | The current release. Matches the tag.    | Release pull requests from `edge`. |
-| `edge`      | Merged work that is not released yet.    | Pull requests from `agent/*`.  |
-| `agent/<n>` | One sub-issue. One worktree. One owner.  | Pushes from its worker.        |
+| Branch      | Holds                                   | Accepts                            |
+| ----------- | --------------------------------------- | ---------------------------------- |
+| `main`      | The current release. Matches the tag.   | Release pull requests from `edge`. |
+| `edge`      | Merged work that is not released yet.   | Pull requests from `agent/*`.      |
+| `agent/<n>` | One sub-issue. One worktree. One owner. | Pushes from its worker.            |
 
 Every branch an agent pushes carries the `agent/` prefix, including work that
 has no issue behind it. Name that case for the work rather than the issue it
@@ -172,33 +172,33 @@ changes once assigned. Update `last_updated` when the content changes.
 
 ## Layout
 
-| Path                | Holds                                                        |
-| ------------------- | ------------------------------------------------------------ |
-| `.claude/skills/`   | Skills. `.agents/skills` symlinks here.                      |
-| `.claude/commands/` | Slash commands.                                              |
-| `.claude/agents/`   | Subagent definitions for dispatch.                           |
-| `.claude/scripts/`  | Helper scripts. `sync-labels.sh` also runs in CI.            |
-| `.claude/hooks/`    | Session hooks. Dependency warming for cloud sessions.        |
-| `.githooks/`        | Git hooks. Enable with `git config core.hooksPath .githooks`. |
-| `.claude/settings.json` | Hook and permission configuration. Tracked.              |
-| `internal/`         | Plans, specs, ideas, QA notes. Not published by the docs site. |
-| `internal/ideas/`   | Output of rubber-duck sessions.                              |
-| `CLAUDE.md`         | Repository instructions. `AGENTS.md` symlinks here.          |
+| Path                    | Holds                                                          |
+| ----------------------- | -------------------------------------------------------------- |
+| `.claude/skills/`       | Skills. `.agents/skills` symlinks here.                        |
+| `.claude/commands/`     | Slash commands.                                                |
+| `.claude/agents/`       | Subagent definitions for dispatch.                             |
+| `.claude/scripts/`      | Helper scripts. `sync-labels.sh` also runs in CI.              |
+| `.claude/hooks/`        | Session hooks. Dependency warming for cloud sessions.          |
+| `.githooks/`            | Git hooks. Enable with `git config core.hooksPath .githooks`.  |
+| `.claude/settings.json` | Hook and permission configuration. Tracked.                    |
+| `internal/`             | Plans, specs, ideas, QA notes. Not published by the docs site. |
+| `internal/ideas/`       | Output of rubber-duck sessions.                                |
+| `CLAUDE.md`             | Repository instructions. `AGENTS.md` symlinks here.            |
 
 ## Skills
 
-| Skill             | Owns                                                        |
-| ----------------- | ----------------------------------------------------------- |
+| Skill             | Owns                                                         |
+| ----------------- | ------------------------------------------------------------ |
 | `thunderstorm`    | One run: claims, dispatches, reports, stops. Writes no code. |
-| `implement`       | One issue, in one worktree, to one pull request.            |
-| `review`          | Standard and adversarial review passes.                     |
-| `revise`          | Addressing findings on a pull request.                      |
-| `github-board`    | The only writer of issue state.                             |
-| `worktree`        | Provisioning, build isolation, removal.                     |
-| `release`         | `edge` to `main`, tag, changelog, publish.                  |
-| `rubber-duck`     | Design discussion and idea files.                           |
-| `writing-docs`    | Prose in the docs site, `internal/`, and chat.              |
-| `commits-and-prs` | Commit messages, pull request bodies, changelog entries.    |
+| `implement`       | One issue, in one worktree, to one pull request.             |
+| `review`          | Standard and adversarial review passes.                      |
+| `revise`          | Addressing findings on a pull request.                       |
+| `github-board`    | The only writer of issue state.                              |
+| `worktree`        | Provisioning, build isolation, removal.                      |
+| `release`         | `edge` to `main`, tag, changelog, publish.                   |
+| `rubber-duck`     | Design discussion and idea files.                            |
+| `writing-docs`    | Prose in the docs site, `internal/`, and chat.               |
+| `commits-and-prs` | Commit messages, pull request bodies, changelog entries.     |
 
 Subagents for dispatch live in `.claude/agents/`: `implementer`, `reviewer`,
 and `adversarial-reviewer`.

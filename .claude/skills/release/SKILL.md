@@ -35,11 +35,11 @@ Through MCP: `actions_list` method `list_workflow_runs` with
 Both crates share a version. Decide it from the changes since the last tag, not
 from habit:
 
-| Change                                          | Bump    |
-| ----------------------------------------------- | ------- |
-| Breaking API or behavior change before 1.0      | minor   |
-| New behavior, backward compatible               | minor   |
-| Fixes and internal work only                    | patch   |
+| Change                                     | Bump  |
+| ------------------------------------------ | ----- |
+| Breaking API or behavior change before 1.0 | minor |
+| New behavior, backward compatible          | minor |
+| Fixes and internal work only               | patch |
 
 ```sh
 git log --oneline "$(git describe --tags --abbrev=0)"..edge

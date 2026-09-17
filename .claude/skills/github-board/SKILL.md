@@ -12,10 +12,10 @@ the operations here so one mechanism owns the transitions.
 
 Two transports reach the same board. Pick by what the session has:
 
-| Session          | Transport               | How to tell                          |
-| ---------------- | ----------------------- | ------------------------------------ |
-| Cloud (web) run  | GitHub MCP tools        | `CLAUDE_CODE_REMOTE=true`            |
-| Local checkout   | `gh`                    | `gh auth status` succeeds otherwise  |
+| Session         | Transport        | How to tell                         |
+| --------------- | ---------------- | ----------------------------------- |
+| Cloud (web) run | GitHub MCP tools | `CLAUDE_CODE_REMOTE=true`           |
+| Local checkout  | `gh`             | `gh auth status` succeeds otherwise |
 
 `CLAUDE_CODE_REMOTE` decides first and on its own. A cloud image that happens to
 carry `gh` almost certainly carries no token with it, and a run that picks `gh`
@@ -42,12 +42,12 @@ Two differences decide correctness, so read them before the first write:
 
 ## Read
 
-| Operation            | `gh`                                             | MCP                                          |
-| -------------------- | ------------------------------------------------ | -------------------------------------------- |
-| Queue                | `gh issue list --label "status:queued" --json number,title,labels,assignees` | `list_issues` with `labels: ["status:queued"]` |
-| One issue            | `gh issue view <n> --json number,title,body,labels,assignees,state,url` | `issue_read` method `get`                    |
-| Sub-issues           | `gh issue view <n> --json subIssues`             | `issue_read` method `get_sub_issues`         |
-| Labels alone         | `gh issue view <n> --json labels`                | `issue_read` method `get_labels`             |
+| Operation    | `gh`                                                                         | MCP                                            |
+| ------------ | ---------------------------------------------------------------------------- | ---------------------------------------------- |
+| Queue        | `gh issue list --label "status:queued" --json number,title,labels,assignees` | `list_issues` with `labels: ["status:queued"]` |
+| One issue    | `gh issue view <n> --json number,title,body,labels,assignees,state,url`      | `issue_read` method `get`                      |
+| Sub-issues   | `gh issue view <n> --json subIssues`                                         | `issue_read` method `get_sub_issues`           |
+| Labels alone | `gh issue view <n> --json labels`                                            | `issue_read` method `get_labels`               |
 
 A parent issue carries the `run` label. Its sub-issues are the units of work.
 Do not treat a parent as claimable.
@@ -71,15 +71,15 @@ replacement:
 Never add a status label without removing the previous one. Two status labels on
 one issue make the board unreadable and the loop will pick the wrong transition.
 
-| From             | To                | When                                           |
-| ---------------- | ----------------- | ---------------------------------------------- |
-| `status:queued`  | `status:claimed`  | A run takes the issue and creates a worktree.  |
-| `status:claimed` | `status:review`   | A pull request opens.                          |
-| `status:claimed` | `status:queued`   | The run abandons it. Remove the worktree too.  |
-| `status:review`  | `status:verify`   | The pull request merges to `edge`.             |
-| `status:verify`  | `status:done`     | The change ships in a release from `main`.     |
-| any              | `status:blocked`  | Add a `blocked:*` label saying why.            |
-| any              | `status:dropped`  | Close with a comment giving the reason.        |
+| From             | To               | When                                          |
+| ---------------- | ---------------- | --------------------------------------------- |
+| `status:queued`  | `status:claimed` | A run takes the issue and creates a worktree. |
+| `status:claimed` | `status:review`  | A pull request opens.                         |
+| `status:claimed` | `status:queued`  | The run abandons it. Remove the worktree too. |
+| `status:review`  | `status:verify`  | The pull request merges to `edge`.            |
+| `status:verify`  | `status:done`    | The change ships in a release from `main`.    |
+| any              | `status:blocked` | Add a `blocked:*` label saying why.           |
+| any              | `status:dropped` | Close with a comment giving the reason.       |
 
 ## Claim
 
@@ -137,8 +137,8 @@ Link it from the originating issue with a comment. Do not start it in this run.
 The label set lives in `.github/labels.yml`. Applying it needs a token that may
 write labels, so it runs in one of two places:
 
-| Session | How                                                                      |
-| ------- | ------------------------------------------------------------------------ |
+| Session | How                                                                        |
+| ------- | -------------------------------------------------------------------------- |
 | Local   | `.claude/scripts/sync-labels.sh` for a dry run, `--apply` to make changes. |
 | Cloud   | Dispatch `.github/workflows/labels.yml`, which runs the same script.       |
 

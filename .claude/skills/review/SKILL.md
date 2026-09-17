@@ -13,10 +13,10 @@ Review a diff and post findings. Do not edit code during a review pass. The
 The argument is a pull request number, a branch name, or empty. Empty means the
 current branch.
 
-| Pass         | Command    | Brief                                                                                                       |
-| ------------ | ---------- | ----------------------------------------------------------------------------------------------------------- |
-| Standard     | `/rev`     | Correctness, edge cases, security, concurrency, performance, API compatibility, test coverage, readability. |
-| Adversarial  | `/adv-rev` | Worst case only: security holes, races, unhandled input, violated invariants, tests that cannot fail.       |
+| Pass        | Command    | Brief                                                                                                       |
+| ----------- | ---------- | ----------------------------------------------------------------------------------------------------------- |
+| Standard    | `/rev`     | Correctness, edge cases, security, concurrency, performance, API compatibility, test coverage, readability. |
+| Adversarial | `/adv-rev` | Worst case only: security holes, races, unhandled input, violated invariants, tests that cannot fail.       |
 
 An adversarial pass assumes the standard passes already ran. It looks for what
 they would miss, not for the same findings again.
@@ -58,13 +58,13 @@ One line per finding:
 <severity> · <path>:<line> — <problem> → <why it matters> → <fix direction>
 ```
 
-| Severity  | Means                                                              |
-| --------- | ------------------------------------------------------------------ |
+| Severity  | Means                                                                |
+| --------- | -------------------------------------------------------------------- |
 | `blocker` | Merging causes data loss, a crash, a security hole, or a regression. |
-| `high`    | Wrong behavior in a case the change is supposed to handle.         |
-| `medium`  | Wrong behavior in an unhandled case, or a missing test for one.    |
-| `low`     | Works, but will cause a defect later.                              |
-| `nit`     | Style or naming inside the repository's conventions.               |
+| `high`    | Wrong behavior in a case the change is supposed to handle.           |
+| `medium`  | Wrong behavior in an unhandled case, or a missing test for one.      |
+| `low`     | Works, but will cause a defect later.                                |
+| `nit`     | Style or naming inside the repository's conventions.                 |
 
 State what breaks and with what input. A finding that cannot name a failing
 case is speculation; drop it or mark it `nit`.
