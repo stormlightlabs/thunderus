@@ -38,3 +38,40 @@ cargo fetch --locked >&2 || echo "warming the cargo registry failed" >&2
 
 # --frozen-lockfile matches the docs job in .github/workflows/ci.yml.
 pnpm --dir docs install --frozen-lockfile >&2 || echo "installing docs dependencies failed" >&2
+
+# freeze renders a capture to an image for whoever wants to look at one. The
+# harness writes its .ansi files to ignored scratch space and posts the frames
+# to the pull request as stripped text, so a missing renderer costs that image
+# and never a capture run: this reports and carries on like the steps above.
+# internal/features/tui-verification/plan.md holds the rest of that decision.
+#
+# v0.2.2 drops \e[3m italic, \e[2m dim, \e[7m reverse, and basic backgrounds,
+# and renders bold, underline, every foreground, 256-color backgrounds, and
+# truecolor. ratatui_style sets ITALIC and DIM
+# (crates/thndrs/src/cli/renderer/ratatui.rs:77-93), so a regression in either
+# leaves the image unchanged and shows only in the ANSI diff. A frame correct in
+# the capture and wrong in the image is a freeze defect, not an application one.
+freeze_version=v0.2.2
+
+# go install writes to $(go env GOPATH)/bin, which this image does not carry on
+# PATH, so an install that succeeds there still leaves a capture run with no
+# renderer. GOBIN puts the binary where the shell looks, and go install creates
+# that directory. Without HOME there is no directory to guess, so that case
+# reports rather than writing to an invented path.
+if [ -n "${HOME:-}" ]; then
+  freeze_bin="$HOME/.local/bin"
+  GOBIN="$freeze_bin" go install "github.com/charmbracelet/freeze@${freeze_version}" >&2 ||
+    echo "installing freeze ${freeze_version} into $freeze_bin failed" >&2
+else
+  echo "HOME is unset, so there is nowhere on PATH to install freeze" >&2
+fi
+
+# A freeze on PATH is not necessarily the one just installed. An install that
+# failed behind an older binary would otherwise look like a success, and the
+# attribute losses recorded above hold for one version. Comparing the version
+# reports both cases; a format change in that line reports a false miss, which
+# costs a message and never the run.
+installed=$(freeze --version 2>/dev/null) || installed=""
+if [ "$installed" != "freeze version ${freeze_version}" ]; then
+  echo "freeze ${freeze_version} is not on PATH (found ${installed:-nothing}); captures render as ANSI text alone" >&2
+fi

@@ -132,3 +132,14 @@ jobs:
           rust-version: "1.88"
           command: check
           arguments: --all-features --locked
+
+  hooks:
+    name: Session start hook
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The hook reports a failed step and carries on, so nothing a session
+      # sees says when that rule breaks. The stubs make the failing case cheap
+      # to run here: no toolchain, no network, and no cache to warm.
+      - name: Check the session start hook
+        run: .claude/hooks/session-start-test.py
