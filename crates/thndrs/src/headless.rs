@@ -946,15 +946,27 @@ mod tests {
         }
     }
 
+    /// A writer that cancels the run as soon as a marker reaches it.
+    ///
+    /// Cancelling on the output itself is what makes a cancellation test
+    /// deterministic. A timer races the agent's first write, and which side
+    /// wins depends on how fast the host starts the fixture process.
     struct CancellingWriter {
         bytes: Vec<u8>,
         cancellation: CancelToken,
         cancellation_requested: bool,
+        marker: &'static [u8],
     }
 
     impl CancellingWriter {
+        /// Cancels once a JSONL status record has been written.
         fn new(cancellation: CancelToken) -> Self {
-            Self { bytes: Vec::new(), cancellation, cancellation_requested: false }
+            Self::with_marker(cancellation, b"\"type\":\"status\"")
+        }
+
+        /// Cancels once `marker` appears in what has been written so far.
+        fn with_marker(cancellation: CancelToken, marker: &'static [u8]) -> Self {
+            Self { bytes: Vec::new(), cancellation, cancellation_requested: false, marker }
         }
 
         fn into_bytes(self) -> Vec<u8> {
@@ -968,12 +980,11 @@ mod tests {
         }
 
         fn flush(&mut self) -> io::Result<()> {
-            let status_marker = b"\"type\":\"status\"";
             if !self.cancellation_requested
                 && self
                     .bytes
-                    .windows(status_marker.len())
-                    .any(|window| window == status_marker)
+                    .windows(self.marker.len())
+                    .any(|window| window == self.marker)
             {
                 self.cancellation.cancel();
                 self.cancellation_requested = true;
@@ -1506,12 +1517,9 @@ mod tests {
         let temp = tempfile::tempdir().expect("create workspace");
         let cli = fixture_cli(temp.path(), "cancel");
         let cancellation = CancelToken::new();
-        let trigger = cancellation.clone();
-        let canceller = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(100));
-            trigger.cancel();
-        });
-        let mut stdout = Vec::new();
+        // Cancel on the fixture's own output rather than after a delay, so the
+        // two orderings a timer would produce collapse into one.
+        let mut stdout = CancellingWriter::with_marker(cancellation.clone(), b"waiting for cancellation");
         let mut stderr = Vec::new();
 
         let error = run_with_io(
@@ -1524,17 +1532,11 @@ mod tests {
             None,
         )
         .expect_err("cancelled run does not succeed");
-        canceller.join().expect("canceller joins");
 
         assert_eq!(error.exit.code(), EXIT_CANCELLED);
-        // The fixture streams this line before it waits for the cancel, so
-        // which of the two lands first decides whether it reaches stdout.
-        // Cancelling does not retract text already streamed, it only changes
-        // the exit code, so both orderings are correct and nothing else is.
-        let written = String::from_utf8(stdout).expect("stdout is UTF-8");
-        assert!(
-            written.is_empty() || written == "waiting for cancellation\n",
-            "cancelled run wrote unexpected stdout: {written:?}"
-        );
+        // Cancelling changes the exit code and does not retract text already
+        // streamed, so the line the fixture wrote before waiting is still here.
+        let written = String::from_utf8(stdout.into_bytes()).expect("stdout is UTF-8");
+        assert_eq!(written, "waiting for cancellation\n");
     }
 }
