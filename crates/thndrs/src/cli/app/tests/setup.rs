@@ -795,3 +795,74 @@ fn accepting_model_picker_selection_saves_project_config() {
         Some(&Entry::Status { text: "model: chatgpt-codex/gpt-5.5 (saved to .thndrs/config.toml)".to_string() })
     );
 }
+
+/// The capture harness in `internal/features/tui-verification/plan.md` starts
+/// `thndrs` in a container that holds no provider key, so some route has to
+/// reach the transcript surface with the credential store empty. `fake-agent`
+/// is that route: [`selected_provider_missing`] returns `None` for it, so no
+/// recovery overlay opens and the main surface renders on the first frame.
+#[test]
+fn fake_agent_model_reaches_the_transcript_surface_without_a_credential() {
+    let home = tempfile::tempdir().expect("create temp home");
+    with_setup_home(home.path(), || {
+        let cli = Cli { cwd: home.path().to_path_buf(), model: "fake-agent".to_string(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session.writer = None;
+
+        assert!(
+            app.overlay.setup().is_none(),
+            "fake-agent must render the transcript surface rather than onboarding"
+        );
+        assert_eq!(app.overlay.accessory(), PromptAccessory::None);
+        assert!(
+            selected_provider_missing(&app, true).is_none(),
+            "a submit must not open onboarding either"
+        );
+    });
+}
+
+/// The route may not accept or write a credential a real run would then use.
+/// Reaching the surface through `fake-agent` leaves both credential stores and
+/// the ChatGPT auth store absent, and every real provider stays unauthenticated.
+#[test]
+fn fake_agent_route_leaves_the_credential_store_empty() {
+    let home = tempfile::tempdir().expect("create temp home");
+    with_setup_home(home.path(), || {
+        let cwd = home.path().to_path_buf();
+        let cli = Cli { cwd: cwd.clone(), model: "fake-agent".to_string(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session.writer = None;
+
+        assert!(
+            !auth::project_credentials_path(&cwd).exists(),
+            "the route must not write a project credential store"
+        );
+        assert!(
+            !auth::global_credentials_path()
+                .expect("global credential path")
+                .exists(),
+            "the route must not write a global credential store"
+        );
+        assert!(
+            !auth::chatgpt_codex_auth_path().expect("auth store path").exists(),
+            "the route must not write a ChatGPT OAuth store"
+        );
+        for provider in SetupProviderArg::ALL {
+            assert!(
+                !provider_authenticated(provider, &cwd),
+                "{} must stay unauthenticated on the fake route",
+                provider.metadata().label
+            );
+        }
+    });
+}
+
+/// The fake route dispatches to the in-process provider, so a turn taken on it
+/// sends no provider request.
+#[test]
+fn fake_agent_model_dispatches_to_the_in_process_provider() {
+    assert_eq!(
+        crate::agent::ProviderKind::for_model("fake-agent"),
+        crate::agent::ProviderKind::Fake
+    );
+}

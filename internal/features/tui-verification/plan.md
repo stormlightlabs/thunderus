@@ -90,10 +90,28 @@ example, a development binary, or a test helper is an implementation choice.
 The harness also has to reach the main surface without a valid credential, since
 a capture never sends a request and the container holds no key. First-run setup
 opens when the selected provider has no credential
-(`crates/thndrs/src/cli/app/onboarding.rs`), so the first issue in this track
-establishes which existing route clears that gate. If none does, adding one is
-in scope for this track and the route must not accept a credential that a real
-run would then use.
+(`crates/thndrs/src/cli/app/onboarding.rs`), and `--model fake-agent` clears
+that gate. `selected_provider_missing` returns `None` for any model starting
+with `fake-agent` (`onboarding.rs:425`) and `model_uses_unsupported_route`
+exempts the same prefix (`crates/thndrs/src/cli/commands/setup.rs:30`), so
+configuration loads and no recovery overlay opens. Every capture launches from:
+
+```sh
+thndrs --cwd <workspace> --model fake-agent --ephemeral --tick-rate-ms 100
+```
+
+Scenario flags extend that line; the `--session-dir` and `/resume` above are
+what the populated scenarios add to it.
+
+No new route was needed, and the fake route cannot stand in for a real one.
+`ProviderKind::for_model` maps it to `ProviderKind::Fake`
+(`crates/thndrs/src/core/agent.rs:65`), which emits scripted events in process,
+so a turn taken on it reads no credential, writes none, and sends no provider
+request. Tests in `crates/thndrs/src/cli/app/tests/setup.rs` and
+`crates/thndrs/src/cli/mod.rs` hold all three: under an empty `HOME` with no
+provider environment variable set, startup leaves the setup overlay closed, both
+credential stores and `auth.json` stay absent, every supported provider stays
+unauthenticated, and the configuration check accepts the model.
 
 ## Evidence
 

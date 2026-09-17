@@ -1371,4 +1371,30 @@ mod tests {
 
         assert!(Cli::try_parse_from(["thndrs", "context", "--include-content"]).is_err());
     }
+
+    /// The capture harness needs a model that loads with no provider
+    /// environment variable set, so `--model fake-agent` must survive the
+    /// unsupported-route check that rejects a retired provider.
+    #[test]
+    fn fake_agent_model_survives_the_unsupported_route_check() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let workspace = tmp.path().join("workspace");
+        fs::create_dir_all(&workspace).expect("create workspace");
+
+        let cli = Cli::try_parse_configured_from_env(
+            [
+                "thndrs",
+                "--cwd",
+                &workspace.display().to_string(),
+                "--model",
+                "fake-agent",
+            ],
+            &[],
+        )
+        .expect("parse args")
+        .expect("load config");
+
+        assert_eq!(cli.model, "fake-agent");
+        assert!(!commands::setup::model_uses_unsupported_route(&cli.model));
+    }
 }
