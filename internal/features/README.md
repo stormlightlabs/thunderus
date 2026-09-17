@@ -15,10 +15,7 @@ features/<feature-name>/plan.md
 A completed track stays here until it ships; its durable decisions can then
 move to `../archive/`.
 
-The tracks below also carry a `tasks.md`. Those predate the board and are not
-the pattern for a new track: a checklist in a document is a second copy of the
-board's state that nothing updates, and it is wrong the first time an issue
-closes. Write the plan with `/spec-ify`, then file the work with `/decomp`.
+Write the plan with `/spec-ify`, then file the work with `/decomp`.
 
 ## Sequence
 

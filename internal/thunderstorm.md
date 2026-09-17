@@ -284,6 +284,12 @@ files named `plan`. That decision is issue 9. Nothing else is waived: once one
 of those files carries a block, its date and its identifier answer to the check
 like any other.
 
+An issue cut from a document cites that document's identifier — this one is
+`01M2PWX233GKXE5M9SPTNTGN0D` — so the trail is readable from either end. What
+no document carries is a list of pending work: the board holds that, and a list
+of gaps goes stale the moment one closes. Two bullets in the list this document
+replaced were already false within hours of being written.
+
 ## Layout
 
 | Path                    | Holds                                                          |
@@ -319,13 +325,3 @@ like any other.
 
 Subagents for dispatch live in `.claude/agents/`: `implementer`, `reviewer`,
 and `adversarial-reviewer`.
-
-## What is not done yet
-
-Pending work lives on the board, not here. A list of gaps in a document goes
-stale the moment one is closed, and nobody reviews a document to find out what
-changed: two bullets in the list this replaced were already false within hours
-of being written.
-
-Issues that come from this document cite `01M2PWX233GKXE5M9SPTNTGN0D` so the
-trail back is readable from either end.
