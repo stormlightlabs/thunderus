@@ -73,8 +73,13 @@ Run `pnpm --dir docs build` when anything under `docs/` changed.
 
 ## Push and reply
 
-Commit with the `commits-and-prs` skill, push to the same branch, then post one
-reply comment listing each finding and its outcome. Sign it:
+Commit with the `commits-and-prs` skill, push to the same branch with
+`.claude/scripts/push-verified.sh`, then post one reply comment listing each
+finding and its outcome. Sign it:
+
+A reply that names a commit is a claim about the remote, so confirm the push
+landed before writing one. `git push` exits zero for a push that carried
+nothing.
 
 ```text
 — <model-id> · <reasoning-level>

@@ -138,6 +138,29 @@ session that accepted whatever name its harness supplied breaks that.
 
 Delete the task branch when its pull request merges.
 
+A push is finished when the remote ref matches local `HEAD`, not when `git push`
+exits zero. The two come apart: with a detached `HEAD` the branch has not moved,
+so git finds no ref to update, prints `Everything up-to-date` and succeeds while
+carrying nothing. A pre-push hook cannot catch that, because with no ref to
+update git never runs one. `.claude/scripts/push-verified.sh` pushes and then
+compares, and refuses outright when `HEAD` is detached.
+
+## Recording a failure mode
+
+A run that discovers a way to be confidently wrong writes down the mechanism,
+not the apology. The order matters:
+
+1. Make it impossible, or make it fail loudly. A check that runs beats a rule
+   that has to be remembered.
+2. Where no check is possible, say so in the skill that owns the work, in one
+   or two sentences naming what goes wrong and what to compare instead.
+3. Delete the prose once a check covers it. Guidance that describes a failure
+   something else now catches is read as optional and trains people to skim.
+
+Three checks here exist for that reason: the commit-message hook, the commit
+report in CI, and `push-verified.sh`. Each replaced a rule that had been broken
+at least once while written down and believed.
+
 ## Worktrees
 
 One sub-issue gets one worktree, created outside the repository root so Cargo
