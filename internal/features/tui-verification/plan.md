@@ -50,6 +50,25 @@ One further capture per built-in theme covers `eldritch-minimal`,
 that enum adds a capture; the scenario list the harness reads and the enum are
 checked against each other rather than kept in step by memory.
 
+### Which of them are posted
+
+Nine of the twelve are posted. `Theme` selects a color palette and nothing else:
+it is documented as a color theme (`cli/mod.rs:27`), `renderer_palette` maps
+each variant to a `Palette` (`cli/renderer/style.rs:215-219`), and the bold,
+italic, underline, and dim modifiers are set per span at the call site rather
+than per theme. Strip the escapes and the three theme frames are identical text
+over the same fixture at the same geometry, so posting them fills the comment
+with three copies of one frame and shows a palette regression to nobody.
+`no-color` is the same case for a further reason: no renderer path reads
+`NO_COLOR` today, and until #52 lands the frame is the default palette under
+another name.
+
+Those four are captured and kept in scratch, where they hold their escapes and
+a reader can `cat` them or render them with freeze. The comment carries the
+nine scenarios in the table above, which differ in structure and so differ in
+text. A palette regression is caught by the snapshot tests and by the human
+confirmation at `status:verify`, neither of which reads a stripped frame.
+
 Geometry is 100 by 30 unless the scenario names another, matching the session
 the existing QA page opens. `narrow-60-cols` is 60 by 30 and `short-16-rows` is
 100 by 16.
@@ -72,7 +91,8 @@ A frame is evidence about the interface only if the transcript behind it is
 fixed. A capture over a transcript that varies run to run shows a reviewer the
 transcript, and every disagreement about spacing turns into an argument about
 whether the two frames were even of the same thing. So every scenario past
-`startup` loads a session fixture and no scenario sends a prompt. `--session-dir` is global
+`startup` loads a session fixture and no scenario sends a prompt.
+`--session-dir` is global
 (`crates/thndrs/src/cli/mod.rs:278`) and `/resume <session-id>` already exists
 (`crates/thndrs/src/cli/app/commands.rs:80`), so a fixture directory plus a
 resume reaches a populated transcript with no model call.
@@ -108,22 +128,53 @@ run would then use.
 
 The evidence is a comment on the pull request. A pull request that touches the
 renderer, the app, or the runtime terminal runs the harness and posts one
-comment holding all twelve frames; one that touches none of them posts nothing.
-The reviewer reads the frames there and replies there, which is the whole point:
-a remark about spacing, rhythm, or a wrong state belongs next to the frame that
-shows it, on the pull request that would change it.
+comment holding the nine frames above; one that touches none of them posts
+nothing. The reviewer reads the frames there and replies there. A remark about
+spacing, rhythm, or a wrong state belongs next to the frame that shows it, on
+the pull request that would change it.
+
+### What the comment holds
 
 The comment carries plain text. Each scenario is a fenced block inside a
 collapsed `<details>` whose summary names the scenario and its geometry, so a
-comment holding twelve frames stays navigable. ANSI escapes are stripped before
-posting: a code fence renders them as literal `\e[` noise rather than as color,
-so leaving them in costs legibility and buys nothing.
+comment holding nine frames stays navigable. ANSI escapes are stripped before
+posting. `capture-pane -e` writes real ESC bytes, and a code fence renders those
+as invisible or replacement characters rather than as color, so leaving them in
+costs legibility and buys nothing.
+
+A posted frame carries at most its last 60 rows. A GitHub comment body stops at
+65,536 characters, and nine frames 100 columns wide reach that at about 66 rows
+each, so an unbudgeted set fails to post the first time it runs against a
+populated transcript. Sixty rows across nine frames is roughly 55,000
+characters, which leaves room for the markup around them.
+
+The full-height capture stays in scratch and the budget applies only to the
+posted copy. This is the one place where the comment is worse than the file it
+came from: turn rhythm over a long transcript is exactly what height was for,
+and 60 rows is two screens of it. Take it up by splitting the set across two
+comments if two screens turns out to be too few.
+
+### Who posts it
+
+The harness does not talk to GitHub. It takes a pull request number, writes the
+frames to scratch, and writes the comment body to a file; posting that file is
+the caller's, through whichever transport the run is already using. A script
+that shelled out to `gh` would break in a cloud session, which has none, and
+that is where captures are taken. `github-board` decides the transport, and it
+decides it once for the whole run.
 
 The comment is replaced rather than appended. A push that changes the interface
-edits the existing capture comment in place, so the pull request holds the
-frames its current head produces and a reviewer never scrolls past four stale
-sets to reach them. Review replies stay on their own threads and survive the
-edit.
+regenerates the body and edits the existing capture comment in place, so the
+pull request holds the frames its current head produced and a reviewer never
+scrolls past four stale sets to reach them. Review replies stay on their own
+threads and survive the edit.
+
+The body opens with `<!-- thndrs-captures -->`, which is how a later run finds
+the comment to edit. Matching on the author and a title prefix would find the
+review passes' comments too, since those post to the same thread under the same
+account.
+
+### What the comment cannot carry
 
 Losing color in the pull request is the accepted cost. GitHub renders no ANSI in
 a comment, and there is no route by which an agent uploads an image to one, so
@@ -133,10 +184,10 @@ survive in plain text, and those are what a capture is read for. A defect that
 is only visible in color is not covered here and stays with the human
 confirmation at `status:verify`.
 
-Nothing is committed. The harness writes its `.ansi` files to ignored scratch
-space, and they are what the posted text is stripped from. They stay on disk
-after a run for whoever wants the colored frame: `cat` shows it in a terminal,
-and freeze renders it to an image locally. Freeze is a local convenience here
+The harness writes its `.ansi` files to ignored scratch space, and they are what
+the posted text is stripped from. They stay on disk after a run for whoever
+wants the colored frame: `cat` shows it in a terminal, and freeze renders it to
+an image locally. Freeze is a local convenience here
 rather than a step in the loop, installed from `.claude/hooks/session-start.sh`
 at a pinned version in the report-and-continue style that hook already uses. A
 capture run that does not find it posts its comment as usual.
