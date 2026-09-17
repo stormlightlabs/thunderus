@@ -25,7 +25,7 @@
 
 **Blocked by:** Stable packaged runtime surfaces.
 
-- [ ] Update `hybrid-orchestration` when packaged ACP or run interfaces can
-      replace its pane-driving steps.
+- [ ] Replace the `thunderstorm` dispatch steps with packaged ACP or run
+      interfaces once those are stable.
 - [ ] Keep worker scheduling and hierarchy in skills and external clients, not
       in `thndrs`.

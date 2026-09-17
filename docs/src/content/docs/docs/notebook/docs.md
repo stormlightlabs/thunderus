@@ -60,7 +60,7 @@ Good internals documentation gives readers a stable mental model and gives contr
 
 ## Local Documentation Shape
 
-thndrs should treat `docs/internal` as planning material outside the published site. The published docs should use these layers:
+thndrs should treat `internal/` as planning material outside the published site. The published docs should use these layers:
 
 - **Getting Started:** orientation, install, quick start, manual.
 - **Usage:** user tasks such as input, keybindings, project context, skills, tools, web search, models, sessions, and security.
@@ -136,5 +136,5 @@ The template should stay lightweight. Pages should describe the decisions a cont
 ## Takeaways
 
 - Internals docs should explain boundaries, flow, and invariants first.
-- Keep `docs/internal` private to the repo workflow and publish curated knowledge in the site.
+- Keep `internal/` private to the repo workflow and publish curated knowledge in the site.
 - Promote stable notebook conclusions into Concepts, Reference, or Development instead of expanding the notebook forever.

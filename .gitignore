@@ -4,4 +4,15 @@ docs/target
 .thndrs
 .env
 .zed
+
+# Agent configuration is tracked. These negations keep the files in the
+# repository when a global or editor ignore rule would otherwise drop them.
+!CLAUDE.md
 !AGENTS.md
+!.claude/
+!.claude/**
+!.agents/
+!.agents/**
+
+# Local overrides stay out of the repository.
+.claude/settings.local.json

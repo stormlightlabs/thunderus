@@ -1,0 +1,92 @@
+---
+name: commits-and-prs
+description: Write commit messages and pull request descriptions for this repository. Use when committing, opening a pull request, or asked to write a PR body, release note, or changelog entry.
+---
+
+# Commits and pull requests
+
+Write for the person reading `git log` in a year with no memory of this work.
+
+Use the `writing-docs` skill for the prose. Everything here is in addition to
+it.
+
+## Commit messages
+
+```text
+<type>: <what changed, imperative, lowercase, under 60 characters>
+
+<why it changed, wrapped at 72 characters>
+```
+
+Types used here: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`.
+
+The subject says what changed. The body says why, and only when the why is not
+obvious from the diff. A one-line commit is correct when the change explains
+itself.
+
+Good:
+
+```text
+fix: collapse nested if in instance percentage check
+
+Clippy's collapsible_if fires under -D warnings, which has failed CI
+on every run since 2026-08-18.
+```
+
+Do not write:
+
+- `fix: fix bug`, `chore: updates`, or any subject that could describe any
+  commit.
+- A body that restates the diff line by line.
+- A list of every file touched. That is what the diff is for.
+- Attribution to a model or tool unless the user asks for it.
+
+One commit does one thing. A commit that needs "and" in its subject is two
+commits.
+
+## Pull request bodies
+
+```markdown
+Closes #<issue>
+
+## What
+
+One paragraph. What changed and what behavior it produces.
+
+## Why
+
+The problem this solves, with evidence. Link the issue or the idea file.
+
+## Verification
+
+What was run, and what the result was. Name the commands.
+
+## Not covered
+
+What this does not do, what was not tested, and what was deferred with a link.
+```
+
+Requirements:
+
+- `Verification` names actual commands and actual results. "Tests pass" without
+  the command is not verification. If a check was not run, say so.
+- `Not covered` is required and may not be empty. Write `Nothing` only when you
+  have looked for gaps and found none.
+- Any test that was changed, removed, or narrowed gets a line explaining why.
+- Keep the body under roughly 40 lines. Longer means the change is too large or
+  the spec belongs in `internal/`.
+
+## Changelog
+
+Add to `## Unreleased` in `CHANGELOG.md` under `Added`, `Changed`, `Fixed`, or
+`Removed`. Write for a user of `thndrs`, not for a contributor: name the
+behavior that changed, not the module that changed.
+
+Skip the changelog for internal refactors, test-only changes, and documentation
+that does not describe a behavior change.
+
+## Do not
+
+- Pad a body to look thorough.
+- Claim a check ran when it did not.
+- Sign a commit as a model. Review comments carry signatures; commits do not.
