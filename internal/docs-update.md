@@ -1,3 +1,9 @@
+---
+name: docs-update
+last_updated: 2026-09-17
+id: 01M2RFP6G4GR61PWC6AR0WVSTR
+---
+
 # Internals and Development Documentation
 
 Update the pages in this order. Earlier tasks establish terminology and source

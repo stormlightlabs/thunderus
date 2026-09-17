@@ -1,3 +1,9 @@
+---
+name: qa
+last_updated: 2026-09-17
+id: 01M2RFP6G45DJAQ7FJNK3FP52N
+---
+
 # Release checklist and publication sequence
 
 This is the release-owner runbook for `thndrs-agent` and `thndrs`. Complete it

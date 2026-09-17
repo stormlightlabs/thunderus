@@ -1,3 +1,9 @@
+---
+name: cargo
+last_updated: 2026-09-17
+id: 01M2RFP6G46S1YHG8CPFHW0HX0
+---
+
 # Cargo release checklist
 
 Complete the [common release gate](README.md#common-release-gate) before

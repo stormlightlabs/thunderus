@@ -1,3 +1,9 @@
+---
+name: brew
+last_updated: 2026-09-17
+id: 01M2RFP6G4PAYTV75BNVHTVBP4
+---
+
 # Homebrew release checklist
 
 Complete the [common release gate](README.md#common-release-gate) and the
