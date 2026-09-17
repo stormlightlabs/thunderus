@@ -10,8 +10,10 @@
 #   .claude/scripts/sync-labels.sh --apply    # make the changes
 #
 # Creating a label is idempotent: an existing label is updated in place.
-# Deleting a stock label removes it from every issue that carries it. This
-# script refuses to delete a label that is still in use unless --force is given.
+# Deleting a label removes it from every issue and pull request that carries it,
+# which applies to a retired name as much as a stock one. This script refuses to
+# delete a label still in use unless --force is given, so retiring a label that
+# issues still carry means relabelling them first and syncing after.
 
 set -euo pipefail
 

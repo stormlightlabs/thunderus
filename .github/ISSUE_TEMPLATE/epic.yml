@@ -58,7 +58,7 @@ body:
       required: false
 
   - type: textarea
-    id: not-in-this-run
+    id: not-in-this-epic
     attributes:
       label: Not in this epic
       description: >
