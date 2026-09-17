@@ -5,24 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::Path;
 
 pub fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
-    let _guard = crate::test_env::lock();
-    let old_home = std::env::var_os("HOME");
-
-    unsafe {
-        std::env::set_var("HOME", home);
-    }
-
-    let result = f();
-
-    unsafe {
-        if let Some(old_home) = old_home {
-            std::env::set_var("HOME", old_home);
-        } else {
-            std::env::remove_var("HOME");
-        }
-    }
-
-    result
+    crate::test_env::with_home(home, f)
 }
 
 pub fn with_provider_env_removed<T>(f: impl FnOnce() -> T) -> T {

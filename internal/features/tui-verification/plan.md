@@ -92,10 +92,12 @@ fixed. A capture over a transcript that varies run to run shows a reviewer the
 transcript, and every disagreement about spacing turns into an argument about
 whether the two frames were even of the same thing. So every scenario past
 `startup` loads a session fixture and no scenario sends a prompt.
-`--session-dir` is global
-(`crates/thndrs/src/cli/mod.rs:278`) and `/resume <session-id>` already exists
-(`crates/thndrs/src/cli/app/commands.rs:80`), so a fixture directory plus a
-resume reaches a populated transcript with no model call.
+`--session-dir` is a top-level flag rather than a global one
+(`crates/thndrs/src/cli/mod.rs:278`), so it goes before any subcommand, and
+`/resume <session-id>` already exists
+(`crates/thndrs/src/cli/app/commands.rs:80`), so a scratch session directory
+holding the fixture, plus a resume, reaches a populated transcript with no model
+call. That directory is the `<scratch>` the launch line below passes.
 
 Fixtures are generated from typed records, not recorded and not hand-written.
 `SessionRecord` is a serde-tagged enum whose every variant carries
@@ -119,10 +121,32 @@ example, a development binary, or a test helper is an implementation choice.
 The harness also has to reach the main surface without a valid credential, since
 a capture never sends a request and the container holds no key. First-run setup
 opens when the selected provider has no credential
-(`crates/thndrs/src/cli/app/onboarding.rs`), so the first issue in this track
-establishes which existing route clears that gate. If none does, adding one is
-in scope for this track and the route must not accept a credential that a real
-run would then use.
+(`crates/thndrs/src/cli/app/onboarding.rs`), and `--model fake-agent` clears
+that gate. `selected_provider_missing` returns `None` for any model starting
+with `fake-agent` (`onboarding.rs:425`) and `model_uses_unsupported_route`
+exempts the same prefix (`crates/thndrs/src/cli/commands/setup.rs:30`), so
+configuration loads and no recovery overlay opens. Every capture launches from:
+
+```sh
+thndrs --cwd <workspace> --session-dir <scratch> --model fake-agent --tick-rate-ms 100
+```
+
+That line carries no `--ephemeral`, and adding it breaks eleven of the twelve
+captures: `resume_session` rejects an ephemeral run outright
+(`crates/thndrs/src/cli/app.rs:1613`), so `/resume` cannot reach a fixture. The
+scratch session directory the generator writes into is what keeps a capture run
+out of the real session store instead.
+
+No new route was needed, and the fake route cannot stand in for a real one.
+`ProviderKind::for_model` maps it to `ProviderKind::Fake`
+(`crates/thndrs/src/core/agent.rs:65`), which emits scripted events in process.
+Tests in `crates/thndrs/src/cli/app/tests/setup.rs` and
+`crates/thndrs/src/cli/mod.rs` hold that under an empty `HOME` with no provider
+environment variable set, and with the workspace and the home directory kept
+apart so the project and global stores are separate files. One reaches the
+surface with both stores absent; the other seeds a credential a real provider
+would load, and asserts the turn dispatches nothing, leaves that store
+byte-identical, and writes nothing to the other.
 
 ## Evidence
 
