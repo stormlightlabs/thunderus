@@ -155,6 +155,21 @@ check(
     f"exit={result.returncode} stderr={result.stderr.strip()[:80]}",
 )
 
+result = run({"models.md": block("models"), "features/mcp/tasks.md": "# MCP\n"})
+check(
+    "a per-feature task list is exempt too",
+    result.returncode == 0,
+    f"exit={result.returncode} stderr={result.stderr.strip()[:80]}",
+)
+
+# The exemption names internal/features, not any directory called features.
+result = run({"models.md": block("models"), "archive/features/old/plan.md": "# Old\n"})
+check(
+    "a features directory elsewhere in the tree inherits no exemption",
+    result.returncode == 1 and "does not open with frontmatter" in result.stderr,
+    f"exit={result.returncode} stderr={result.stderr.strip()[:80]}",
+)
+
 result = run({"a.md": "# A\n", "b.md": "# B\n", "c.md": "# C\n"})
 check(
     "one run reports every failing file, not just the first",
@@ -172,6 +187,71 @@ check(
     "a directory that is not there is a usage error, not a clean tree",
     missing.returncode == 2,
     f"exit={missing.returncode}",
+)
+
+listed = f"""---
+name: models
+last_updated: 2026-09-17
+id: {GOOD}
+tags:
+  - one
+  - two
+---
+
+# Body
+"""
+result = run({"models.md": listed})
+check(
+    "a list under a key the convention does not constrain is not a parse error",
+    result.returncode == 0,
+    f"exit={result.returncode} stderr={result.stderr.strip()[:80]}",
+)
+
+commented = f"""---
+# the identifier never changes once assigned
+name: models
+last_updated: 2026-09-17
+id: {GOOD}
+feature-id: mcp
+---
+
+# Body
+"""
+result = run({"models.md": commented})
+check(
+    "a comment line and a hyphenated key are both allowed",
+    result.returncode == 0,
+    f"exit={result.returncode} stderr={result.stderr.strip()[:80]}",
+)
+
+result = run({"models.md": block("models", identifier=f"{GOOD} # assigned in #8")})
+check(
+    "a trailing comment is not part of the value",
+    result.returncode == 0,
+    f"exit={result.returncode} stderr={result.stderr.strip()[:80]}",
+)
+
+result = run({"models.md": block("models", date="2026-13-45")})
+check(
+    "a date of the right shape that is not a real date fails",
+    result.returncode == 1 and "not a real date" in result.stderr,
+    f"exit={result.returncode} stderr={result.stderr.strip()[:80]}",
+)
+
+with tempfile.TemporaryDirectory() as parent:
+    named = Path(parent) / "fixtures"
+    named.mkdir()
+    (named / "README.md").write_text(block("fixtures"), encoding="utf-8")
+    rooted = subprocess.run(
+        [sys.executable, str(TOOL), str(named)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+check(
+    "a README at the root is named for the directory being checked",
+    rooted.returncode == 0,
+    f"exit={rooted.returncode} stderr={rooted.stderr.strip()[:80]}",
 )
 
 print()
