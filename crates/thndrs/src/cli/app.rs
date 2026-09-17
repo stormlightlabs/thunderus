@@ -101,11 +101,10 @@ fn append_loaded_skill(app: &mut App, loaded: &skills::LoadedSkill, include_cont
     );
     let token_estimate = agent_context::estimate_tokens(text.len());
     let available_input = app.refresh_context_ledger(None).budget.available_input;
-    let context_percent = if available_input == 0 {
-        None
-    } else {
-        Some(((token_estimate as u64).saturating_mul(100) / available_input).min(100) as u8)
-    };
+    let context_percent = (token_estimate as u64)
+        .saturating_mul(100)
+        .checked_div(available_input)
+        .map(|percent| percent.min(100) as u8);
     app.transcript.entries.push(Entry::Skill {
         name: loaded.activation.name.clone(),
         path: loaded.activation.path.display().to_string(),

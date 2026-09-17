@@ -1182,10 +1182,8 @@ pub fn apply_compaction(
         ),
     });
     app.refresh_context_ledger(None);
-    if is_automatic {
-        if let Some(turn) = original_user_turn {
-            return Some(super::input::submit_internal_turn(app, turn));
-        }
+    if is_automatic && let Some(turn) = original_user_turn {
+        return Some(super::input::submit_internal_turn(app, turn));
     }
     Some(None)
 }

@@ -23,22 +23,22 @@ pub(crate) enum McpConfigTarget {
 
 /// Add or replace one MCP server definition and atomically write its file.
 pub(crate) fn add_server(
-    workspace: &Path, target: McpConfigTarget, name: &str, server: McpServerConfig,
+    workspace: &Path, target: McpConfigTarget, name: &str, server: &McpServerConfig,
 ) -> io::Result<PathBuf> {
     validate_mcp_server_name(name).map_err(io::Error::other)?;
     let path = config_path(workspace, target)?;
-    edit_config(&path, |document| insert_server(document, name, &server))?;
+    edit_config(&path, |document| insert_server(document, name, server))?;
     Ok(path)
 }
 
 /// Add a catalog-derived server definition and its provenance atomically.
 pub(crate) fn add_catalog_server(
-    workspace: &Path, target: McpConfigTarget, name: &str, server: McpServerConfig, provenance: McpCatalogProvenance,
+    workspace: &Path, target: McpConfigTarget, name: &str, server: &McpServerConfig, provenance: &McpCatalogProvenance,
 ) -> io::Result<PathBuf> {
     validate_mcp_server_name(name).map_err(io::Error::other)?;
     let path = config_path(workspace, target)?;
     edit_config(&path, |document| {
-        insert_server(document, name, &server)?;
+        insert_server(document, name, server)?;
         let mut table = Table::new();
         table["catalog_url"] = value(provenance.catalog_url.clone());
         table["catalog_name"] = value(provenance.catalog_name.clone());
@@ -252,7 +252,7 @@ mod tests {
         invalid.args.push("--bad".to_string());
 
         let error =
-            add_server(&workspace, McpConfigTarget::Project, "docs", invalid).expect_err("invalid server rejected");
+            add_server(&workspace, McpConfigTarget::Project, "docs", &invalid).expect_err("invalid server rejected");
 
         assert_eq!(error.kind(), io::ErrorKind::Other);
         assert_eq!(fs::read_to_string(path).expect("read config"), "# unchanged\n");

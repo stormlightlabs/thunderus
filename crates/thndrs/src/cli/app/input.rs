@@ -747,7 +747,7 @@ pub fn handle_action(app: &mut App, action: Action) -> Option<Msg> {
                 return handle_first_run_action(app, action);
             }
             if app.overlay.mcp_trust().is_some() {
-                return super::commands::handle_mcp_trust_action(app, action);
+                return super::commands::handle_mcp_trust_action(app, &action);
             }
             if app.overlay.is_detail() {
                 return handle_detail_action(app, &action);
@@ -1230,15 +1230,11 @@ fn handle_prompt_action(app: &mut App, action: Action) -> Option<Msg> {
         Action::Transpose => {
             app.composer.input.transpose_chars();
         }
-        Action::CursorUp => {
-            if app.composer.history_cursor.is_some() || !app.composer.input.cursor_up() {
-                agent_lifecycle::recall_older_input(app);
-            }
+        Action::CursorUp if (app.composer.history_cursor.is_some() || !app.composer.input.cursor_up()) => {
+            agent_lifecycle::recall_older_input(app);
         }
-        Action::CursorDown => {
-            if app.composer.history_cursor.is_some() || !app.composer.input.cursor_down() {
-                agent_lifecycle::recall_newer_input(app);
-            }
+        Action::CursorDown if (app.composer.history_cursor.is_some() || !app.composer.input.cursor_down()) => {
+            agent_lifecycle::recall_newer_input(app);
         }
         Action::DeleteForward => {
             app.composer.input.delete_forward();
@@ -1255,10 +1251,8 @@ fn handle_prompt_action(app: &mut App, action: Action) -> Option<Msg> {
         Action::Submit => return handle_submit(app),
         Action::SubmitSteering => return handle_running_submit(app, QueueTarget::Steering),
         Action::AcceptSuggestion => return accept_prompt_suggestion(app),
-        Action::Cancel => {
-            if app.runtime.run_state == RunState::Working {
-                agent_lifecycle::cancel_stream(app);
-            }
+        Action::Cancel if app.runtime.run_state == RunState::Working => {
+            agent_lifecycle::cancel_stream(app);
         }
         _ => {}
     }

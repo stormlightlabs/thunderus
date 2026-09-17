@@ -659,7 +659,7 @@ fn revoke_mcp_trust(app: &mut App) {
     }
 }
 
-pub(super) fn handle_mcp_trust_action(app: &mut App, action: Action) -> Option<Msg> {
+pub(super) fn handle_mcp_trust_action(app: &mut App, action: &Action) -> Option<Msg> {
     match action {
         Action::SelectPrevious => {
             if let Some(surface) = app.overlay.mcp_trust_mut() {
@@ -673,9 +673,7 @@ pub(super) fn handle_mcp_trust_action(app: &mut App, action: Action) -> Option<M
         }
         Action::Cancel | Action::CloseOverlay => app.overlay.close(),
         Action::Confirm => {
-            let Some(surface) = app.overlay.mcp_trust().cloned() else {
-                return None;
-            };
+            let surface = app.overlay.mcp_trust().cloned()?;
             app.overlay.close();
             if surface.selected == 0 {
                 match surface.action {

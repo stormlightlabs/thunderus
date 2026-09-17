@@ -319,10 +319,8 @@ fn collect_locations_for_key(
     _key: &str, value: &serde_json::Value, line_hint: Option<u32>, locations: &mut BTreeSet<(String, Option<u32>)>,
 ) {
     match value {
-        serde_json::Value::String(path) if is_path_like_value(path) => {
-            if is_file_like_path(path) {
-                locations.insert((path.to_string(), line_hint));
-            }
+        serde_json::Value::String(path) if is_path_like_value(path) && is_file_like_path(path) => {
+            locations.insert((path.to_string(), line_hint));
         }
         serde_json::Value::Array(values) => {
             for child in values {

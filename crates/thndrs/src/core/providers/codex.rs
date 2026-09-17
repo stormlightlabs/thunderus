@@ -708,9 +708,9 @@ fn format_usage_window(label: &str, window: &CodexUsageWindow, now: SystemTime) 
 }
 
 fn format_window_minutes(minutes: u32) -> String {
-    if minutes % 1_440 == 0 {
+    if minutes.is_multiple_of(1_440) {
         format!("{}d", minutes / 1_440)
-    } else if minutes % 60 == 0 {
+    } else if minutes.is_multiple_of(60) {
         format!("{}h", minutes / 60)
     } else {
         format!("{minutes}m")

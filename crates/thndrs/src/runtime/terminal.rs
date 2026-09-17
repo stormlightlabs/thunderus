@@ -213,7 +213,11 @@ fn clear_live_viewport<B: Backend>(terminal: &mut Terminal<B>) -> Result<(), B::
         // rows. Clearing each remembered row would leave wrapped fragments
         // behind, so clear from the old pane origin through the bottom. The
         // old pane can itself have moved upward by the newly wrapped rows.
-        let wrap_factor = if size.width == 0 { 1 } else { area.width.saturating_add(size.width - 1) / size.width };
+        let wrap_factor = area
+            .width
+            .saturating_add(size.width.saturating_sub(1))
+            .checked_div(size.width)
+            .unwrap_or(1);
         let wrapped_rows = area.height.saturating_mul(wrap_factor.saturating_sub(1));
         let clear_top = area.top().saturating_sub(wrapped_rows);
         terminal

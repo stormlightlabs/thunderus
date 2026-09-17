@@ -562,10 +562,10 @@ pub(crate) fn run_session_purge<W: io::Write, P: io::Write>(
             cancellation::check(cancellation)?;
             for path in [&artifact.metadata_path, &artifact.body_path].into_iter().flatten() {
                 cancellation::check(cancellation)?;
-                if let Err(error) = std::fs::remove_file(path) {
-                    if error.kind() != io::ErrorKind::NotFound {
-                        failures.push(format!("{}: {error}", artifact.handle));
-                    }
+                if let Err(error) = std::fs::remove_file(path)
+                    && error.kind() != io::ErrorKind::NotFound
+                {
+                    failures.push(format!("{}: {error}", artifact.handle));
                 }
             }
         }
@@ -1110,7 +1110,7 @@ pub(crate) fn run_mcp_catalog_configure<W: io::Write>(
             "No files changed. Review this recipe, then rerun with `--yes` to write it."
         );
     }
-    let path = mcp::edit::add_catalog_server(&workspace, target, &args.name, recipe.server, recipe.provenance)?;
+    let path = mcp::edit::add_catalog_server(&workspace, target, &args.name, &recipe.server, &recipe.provenance)?;
     writeln!(
         writer,
         "added catalog-derived MCP server `{}` to {}",
@@ -1266,7 +1266,7 @@ pub(crate) fn run_mcp_catalog_update<W: io::Write>(
         );
     }
     let workspace = crate::context::discover_workspace_root(&cli.cwd);
-    let path = mcp::edit::add_catalog_server(&workspace, target, &args.name, recipe.server, recipe.provenance)?;
+    let path = mcp::edit::add_catalog_server(&workspace, target, &args.name, &recipe.server, &recipe.provenance)?;
     writeln!(
         writer,
         "updated catalog-derived MCP server `{}` in {}",
@@ -1475,7 +1475,7 @@ pub(crate) fn run_mcp_add<W: io::Write>(
     };
     let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let target = mcp_config_target(scope);
-    let path = mcp::edit::add_server(&workspace, target, name, server)?;
+    let path = mcp::edit::add_server(&workspace, target, name, &server)?;
     writeln!(writer, "added MCP server `{name}` to {}", path.display())?;
     if scope == crate::cli::commands::mcp::McpConfigScope::Project {
         writeln!(

@@ -551,10 +551,10 @@ impl AccountCapacityWindow {
     /// Validate names and percentage values.
     pub fn validate(&self) -> Result<(), InstanceContractError> {
         let _ = validate_text("capacity window name", self.name.clone(), 64)?;
-        if let Some(field) = &self.used_percent {
-            if field.value().is_some_and(|value| *value > 100) {
-                return Err(InstanceContractError::InvalidPercentage);
-            }
+        if let Some(field) = &self.used_percent
+            && field.value().is_some_and(|value| *value > 100)
+        {
+            return Err(InstanceContractError::InvalidPercentage);
         }
         Ok(())
     }

@@ -299,6 +299,9 @@ fn package_origin(package: &CatalogPackage) -> String {
         .unwrap_or_else(|| package.registry_type.clone())
 }
 
+// The arguments map one-to-one onto `McpCatalogProvenance` fields. Grouping them
+// into a parameter struct would move the same field count to the call site.
+#[allow(clippy::too_many_arguments)]
 fn provenance(
     source: &CatalogSource, entry: &CatalogEntry, retrieved_at: String, origin_type: &str, origin: String,
     package_version: Option<&str>, package_identifier: Option<&str>, supplied_sha256: Option<String>,

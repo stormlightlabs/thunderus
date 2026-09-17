@@ -571,7 +571,7 @@ fn run_with_io<Stdout: Write, Stderr: Write>(
             return match &app.runtime.run_state {
                 RunState::Idle => finish_output(stdout, &mut output),
                 RunState::Error(message) => {
-                    finish_output(stdout, &mut output).and(Err(RunError::new(Exit::Failure, message.clone())))
+                    finish_output(stdout, &mut output).and_then(|_| Err(RunError::new(Exit::Failure, message.clone())))
                 }
                 RunState::Stopping => Err(RunError::new(
                     Exit::Cancelled,

@@ -1198,6 +1198,9 @@ fn mcp_add_and_remove_write_scoped_configuration_without_trusting_or_starting_se
     });
 }
 
+// The test walks one catalog workflow end to end. Splitting it would hide the
+// ordering the assertions depend on.
+#[allow(clippy::cognitive_complexity)]
 #[test]
 fn mcp_catalog_commands_use_global_sources_and_offline_metadata() {
     let temp = tempfile::tempdir().expect("tempdir");
