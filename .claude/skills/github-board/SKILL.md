@@ -12,10 +12,16 @@ the operations here so one mechanism owns the transitions.
 
 Two transports reach the same board. Pick by what the session has:
 
-| Session          | Transport               | How to tell                        |
-| ---------------- | ----------------------- | ---------------------------------- |
-| Local checkout   | `gh`                    | `command -v gh` succeeds.          |
-| Cloud (web) run  | GitHub MCP tools        | `CLAUDE_CODE_REMOTE=true`, no `gh` |
+| Session          | Transport               | How to tell                          |
+| ---------------- | ----------------------- | ------------------------------------ |
+| Cloud (web) run  | GitHub MCP tools        | `CLAUDE_CODE_REMOTE=true`            |
+| Local checkout   | `gh`                    | `gh auth status` succeeds otherwise  |
+
+`CLAUDE_CODE_REMOTE` decides first and on its own. A cloud image that happens to
+carry `gh` almost certainly carries no token with it, and a run that picks `gh`
+on the strength of the binary alone fails on its first write, or worse, decides
+it is local and tries to create a worktree. Where the variable is unset, `gh`
+needs a working credential, not merely a place on `PATH`.
 
 Check once at the start of a run and use that transport throughout. Never
 report a board change made through one transport as if it came from the other.
@@ -27,9 +33,12 @@ Two differences decide correctness, so read them before the first write:
   the `labels` array becomes the issue's entire label set, and so does
   `assignees`. Read the current labels first and send the full intended set,
   or the `type:*`, `area:*`, and `risk:*` labels are silently dropped.
-- The MCP surface cannot define labels. It has no create, update, or delete for
-  a label, only `get_label`. A cloud session applies the manifest by dispatching
-  a workflow; see [Label definitions](#label-definitions).
+- Label definitions do not go through MCP. The upstream server keeps label
+  writes in a `labels` toolset that is not enabled by default, so `get_label`
+  may well be the only label tool a session has. Treat the workflow as the way
+  to apply the manifest even where `label_write` is present: one path that
+  records what changed beats two that disagree. See
+  [Label definitions](#label-definitions).
 
 ## Read
 
@@ -84,6 +93,11 @@ gh issue edit <n> --remove-label "status:queued" --add-label "status:claimed"
 Through MCP, `@me` has no equivalent: call `get_me` for the login, then send it
 in the `assignees` array of an `issue_write` update, together with the full
 label set from the transition above. One update call does both.
+
+`assignees` replaces, exactly as `labels` does, so read the current assignees
+with the labels and send them back alongside the claim. Sending the login alone
+unassigns whoever was already there, and the re-read below cannot tell that
+apart from a clean claim.
 
 Re-read the issue after claiming. If the assignee is not the expected account,
 another run took it first; release the claim and pick a different issue.
