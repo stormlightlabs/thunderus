@@ -124,6 +124,12 @@ without the underlying cause changing. Either stop is an escalation.
 | `edge`      | Merged work that is not released yet.    | Pull requests from `agent/*`.  |
 | `agent/<n>` | One sub-issue. One worktree. One owner.  | Pushes from its worker.        |
 
+Every branch an agent pushes carries the `agent/` prefix, including work that
+has no issue behind it. Name that case for the work rather than the issue it
+lacks: `agent/git-hygiene`, not a harness-generated name. The prefix is what
+tells a human reading the branch list which branches an agent owns, and a cloud
+session that accepted whatever name its harness supplied breaks that.
+
 Delete the task branch when its pull request merges.
 
 ## Worktrees
