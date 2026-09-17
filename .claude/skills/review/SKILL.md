@@ -88,6 +88,25 @@ One line per finding:
 State what breaks and with what input. A finding that cannot name a failing
 case is speculation; drop it or mark it `nit`.
 
+## Which passes post
+
+A first standard pass does not comment. Its findings go to whoever invoked it,
+and the fixes land before anything reaches the thread. Most of what a first
+pass finds is resolved within the hour, and a reader scrolling through resolved
+findings learns nothing about the change.
+
+Determine which pass this is from the pull request itself. No signed review
+findings on it means this is the first.
+
+A second standard pass comments, and only on what survived the first. Something
+that outlived a round of fixes is worth a record.
+
+An adversarial pass always comments, including to say it found nothing. It is
+the last pass before a human reads the diff, so the record has to show it ran.
+
+Findings go to whoever invoked the pass either way. The question here is only
+whether they also reach the pull request.
+
 ## Post the findings
 
 Post one comment per pass, not one per finding. End every comment with a
@@ -102,8 +121,8 @@ gh pr comment <n> --body-file <file>
 # MCP: add_issue_comment with issue_number set to the pull request number.
 ```
 
-Print the same findings in chat. Ask before posting when no pull request is
-open, and never post to a repository the user did not name.
+Ask before posting when no pull request is open, and never post to a repository
+the user did not name.
 
 ## Stop conditions
 
