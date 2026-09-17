@@ -31,6 +31,42 @@ Prose paragraphs should outnumber tables and lists in any document that
 explains something. A page of nothing but tables is a reference, not an
 explanation; say which one you are writing.
 
+## Document length
+
+The soft limits above govern a sentence, a paragraph, and a section. None of
+them stops a document from growing past what a reader will finish. Match the
+length to what a reader has to do with the document, and check it against these
+targets.
+
+| Document                          | Target    |
+| --------------------------------- | --------- |
+| Error message                     | 2 lines   |
+| Commit body                       | 15 lines  |
+| Pull request description          | 40 lines  |
+| Review comment                    | 40 lines  |
+| Command or agent definition       | 40 lines  |
+| `SKILL.md`                        | 200 lines |
+| Docs page, README, internal spec  | 300 lines |
+
+A reference page that enumerates a surface, every configuration key or every
+flag, grows with that surface and is the usual exception. It still needs
+headings a reader can jump between.
+
+A reader looking for one answer should reach it without reading the rest. When
+a document passes its target, cut in this order:
+
+1. Anything the code, the tests, or `--help` already states. Link to it.
+2. Anything another document states. One fact has one home; every other
+   mention links to that home.
+3. Background the audience already has.
+4. Examples past the first one that shows the shape.
+
+Split only after cutting. A split that sends one reader to two files costs more
+than the length did, so split by audience or by task, never by size alone.
+
+Never drop a fact, a number, a limit, or a qualifier to reach a target. A
+document whose facts do not fit is more than one document.
+
 ## Plain technical prose
 
 Use this mode by default.
@@ -87,7 +123,8 @@ One instance of any of these can read as a human voice. Repetition is the tell.
 3. State each point once, before its support.
 4. Cut preambles, duplication, filler, and template endings.
 5. Replace abstractions and nominalizations with concrete nouns and verbs.
-6. Check the soft limits and restructure where one is exceeded.
+6. Check the soft limits and the length target, and restructure where one
+   is exceeded.
 7. Read for rhythm, parallel lists, and clear pronoun referents.
 
 For a small edit, change the smallest useful span. For a rewrite, preserve every
@@ -98,6 +135,8 @@ fact unless the user authorizes substantive changes.
 - Does the first sentence answer instead of announce?
 - Does each claim appear once, before its evidence?
 - Can any paragraph disappear without losing a fact?
+- Is the document inside its length target? If not, what did the extra
+  length buy the reader?
 - Does every `same`, `this`, and `existing` have a clear referent?
 - Are limits, sources, and failure behavior named rather than implied?
 - Did one trope recur enough to become visible?
