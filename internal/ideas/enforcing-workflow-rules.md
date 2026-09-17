@@ -21,9 +21,10 @@ Two workflows exist, `ci.yml` and `labels.yml`. Neither is triggered by an
 issue event and neither checks issue state, though `labels.yml` reads issues to
 count what carries a label.
 
-The board is the part that matters. Status is the state, and `github-board`
-says two status labels on one issue make the loop "pick the wrong transition".
-That is silent misrouting, not a visible failure, and nothing would notice it.
+Every run reads the board to pick its next issue and writes the transition
+back. Status is the state, and `github-board` says two status labels on one
+issue make the loop "pick the wrong transition". That is silent misrouting, not
+a visible failure, and nothing would notice it.
 
 The gap is not theoretical. Over 2026-09-17, building the cloud path, the rules
 that had a check were the ones that held:
@@ -58,9 +59,9 @@ blocking creates pressure to bypass, and conflating the three is how a rule
 that deserved a whisper ends up stopping work.
 
 Enforce the board invariants, at detection. They are machine-checkable without
-judgment, they fail silently today, and the board routes every run. Take them
-from their definitions: the Statuses table in `thunderstorm.md`, and the Claim
-and Rules sections of `github-board`.
+judgment and they fail silently today. Take them from their definitions: the
+Statuses table in `thunderstorm.md`, and the Claim and Rules sections of
+`github-board`.
 
 Restating them here does not work. A draft of this file listed four from memory
 and had already lost three. It dropped that an epic has no owner as well as no
