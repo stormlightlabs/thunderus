@@ -1,6 +1,6 @@
 ---
 name: github-board
-description: Read and write thunderstorm board state on GitHub issues, through gh locally or the GitHub MCP tools in a cloud session. Use when claiming an issue, changing its status label, filing a sub-issue, recording a block, or reading what is queued.
+description: Read and write thunderstorm board state on GitHub issues, through gh locally or the GitHub MCP tools in a cloud session. Use when claiming an issue, changing its status label, filing a sub-issue, recording a block or a dependency, or reading what is queued.
 ---
 
 # GitHub board
@@ -154,6 +154,88 @@ afterwards with `sub_issue_write` method `add`, which takes the sub-issue's ID
 rather than its number.
 
 Link it from the originating issue with a comment. Do not start it in this run.
+
+## Dependencies
+
+A sub-issue says what an issue is part of. A dependency says what it has to wait
+for, and the two are different relations: #31 is a sub-issue of #26 and blocked
+by #28 and #29 at the same time. Recording the second one is what stops a run
+dispatching a harness before the thing it starts exists, and GitHub enforces it
+by refusing to close an issue whose blockers are open.
+
+A dependency is an ordering known when the issues are filed. It is not
+`status:blocked`, which stops a run (see the `thunderstorm` skill's stop
+conditions) and belongs to a block discovered while working. An issue waiting
+on a sibling stays `status:queued` and keeps its place in the epic's dispatch
+order.
+
+### Neither transport reaches them
+
+The GitHub MCP server exposes no dependency tool: `sub_issue_write` writes
+hierarchy and nothing writes `blocked_by`. The transport table already assumes a
+cloud session cannot fall back to `gh`, and the current image carries no `gh`
+binary at all, so this is the one board operation that goes to the REST API
+directly.
+It is also the only place this skill reaches past the transport table, and it
+reaches it for dependency relations alone. Everything else still goes through
+`gh` or MCP.
+
+A cloud container has `GH_TOKEN` and `GITHUB_TOKEN` in the environment. Use one
+of them; do not print either, and do not pass a token on a command line where it
+lands in shell history.
+
+### Read
+
+```sh
+api=https://api.github.com/repos/<owner>/<repo>/issues
+gh_api() {
+  curl -sS \
+    -H "Authorization: Bearer $GH_TOKEN" \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" "$@"
+}
+
+gh_api "$api/<n>/dependencies/blocked_by"   # what <n> waits for
+gh_api "$api/<n>/dependencies/blocking"     # what waits for <n>
+```
+
+Both return an array of issue objects, empty when there is no relation. Read
+`blocked_by` before claiming anything: an issue whose blockers are still open is
+not claimable, whatever its status label says.
+
+### Write
+
+```sh
+gh_api -X POST -H "Content-Type: application/json" \
+  "$api/<blocked-number>/dependencies/blocked_by" \
+  -d '{"issue_id": <blocker-id>}'
+```
+
+`201` is success. Removing one is the same path with `-X DELETE` and no body.
+
+Two things make this fail in ways the error message only half explains:
+
+- **The body takes an issue ID, the path takes an issue number.** They are
+  different values, and an issue's ID is global where its number is per
+  repository, so a number sent as `issue_id` is not the issue you meant. Get the
+  ID from the `id` field of `issue_write` method `create`, or from
+  `gh_api "$api/<n>"` piped through `jq .id`.
+- **`Content-Type: application/json` is required.** Without it the request fails
+  `415` even though the body is valid JSON and every other header is right. The
+  `Accept` header does not cover this.
+
+### Verify
+
+The relation is stored once and projected both ways, so reading it back from the
+other end is a real check rather than an echo:
+
+```sh
+gh_api "$api/<blocker>/dependencies/blocking" | jq -r '.[].number'
+```
+
+Report the graph you wrote, in both directions. A dependency nobody announced is
+an ordering nobody can question, and a missing one is invisible until a run
+dispatches into it.
 
 ## Label definitions
 

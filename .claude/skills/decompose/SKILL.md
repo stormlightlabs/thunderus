@@ -66,6 +66,18 @@ body are work no run can find. `github-board` carries the calls under **File new
 work** — `parent_issue_number` on the create, or `sub_issue_write` method `add`
 afterwards, which takes the sub-issue's ID rather than its number.
 
+Where one sub-issue cannot start until another lands, record that as a
+dependency as well. The sub-issue relation says what the work is part of; it says
+nothing about order, and an epic whose order lives only in prose gets dispatched
+out of it. `github-board` carries the calls under **Dependencies**. Note also the
+file each sub-issue owns, in the epic body: a run decides what is safe to work at
+once from overlap, and two issues can be independent in the graph and still write
+the same file.
+
+A dependency is not `status:blocked`. That label ends a run, and it is for a
+block found while working. A sub-issue waiting on a sibling stays
+`status:queued`.
+
 ## Depth
 
 One level. A sub-issue that needs sub-issues of its own is an epic, and the
