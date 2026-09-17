@@ -801,34 +801,11 @@ fn accepting_model_picker_selection_saves_project_config() {
 /// reach the transcript surface with the credential store empty. `fake-agent`
 /// is that route: [`selected_provider_missing`] returns `None` for it, so no
 /// recovery overlay opens and the main surface renders on the first frame.
+///
+/// This is the test that owns the empty store, because the turn test below has
+/// to seed a credential to make its own assertions reachable.
 #[test]
 fn fake_agent_model_reaches_the_transcript_surface_without_a_credential() {
-    let home = tempfile::tempdir().expect("create temp home");
-    with_setup_home(home.path(), || {
-        let cli = Cli { cwd: home.path().to_path_buf(), model: "fake-agent".to_string(), ..Cli::default() };
-        let mut app = App::from_cli(&cli);
-        app.session.writer = None;
-
-        assert!(
-            app.overlay.setup().is_none(),
-            "fake-agent must render the transcript surface rather than onboarding"
-        );
-        assert!(
-            selected_provider_missing(&app, true).is_none(),
-            "a submit must not open onboarding either"
-        );
-    });
-}
-
-/// The route may not stand in for a real one, so a whole turn taken on it has
-/// to reach no provider and leave no credential behind.
-///
-/// The run is built through [`crate::agent::RunHandle::provider_with_steering`], which picks
-/// the provider from the model rather than being told which one to use, so
-/// swapping the model for a real provider fails this test on
-/// [`AgentEvent::RequestStarted`] instead of passing unchanged.
-#[test]
-fn a_turn_on_the_fake_route_reaches_no_provider_and_writes_no_credential() {
     let home = tempfile::tempdir().expect("create temp home");
     with_setup_home(home.path(), || {
         let cwd = home.path().to_path_buf();
@@ -836,42 +813,24 @@ fn a_turn_on_the_fake_route_reaches_no_provider_and_writes_no_credential() {
         let mut app = App::from_cli(&cli);
         app.session.writer = None;
 
-        let (_steering, steering_rx) = mpsc::channel::<String>();
-        let events: Vec<AgentEvent> = crate::agent::RunHandle::provider_with_steering(
-            AgentRunConfig::new(cwd.clone(), app.runtime.model),
-            Vec::new(),
-            false,
-            steering_rx,
-        )
-        .spawn()
-        .iter()
-        .collect();
-
-        assert_eq!(events.last(), Some(&AgentEvent::Finished), "the turn must complete");
         assert!(
-            !events
-                .iter()
-                .any(|event| matches!(event, AgentEvent::RequestStarted(_))),
-            "the route must dispatch no provider request"
-        );
-        assert!(
-            !events.iter().any(|event| matches!(event, AgentEvent::Failed(_))),
-            "the turn must not fail for want of a credential"
+            app.overlay.setup().is_none(),
+            "fake-agent must render the transcript surface rather than onboarding"
         );
 
         assert!(
             !auth::project_credentials_path(&cwd).exists(),
-            "the route must not write a project credential store"
+            "reaching the surface must not write a project credential store"
         );
         assert!(
             !auth::global_credentials_path()
                 .expect("global credential path")
                 .exists(),
-            "the route must not write a global credential store"
+            "reaching the surface must not write a global credential store"
         );
         assert!(
             !auth::chatgpt_codex_auth_path().expect("auth store path").exists(),
-            "the route must not write a ChatGPT OAuth store"
+            "reaching the surface must not write a ChatGPT OAuth store"
         );
         for provider in SetupProviderArg::ALL {
             assert!(
@@ -880,5 +839,54 @@ fn a_turn_on_the_fake_route_reaches_no_provider_and_writes_no_credential() {
                 provider.metadata().label
             );
         }
+    });
+}
+
+/// The route may not stand in for a real one, so a whole turn taken on it has
+/// to reach no provider and leave the credential store exactly as it found it.
+///
+/// A credential is seeded before the turn on purpose. Without one,
+/// `run_provider` gives up at client construction and returns
+/// [`AgentEvent::Failed`] before [`AgentEvent::RequestStarted`] can be emitted,
+/// which would leave that assertion unable to fail for any model. With one, a
+/// real provider builds its client and dispatches, so swapping the model here
+/// trips the dispatch assertion rather than passing unchanged.
+#[test]
+fn a_turn_on_the_fake_route_dispatches_nothing_and_touches_no_credential() {
+    let home = tempfile::tempdir().expect("create temp home");
+    with_setup_home(home.path(), || {
+        let cwd = home.path().to_path_buf();
+        let store = auth::project_credentials_path(&cwd);
+        auth::set_credential(&store, auth::OPENCODE_ZEN_KEY_ENV, "seeded-key-no-run-may-use")
+            .expect("seed a credential a real provider would load");
+        let seeded = auth::read_credentials(&store).expect("read seeded store");
+
+        let (_steering, steering_rx) = mpsc::channel::<String>();
+        let events: Vec<AgentEvent> = crate::agent::RunHandle::provider_with_steering(
+            AgentRunConfig::new(cwd, String::from("fake-agent")),
+            Vec::new(),
+            false,
+            steering_rx,
+        )
+        .spawn()
+        .iter()
+        .collect();
+
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, AgentEvent::RequestStarted(_))),
+            "the route must dispatch no provider request even with a credential present"
+        );
+        assert!(
+            !events.iter().any(|event| matches!(event, AgentEvent::Failed(_))),
+            "the turn must not fail"
+        );
+        assert_eq!(events.last(), Some(&AgentEvent::Finished), "the turn must complete");
+        assert_eq!(
+            auth::read_credentials(&store).expect("read store after the turn"),
+            seeded,
+            "the route must leave the credential store byte-identical"
+        );
     });
 }
