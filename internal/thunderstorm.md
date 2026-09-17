@@ -20,6 +20,29 @@ A run ends when every sub-issue reaches a terminal state, the budget is spent,
 or a worker escalates. A worker that finds adjacent work files a new issue and
 does not start it in this run.
 
+## Where a run happens
+
+A run works from a local checkout or from a cloud session on the web. The
+protocol is the same; the transport to GitHub is not.
+
+| Host          | GitHub through   | Worktrees                          |
+| ------------- | ---------------- | ---------------------------------- |
+| Local         | `gh`             | As described under [Worktrees](#worktrees). |
+| Cloud session | GitHub MCP tools | One ephemeral container, one issue. Skip the worktree. |
+
+The `github-board` skill picks the transport and owns the differences between
+them. Two are load-bearing:
+
+- The MCP issue update replaces an issue's whole label and assignee set, where
+  `gh issue edit` changes only what it names.
+- No MCP tool defines a label. Applying `.github/labels.yml` needs `gh` from a
+  local checkout. A cloud run that wants an undefined label is blocked.
+
+A cloud container starts with no Cargo registry, no `target/`, and no
+`docs/node_modules`, so `.claude/hooks/session-start.sh` warms the first and
+third before the session begins. It exits immediately outside the cloud, where
+a checkout already has them. `.claude/settings.json` registers it.
+
 ## Statuses
 
 Status is a label. One status label per issue.
@@ -139,7 +162,9 @@ changes once assigned. Update `last_updated` when the content changes.
 | `.claude/skills/`   | Skills. `.agents/skills` symlinks here.                      |
 | `.claude/commands/` | Slash commands.                                              |
 | `.claude/agents/`   | Subagent definitions for dispatch.                           |
-| `.claude/scripts/`  | Helper scripts.                                              |
+| `.claude/scripts/`  | Helper scripts. `sync-labels.sh` is local-only.              |
+| `.claude/hooks/`    | Session hooks. Dependency warming for cloud sessions.        |
+| `.claude/settings.json` | Hook and permission configuration. Tracked.              |
 | `internal/`         | Plans, specs, ideas, QA notes. Not published by the docs site. |
 | `internal/ideas/`   | Output of rubber-duck sessions.                              |
 | `CLAUDE.md`         | Repository instructions. `AGENTS.md` symlinks here.          |
@@ -164,6 +189,14 @@ and `adversarial-reviewer`.
 
 ## Not wired up yet
 
+- `edge` does not exist on the remote. Worktrees branch from it, pull requests
+  target it, and CI already has a push trigger for it. Nothing dispatches until
+  it is created and protected.
+- `.github/labels.yml` has never been applied. Run
+  `.claude/scripts/sync-labels.sh --apply` from a local checkout.
+- The repository has no issues, so no run has a parent to work from.
+- There are no tags. The release skill reads the previous version with
+  `git describe --tags`, which fails until the first tag exists.
 - OpenCode Go and Cursor have no role assignments in [models.md](models.md).
 - No harness triggers a run automatically, by design. Runs start when a human
   invokes one.

@@ -23,11 +23,17 @@ they would miss, not for the same findings again.
 
 ## Gather context first
 
+The `github-board` skill's Transport section decides whether this run uses `gh`
+or the GitHub MCP tools. Use the same transport for everything below.
+
 ```sh
 gh pr view <n> --json title,body,headRefName,baseRefName,files
 gh pr diff <n>
 git log --oneline origin/edge..<branch>
 ```
+
+Through MCP: `pull_request_read` methods `get`, `get_files`, and `get_diff`.
+The `git log` line is local either way.
 
 Read the changed files around the diff, not only the diff. Read the issue the
 pull request closes. Read `CLAUDE.md` for the rules the change must satisfy.
@@ -74,6 +80,7 @@ signature naming the model and reasoning level:
 
 ```sh
 gh pr comment <n> --body-file <file>
+# MCP: add_issue_comment with issue_number set to the pull request number.
 ```
 
 Print the same findings in chat. Ask before posting when no pull request is

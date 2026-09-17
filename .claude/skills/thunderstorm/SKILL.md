@@ -15,10 +15,15 @@ tree. See `internal/thunderstorm.md` for the protocol this obeys.
 
 The argument is a parent issue number. Read it and its children:
 
+The `github-board` skill's Transport section decides whether this run uses `gh`
+or the GitHub MCP tools. Use the same transport for everything below.
+
 ```sh
 gh issue view <n> --json number,title,body,labels,url
 gh issue view <n> --json subIssues
 ```
+
+Through MCP: `issue_read` method `get`, then method `get_sub_issues`.
 
 Stop and ask when any of these is true:
 

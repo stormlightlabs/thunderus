@@ -10,11 +10,18 @@ invocation.
 
 ## Read the findings
 
+The `github-board` skill's Transport section decides whether this run uses `gh`
+or the GitHub MCP tools. Use the same transport for everything below.
+
 ```sh
 gh pr view <n> --json title,body,headRefName,baseRefName
 gh pr diff <n>
 gh pr view <n> --comments
 ```
+
+Through MCP: `pull_request_read` methods `get`, `get_diff`, then
+`get_review_comments` for findings left on lines and `get_comments` for findings
+left on the pull request itself. A review pass may use either, so read both.
 
 Collect every finding from the most recent review pass. Earlier passes are
 history; do not re-address a finding already resolved unless it recurred.

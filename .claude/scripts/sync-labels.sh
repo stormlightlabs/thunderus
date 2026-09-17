@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Apply .github/labels.yml to the repository and remove GitHub's stock labels.
 #
+# Local only. Label definitions are the one board operation the GitHub MCP
+# surface cannot perform: it reads a label but never creates, edits, or deletes
+# one. A cloud session that finds a label missing reports it and stops.
+#
 #   .claude/scripts/sync-labels.sh            # show what would change
 #   .claude/scripts/sync-labels.sh --apply    # make the changes
 #
@@ -22,7 +26,11 @@ for arg in "$@"; do
   esac
 done
 
-command -v gh >/dev/null || { echo "gh is required" >&2; exit 1; }
+command -v gh >/dev/null || {
+  echo "gh is required: label definitions are local-only, run this from a" >&2
+  echo "local checkout rather than a cloud session" >&2
+  exit 1
+}
 test -f "$MANIFEST" || { echo "missing $MANIFEST" >&2; exit 1; }
 
 # Stock labels GitHub creates with every repository.
