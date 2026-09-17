@@ -51,7 +51,18 @@ jobs:
 
   apply:
     name: Sync the label set
-    if: github.event_name == 'workflow_dispatch'
+    # Dispatch carries a ref, and both the workflow and the script come from it.
+    # Without this guard an agent could push a changed sync-labels.sh to its own
+    # branch, dispatch on that ref, and run it against every issue and label
+    # before a human read the diff. The guard plus the pinned checkout below
+    # confine an apply to the default branch, which takes reviewed changes only.
+    #
+    # This is not airtight on its own: the copy of this file that runs also
+    # comes from the dispatch ref, so a branch that edits both lines gets past
+    # it. Closing that needs a repository setting rather than a file, either an
+    # environment with required reviewers on this job or restricting who may
+    # dispatch workflows.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/edge'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -60,6 +71,9 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Run the reviewed manifest and script, never the dispatch ref's copy.
+          ref: edge
       - name: Apply the manifest
         env:
           GH_TOKEN: ${{ github.token }}
