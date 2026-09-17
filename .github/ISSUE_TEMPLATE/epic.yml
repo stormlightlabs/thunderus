@@ -1,19 +1,24 @@
-name: Run
-description: A parent issue whose sub-issues are the units of work. One thunderstorm run.
-labels: ["run", "status:queued"]
+name: Epic
+description: A goal, a stop rule, and the sub-issues that are the work.
+labels: ["kind:epic"]
 body:
   - type: markdown
     attributes:
       value: |
-        A run is the loop. It ends when every sub-issue reaches a terminal
-        state, the budget is spent, or a worker escalates. Add sub-issues after
-        opening this; they are the things `/impl` claims.
+        An epic is what a run works through. It holds a goal and the condition
+        that ends it. Add sub-issues after opening this; they are the things
+        `/impl` claims, and this epic is not one of them.
+
+        A run is one pass over this epic, started by `/thunderstorm <number>`.
+        A run ends when every sub-issue is terminal, its budget is spent, or a
+        worker escalates. The epic stays open until its stop rule is met, so it
+        may take several runs.
 
   - type: textarea
     id: goal
     attributes:
       label: Goal
-      description: What is different when this run is finished.
+      description: What is different when this epic is finished.
     validations:
       required: true
 
@@ -22,8 +27,9 @@ body:
     attributes:
       label: Done when
       description: >
-        The condition that ends the run, checkable without judgment. This is the
-        stop rule.
+        The condition that closes this epic, checkable without judgment. This
+        is the stop rule, and it is not a budget: a run can end without it
+        being met.
       placeholder: |
         Every sub-issue is status:done, and `cargo test --workspace` and
         `pnpm --dir docs build` both pass on edge.
@@ -52,11 +58,11 @@ body:
       required: false
 
   - type: textarea
-    id: not-in-this-run
+    id: not-in-this-epic
     attributes:
-      label: Not in this run
+      label: Not in this epic
       description: >
-        Scope this run must not absorb. A worker that finds work here files it
+        Scope this epic must not absorb. A worker that finds work here files it
         separately.
     validations:
       required: false

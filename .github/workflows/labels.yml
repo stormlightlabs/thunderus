@@ -19,7 +19,8 @@ on:
     paths:
       - .github/labels.yml
       - .github/workflows/labels.yml
-      - .claude/scripts/sync-labels.sh
+      - .claude/scripts/sync-labels.py
+      - .claude/scripts/sync-labels-test.py
 
 permissions:
   contents: read
@@ -28,7 +29,7 @@ concurrency:
   group: labels-${{ github.ref }}
   cancel-in-progress: false
 
-# A pull request runs its own copy of sync-labels.sh, and the paths filter
+# A pull request runs its own copy of sync-labels.py, and the paths filter
 # includes that script, so the dry run must not hold a token that can write
 # labels: a branch editing the script would otherwise reach the real label set
 # before any human read the diff. Permissions cannot be expressions, so the two
@@ -43,16 +44,20 @@ jobs:
       issues: read
     steps:
       - uses: actions/checkout@v4
+      - name: Check the sync against a stubbed gh
+        # Needs no token and touches no repository, so it runs before the part
+        # that does.
+        run: .claude/scripts/sync-labels-test.py
       - name: Report the difference from the manifest
         env:
           # gh is preinstalled on the runner but reads its token from here.
           GH_TOKEN: ${{ github.token }}
-        run: .claude/scripts/sync-labels.sh
+        run: .claude/scripts/sync-labels.py
 
   apply:
     name: Sync the label set
     # Dispatch carries a ref, and both the workflow and the script come from it.
-    # Without this guard an agent could push a changed sync-labels.sh to its own
+    # Without this guard an agent could push a changed sync-labels.py to its own
     # branch, dispatch on that ref, and run it against every issue and label
     # before a human read the diff. The guard plus the pinned checkout below
     # confine an apply to the default branch, which takes reviewed changes only.
@@ -87,5 +92,5 @@ jobs:
           if [ "$FORCE" = "true" ]; then
             args+=(--force)
           fi
-          echo "running sync-labels.sh ${args[*]:-(dry run)}"
-          .claude/scripts/sync-labels.sh "${args[@]}"
+          echo "running sync-labels.py ${args[*]:-(dry run)}"
+          .claude/scripts/sync-labels.py "${args[@]}"

@@ -7,14 +7,18 @@ id: 01M2PWX233GKXE5M9SPTNTGN0D
 # Thunderstorm
 
 Thunderstorm is the development loop for this repository. One run covers one
-parent issue and the sub-issues declared under it. A human starts every run.
-Nothing runs on a schedule.
+epic and the sub-issues declared under it. A human starts every run. Nothing
+runs on a schedule.
 
 ## What a run is
 
-The parent issue is the run. Its sub-issues are the units of work. Run state
-lives in the issues, so a run survives a killed session and any harness can
-resume it.
+A run is one pass over one epic. The epic is the issue you file: a goal, a stop
+rule, and the sub-issues that are the units of work. The two are not the same
+thing, and the difference shows the first time a budget runs out: the run ends,
+the epic does not, and the next run picks it up where this one stopped.
+
+Run state lives in the issues, so a run survives a killed session and any
+harness can resume it.
 
 A run ends when every sub-issue reaches a terminal state, the budget is spent,
 or a worker escalates. A worker that finds adjacent work files a new issue and
@@ -36,7 +40,7 @@ them. Two are load-bearing:
 - The MCP issue update replaces an issue's whole label and assignee set, where
   `gh issue edit` changes only what it names.
 - Label definitions do not go through MCP. `.github/labels.yml` is applied by
-  running `.claude/scripts/sync-labels.sh` locally, or by dispatching
+  running `.claude/scripts/sync-labels.py` locally, or by dispatching
   `.github/workflows/labels.yml`, which runs that same script on a runner with
   `issues: write`, the narrowest scope GitHub offers for labels. A run that
   wants a label the manifest does not define is still blocked; the manifest
@@ -70,9 +74,16 @@ Status is a label. One status label per issue.
 `status:queued` and its worktree is removed. `status:blocked` for more than 7
 days goes to the triage inbox. Nothing closes automatically.
 
-The full label set, including `area:*`, `risk:*`, `type:*`, and the `run` marker
-for parent issues, lives in `.github/labels.yml`. Apply it with
-`.claude/scripts/sync-labels.sh`.
+An epic carries no status. It is not work, so there is nothing to claim, and
+duplicating its sub-issues' state on the parent gives that copy somewhere to
+drift.
+
+The full label set, including `area:*`, `risk:*`, `type:*`, and `kind:epic` for
+the issues runs work through, lives in `.github/labels.yml`. Its `retired:` group
+names labels this repository has stopped defining, which the sync deletes: a
+rename that only adds the new name leaves the old one in the picker, teaching
+the next contributor a rule that no longer holds. Apply it with
+`.claude/scripts/sync-labels.py`.
 
 ## Commands
 
@@ -200,7 +211,7 @@ changes once assigned. Update `last_updated` when the content changes.
 | `.claude/skills/`       | Skills. `.agents/skills` symlinks here.                        |
 | `.claude/commands/`     | Slash commands.                                                |
 | `.claude/agents/`       | Subagent definitions for dispatch.                             |
-| `.claude/scripts/`      | Helper scripts. `sync-labels.sh` also runs in CI.              |
+| `.claude/scripts/`      | Helper scripts. `sync-labels.py` also runs in CI.              |
 | `.claude/hooks/`        | Session hooks. Dependency warming for cloud sessions.          |
 | `.githooks/`            | Git hooks. Enable with `git config core.hooksPath .githooks`.  |
 | `.claude/settings.json` | Hook and permission configuration. Tracked.                    |
@@ -226,17 +237,12 @@ changes once assigned. Update `last_updated` when the content changes.
 Subagents for dispatch live in `.claude/agents/`: `implementer`, `reviewer`,
 and `adversarial-reviewer`.
 
-## Not wired up yet
+## What is not done yet
 
-- `.github/labels.yml` has never been applied. Run
-  `.claude/scripts/sync-labels.sh --apply`, or dispatch the Labels workflow.
-  Dispatch needs `labels.yml` on the default branch first, which is `edge`, and
-  the apply job refuses any other `ref`: a dispatch runs the script as it exists
-  on the ref it names, so applying from an unreviewed branch would hand a
-  label-writing token to whatever that branch contains.
-- The repository has no issues, so no run has a parent to work from.
-- There are no tags. The release skill reads the previous version with
-  `git describe --tags`, which fails until the first tag exists.
-- OpenCode Go and Cursor have no role assignments in [models.md](models.md).
-- No harness triggers a run automatically, by design. Runs start when a human
-  invokes one.
+Pending work lives on the board, not here. A list of gaps in a document goes
+stale the moment one is closed, and nobody reviews a document to find out what
+changed: two bullets in the list this replaced were already false within hours
+of being written.
+
+Issues that come from this document cite `01M2PWX233GKXE5M9SPTNTGN0D` so the
+trail back is readable from either end.

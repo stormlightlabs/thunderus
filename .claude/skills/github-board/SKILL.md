@@ -49,8 +49,10 @@ Two differences decide correctness, so read them before the first write:
 | Sub-issues   | `gh issue view <n> --json subIssues`                                         | `issue_read` method `get_sub_issues`           |
 | Labels alone | `gh issue view <n> --json labels`                                            | `issue_read` method `get_labels`               |
 
-A parent issue carries the `run` label. Its sub-issues are the units of work.
-Do not treat a parent as claimable.
+An epic carries `kind:epic`. Its sub-issues are the units of work, and the epic
+itself is never claimed: it has no owner and no `status:*` label, because its
+state is whatever its sub-issues say. A run is a pass over one epic, so an epic
+outlives the runs that work it.
 
 ## Status
 
@@ -160,7 +162,7 @@ write labels, so it runs in one of two places:
 
 | Session | How                                                                        |
 | ------- | -------------------------------------------------------------------------- |
-| Local   | `.claude/scripts/sync-labels.sh` for a dry run, `--apply` to make changes. |
+| Local   | `.claude/scripts/sync-labels.py` for a dry run, `--apply` to make changes. |
 | Cloud   | Dispatch `.github/workflows/labels.yml`, which runs the same script.       |
 
 From a cloud session that means `actions_run_trigger` method `run_workflow`,
