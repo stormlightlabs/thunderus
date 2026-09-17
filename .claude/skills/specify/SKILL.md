@@ -80,7 +80,10 @@ merges unreviewed sets the vocabulary for every issue cut from it.
 
 ## Then
 
-Hand it to `decompose`. A spec that produces no issues is either premature or
+Hand it to `decompose` once the pull request above has merged. Issues cite the
+spec's identifier and a worker reads the spec from a worktree cut from `edge`,
+so issues filed off the branch point at a file nobody else has, and at decisions
+review can still change. A spec that produces no issues is either premature or
 was not needed.
 
 ## Do not

@@ -91,12 +91,13 @@ Work moves through these. The bracketed stage is skipped whenever it would add
 nothing.
 
 ```text
-/r-d          an idea            internal/ideas/
-[/spec-ify]   a design           internal/features/<name>/plan.md
-/decomp       an epic and sub-issues
-/impl         a pull request
-/rev, /adv-rev, /edit            review passes and their fixes
-a human       merges to edge
+/r-d            an idea            internal/ideas/
+[/spec-ify]     a design           internal/features/<name>/plan.md
+/decomp         an epic and sub-issues
+/thunderstorm   one run over that epic, dispatching the stages below
+/impl           a pull request
+/rev, /adv-rev, /edit              review passes and their fixes
+a human         merges to edge
 ```
 
 A spec is written only when a sub-issue's stop rule cannot be written without
@@ -108,6 +109,10 @@ is a summary with more words.
 stage that files issues. `github-board` performs those writes but decides
 nothing about what to write.
 
+A run is what carries a sub-issue from queued to merged: `/thunderstorm` claims
+each one and dispatches the stages under it. One issue worked on its own skips
+the run and starts at `/impl`.
+
 ## Commands
 
 | Command                 | Argument                  | Does                                                                               |
@@ -115,6 +120,7 @@ nothing about what to write.
 | `/r-d`, `/rubber-duck`  | A topic                   | Design discussion. Writes an entry to `internal/ideas/` on request.                |
 | `/spec-ify`, `/specify` | An idea or topic          | One design to `internal/features/<name>/plan.md`. Only when a decision is missing. |
 | `/decomp`, `/decompose` | An idea, spec, or finding | Files one epic and the sub-issues under it.                                        |
+| `/thunderstorm`         | Epic issue number         | One run over the epic. Claims each sub-issue, dispatches it, and reports.          |
 | `/impl`, `/implement`   | Issue number              | Claims the issue, works it in a worktree, opens a pull request.                    |
 | `/rev`                  | Branch or PR number       | Standard review pass. Posts findings as comments.                                  |
 | `/adv-rev`              | Branch or PR number       | Adversarial review pass. Posts findings as comments.                               |

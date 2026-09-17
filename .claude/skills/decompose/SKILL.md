@@ -7,7 +7,8 @@ description: Cut an idea, a spec, or a finding into an epic and the sub-issues t
 
 Turn something understood into something claimable. The input is an idea file,
 a spec, or a finding from a review; the output is one epic and the sub-issues
-under it.
+under it. A spec is decomposed after it merges to `edge`, so the issues cite a
+document the worker that claims them can read.
 
 `github-board` performs the writes. This skill decides what to write.
 
@@ -30,11 +31,17 @@ One epic per body of work, labelled `kind:epic` and **no `status:*`**. An epic
 is not claimable, so a status on it is a copy of its sub-issues' state with
 somewhere to drift.
 
-Use `.github/ISSUE_TEMPLATE/epic.yml`. It asks for the goal, the stop rule, the
-planned sub-issues, the source, and what the epic must not absorb. The stop
-rule is the epic's own, not a restatement of "every sub-issue is done": that is
-already implied, and a stop rule that adds nothing tells a run nothing about
-when to stop early.
+`.github/ISSUE_TEMPLATE/epic.yml` holds the fields: the goal, the stop rule, the
+planned sub-issues, the source, what the epic must not absorb, and its risk. The
+form renders in the web UI and nowhere else, so filing through `github-board`
+means reproducing those six as headings in the body and setting `kind:epic` by
+hand, which the form would otherwise carry. Risk stays in the body where the
+dropdown puts it; an epic takes no `risk:*` label, because that label sizes the
+blast radius of a change and an epic makes none.
+
+The stop rule is the epic's own, not a restatement of "every sub-issue is
+done": that is already implied, and a stop rule that adds nothing tells a run
+nothing about when to stop early.
 
 ## The sub-issues
 
@@ -51,6 +58,13 @@ Each carries:
 Cite the identifier of the idea or spec it came from. A reader who finds the
 issue should reach the reasoning, and a reader who finds the document should
 reach the work.
+
+Attach each one to the epic as a sub-issue. The relation is what the next stage
+reads: `/thunderstorm` asks GitHub for the epic's children and refuses to start
+an epic that declares none, so sub-issues that exist only as lines in the epic's
+body are work no run can find. `github-board` carries the calls under **File new
+work** — `parent_issue_number` on the create, or `sub_issue_write` method `add`
+afterwards, which takes the sub-issue's ID rather than its number.
 
 ## Depth
 
