@@ -2,7 +2,6 @@ use super::*;
 use crate::input::PromptInput;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-
 #[test]
 fn ttft_starts_on_submit_and_ignores_status_and_usage() {
     let mut app = fresh_app();
