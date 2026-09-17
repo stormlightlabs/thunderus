@@ -1,11 +1,11 @@
 ---
 name: thunderstorm
-description: Run one thunderstorm loop over a parent issue and its sub-issues. Dispatches work, tracks status, reports, and stops. Use when asked to run a parent issue, work a run, or drive several sub-issues to completion.
+description: Run one thunderstorm loop over an epic and its sub-issues. Dispatches work, tracks status, reports, and stops. Use when asked to run an epic, work a run, or drive several sub-issues to completion.
 ---
 
 # Thunderstorm
 
-One run covers one parent issue and the sub-issues declared under it. A human
+One run covers one epic and the sub-issues declared under it. A human
 starts every run. Nothing here runs on a schedule.
 
 This skill dispatches and reports. It writes no code and touches no working
@@ -13,7 +13,7 @@ tree. See `internal/thunderstorm.md` for the protocol this obeys.
 
 ## Start
 
-The argument is a parent issue number. Read it and its children:
+The argument is an epic's issue number. Read it and its children:
 
 The `github-board` skill's Transport section decides whether this run uses `gh`
 or the GitHub MCP tools. Use the same transport for everything below.
@@ -27,7 +27,7 @@ Through MCP: `issue_read` method `get`, then method `get_sub_issues`.
 
 Stop and ask when any of these is true:
 
-- The issue has no `run` label. It is a unit of work; use `/impl` instead.
+- The issue has no `kind:epic` label. It is a unit of work; use `/impl` instead.
 - It declares no sub-issues.
 - Its `Done when` condition is missing or not checkable.
 - Any sub-issue is already `status:claimed` by another run.
@@ -67,7 +67,7 @@ Pause after each sub-issue reaches `status:review` and report:
 - what was claimed, and what its pull request number is;
 - what verification ran and what it returned;
 - what was filed as new work rather than absorbed;
-- what remains queued under the parent.
+- what remains queued under the epic.
 
 Then stop. The human decides whether the run continues.
 
@@ -85,10 +85,10 @@ Report the reason and what remains. Do not open new work to keep a run alive.
 
 ## Scope
 
-A worker that finds adjacent work files a new issue under the parent and does
+A worker that finds adjacent work files a new issue under the epic and does
 not start it. Self-expanding scope is how a run stops being one.
 
-The parent issue's `Not in this run` section is binding. Work named there gets
+The epic's `Not in this epic` section is binding. Work named there gets
 filed, never absorbed.
 
 ## Do not

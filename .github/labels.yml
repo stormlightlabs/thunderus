@@ -6,7 +6,8 @@
 # type:    what kind of change. Matches the commit type.
 # area:    what part of the system. Several allowed.
 # risk:    blast radius if the change is wrong.
-# run:     marks a parent issue whose sub-issues are the units of work.
+# kind:    what shape of issue this is. An epic holds sub-issues and is never
+#          claimed; an issue without a kind is a unit of work.
 
 status:
   - name: "status:queued"
@@ -105,7 +106,7 @@ risk:
     color: "b5442f"
     description: "Touches released behavior, data, or security."
 
-run:
-  - name: "run"
+kind:
+  - name: "kind:epic"
     color: "1f2933"
-    description: "Parent issue. Its sub-issues are the units of work."
+    description: "A goal and its stop rule. Sub-issues are the work."

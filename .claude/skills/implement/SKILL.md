@@ -23,8 +23,8 @@ Through MCP: `issue_read` method `get`, then method `get_sub_issues`.
 Stop and ask when any of these is true:
 
 - The issue has no acceptance criteria you could verify.
-- The issue has sub-issues. Work those individually; a parent issue is a run,
-  not a unit of work.
+- The issue has sub-issues. It is an epic rather than a unit of work; work its
+  sub-issues individually, or run the whole epic with `/thunderstorm`.
 - The issue is already `claimed` by someone else.
 - The work needs a decision the issue does not record.
 

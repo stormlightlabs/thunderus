@@ -7,14 +7,18 @@ id: 01M2PWX233GKXE5M9SPTNTGN0D
 # Thunderstorm
 
 Thunderstorm is the development loop for this repository. One run covers one
-parent issue and the sub-issues declared under it. A human starts every run.
-Nothing runs on a schedule.
+epic and the sub-issues declared under it. A human starts every run. Nothing
+runs on a schedule.
 
 ## What a run is
 
-The parent issue is the run. Its sub-issues are the units of work. Run state
-lives in the issues, so a run survives a killed session and any harness can
-resume it.
+A run is one pass over one epic. The epic is the issue you file: a goal, a stop
+rule, and the sub-issues that are the units of work. The two are not the same
+thing, and the difference shows the first time a budget runs out: the run ends,
+the epic does not, and the next run picks it up where this one stopped.
+
+Run state lives in the issues, so a run survives a killed session and any
+harness can resume it.
 
 A run ends when every sub-issue reaches a terminal state, the budget is spent,
 or a worker escalates. A worker that finds adjacent work files a new issue and
@@ -70,8 +74,12 @@ Status is a label. One status label per issue.
 `status:queued` and its worktree is removed. `status:blocked` for more than 7
 days goes to the triage inbox. Nothing closes automatically.
 
-The full label set, including `area:*`, `risk:*`, `type:*`, and the `run` marker
-for parent issues, lives in `.github/labels.yml`. Apply it with
+An epic carries no status. It is not work, so there is nothing to claim, and
+duplicating its sub-issues' state on the parent gives that copy somewhere to
+drift.
+
+The full label set, including `area:*`, `risk:*`, `type:*`, and `kind:epic` for
+the issues runs work through, lives in `.github/labels.yml`. Apply it with
 `.claude/scripts/sync-labels.sh`.
 
 ## Commands
@@ -234,7 +242,7 @@ and `adversarial-reviewer`.
   the apply job refuses any other `ref`: a dispatch runs the script as it exists
   on the ref it names, so applying from an unreviewed branch would hand a
   label-writing token to whatever that branch contains.
-- The repository has no issues, so no run has a parent to work from.
+- The repository has no issues, so no run has an epic to work through.
 - There are no tags. The release skill reads the previous version with
   `git describe --tags`, which fails until the first tag exists.
 - OpenCode Go and Cursor have no role assignments in [models.md](models.md).
