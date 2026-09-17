@@ -15,6 +15,12 @@
 //! A fixture is consumed once. Resuming a session appends to it, and a run
 //! writes its own session into the same directory, so a capture pass
 //! regenerates before it starts rather than reusing what the last one left.
+//!
+//! That run's own session is also what a fixture cannot make identical: the
+//! session picker lists it above every fixture, under an id and an activity
+//! time taken from the wall clock, so the `picker-open` frame still differs
+//! between two runs. Closing that is the capture harness's work, tracked in
+//! [#50](https://github.com/stormlightlabs/thunderus/issues/50).
 
 use clap::ValueEnum;
 
@@ -41,8 +47,12 @@ const FIXTURE_START_UNIX: u64 = 1_767_603_600;
 /// Seconds between one fixture record and the next.
 const FIXTURE_STEP_SECONDS: u64 = 7;
 
-/// Scratch directory for generated fixtures, relative to the workspace root.
+/// Scratch directory for generated fixtures, under the workspace root.
 const DEFAULT_FIXTURE_DIR: [&str; 3] = ["target", "tui-fixtures", "sessions"];
+
+/// Directories between this crate's manifest and the workspace root:
+/// `<workspace>/crates/thndrs`.
+const CRATE_DEPTH_FROM_WORKSPACE_ROOT: usize = 2;
 
 /// One capture scenario that resumes a fixture session.
 ///
@@ -326,11 +336,21 @@ impl FixtureBuilder {
 
 /// The scratch directory generation writes to when none is named.
 ///
-/// The path is relative to the workspace root and sits under `target/`, which
-/// `.gitignore` already covers, so a generation run leaves the working tree
-/// clean.
+/// Absolute, under the workspace root's `target/`, which `.gitignore` covers,
+/// so a generation run leaves the working tree clean. The path is anchored at
+/// this crate's manifest rather than at the current directory: `cargo run`
+/// inherits the directory it was invoked from, and `/target` in `.gitignore`
+/// matches the workspace root alone, so a relative path resolved from
+/// `crates/thndrs` would write eleven tracked-looking files.
 pub fn default_fixture_dir() -> PathBuf {
-    DEFAULT_FIXTURE_DIR.iter().collect()
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest
+        .ancestors()
+        .nth(CRATE_DEPTH_FROM_WORKSPACE_ROOT)
+        .unwrap_or(manifest);
+    DEFAULT_FIXTURE_DIR
+        .iter()
+        .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
 /// Write one session file per capture scenario past `startup` into `dir`.
@@ -612,14 +632,31 @@ mod tests {
         }
     }
 
+    /// Blocks the base transcript replays to: three turns of a user message, a
+    /// tool group, and an assistant message, plus the reasoning on turn one.
+    const BASE_BLOCKS: usize = 10;
+
     #[test]
     fn every_generated_session_replays_as_a_populated_transcript() {
         let dir = tempdir().expect("temp fixture dir");
         for fixture in generated_in(dir.path()) {
             let transcript = SessionReader::read_transcript_blocks(&fixture.path);
-            assert!(
-                transcript.blocks().len() > 1,
-                "{} replays to one block or none",
+            let expected = match fixture.scenario {
+                FixtureScenario::PickerOpen
+                | FixtureScenario::NarrowSixtyColumns
+                | FixtureScenario::ShortSixteenRows
+                | FixtureScenario::NoColor
+                | FixtureScenario::ThemeVariant(_) => BASE_BLOCKS,
+                FixtureScenario::PermissionPrompt => BASE_BLOCKS + 2,
+                FixtureScenario::StreamingMidTool | FixtureScenario::ToolOutputTruncated | FixtureScenario::Error => {
+                    BASE_BLOCKS + 3
+                }
+            };
+
+            assert_eq!(
+                transcript.blocks().len(),
+                expected,
+                "{} replays to a different transcript than it was written for",
                 fixture.session_id
             );
         }
@@ -814,9 +851,45 @@ mod tests {
 
     #[test]
     fn the_default_directory_is_ignored_scratch() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest
+            .ancestors()
+            .nth(CRATE_DEPTH_FROM_WORKSPACE_ROOT)
+            .expect("the crate sits two directories under the workspace root");
         let dir = default_fixture_dir();
 
-        assert_eq!(dir, PathBuf::from("target").join("tui-fixtures").join("sessions"));
-        assert!(dir.is_relative(), "the default directory is workspace-relative");
+        assert!(
+            dir.is_absolute(),
+            "a relative default resolves against the caller's directory"
+        );
+        assert_eq!(
+            dir,
+            workspace_root.join("target").join("tui-fixtures").join("sessions"),
+            "only the workspace root's `target/` is the `/target` that `.gitignore` names"
+        );
+    }
+
+    #[test]
+    fn the_lock_path_is_the_one_the_writer_takes() {
+        let dir = tempdir().expect("temp fixture dir");
+        let writer = SessionWriter::create(
+            dir.path(),
+            "locked",
+            "/workspace/thndrs-fixture",
+            "Locked",
+            FIXTURE_PROVIDER,
+            FIXTURE_MODEL,
+            "",
+            FIXTURE_APP_VERSION,
+            None,
+        )
+        .expect("create session");
+        let lock = writer_lock_path(&dir.path().join("locked.jsonl"));
+
+        assert!(lock.exists(), "the writer holds a lock this module cannot name");
+
+        drop(writer);
+
+        assert!(!lock.exists(), "the writer released a different path");
     }
 }

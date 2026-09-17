@@ -4,12 +4,14 @@
 //! `thndrs --session-dir` at the directory it wrote:
 //!
 //! ```sh
-//! cargo run --example session_fixtures -- target/tui-fixtures/sessions
+//! cargo run -p thndrs --features dev-fixtures --example session_fixtures \
+//!   -- target/tui-fixtures/sessions
 //! ```
 //!
-//! An example rather than a subcommand: fixtures are a development concern and
-//! the capture set is only comparable while no user-visible surface changes to
-//! accommodate it. The directory argument is optional and defaults to
+//! An example behind the `dev-fixtures` feature rather than a subcommand: the
+//! capture set is comparable only while no user-visible surface moves to
+//! accommodate it, and a released build has no reason to carry a generator.
+//! The directory argument is optional and defaults to
 //! [`thndrs_lib::session::fixtures::default_fixture_dir`], which `.gitignore`
 //! already covers.
 

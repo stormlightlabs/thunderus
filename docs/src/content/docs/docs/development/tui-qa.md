@@ -44,11 +44,19 @@ generator constructs `SessionRecord` values and serializes them, which means a
 change to the record enum breaks the build rather than a QA run:
 
 ```sh
-cargo run --example session_fixtures -- target/tui-fixtures/sessions
+cargo build -p thndrs
+cargo run -p thndrs --features dev-fixtures --example session_fixtures \
+  -- target/tui-fixtures/sessions
 tmux new-session -d -x 100 -y 30 -s "$qa_session" \
   "./target/debug/thndrs --session-dir target/tui-fixtures/sessions"
 tmux send-keys -t "$qa_session":0.0 '/resume picker-open' Enter
 ```
+
+The generator is behind the `dev-fixtures` feature, so it stays out of a
+released build. Pass the directory or let it default to the workspace root's
+`target/tui-fixtures/sessions`; the default is anchored at the crate rather
+than at the shell's directory, because `/target` in `.gitignore` matches the
+workspace root alone.
 
 One session per scenario, named for the scenario, so the `/resume` argument and
 the check are the same word: `picker-open`, `streaming-mid-tool`,
@@ -57,9 +65,16 @@ the check are the same word: `picker-open`, `streaming-mid-tool`,
 from the `Theme` enum, so a theme added there adds a fixture.
 
 The content is invented, so nothing generated needs a redaction pass, and
-`target/` is already ignored, so nothing generated is committed.
+nothing generated is committed.
 
 Regenerate before each pass. Resuming a session appends to it, and a run also
 writes its own session into the directory it was pointed at, so a fixture
 directory carried over from the previous pass is no longer the transcript that
 pass captured. `--ephemeral` is not the way around that: it refuses `/resume`.
+
+That run's own session is the one thing a fixture cannot settle. The picker
+lists it above every fixture under a wall-clock id and activity time, so the
+picker frame still differs between two runs. [Issue 50][picker-capture] carries
+that.
+
+[picker-capture]: https://github.com/stormlightlabs/thunderus/issues/50

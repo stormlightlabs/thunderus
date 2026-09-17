@@ -13,6 +13,9 @@ mod context_changes;
 mod context_export;
 mod contracts;
 mod export;
+/// Deterministic capture fixtures. A development concern, so it is behind
+/// `dev-fixtures` and out of the published library surface.
+#[cfg(any(test, feature = "dev-fixtures"))]
 pub mod fixtures;
 mod inventory;
 mod lifecycle;
