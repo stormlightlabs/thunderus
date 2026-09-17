@@ -3,13 +3,14 @@
 #
 #   .claude/scripts/push-verified.sh [remote]
 #
-# `git push` exits 0 for a push that carried nothing. With a detached HEAD the
-# branch has not moved, so git finds no ref to update, prints "Everything
-# up-to-date" and succeeds. Every word of that is true and any claim of "pushed"
-# built on it is false.
+# `git push` exits 0 for a push that carried nothing: it prints "Everything
+# up-to-date" and succeeds. Every word of that is true and any claim of
+# "pushed" built on it is false.
 #
-# A pre-push hook cannot catch it: with no ref to update git never runs one. The
-# check has to compare the end state, which is what this does.
+# A pre-push hook does run on such a push, with empty stdin, so a hook could
+# refuse there (verified on git 2.43.0). This script compares the end state
+# instead, which also covers a detached HEAD: under the default
+# push.default=simple, git exits 128 rather than pushing.
 set -euo pipefail
 
 remote="${1:-origin}"

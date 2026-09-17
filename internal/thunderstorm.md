@@ -154,11 +154,16 @@ session that accepted whatever name its harness supplied breaks that.
 Delete the task branch when its pull request merges.
 
 A push is finished when the remote ref matches local `HEAD`, not when `git push`
-exits zero. The two come apart: with a detached `HEAD` the branch has not moved,
-so git finds no ref to update, prints `Everything up-to-date` and succeeds while
-carrying nothing. A pre-push hook cannot catch that, because with no ref to
-update git never runs one. `.claude/scripts/push-verified.sh` pushes and then
-compares, and refuses outright when `HEAD` is detached.
+exits zero. The two come apart: a push with nothing to send prints
+`Everything up-to-date` and exits 0, so any claim built on the exit code is
+false. `.claude/scripts/push-verified.sh` pushes and then compares, and refuses
+outright when `HEAD` is detached.
+
+A pre-push hook could carry the same check. Verified on git 2.43.0: a no-op
+push runs the hook with empty stdin, and a hook that refuses there fails the
+push with exit 1. The detached-`HEAD` case needs `push.default=matching` to
+arise at all. Under the default `simple`, git exits 128 with `You are not
+currently on a branch`.
 
 ## Recording a failure mode
 

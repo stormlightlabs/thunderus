@@ -149,8 +149,8 @@ with exit 1.
 The detached-HEAD case does not arise by default either. Under
 `push.default=simple` git refuses with `You are not currently on a branch`.
 Reaching `Everything up-to-date` from a detached HEAD needed
-`push.default=matching`. A hook is worth trying here, and the two places
-recording the old reason need correcting.
+`push.default=matching`. A hook is worth trying here. Both places recording the
+old reason now state the verified behaviour instead.
 
 ## Sources
 
