@@ -1,7 +1,6 @@
 //! Application behavior tests for compaction seams.
 
 use super::*;
-use helpers::*;
 
 #[test]
 fn compact_uses_provider_summary_and_replaces_active_context_only_after_success() {

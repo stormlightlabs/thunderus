@@ -1,5 +1,4 @@
 use super::*;
-use helpers::*;
 
 use crate::prompt::templates::{PromptTemplate, PromptTemplateSource};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

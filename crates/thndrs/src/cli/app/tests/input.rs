@@ -5,7 +5,6 @@ use crate::input::PromptInput;
 use crate::input::TerminalInput;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
-use helpers::*;
 
 #[test]
 fn semantic_translation_is_table_driven_by_focus_and_mode() {

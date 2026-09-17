@@ -1,7 +1,6 @@
 //! Application behavior tests for agent events seams.
 
 use super::*;
-use helpers::*;
 
 #[test]
 fn agent_started_sets_working() {
