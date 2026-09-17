@@ -1,0 +1,91 @@
+name: Labels
+
+# Applying .github/labels.yml needs a token that may write labels. Rather than
+# put one in every checkout, the sync runs here: a local session invokes the
+# script directly, and a cloud session dispatches this workflow instead.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Create and update labels. Leave unchecked for a dry run."
+        type: boolean
+        default: false
+      force:
+        description: "Also delete stock labels that are still applied to an issue."
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - .github/labels.yml
+      - .github/workflows/labels.yml
+      - .claude/scripts/sync-labels.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: labels-${{ github.ref }}
+  cancel-in-progress: false
+
+# A pull request runs its own copy of sync-labels.sh, and the paths filter
+# includes that script, so the dry run must not hold a token that can write
+# labels: a branch editing the script would otherwise reach the real label set
+# before any human read the diff. Permissions cannot be expressions, so the two
+# modes are separate jobs.
+jobs:
+  dry-run:
+    name: Show what would change
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report the difference from the manifest
+        env:
+          # gh is preinstalled on the runner but reads its token from here.
+          GH_TOKEN: ${{ github.token }}
+        run: .claude/scripts/sync-labels.sh
+
+  apply:
+    name: Sync the label set
+    # Dispatch carries a ref, and both the workflow and the script come from it.
+    # Without this guard an agent could push a changed sync-labels.sh to its own
+    # branch, dispatch on that ref, and run it against every issue and label
+    # before a human read the diff. The guard plus the pinned checkout below
+    # confine an apply to the default branch, which takes reviewed changes only.
+    #
+    # This is not airtight on its own: the copy of this file that runs also
+    # comes from the dispatch ref, so a branch that edits both lines gets past
+    # it. Closing that needs a repository setting rather than a file, either an
+    # environment with required reviewers on this job or restricting who may
+    # dispatch workflows.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/edge'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The narrowest scope GitHub offers for labels. It also permits editing
+      # and commenting on issues; there is no labels-only scope.
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Run the reviewed manifest and script, never the dispatch ref's copy.
+          ref: edge
+      - name: Apply the manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLY: ${{ inputs.apply }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          args=()
+          if [ "$APPLY" = "true" ]; then
+            args+=(--apply)
+          fi
+          if [ "$FORCE" = "true" ]; then
+            args+=(--force)
+          fi
+          echo "running sync-labels.sh ${args[*]:-(dry run)}"
+          .claude/scripts/sync-labels.sh "${args[@]}"

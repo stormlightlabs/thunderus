@@ -10,10 +10,15 @@ per run.
 
 ## Read before claiming
 
+The `github-board` skill's Transport section decides whether this run uses `gh`
+or the GitHub MCP tools. Use the same transport for everything below.
+
 ```sh
 gh issue view <n> --json title,body,labels,assignees,url
 gh issue view <n> --json subIssues
 ```
+
+Through MCP: `issue_read` method `get`, then method `get_sub_issues`.
 
 Stop and ask when any of these is true:
 
@@ -78,8 +83,13 @@ say so in the pull request body and explain why.
 Use the `commits-and-prs` skill for the commit messages and the pull request
 body. Base the pull request on `edge`.
 
+Push with `.claude/scripts/push-verified.sh`, which compares the remote ref to
+local `HEAD` afterwards. `git push` exits zero for a push that carried nothing,
+so its exit code is not evidence that the branch moved.
+
 ```sh
 gh pr create --base edge --head agent/<n> --title <title> --body-file <file>
+# MCP: create_pull_request with base "edge", head "agent/<n>", and the body inline.
 ```
 
 Move the issue status to `review`.

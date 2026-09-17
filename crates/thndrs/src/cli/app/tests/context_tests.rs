@@ -1,7 +1,6 @@
 //! Application behavior tests for context seams.
 
 use super::*;
-use helpers::*;
 
 #[test]
 fn app_without_agents_md_has_no_context_sources() {

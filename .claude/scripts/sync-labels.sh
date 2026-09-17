@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Apply .github/labels.yml to the repository and remove GitHub's stock labels.
 #
+# Needs a token that may write labels, which is why it runs in two places: here
+# in a local checkout, or on a runner through .github/workflows/labels.yml. The
+# GitHub MCP surface reads a label but never creates, edits, or deletes one, so
+# a cloud session dispatches that workflow rather than calling this directly.
+#
 #   .claude/scripts/sync-labels.sh            # show what would change
 #   .claude/scripts/sync-labels.sh --apply    # make the changes
 #
@@ -22,7 +27,11 @@ for arg in "$@"; do
   esac
 done
 
-command -v gh >/dev/null || { echo "gh is required" >&2; exit 1; }
+command -v gh >/dev/null || {
+  echo "gh is required. Run this from a local checkout, or dispatch the" >&2
+  echo "Labels workflow (.github/workflows/labels.yml) instead." >&2
+  exit 1
+}
 test -f "$MANIFEST" || { echo "missing $MANIFEST" >&2; exit 1; }
 
 # Stock labels GitHub creates with every repository.
@@ -30,6 +39,10 @@ STOCK=(
   "bug" "documentation" "duplicate" "enhancement" "good first issue"
   "help wanted" "invalid" "question" "wontfix"
 )
+
+# Stock labels this run left in place, reported at the end so a green log does
+# not read as "nothing remains".
+KEPT=()
 
 # Commands run inside read loops get stdin from /dev/null so they cannot
 # consume the loop's input.
@@ -43,6 +56,27 @@ run() {
 
 labels_present() {
   gh label list --limit 200 --json name --jq '.[].name' </dev/null
+}
+
+# How many issues and pull requests carry a label. A query that fails or answers
+# with something other than a number must not read as "nothing uses this label":
+# deleting a label strips it from everything carrying it, so an unreadable count
+# is a refusal, not a zero.
+#
+# The REST issues endpoint is used rather than `gh issue list` because that
+# command omits pull requests, which carry labels just as issues do. Passing the
+# name as a query field keeps labels with spaces, such as "good first issue",
+# encoded correctly.
+issues_with_label() {
+  local label="$1" count
+  if ! count=$(gh api -X GET "repos/{owner}/{repo}/issues" \
+    -f state=all -f labels="$label" -F per_page=1 --jq 'length' </dev/null); then
+    return 1
+  fi
+  case "$count" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$count"
 }
 
 echo "creating labels from $MANIFEST"
@@ -98,9 +132,14 @@ for label in "${STOCK[@]}"; do
   if ! grep -qxF "$label" <<<"$present"; then
     continue
   fi
-  count=$(gh issue list --state all --label "$label" --limit 1 --json number --jq 'length' </dev/null)
+  if ! count=$(issues_with_label "$label"); then
+    echo "  skipping '$label': could not read what carries it"
+    KEPT+=("$label (unreadable)")
+    continue
+  fi
   if [ "$count" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
-    echo "  skipping '$label': still applied to at least one issue (use --force)"
+    echo "  skipping '$label': still applied to an issue or pull request (use --force)"
+    KEPT+=("$label (in use)")
     continue
   fi
   run gh label delete "$label" --yes
@@ -124,8 +163,10 @@ done < <(parse_manifest "$MANIFEST")
 
 for label in "${STOCK[@]}"; do
   if grep -qxF "$label" <<<"$final"; then
-    count=$(gh issue list --state all --label "$label" --limit 1 --json number --jq 'length' </dev/null)
-    if [ "$count" -eq 0 ]; then
+    if ! count=$(issues_with_label "$label"); then
+      echo "  still present: $label, and what carries it could not be read"
+      failed=1
+    elif [ "$count" -eq 0 ]; then
       echo "  still present: $label"
       failed=1
     fi
@@ -136,4 +177,9 @@ if [ "$failed" -eq 1 ]; then
   echo "  label sync incomplete. re-run."
   exit 1
 fi
-echo "  labels match the manifest."
+if [ "${#KEPT[@]}" -gt 0 ]; then
+  echo "  labels match the manifest; kept ${#KEPT[@]} stock label(s):"
+  printf '    %s\n' "${KEPT[@]}"
+  exit 0
+fi
+echo "  labels match the manifest, and no stock label remains."

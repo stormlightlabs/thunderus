@@ -20,6 +20,19 @@ it.
 
 Types used here: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`.
 
+`.claude/scripts/check-commit-message.py` checks the shape: the type, the
+60-character subject, the blank line, and the 72-column body. Fenced blocks,
+trailers, and unbreakable strings such as URLs are exempt from the column limit.
+
+It runs in two places and only one of them blocks. Enable the hook locally once
+with `git config core.hooksPath .githooks`, and it rejects a message while that
+message is still in the editor, where fixing it costs a keystroke. CI runs the
+same script over a pull request's commits with `--warn`: the violations appear
+as annotations and in the job summary, and the job passes anyway, because the
+only way to correct a pushed message is to rewrite history that someone may
+already have pulled. A rule worth a rebase is a rule worth catching at the
+hook.
+
 The subject says what changed. The body says why, and only when the why is not
 obvious from the diff. A one-line commit is correct when the change explains
 itself.
@@ -39,10 +52,30 @@ Do not write:
   commit.
 - A body that restates the diff line by line.
 - A list of every file touched. That is what the diff is for.
-- Attribution to a model or tool unless the user asks for it.
+- Attribution to a model or tool in the subject or body. The trailers under
+  [Attribution](#attribution) carry that.
 
 One commit does one thing. A commit that needs "and" in its subject is two
 commits.
+
+## Attribution
+
+A commit written from an agent session is authored as
+`Claude <noreply@anthropic.com>`, so the log says plainly which commits a person
+wrote and which an agent did. The Verified badge is a separate matter: it tracks
+a cryptographic signature, not the author address, and signing is out of scope
+here.
+
+Such a commit ends with the trailers the harness supplies:
+
+```text
+Co-Authored-By: <model> <noreply@anthropic.com>
+Claude-Session: <session url>
+```
+
+The session link is the useful half: it is the only way back to the reasoning
+behind a change once the branch is merged. Nothing else in the message names a
+model. The subject and body describe the change, not what produced it.
 
 ## Pull request bodies
 
@@ -89,4 +122,5 @@ that does not describe a behavior change.
 
 - Pad a body to look thorough.
 - Claim a check ran when it did not.
-- Sign a commit as a model. Review comments carry signatures; commits do not.
+- Sign a commit body as a model. A review comment carries a signature; a commit
+  carries the trailers under [Attribution](#attribution) and nothing else.

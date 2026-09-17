@@ -2,8 +2,6 @@ use super::*;
 use crate::input::PromptInput;
 use crossterm::event::{KeyCode, KeyModifiers};
 
-use helpers::*;
-
 #[test]
 fn left_arrow_moves_cursor_left() {
     let mut app = fresh_app();

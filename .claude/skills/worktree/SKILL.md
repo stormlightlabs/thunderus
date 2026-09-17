@@ -21,6 +21,11 @@ git worktree add ../thndrs-worktrees/<issue> -b agent/<issue> origin/edge
 Branch from `origin/edge`, not from whatever the user has checked out. The
 baseline should match the branch the pull request will target.
 
+Work with no issue behind it still branches under `agent/`, named for the work:
+`agent/git-hygiene`. A cloud session skips the worktree, because its container
+already isolates the checkout, but it renames its branch to match this
+convention before the first push.
+
 Git refuses to check out one branch in two worktrees, which enforces one owner
 per branch without any extra bookkeeping.
 

@@ -1,7 +1,6 @@
 //! Application behavior tests for setup seams.
 
 use super::*;
-use helpers::*;
 
 #[test]
 fn missing_provider_credential_opens_recovery_and_preserves_prompt() {

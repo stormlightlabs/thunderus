@@ -1,7 +1,6 @@
 //! Application behavior tests for session startup seams.
 
 use super::*;
-use helpers::*;
 
 #[test]
 fn from_cli_starts_with_fresh_transcript_not_latest_session() {

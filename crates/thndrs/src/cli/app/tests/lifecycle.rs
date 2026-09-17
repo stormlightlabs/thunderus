@@ -1,7 +1,6 @@
 //! Application behavior tests for lifecycle seams.
 
 use super::*;
-use helpers::*;
 
 #[test]
 fn ctrl_c_sets_quit_flag() {

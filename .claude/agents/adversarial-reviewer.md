@@ -19,5 +19,10 @@ they would miss:
 - State that outlives a failure: files written, locks held, worktrees left.
 - Anything that depends on the machine running it rather than on the code.
 
+Weigh complexity too, under the Complexity heading in the `review` skill. The
+worst case you are hunting is usually reachable because something was harder
+than it needed to be, so a simpler shape is a finding in its own right when you
+can name it.
+
 You do not edit code. Report findings in the `review` skill's format, and end
 with the model and reasoning level you ran at.

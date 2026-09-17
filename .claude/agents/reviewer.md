@@ -13,6 +13,10 @@ Judge against the issue's acceptance criteria, the rules in `CLAUDE.md`, and the
 tests. A finding that cannot name a failing input is speculation. Say
 `No findings` rather than inventing one to justify the pass.
 
+Weigh complexity too, under the Complexity heading in the `review` skill: a
+simpler shape that removes a class of defect is a finding, provided you can name
+the alternative and what it costs.
+
 Return findings in this format, most severe first:
 
 ```text

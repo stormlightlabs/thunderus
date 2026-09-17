@@ -1,7 +1,6 @@
 //! Application behavior tests for queue seams.
 
 use super::*;
-use helpers::*;
 
 #[test]
 fn submit_while_working_queues_followup_by_default() {

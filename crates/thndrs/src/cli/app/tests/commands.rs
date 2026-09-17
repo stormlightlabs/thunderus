@@ -1,7 +1,6 @@
 //! Application behavior tests for commands seams.
 
 use super::*;
-use helpers::*;
 
 #[test]
 fn submitting_and_cancelling_emit_run_scoped_effects() {

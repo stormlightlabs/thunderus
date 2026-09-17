@@ -1,7 +1,6 @@
 //! Application behavior tests for input behavior seams.
 
 use super::*;
-use helpers::*;
 
 #[test]
 fn file_picker_selection_inserts_selected_path() {

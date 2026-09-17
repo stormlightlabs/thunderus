@@ -13,21 +13,46 @@ Review a diff and post findings. Do not edit code during a review pass. The
 The argument is a pull request number, a branch name, or empty. Empty means the
 current branch.
 
-| Pass         | Command    | Brief                                                                                                       |
-| ------------ | ---------- | ----------------------------------------------------------------------------------------------------------- |
-| Standard     | `/rev`     | Correctness, edge cases, security, concurrency, performance, API compatibility, test coverage, readability. |
-| Adversarial  | `/adv-rev` | Worst case only: security holes, races, unhandled input, violated invariants, tests that cannot fail.       |
+| Pass        | Command    | Brief                                                                                                       |
+| ----------- | ---------- | ----------------------------------------------------------------------------------------------------------- |
+| Standard    | `/rev`     | Correctness, edge cases, security, concurrency, performance, API compatibility, test coverage, readability. |
+| Adversarial | `/adv-rev` | Worst case only: security holes, races, unhandled input, violated invariants, tests that cannot fail.       |
 
 An adversarial pass assumes the standard passes already ran. It looks for what
 they would miss, not for the same findings again.
 
+### Complexity
+
+Both passes weigh complexity, because a defect is cheaper to prevent than to
+find. Ask of each change:
+
+- Is this harder than the problem it solves? Name the simpler version and what
+  it would cost.
+- Does it add a trait, a layer, or a configuration point that one concrete
+  helper would cover? `CLAUDE.md` asks for traits only at real boundaries.
+- How many things must a reader hold at once to know this is correct? A branch
+  nested inside a closure inside a retry is three.
+- Does it repeat something the codebase already does, under a new name?
+- Could a check replace the care this asks of the next person to touch it?
+
+Report complexity the way you report a defect: what it costs, and what to do
+instead. "Simpler would be better" without a concrete alternative is not a
+finding. A change that is merely longer than you would have written it is not
+either.
+
 ## Gather context first
+
+The `github-board` skill's Transport section decides whether this run uses `gh`
+or the GitHub MCP tools. Use the same transport for everything below.
 
 ```sh
 gh pr view <n> --json title,body,headRefName,baseRefName,files
 gh pr diff <n>
 git log --oneline origin/edge..<branch>
 ```
+
+Through MCP: `pull_request_read` methods `get`, `get_files`, and `get_diff`.
+The `git log` line is local either way.
 
 Read the changed files around the diff, not only the diff. Read the issue the
 pull request closes. Read `CLAUDE.md` for the rules the change must satisfy.
@@ -52,13 +77,13 @@ One line per finding:
 <severity> · <path>:<line> — <problem> → <why it matters> → <fix direction>
 ```
 
-| Severity  | Means                                                              |
-| --------- | ------------------------------------------------------------------ |
+| Severity  | Means                                                                |
+| --------- | -------------------------------------------------------------------- |
 | `blocker` | Merging causes data loss, a crash, a security hole, or a regression. |
-| `high`    | Wrong behavior in a case the change is supposed to handle.         |
-| `medium`  | Wrong behavior in an unhandled case, or a missing test for one.    |
-| `low`     | Works, but will cause a defect later.                              |
-| `nit`     | Style or naming inside the repository's conventions.               |
+| `high`    | Wrong behavior in a case the change is supposed to handle.           |
+| `medium`  | Wrong behavior in an unhandled case, or a missing test for one.      |
+| `low`     | Works, but will cause a defect later.                                |
+| `nit`     | Style or naming inside the repository's conventions.                 |
 
 State what breaks and with what input. A finding that cannot name a failing
 case is speculation; drop it or mark it `nit`.
@@ -74,6 +99,7 @@ signature naming the model and reasoning level:
 
 ```sh
 gh pr comment <n> --body-file <file>
+# MCP: add_issue_comment with issue_number set to the pull request number.
 ```
 
 Print the same findings in chat. Ask before posting when no pull request is
