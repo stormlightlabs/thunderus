@@ -153,6 +153,41 @@ composes. Arc Lightning emits a versioned envelope, Mire exchanges bounded
 context and findings with local agents as JSON, and Stormbuffer answers
 `sbuf context` under a byte budget. Lndrs is one more caller of that pattern.
 
+### What Arc Lightning has to grow
+
+Lndrs is the first program to drive Arc Lightning as a work queue, and four
+things it needs are missing. These are filed in `stormlightlabs/arclightning`
+rather than worked around here, because each is a property of the work record
+rather than of a run.
+
+Claiming a unit has to be one operation. `arcl next` returns a task and
+`arcl task start` moves it, so two runs can read the same task before either
+moves it and both dispatch it. The fix is one call that returns a unit and
+claims it in the same transaction. Arc Lightning already takes this shape
+elsewhere: `arcl task handoff` is documented as leaving a resume note and
+parking the task atomically.
+
+A claim needs an owner and an expiry. `PlanningTask` carries no owner,
+assignee, or lease field, so `in_progress` cannot say who holds the unit or
+whether that holder is still alive. Thunderstorm's rule that a claim older than
+24 hours returns to the queue needs both. Ownership belongs to the work, not
+the run, because the case that matters is a run that died.
+
+Settlement should keep its structure. `handoff` and `evidence` are `String`,
+and a worker settles with `SettledInstanceResult`, whose `SemanticEvidence` and
+`ChangedPath` are typed. Writing them as prose loses what a later run could
+check. Arc Lightning should accept a structured settlement beside the Markdown,
+keeping the Markdown as the readable form it already is.
+
+The interface needs a change feed. There is no watch or subscribe command,
+so a client learns the graph changed by running `arcl ready` again. That is a
+process per tick. A feed of record changes lets the interface follow a run
+without polling.
+
+Building against the CLI is what surfaces requirements like these, which is an
+argument for the seam rather than against it. Extracting operations into
+`arcl-core` before a consumer exists would extract the wrong ones.
+
 ## The provisioning hook
 
 Worktrees are settled by the `worktree` skill and cover source. Ports,
@@ -228,6 +263,8 @@ are callers a run will want and neither is designed in here. The run record and
 the control protocol are specified to leave room for them, which is as far as
 this document goes.
 
-Anything about Arc Lightning's own roadmap. `arcl-mcp`, the desktop app, and
-the migration to the capture and spec vocabulary belong to that repository.
-Lndrs consumes what `arcl` exposes and files an issue there when it needs more.
+Arc Lightning's own roadmap. `arcl-mcp`, the desktop app, and the migration to
+the capture and spec vocabulary belong to that repository and are not scheduled
+by this track. The four requirements above are the exception: they are filed
+there, and the first lndrs run needs the atomic claim before it can dispatch
+more than one unit at a time.
