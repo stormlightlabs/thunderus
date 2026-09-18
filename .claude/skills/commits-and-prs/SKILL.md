@@ -28,7 +28,7 @@ reaches it at all.
 | Pull request title   | 53 characters | 59 allowed, less the ` (#NN)`       |
 | One commit body      | 15 lines      | The `writing-docs` commit target    |
 | Merged body          | 15 lines      | It is one commit like any other     |
-| Pull request body    | 20 lines      | A reviewer reads it once, then never |
+| Pull request body    | 20 or 40      | Short form, or headings on a big diff |
 | Pull request comment | 10 lines      | It is a reply, not a report         |
 
 Three commits at the 15-line target merge as a 48-line commit. The target is
@@ -153,8 +153,10 @@ Requirements, at either size:
 - `Not covered` is required and may not be empty. Write `Nothing` only when you
   have looked for gaps and found none. One line is a complete answer.
 - Any test that was changed, removed, or narrowed gets a line explaining why.
-- Keep the body under 20 lines. Longer means the change is too large, or the
-  spec belongs in `internal/` with a link from here.
+- Keep the short form under 20 lines, and a headings body under 40. Four
+  headings and their blank lines cost six before a word is written, which is
+  most of the reason to skip them on a small change. Longer than 40 means the
+  change is too large, or the spec belongs in `internal/` with a link.
 
 Do not restate the diff. Do not recount the path you took to the change: the
 dead ends, the thing you tried first, the file you read. A reviewer is deciding

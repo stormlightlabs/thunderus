@@ -43,6 +43,7 @@ targets.
 | Error message                     | 2 lines   |
 | Commit body                       | 15 lines  |
 | Pull request description          | 20 lines  |
+| Pull request description, headings | 40 lines |
 | Pull request comment              | 10 lines  |
 | Review comment                    | 40 lines  |
 | Command or agent definition       | 40 lines  |

@@ -9,8 +9,8 @@ Closes #
      than one crate — replace them with the headings at the bottom of this
      comment, which give a reviewer somewhere to look for the verification.
 
-     Either way, keep the body under 20 lines, and keep the title under 53
-     characters: GitHub appends " (#NN)" and the subject limit is 59.
+     Keep the short form under 20 lines and a headings body under 40, and keep
+     the title under 53 characters: GitHub appends " (#NN)", limit 59.
 
      ## What / ## Why / ## Verification / ## Not covered
 -->
