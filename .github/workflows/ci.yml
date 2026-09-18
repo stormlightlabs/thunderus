@@ -91,6 +91,10 @@ jobs:
     # fix afterwards: rewriting a pushed branch to correct a character count
     # costs more than the character count is worth. The warnings and the job
     # summary keep the state visible without gating the branch on it.
+    #
+    # Length findings are softer still: they never fail even the hook. They are
+    # here to be read by whoever writes the squash message, which is the only
+    # version of this text that reaches the trunk.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -98,6 +102,8 @@ jobs:
         with:
           # The default shallow clone cannot see the base commit.
           fetch-depth: 0
+      - name: Check the checker
+        run: .claude/scripts/check-commit-message-test.py
       - name: Report every commit message on the branch
         run: |
           .claude/scripts/check-commit-message.py --warn --range \

@@ -42,11 +42,17 @@ targets.
 | --------------------------------- | --------- |
 | Error message                     | 2 lines   |
 | Commit body                       | 15 lines  |
-| Pull request description          | 40 lines  |
+| Pull request description          | 20 lines  |
+| Pull request comment              | 10 lines  |
 | Review comment                    | 40 lines  |
 | Command or agent definition       | 40 lines  |
 | `SKILL.md`                        | 200 lines |
 | Docs page, README, internal spec  | 300 lines |
+
+The git rows interact: a squash merge concatenates a branch's commit bodies, so
+the merged commit is their sum rather than any one of them. The
+`commits-and-prs` skill holds that arithmetic and the character budget a pull
+request title has before GitHub's ` (#NN)` suffix overflows it.
 
 A reference page that enumerates a surface, every configuration key or every
 flag, grows with that surface and is the usual exception. It still needs

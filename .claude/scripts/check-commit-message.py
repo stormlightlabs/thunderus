@@ -8,11 +8,24 @@ range:
     check-commit-message.py --range origin/edge..HEAD
     check-commit-message.py --range origin/edge..HEAD --warn
 
-Without `--warn` a violation exits non-zero, which is what the commit-msg hook
-wants: the message is still in the editor and costs nothing to fix. With
-`--warn` the same violations are reported and the exit code stays zero, which
-is what CI wants, because the only way to fix a message already pushed is to
-rewrite history that someone may have pulled.
+Findings carry one of two severities, and only one of them can fail a run.
+
+An *error* is a shape a reader cannot recover from: a missing type, a subject
+that overflows the column `git log --oneline` gives it, a body glued to its
+subject. Shape is not a judgement call, so without `--warn` an error exits
+non-zero, which is what the commit-msg hook wants: the message is still in the
+editor and costs nothing to fix.
+
+*Advice* is length. A body over its target is usually padding, but sometimes a
+change earns the room, and no script can tell those apart. Advice therefore
+never fails a run in either mode. Rejecting a message for length would teach
+authors to reach for `--no-verify`, which skips the shape errors too, so the
+check that cannot be certain stays out of the way of the one that can. It names
+what it finds and leaves the judgement with the author.
+
+With `--warn` everything is reported and the exit code stays zero either way,
+which is what CI wants, because the only way to fix a message already pushed is
+to rewrite history that someone may have pulled.
 
 The limits below are the whole policy; change them here and the hook, CI, and
 the skill stay in step.
@@ -25,10 +38,19 @@ import sys
 
 SUBJECT_LIMIT = 60  # "under 60 characters", so 59 is the longest allowed.
 BODY_LIMIT = 72
+# The commit body target from writing-docs, counted in lines, because lines are
+# what a reader scrolling `git log` spends rather than characters.
+BODY_LINES = 15
+# GitHub appends " (#NN)" to a squash subject server-side. Six characters for a
+# two-digit issue, seven past #99, and the author never sees them: the title
+# they wrote is the only part they control, so that is what the budget covers.
+SQUASH_SUFFIX_WIDTH = 6
+TITLE_BUDGET = SUBJECT_LIMIT - 1 - SQUASH_SUFFIX_WIDTH
 TYPES = ("feat", "fix", "docs", "refactor", "test", "chore", "perf")
 
 SUBJECT = re.compile(r"^(%s): (.+)$" % "|".join(TYPES))
 TRAILER = re.compile(r"^[A-Za-z][A-Za-z-]*: .+$")
+SQUASH_SUFFIX = re.compile(r" \(#\d+\)$")
 
 
 def comment_char() -> str:
@@ -85,17 +107,51 @@ def trailer_block(lines: list[str]) -> int:
     return end
 
 
-def check(message: str, from_file: bool = True) -> list[str]:
-    """Return one description per violation, empty when the message is clean."""
+def body_length(lines: list[str], trailers_from: int) -> int:
+    """Lines of body a reader actually reads.
+
+    The trailers the harness appends are excluded because the author does not
+    write them and cannot shorten them. Blank lines between paragraphs are
+    counted, because a reader scrolls past those too.
+    """
+    body = lines[1:trailers_from]
+    while body and not body[0].strip():
+        body.pop(0)
+    while body and not body[-1].strip():
+        body.pop()
+    return len(body)
+
+
+def message_lines(message: str, from_file: bool = True) -> list[str]:
+    """The lines of a message that will survive into history."""
     # A stored message carries no comments, so stripping them there would drop
     # a real subject that happens to start with the comment character.
     lines = editable_lines(message) if from_file else message.splitlines()
     while lines and not lines[-1].strip():
         lines.pop()
-    if not lines:
-        return ["the message is empty"]
+    return lines
 
-    problems = []
+
+def measure(message: str, from_file: bool = True) -> int:
+    """Body lines in one message, for the branch projection."""
+    lines = message_lines(message, from_file)
+    if not lines:
+        return 0
+    return body_length(lines, trailer_block(lines))
+
+
+def check(message: str, from_file: bool = True) -> tuple[list[str], list[str]]:
+    """Return (errors, advice); both empty when the message is clean.
+
+    Errors are shape and fail the hook. Advice is length and never fails
+    anything. See the module docstring for why the two are separated.
+    """
+    lines = message_lines(message, from_file)
+    if not lines:
+        return ["the message is empty"], []
+
+    problems: list[str] = []
+    advice: list[str] = []
     subject = lines[0]
 
     match = SUBJECT.match(subject)
@@ -111,9 +167,27 @@ def check(message: str, from_file: bool = True) -> list[str]:
         if rest.endswith("."):
             problems.append("subject ends with a period")
 
-    if len(subject) >= SUBJECT_LIMIT:
+    # Measure the title the author wrote, not the suffix GitHub bolted on. Every
+    # overlong subject on this repository's trunk got there the second way, and
+    # reporting those as the author's error sends them to shorten a title that
+    # was already inside the limit.
+    title = SQUASH_SUFFIX.sub("", subject)
+    if len(title) >= SUBJECT_LIMIT:
         problems.append(
-            f"subject is {len(subject)} characters, over the {SUBJECT_LIMIT - 1} allowed"
+            f"subject is {len(title)} characters, over the {SUBJECT_LIMIT - 1} allowed"
+        )
+    elif len(subject) >= SUBJECT_LIMIT:
+        advice.append(
+            f"subject reaches {len(subject)} characters once GitHub's "
+            f"'(#NN)' suffix is added. A pull request title has about "
+            f"{TITLE_BUDGET} characters before the squash overflows"
+        )
+    # Only worth saying in the editor. Over a range, a branch commit's subject
+    # is not the pull request title, so the budget does not apply to it.
+    elif from_file and len(title) > TITLE_BUDGET:
+        advice.append(
+            f"subject is {len(title)} characters; a squash merge appends "
+            f"'(#NN)', so a title over {TITLE_BUDGET} lands over the limit"
         )
 
     if len(lines) > 1 and lines[1].strip():
@@ -145,7 +219,14 @@ def check(message: str, from_file: bool = True) -> list[str]:
             "so everything below it skipped the column check"
         )
 
-    return problems
+    length = body_length(lines, trailers_from)
+    if length > BODY_LINES:
+        advice.append(
+            f"body is {length} lines against a {BODY_LINES}-line target. "
+            "Cut what the diff already says; keep what it cannot say"
+        )
+
+    return problems, advice
 
 
 def read_file(path: str) -> str:
@@ -202,35 +283,75 @@ def main() -> int:
             return 0 if warn else 1
 
     failed = 0
+    advised = 0
     for entry in entries:
         if from_file:
             message, label = entry, ""
         else:
             commit, _, message = entry.strip("\n").partition("\n")
             label = f"{commit[:7]} "
-        problems = check(message, from_file=from_file)
+        problems, advice = check(message, from_file=from_file)
         if problems:
             failed += 1
+        if advice:
+            advised += 1
+        if problems or advice:
             subject = next(iter(message.splitlines()), "")
             print(f"{label}{subject}", file=stream)
             for problem in problems:
-                print(f"  {problem}", file=stream)
+                print(f"  error:  {problem}", file=stream)
+            for note in advice:
+                print(f"  length: {note}", file=stream)
             if annotate:
-                joined = "; ".join(problems)
-                print(f"::warning title=Commit message::{label}{joined}")
+                for problem in problems:
+                    print(f"::warning title=Commit message::{label}{problem}")
+                for note in advice:
+                    print(f"::notice title=Commit length::{label}{note}")
 
     total = len(entries)
-    if not failed:
+
+    # What the hook grades is one message; what reaches the trunk is all of
+    # them. GitHub squashes a branch by concatenating every commit body under a
+    # "* subject" bullet, so a branch of short messages still merges long. The
+    # projection is the only place that number is visible before the merge.
+    if not from_file and total:
+        projected = sum(
+            measure(entry.partition("\n")[2], False) + 1 for entry in entries
+        )
+        if projected > BODY_LINES:
+            print(
+                f"\nProjected squash body: about {projected} lines from "
+                f"{total} commit(s), against a {BODY_LINES}-line target. "
+                "Edit the message in GitHub's merge box, or land fewer "
+                "commits.",
+                file=stream,
+            )
+            if annotate:
+                print(
+                    f"::notice title=Squash length::about {projected} lines "
+                    f"from {total} commit(s); edit the squash message at merge"
+                )
+
+    if not failed and not advised:
         print(f"{total} commit message(s) checked, all clean.", file=stream)
         return 0
 
     verdict = "carry warnings" if warn else "rejected"
+    summary = []
+    if failed:
+        summary.append(f"{failed} of {total} commit message(s) {verdict}")
+    if advised:
+        # Said plainly so nobody goes looking for the exit code that did not
+        # happen. Length is reported to be read, not to stop anything.
+        summary.append(
+            f"{advised} of {total} carry length advice, which fails nothing"
+        )
     print(
-        f"\n{failed} of {total} commit message(s) {verdict}. The rules live in "
+        "\n" + ". ".join(summary) + ". The rules live in "
         ".claude/skills/commits-and-prs/SKILL.md.",
         file=stream,
     )
-    return 0 if warn else 1
+    return 0 if warn or not failed else 1
 
 
 if __name__ == "__main__":
