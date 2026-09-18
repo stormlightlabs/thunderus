@@ -1,6 +1,6 @@
 ---
 name: features
-last_updated: 2026-09-17
+last_updated: 2026-09-18
 id: 01M2RFP6G4RZZ4BRH6HSYP29BM
 ---
 
@@ -30,6 +30,11 @@ Write the plan with `/spec-ify`, then file the work with `/decomp`.
 [TUI verification](tui-verification/plan.md) sits outside that sequence. It
 changes how interface work is reviewed rather than what ships, so it blocks
 nothing above and nothing above blocks it.
+
+[Lndrs](lndrs/plan.md) sits outside it as well. It is an orchestration engine
+in its own crate that consumes `thndrs` as a library, so nothing in the table
+depends on it and it waits only on [TUI verification](tui-verification/plan.md)
+for its interface.
 
 [Transcript](transcript/plan.md) sits outside it too. It decides the
 vocabulary the `## UI` items in `../BUGS.md` are cut from, and nothing in the
