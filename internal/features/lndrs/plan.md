@@ -153,12 +153,27 @@ composes. Arc Lightning emits a versioned envelope, Mire exchanges bounded
 context and findings with local agents as JSON, and Stormbuffer answers
 `sbuf context` under a byte budget. Lndrs is one more caller of that pattern.
 
-### What Arc Lightning has to grow
+### Work that lands in Arc Lightning
 
 Lndrs is the first program to drive Arc Lightning as a work queue, and four
-things it needs are missing. These are filed in `stormlightlabs/arclightning`
-rather than worked around here, because each is a property of the work record
-rather than of a run.
+things it needs are missing. Each is a property of the work record rather than
+of a run, so each is a change to Arc Lightning rather than something lndrs
+works around.
+
+The issues are filed in this repository with the rest of the track, because one
+board holding one run is the point and a second board is a second thing to
+reconcile. What differs is where the change lands. An issue below is worked in
+a checkout of `stormlightlabs/arclightning`, opens a pull request against that
+repository, and is reviewed by its conventions, while its thunderstorm status
+label stays on the issue here. Anyone cutting these issues marks them so a
+worker knows which tree to open before it starts.
+
+Shipping is the other difference. Lndrs consumes these through the installed
+`arcl` binary, so a merged change is not a usable one. Lndrs declares the
+minimum `arcl` version it requires and the `format_version` it parses, and
+refuses to start against an older pair with a message naming both. An issue
+here is done when Arc Lightning has released the change, not when its pull
+request merges.
 
 Claiming a unit has to be one operation. `arcl next` returns a task and
 `arcl task start` moves it, so two runs can read the same task before either
@@ -264,7 +279,7 @@ the control protocol are specified to leave room for them, which is as far as
 this document goes.
 
 Arc Lightning's own roadmap. `arcl-mcp`, the desktop app, and the migration to
-the capture and spec vocabulary belong to that repository and are not scheduled
-by this track. The four requirements above are the exception: they are filed
-there, and the first lndrs run needs the atomic claim before it can dispatch
-more than one unit at a time.
+the capture and spec vocabulary are that project's work and this track does not
+schedule them. The four changes above are the exception, and they are tracked
+here because lndrs is what blocks on them. The atomic claim blocks first: until
+it exists, a run dispatches one unit at a time.
