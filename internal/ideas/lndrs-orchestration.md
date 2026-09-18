@@ -116,16 +116,6 @@ which already exist in some form.
 A `thndrs orchestrate` subcommand would invert that dependency, putting the
 orchestrator inside the thing it orchestrates.
 
-The name carries a prior meaning in this repository, and the idea file should
-say so rather than let someone find it later. `archive/x/lndrs` at `f6785b7` is
-Landorus, a Bun, TypeScript, Svelte 5, and OpenTUI frontend that talked to Rust
-over a versioned `thndrs frontend --stdio` NDJSON boundary. That subcommand is
-gone from `edge`; the `Command` enum at `crates/thndrs/src/cli/mod.rs:181` has
-no `frontend` variant. Its plan named "subagents, Fleet, Workbench, or dashboard
-surfaces" as non-goals, which is close to an inversion of this document. The
-branch is prior art for the frontend-neutral protocol and is not a spec for this
-work.
-
 ### The interface waits for the verification loop
 
 No review pass can currently see a frame. That is the problem
@@ -180,10 +170,6 @@ point or a thing the protocol declines to offer.
   grepping `thndrs_agent::instances` across `crates/thndrs/src`.
 - `crates/thndrs/src/server/mod.rs` and `crates/thndrs/src/core/acp/`: the two
   existing ACP surfaces.
-- `crates/thndrs/src/cli/mod.rs:181`: the `Command` enum, which no longer
-  carries `frontend`.
-- `archive/x/lndrs` at `f6785b7`, `docs/internal/features/lndrs/plan.md`: the
-  Landorus frontend, its NDJSON boundary, and its non-goals.
 - [Herdr socket API](https://herdr.dev/docs/socket-api/): NDJSON over a Unix
   socket or named pipe, dotted method namespaces, lifecycle subscriptions that
   do not replay retained events, the five agent states, and `pane.report_agent`
