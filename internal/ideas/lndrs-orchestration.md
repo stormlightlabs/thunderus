@@ -110,6 +110,38 @@ Not the WASM plugin runtime. That exists to sandbox third-party code. The
 extension points here are the control protocol, skills, and ACP agents, all of
 which already exist in some form.
 
+### The work graph is Arc Lightning
+
+Lndrs does not define a work-graph store. `stormlightlabs/arclightning` is one,
+built for this, and its `SPEC.md` domain model maps onto thunderstorm almost
+term for term: a spec "replaces the current Epic concept", tasks carry status,
+dependency edges, blockers, a Markdown handoff, and completion evidence, and
+readiness is a deterministic calculation over them. `arcl ready` is the queue a
+scheduler dispatches from. `arcl context` is the focused packet a worker
+receives, holding the task, its ancestors, spec and plan context, direct
+blockers, the latest handoff, and relevant evidence. Read commands emit stable
+JSON. Its `ROADMAP.md` records the CLI, the SQLite model, dependencies,
+lifecycle state, ready-work queries, context, handoffs, and evidence as already
+working under the older vocabulary; MCP and the new product model are not.
+
+That answers the store-format question by having already answered it, and the
+answer is SQLite rather than JSONL. The two formats are not competing for one
+job. A work graph is queried for current state across edges, which is what
+"which tasks are ready" means, and an append-only log answers that only by
+replaying itself. A run record is an ordered history of what happened, which a
+log holds and a table of current state loses. Lndrs needs both and already has
+both: Arc Lightning for the graph, and the append-only JSONL session files
+`thndrs` writes through `core/session/writer.rs` for the run.
+
+GitHub then stops being the store and becomes a projection. Arc Lightning
+already defines repository-native mode as a projection with three-state
+reconciliation that "never resolves a conflict by silently choosing a side",
+which is the rule thunderstorm needs and does not currently state.
+
+What is left to decide is the seam, not the store. Arc Lightning has no MCP
+crate yet, so the integration today is the CLI with `--json`, and shelling out
+per dispatch is a cost worth measuring before it is accepted.
+
 ### A separate crate and binary
 
 `crates/lndrs` produces a `lndrs` binary depending on `thndrs` as a library.
@@ -125,41 +157,57 @@ multi-pane interface shipped before that lands is an interface nobody reviews.
 
 ## Open
 
-### Where the work graph lives
+### How lndrs reaches Arc Lightning
 
-Thunderstorm keeps it in GitHub issues, which
-survives a killed session and any harness, and needs the network. A local
-durable store works offline and can diverge from the board. Probably both, with
-issues authoritative and the local store a cache, but the reconciliation rule is
-the decision and it is not made. Settled by writing down what happens when the
-two disagree.
+The store is settled and the seam is not. Arc Lightning's `crates/` holds
+`arcl-cli`, `arcl-core`, `arcl-repo`, and `arcl-store`, with no `arcl-mcp`, so
+the options today are the CLI with `--json` per call, an MCP server once that
+crate exists, or depending on `arcl-core` directly. The last is fastest and
+couples two repositories at the library level. Settled by measuring dispatch
+cost against the CLI and deciding whether the coupling is worth removing it.
 
-### Whether the control protocol extends ACP or is new
+### Which orchestration verbs ACP carries
 
-ACP supports `_meta`
-fields, custom methods prefixed with `_`, and capabilities advertised at
-initialization, so orchestration verbs can ride it without a fork. It models
-nothing about concurrent sessions, delegation, or sub-agents, so those verbs
-have to be designed either way. Settled by attempting the verb set as an ACP
-extension and seeing whether session-scoped methods can express a work graph
-that outlives any one session.
+Zed answers the general question and
+leaves the specific one open. It transmits subagent information through ACP
+message metadata under `SUBAGENT_SESSION_INFO_META_KEY`, passing each child the
+parent's `SessionId` and a depth counter, while keeping depth policy internal:
+`MAX_SUBAGENT_DEPTH` defaults to 1 and is configurable to 4. So the precedent is
+to ride `_meta` for identity and keep the graph in the client's own model, which
+is what Arc Lightning now holds here.
 
-### Isolation past the worktree
+The unresolved part is whether a session-scoped protocol can express work that
+outlives every session in it. Settled by attempting the verb set as an ACP
+extension and finding the first thing it cannot say.
 
-Worktrees are settled by the `worktree` skill
-and cover source. They do not cover port allocation, per-worker database state,
-or environment variables that still point at shared resources. These are
-unsolved across the tools surveyed, not specific to this design, and they arrive
-the first time two workers start a dev server. Settled by picking which of the
-three lndrs owns and which it documents as the operator's problem.
+### What isolation lndrs owns
 
-### Whether lndrs runs unattended
+Worktrees are settled by the `worktree` skill and
+cover source. Port allocation, per-worker database state, and environment
+variables pointing at shared resources are not covered, and are unsolved across
+the tools surveyed rather than specific to this design.
 
-`loop-engineering` argues for a bounded loop
-where a human triggers each run and the stop rule is structural, and
-thunderstorm adopts it. An engine makes the unattended shape cheap enough to
-reach for. Settled by deciding whether a scheduled trigger is a supported entry
-point or a thing the protocol declines to offer.
+Lndrs should not decide these for an operator. Ports and databases are
+project-specific, and a policy guessed here becomes a thing to work around. The
+open question is narrower: which hook lndrs offers so an operator can provision
+per-worker resources, and whether that hook runs before a worker starts, after
+its worktree exists, or both. Settled by writing the hook contract against two
+real projects with different needs.
+
+### What triggers a run
+
+A scheduled or event-driven trigger is a supported
+entry point, not the only one and not the default. `loop-engineering` argues for
+a bounded loop where a human starts each run and the stop rule is structural,
+and thunderstorm adopts it; an engine makes the unattended shape cheap enough
+that it will get used either way, so it should be designed rather than
+discovered.
+
+What is open is what the unattended path requires that the attended one does
+not. Candidates are a mandatory budget, an escalation target that is a person,
+and a refusal to start when the previous run left anything unresolved. Settled
+by writing the trigger contract with those three as requirements and seeing
+which survive contact with a real run.
 
 ## Sources
 
@@ -170,6 +218,18 @@ point or a thing the protocol declines to offer.
   grepping `thndrs_agent::instances` across `crates/thndrs/src`.
 - `crates/thndrs/src/server/mod.rs` and `crates/thndrs/src/core/acp/`: the two
   existing ACP surfaces.
+- [`stormlightlabs/arclightning`](https://github.com/stormlightlabs/arclightning),
+  `SPEC.md` and `ROADMAP.md` at the tip on 2026-09-18: the domain model, the
+  readiness calculation, `arcl ready`, `arcl context`, stable JSON on reads,
+  repository-native projection with three-state reconciliation, and the roadmap
+  statement of what already works. The crate list showing no `arcl-mcp` was read
+  from the tree, not from the documents.
+- [Zed subagent and thread hierarchy](https://deepwiki.com/zed-industries/zed/8.6-subagent-and-thread-hierarchy):
+  `SUBAGENT_SESSION_INFO_META_KEY`, the parent `SessionId` and depth counter
+  passed to each child, and depth policy held internally. Medium confidence.
+  This is a generated wiki over the Zed source rather than Zed documentation,
+  and the default of 1 with a configurable ceiling of 4 comes from secondary
+  discussion of the same code.
 - [Herdr socket API](https://herdr.dev/docs/socket-api/): NDJSON over a Unix
   socket or named pipe, dotted method namespaces, lifecycle subscriptions that
   do not replay retained events, the five agent states, and `pane.report_agent`
