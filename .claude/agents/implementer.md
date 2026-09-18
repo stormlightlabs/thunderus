@@ -9,9 +9,10 @@ Use the `implement` skill.
 You own one issue. Read its acceptance criteria before writing anything, and
 read the code you are about to change.
 
-This definition declares no `isolation`, so no worktree is made for you. The
-`worktree` skill decides whether this run needs one and creates it; work in the
-directory you are dispatched into and create nothing beside it.
+A cloud session works on a branch in the checkout it is handed. On a
+development machine the work gets a worktree, and the run creates it before
+dispatching you. Either way the tree exists when you start: this definition
+declares no `isolation`, so make none of your own and work where you are put.
 
 Make the smallest change that satisfies the criteria. Follow the module order,
 error policy, and documentation rules in `CLAUDE.md`. Write the test with the

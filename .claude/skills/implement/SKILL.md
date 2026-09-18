@@ -38,8 +38,13 @@ a second run from taking the same issue, so make it before touching a tree.
 
 ## Take a working tree
 
-The `worktree` skill's **Who gets one** section decides whether this run needs
-a worktree, and it is the only thing that creates one. Two cases follow from it.
+A dispatched implementer already has one: the run made it under step 2 of the
+`thunderstorm` skill and handed over the directory. Use it and skip this
+section.
+
+A session invoked directly takes its own, and the `worktree` skill's **Who gets
+one** section decides which of two it takes. It is the only thing that creates
+a worktree.
 
 A cloud session working the issue alone already holds a checkout nobody else
 owns, so it works in that checkout and creates nothing beside it:
