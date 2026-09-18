@@ -13,36 +13,38 @@ inside the repository root.
 
 ## Who gets one
 
-What a worktree separates is one writer from the next. Two implementers in one
-checkout share one index and one `HEAD`, so they cannot hold a branch each: the
-second to create its branch moves `HEAD` and takes the first's staged work with
-it, the first's later commits land on the second's branch, and the first's
-branch never leaves `origin/edge`. Git refuses one branch in two worktrees, but
-that refusal cannot fire here, because there is only one worktree. So a worktree
-is load-bearing exactly when two writers are live at once.
+What a worktree separates is one writer from the next, so the question is
+whether this work has a next writer.
 
-| Host  | Writers live | Worktree                              |
-| ----- | ------------ | ------------------------------------- |
-| Local | Any          | One each. The checkout is the user's. |
-| Cloud | One          | None. Work in the container checkout. |
-| Cloud | Two or more  | One each, created here.               |
+| Writer                    | Tree                                          |
+| ------------------------- | --------------------------------------------- |
+| A dispatched subagent     | Its own worktree, made before it is sent.     |
+| A local session, directly | Its own worktree. The checkout is the user's. |
+| A cloud session, directly | A branch in the container checkout.           |
 
-On a development machine every implementer gets one, whether it is alone or
-not. The checkout is the user's working tree and an agent is never its writer.
+A subagent always has one. The session that dispatched it is still sitting in
+the checkout, and a second subagent may be sent while the first works, so a
+subagent is never the only writer even when it is the only implementer. Two of
+them in one checkout share one index and one `HEAD`, so they cannot hold a
+branch each: the second to create its branch moves `HEAD` and takes the first's
+staged work with it, the first's later commits land on the second's branch, and
+the first's branch never leaves `origin/edge`. Git refuses one branch in two
+worktrees, but that refusal cannot fire here, because there is only one
+worktree.
 
-A cloud container is already a checkout nobody else owns, so a run dispatching
-one implementer at a time works in it directly. A second worktree there buys no
-isolation and costs two things: it is untracked inside the repository root, so
-the checkout reads dirty and the stop hook asks for a locked second checkout to
-be committed, and Cargo can reach the parent `.cargo/config.toml` and build into
-the parent `target/`.
+The run creates it before dispatching, not the subagent after arriving. A
+subagent that has to make its own tree has already been handed a directory, and
+which one it got is the thing nobody can see afterwards.
 
-Concurrency brings the worktree back. The moment a run dispatches a second
-implementer, each gets its own, created here and rooted outside the repository,
-because the argument above applies to a container exactly as it applies to a
-laptop. One writer is the condition, not the host.
+A session working an issue itself on a development machine takes one too. The
+checkout there is the user's working tree and an agent is never its writer.
 
-A session working in the container checkout still owns its branch. Rename a
+The one case with no worktree is a cloud session working an issue itself. The
+container checkout belongs to nobody else, there is no subagent beside it, and a
+second tree inside the repository root only costs: it is untracked, so the
+checkout reads dirty and the stop hook asks for a locked second checkout to be
+committed, and Cargo can reach the parent `.cargo/config.toml` and build into
+the parent `target/`. That session still owns its branch — rename a
 harness-supplied branch name to `agent/<issue>` before the first push.
 
 A reviewer needs no worktree, only a tree that does not move while it reads,

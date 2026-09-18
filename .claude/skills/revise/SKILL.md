@@ -39,10 +39,11 @@ git worktree list
 ```
 
 Use the existing worktree for `agent/<n>` if it is still there. Where there is
-none, the `worktree` skill's **Who gets one** section says what to take: a cloud
-session working this pull request alone checks its head branch out in the
-container checkout, and anything else gets a worktree cut from that branch.
-Never make these edits in the user's primary checkout on a development machine.
+none, the `worktree` skill's **Who gets one** section says what to take, reading
+this pass as the writer: a dispatched one gets a worktree cut from the pull
+request's head branch, and a cloud session working the pull request itself
+checks that branch out in the container checkout. Never make these edits in the
+user's primary checkout on a development machine.
 
 ## Decide on each finding
 

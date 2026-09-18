@@ -42,12 +42,12 @@ A dispatched implementer already has one: the run made it under step 2 of the
 `thunderstorm` skill and handed over the directory. Use it and skip this
 section.
 
-A session invoked directly takes its own, and the `worktree` skill's **Who gets
-one** section decides which of two it takes. It is the only thing that creates
-a worktree.
+A session invoked directly takes its own. The `worktree` skill's **Who gets
+one** section decides which of two, and is the only thing that creates a
+worktree.
 
-A cloud session working the issue alone already holds a checkout nobody else
-owns, so it works in that checkout and creates nothing beside it:
+A cloud session holds a container checkout nobody else owns, so it works in that
+checkout and creates nothing beside it:
 
 ```sh
 git fetch origin
@@ -58,9 +58,9 @@ Rename a harness-supplied branch rather than keeping it. Every branch an agent
 pushes carries the `agent/` prefix, and that prefix is what tells a human
 reading the branch list which branches an agent owns.
 
-Everywhere else — a local run, or a cloud run with a second implementer
-live — the issue gets its own worktree, outside the repository root so Cargo
-does not find the parent `.cargo/config.toml`:
+A local session takes a worktree, because the checkout there is the user's. It
+goes outside the repository root so Cargo does not find the parent
+`.cargo/config.toml`:
 
 ```sh
 git fetch origin

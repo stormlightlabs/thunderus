@@ -47,12 +47,12 @@ anyway produces a worker with nothing to build on. Independent in the dependency
 graph is not the same as safe to run at once: check the file ownership the epic
 records before taking two at a time.
 
-Dispatching two at once is what makes a worktree load-bearing. Two implementers
+Every implementer you dispatch gets its own worktree, on either host, and you
+create it before dispatching rather than leaving the subagent to. Two of them
 sharing a checkout share one `HEAD`, and the second to create its branch takes
-the first's work onto it without git raising anything. The `worktree` skill's
-**Who gets one** section decides who needs one and is the only thing that
-creates one: a cloud run taking sub-issues one at a time works in the container
-checkout, and every other case gets a worktree outside the repository root.
+the first's work onto it without git raising anything. The `worktree` skill has
+the mechanism and is the only thing that creates one; you are the writer in the
+checkout they are kept out of.
 
 For each sub-issue:
 

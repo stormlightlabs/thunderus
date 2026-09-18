@@ -225,7 +225,7 @@ at least once while written down and believed.
 
 ## Worktrees
 
-A worktree, where the run needs one, is created outside the repository root so
+A worktree, where the work takes one, is created outside the repository root so
 Cargo does not find the parent `.cargo/config.toml`:
 
 ```sh
@@ -250,8 +250,15 @@ to commit a locked second checkout.
 
 ### Who gets one
 
-What a worktree separates is one writer from the next, so it is load-bearing
-exactly when two writers are live at once.
+What a worktree separates is one writer from the next, so the question is
+whether the work has a next writer.
+
+Every dispatched subagent does, on either host, so every dispatched subagent
+gets a worktree. The run that sent it is still sitting in the checkout and may
+send a second subagent while the first works, which makes a lone implementer
+the only implementer rather than the only writer. The run creates the worktree
+before dispatching; a subagent that makes its own has already been handed a
+directory, and which one it took is the thing nobody can reconstruct afterwards.
 
 Two implementers sharing a checkout share one index and one `HEAD`, so they
 cannot hold a branch each. The second to start moves `HEAD` when it creates its
@@ -263,16 +270,13 @@ branch in two worktrees does not fire, because there is only one worktree.
 and both land; the only trace is that script naming a branch the run did not
 claim. An index lock collision is the rarer case and the only loud one.
 
-On a development machine every implementer gets one regardless, because the
-checkout is the user's working tree and an agent is never its writer.
+A session working an issue itself on a development machine takes one too,
+because the checkout there is the user's working tree and an agent is never its
+writer.
 
-A cloud container is a checkout nobody else owns, so a run dispatching one
-implementer at a time works in it directly and creates no worktree. What the
-container does not do is separate two dispatched implementers from each other,
-and the moment a run takes two sub-issues at once each gets its own worktree
-again, outside the repository root. One writer is the condition, not the host.
-
-A cloud session working in the container checkout still renames its branch to
+The one case with no worktree is a cloud session working an issue itself. The
+container checkout belongs to nobody else and no subagent sits beside it, so a
+second tree buys no separation. That session renames its branch to
 `agent/<issue>` before the first push, under [Branches](#branches).
 
 A reviewer gets none. It writes nothing into the tree, so what it needs is a
