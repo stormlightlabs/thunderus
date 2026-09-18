@@ -49,6 +49,22 @@ Update `version` in `crates/thndrs/Cargo.toml` and
 `crates/thndrs-agent/Cargo.toml`, then `cargo update --workspace` so
 `Cargo.lock` matches.
 
+### The tags that predate this skill
+
+Two tags were placed by hand and neither came from a release run here.
+
+`v0.1.0` sits on `1bba49b`, reachable only from `archive/transcripts`. That is
+the commit both crates published from on 2026-07-17: their `.crate` files name
+its sha in `.cargo_vcs_info.json` and its tree reads `0.1.0`. Nothing reaches it
+from `main` or `edge`, so `git describe` cannot see it. It exists so the
+published version has a commit, not to answer the command above.
+
+`v0.1.1` sits on `main` and is the tag that command finds. It names the version
+both `Cargo.toml` files have declared since the first commit here. It was
+tagged and never published, so until a release publishes, the check under
+[After](#after) has one disagreement to expect: `main` and the tag say `0.1.1`
+while crates.io says `0.1.0`.
+
 ## Changelog
 
 Move `## Unreleased` entries into a new `## <version>` section with the date.
