@@ -57,6 +57,13 @@
 - Simplified runtime labels and added continuous elapsed-turn timing to the
   composer header.
 
+### Fixed
+
+- Skill discovery no longer drops a skill whose frontmatter `name` differs
+  from its directory. The directory selects the skill and the mismatch is
+  reported as a `thndrs skills doctor` diagnostic instead of an inventory
+  rejection.
+
 ## v0.1.0
 
 This release introduces `thndrs` as experimental pre-1.0 software. Its CLI,

@@ -432,7 +432,7 @@ fn should_skip_dir(name: &str) -> bool {
     name.starts_with('.') || matches!(name, "node_modules" | "target" | "dist" | "build")
 }
 
-fn load_metadata(path: &Path, root: &SkillRoot) -> Result<SkillMetadata, SkillDiagnostic> {
+fn load_metadata(path: &Path, root: &SkillRoot) -> Result<(SkillMetadata, Option<SkillDiagnostic>), SkillDiagnostic> {
     let raw = fs::read_to_string(path)
         .map_err(|err| SkillDiagnostic::new(path, format!("failed to read SKILL.md: {err}")))?;
     let byte_count = raw.len();
@@ -453,7 +453,7 @@ fn load_metadata(path: &Path, root: &SkillRoot) -> Result<SkillMetadata, SkillDi
         .clone()
         .ok_or_else(|| SkillDiagnostic::new(path, "frontmatter description is required"))?;
 
-    validate_name(path, &name, parent_name)?;
+    let name_mismatch = validate_name(path, &name, parent_name)?;
     if description.trim().is_empty() {
         return Err(SkillDiagnostic::new(path, "frontmatter description is required"));
     }
@@ -466,20 +466,23 @@ fn load_metadata(path: &Path, root: &SkillRoot) -> Result<SkillMetadata, SkillDi
     }
     let references = parse_reference_paths(path, frontmatter.references)?;
 
-    Ok(SkillMetadata {
-        name,
-        description,
-        path: path.to_path_buf(),
-        root: path.parent().unwrap_or(path).to_path_buf(),
-        content_hash,
-        byte_count,
-        source: root.source,
-        allowed_tools: frontmatter.allowed_tools.into_vec(),
-        license: frontmatter.license,
-        compatibility: frontmatter.compatibility,
-        metadata: frontmatter.metadata,
-        references,
-    })
+    Ok((
+        SkillMetadata {
+            name,
+            description,
+            path: path.to_path_buf(),
+            root: path.parent().unwrap_or(path).to_path_buf(),
+            content_hash,
+            byte_count,
+            source: root.source,
+            allowed_tools: frontmatter.allowed_tools.into_vec(),
+            license: frontmatter.license,
+            compatibility: frontmatter.compatibility,
+            metadata: frontmatter.metadata,
+            references,
+        },
+        name_mismatch,
+    ))
 }
 
 fn parse_reference_paths(
@@ -545,13 +548,15 @@ fn normalize_reference_path(raw: &str) -> Result<PathBuf, &'static str> {
     Ok(normalized)
 }
 
-fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<(), SkillDiagnostic> {
-    if name != parent_name {
-        return Err(SkillDiagnostic::new(
-            path,
-            format!("name {name:?} must match parent directory {parent_name:?}"),
-        ));
-    }
+/// Validates the frontmatter `name`'s shape and flags a directory mismatch.
+///
+/// Discovery selects a skill by the directory that holds its `SKILL.md`, so a
+/// `name` that differs from that directory is not fatal: it is reported back
+/// as a non-fatal [`SkillDiagnostic`] warning and the frontmatter value is
+/// still used as the skill's display label and activation key. Only
+/// malformed `name` values (length, character set, hyphen placement) reject
+/// the skill outright.
+fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<Option<SkillDiagnostic>, SkillDiagnostic> {
     if name.len() > SkillConstants::NameLen.into() {
         let l: usize = SkillConstants::NameLen.into();
         return Err(SkillDiagnostic::new(path, format!("name exceeds {l} characters")));
@@ -571,7 +576,15 @@ fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<(), Skill
             "name must not start or end with a hyphen or contain consecutive hyphens",
         ));
     }
-    Ok(())
+    Ok((name != parent_name).then(|| {
+        SkillDiagnostic::new(
+            path,
+            format!(
+                "name {name:?} differs from parent directory {parent_name:?}; \
+                 the directory selects the skill and the name is used only as a display label"
+            ),
+        )
+    }))
 }
 
 fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
@@ -664,7 +677,10 @@ fn discover_dir(
     let skill_file = dir.join("SKILL.md");
     if skill_file.is_file() {
         match load_metadata(&skill_file, root) {
-            Ok(skill) => skills.push(skill),
+            Ok((skill, warning)) => {
+                diagnostics.extend(warning);
+                skills.push(skill);
+            }
             Err(diagnostic) => diagnostics.push(diagnostic),
         }
         return;
@@ -806,7 +822,7 @@ mod tests {
         for root in [".claude/skills", ".codex/skills"] {
             write(
                 &dir.path().join(root).join("skill-deslop/SKILL.md"),
-                "---\nname: deslop\ndescription: Helps.\n---\n# Skill\n",
+                "---\nname: Deslop!\ndescription: Helps.\n---\n# Skill\n",
             );
         }
 
@@ -817,12 +833,48 @@ mod tests {
 
         assert!(inventory.skills.is_empty());
         assert_eq!(inventory.diagnostics.len(), 1);
-        assert!(inventory.diagnostics[0].message.contains("must match parent directory"));
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("must contain only lowercase letters, numbers, and hyphens")
+        );
         assert!(
             inventory.diagnostics[0]
                 .message
                 .contains("also found in 1 other skill root")
         );
+    }
+
+    #[test]
+    fn skill_with_name_differing_from_directory_loads_with_a_warning() {
+        // Reproduces the shape of `stormlightlabs/mire`'s bundled skill: the
+        // frontmatter `name` (`mire-review`) differs from the directory that
+        // holds it (`mire`).
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join(".agents/skills/mire/SKILL.md"),
+            "---\nname: mire-review\ndescription: Reviews changes for scope creep.\n---\n# Mire\n",
+        );
+
+        let inventory = discover_only(&dir.path().join(".agents/skills"));
+
+        assert_eq!(inventory.skills.len(), 1);
+        assert_eq!(inventory.skills[0].name, "mire-review");
+        assert_eq!(
+            inventory.skills[0].path,
+            dir.path().join(".agents/skills/mire/SKILL.md")
+        );
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert!(inventory.diagnostics[0].message.contains("\"mire-review\""));
+        assert!(inventory.diagnostics[0].message.contains("\"mire\""));
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("differs from parent directory")
+        );
+
+        let loaded = load_skill(&inventory.skills[0]).expect("mismatched skill still activates");
+        assert_eq!(loaded.activation.name, "mire-review");
     }
 
     #[test]

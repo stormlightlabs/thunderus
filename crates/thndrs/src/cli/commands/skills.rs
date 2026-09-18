@@ -98,4 +98,36 @@ mod tests {
         assert!(output.contains("ignored:"));
         assert!(!output.contains("blocked by trust"));
     }
+
+    #[test]
+    fn doctor_reports_a_name_directory_mismatch_as_a_diagnostic() {
+        let workspace = tempfile::tempdir().expect("temp workspace");
+        let path = workspace.path();
+        let skill = path.join(".agents/skills/mire/SKILL.md");
+        std::fs::create_dir_all(skill.parent().expect("skill parent")).expect("create skill parent");
+        std::fs::write(
+            skill,
+            "---\nname: mire-review\ndescription: Reviews changes for scope creep.\n---\n# Mire\n",
+        )
+        .expect("write skill");
+
+        let cli = Cli::try_parse_from([
+            "thndrs",
+            "--cwd",
+            path.to_str().expect("workspace path"),
+            "skills",
+            "doctor",
+        ])
+        .expect("parse");
+        let command = match &cli.command {
+            Some(Command::Skills { command }) => command,
+            _ => panic!("expected skills doctor command"),
+        };
+        let mut output = Cursor::new(Vec::new());
+        run_with_writer(&cli, command, &mut output).expect("run doctor");
+        let output = String::from_utf8(output.into_inner()).expect("UTF-8 output");
+
+        assert!(output.contains("diagnostics:"));
+        assert!(output.contains("differs from parent directory"));
+    }
 }
