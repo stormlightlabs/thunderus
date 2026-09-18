@@ -1,20 +1,25 @@
 Closes #
 
-## What
+<!-- A reviewer wants to know what to look at and whether it works. Most
+     changes need only the three lines below; delete this comment and write
+     them. This body never reaches git log, so it is scaffolding for one
+     review rather than a record.
 
-<!-- One paragraph. What changed and what behavior it produces. -->
+     For a large change — a diff over roughly 300 lines, or one touching more
+     than one crate — replace them with the headings at the bottom of this
+     comment, which give a reviewer somewhere to look for the verification.
 
-## Why
+     Either way, keep the body under 20 lines, and keep the title under 53
+     characters: GitHub appends " (#NN)" and the subject limit is 59.
 
-<!-- The problem this solves, with evidence. Link the issue or the idea file. -->
+     ## What / ## Why / ## Verification / ## Not covered
+-->
 
-## Verification
+<!-- One paragraph: what changed, and what behavior it produces. -->
 
-<!-- What was run and what came back. Name the commands. "Tests pass" without
-     the command is not verification. Say so plainly if a check was not run. -->
+Verified with <!-- command -->: <!-- result. "Tests pass" without the command
+is not verification. Say so plainly if a check was not run. -->
 
-## Not covered
-
-<!-- What this does not do, what was not tested, and what was deferred, with a
-     link. This section may not be empty. Write "Nothing" only after looking
-     for gaps and finding none. -->
+Not covered: <!-- what was left, with a link. This may not be empty. Write
+"Nothing" only after looking for gaps and finding none. One line is a
+complete answer. -->
