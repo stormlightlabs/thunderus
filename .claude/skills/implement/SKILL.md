@@ -1,11 +1,11 @@
 ---
 name: implement
-description: Work a GitHub issue end to end in an isolated worktree and open a pull request against edge. Use for /impl, /implement, or when asked to start work on an issue number.
+description: Work a GitHub issue end to end on its own branch and open a pull request against edge. Use for /impl, /implement, or when asked to start work on an issue number.
 ---
 
 # Implement
 
-Take one issue, do the work in its own worktree, open a pull request. One issue
+Take one issue, do the work on its own branch, open a pull request. One issue
 per run.
 
 ## Read before claiming
@@ -34,12 +34,28 @@ touches before planning the change.
 ## Claim it
 
 Assign yourself and move the status label to `claimed`. The claim is what stops
-a second run from taking the same issue, so make it before creating a worktree.
+a second run from taking the same issue, so make it before touching a tree.
 
-## Create the worktree
+## Take a working tree
 
-Outside the repository root, so Cargo does not find the parent
-`.cargo/config.toml`:
+The `worktree` skill's **Who gets one** section decides whether this run needs
+a worktree, and it is the only thing that creates one. Two cases follow from it.
+
+A cloud session working the issue alone already holds a checkout nobody else
+owns, so it works in that checkout and creates nothing beside it:
+
+```sh
+git fetch origin
+git switch -c agent/<n> origin/edge   # or: git branch -m agent/<n>
+```
+
+Rename a harness-supplied branch rather than keeping it. Every branch an agent
+pushes carries the `agent/` prefix, and that prefix is what tells a human
+reading the branch list which branches an agent owns.
+
+Everywhere else — a local run, or a cloud run with a second implementer
+live — the issue gets its own worktree, outside the repository root so Cargo
+does not find the parent `.cargo/config.toml`:
 
 ```sh
 git fetch origin
@@ -103,6 +119,6 @@ having run it.
 ## Do not
 
 - Merge, approve, or push to `edge` or `main`.
-- Touch the user's primary checkout.
+- Touch the user's primary checkout on a development machine.
 - Expand scope past the claimed issue.
-- Leave the worktree behind after the pull request merges.
+- Leave a worktree behind after the pull request merges.

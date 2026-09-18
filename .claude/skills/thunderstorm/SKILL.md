@@ -47,17 +47,20 @@ anyway produces a worker with nothing to build on. Independent in the dependency
 graph is not the same as safe to run at once: check the file ownership the epic
 records before taking two at a time.
 
-Each implementer works in its own worktree, on either host. Two sharing a
-checkout share one `HEAD`, and the second to create its branch takes the
-first's work onto it without git raising anything. The `worktree` skill has the
-mechanism.
+Dispatching two at once is what makes a worktree load-bearing. Two implementers
+sharing a checkout share one `HEAD`, and the second to create its branch takes
+the first's work onto it without git raising anything. The `worktree` skill's
+**Who gets one** section decides who needs one and is the only thing that
+creates one: a cloud run taking sub-issues one at a time works in the container
+checkout, and every other case gets a worktree outside the repository root.
 
 For each sub-issue:
 
 1. Claim it through the `github-board` skill.
-2. Create its worktree through the `worktree` skill.
+2. Give it a working tree through the `worktree` skill.
 3. Dispatch an implementer. Give it the issue number, the acceptance criteria,
-   the file ownership, and the verification command. Nothing else.
+   the file ownership, the working directory, and the verification command.
+   Nothing else.
 4. When the pull request opens, move the issue to `status:review`.
 
 Use the model assignments in `internal/models.md`. The implementer and the
@@ -112,7 +115,7 @@ filed, never absorbed.
 
 ## Do not
 
-- Write code, edit files, or enter a worktree.
+- Write code, edit files, or work in an implementer's tree.
 - Merge, approve, or push to `edge` or `main`.
 - Change the protocol mid-run.
 - Continue past a stop condition because the remaining work looks small.

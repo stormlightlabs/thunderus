@@ -16,3 +16,9 @@ docs/target
 
 # Local overrides stay out of the repository.
 .claude/settings.local.json
+
+# A worktree is a second checkout and its build tree, not work to commit. The
+# negations above would otherwise track one a harness placed here, and the
+# checkout would read dirty for as long as its agent runs. Agents create theirs
+# outside the repository root; this catches the case nothing here controls.
+.claude/worktrees/

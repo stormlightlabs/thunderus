@@ -1,12 +1,52 @@
 ---
 name: worktree
-description: Create, use, and remove an isolated git worktree for one unit of agent work, with Rust build isolation. Use when starting work on an issue, running parallel agents, or cleaning up after a run.
+description: Decide whether a unit of agent work needs its own git worktree, then create, use, and remove it with Rust build isolation. Use when starting work on an issue, running parallel agents, or cleaning up after a run.
 ---
 
 # Worktree
 
-One unit of work gets one worktree, one branch, and one owner. The user's
-primary checkout is never an agent's working directory.
+One unit of work gets one branch and one owner. Whether it also gets its own
+worktree is decided under [Who gets one](#who-gets-one). This skill is the only
+thing that creates one: no agent definition declares `isolation`, so nothing
+provisions a worktree before this skill is consulted and nothing lands one
+inside the repository root.
+
+## Who gets one
+
+What a worktree separates is one writer from the next. Two implementers in one
+checkout share one index and one `HEAD`, so they cannot hold a branch each: the
+second to create its branch moves `HEAD` and takes the first's staged work with
+it, the first's later commits land on the second's branch, and the first's
+branch never leaves `origin/edge`. Git refuses one branch in two worktrees, but
+that refusal cannot fire here, because there is only one worktree. So a worktree
+is load-bearing exactly when two writers are live at once.
+
+| Host  | Writers live | Worktree                              |
+| ----- | ------------ | ------------------------------------- |
+| Local | Any          | One each. The checkout is the user's. |
+| Cloud | One          | None. Work in the container checkout. |
+| Cloud | Two or more  | One each, created here.               |
+
+On a development machine every implementer gets one, whether it is alone or
+not. The checkout is the user's working tree and an agent is never its writer.
+
+A cloud container is already a checkout nobody else owns, so a run dispatching
+one implementer at a time works in it directly. A second worktree there buys no
+isolation and costs two things: it is untracked inside the repository root, so
+the checkout reads dirty and the stop hook asks for a locked second checkout to
+be committed, and Cargo can reach the parent `.cargo/config.toml` and build into
+the parent `target/`.
+
+Concurrency brings the worktree back. The moment a run dispatches a second
+implementer, each gets its own, created here and rooted outside the repository,
+because the argument above applies to a container exactly as it applies to a
+laptop. One writer is the condition, not the host.
+
+A session working in the container checkout still owns its branch. Rename a
+harness-supplied branch name to `agent/<issue>` before the first push.
+
+A reviewer needs no worktree, only a tree that does not move while it reads,
+which is a commit. The `review` skill owns how to read one.
 
 ## Create
 
@@ -22,23 +62,8 @@ Branch from `origin/edge`, not from whatever the user has checked out. The
 baseline should match the branch the pull request will target.
 
 Work with no issue behind it still branches under `agent/`, named for the work:
-`agent/git-hygiene`. A session that took a harness-generated branch name and
-has no worktree yet renames it to match before the first push; a worktree made
-here is born with the right name and needs no rename.
-
-A container is not a substitute for a worktree. It separates the session from
-the user's machine; a worktree separates one writer from the next, and that is
-the job here. Two implementers in one checkout share one index and one `HEAD`,
-so they cannot hold a branch each: the second to create its branch moves `HEAD`
-and takes the first's staged work with it, the first's later commits land on
-the second's branch, and the first's branch never leaves `origin/edge`. Git
-refuses one branch in two worktrees, but that refusal cannot fire here, because
-there is only one worktree. So every implementer gets its own, on either host.
-A dispatched implementer already declares `isolation: worktree`, so it has one
-before this skill is consulted.
-
-A reviewer needs no worktree, only a tree that does not move while it reads,
-which is a commit. The `review` skill owns how to read one.
+`agent/git-hygiene`. A worktree made here is born with the right name and needs
+no rename.
 
 ## Build isolation
 
@@ -80,7 +105,8 @@ Raise the cap only after measuring.
 
 ## Remove
 
-Removal is part of the run, not cleanup for later:
+Removal is part of the run, not cleanup for later. A run that took no worktree
+deletes only its branch, once the pull request has merged:
 
 ```sh
 git worktree remove ../thndrs-worktrees/<issue>

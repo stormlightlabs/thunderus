@@ -1,6 +1,6 @@
 ---
 name: thunderstorm
-last_updated: 2026-09-17
+last_updated: 2026-09-18
 id: 01M2PWX233GKXE5M9SPTNTGN0D
 ---
 
@@ -34,7 +34,7 @@ protocol is the same; the transport to GitHub is not.
 | Local         | `gh`             |
 | Cloud session | GitHub MCP tools |
 
-Worktrees work the same way on both, under [Worktrees](#worktrees).
+Where a worker writes differs too, under [Worktrees](#worktrees).
 
 The `github-board` skill picks the transport and owns the differences between
 them. Two are load-bearing:
@@ -70,7 +70,7 @@ Status is a label. One status label per issue.
 | Label            | Meaning                                           | Leaves when                                      |
 | ---------------- | ------------------------------------------------- | ------------------------------------------------ |
 | `status:queued`  | Ready to work. No owner.                          | A run claims it.                                 |
-| `status:claimed` | A worker owns it and a worktree exists.           | A pull request opens, or the run abandons it.    |
+| `status:claimed` | A worker owns it and holds a working tree.        | A pull request opens, or the run abandons it.    |
 | `status:review`  | Pull request open. Review passes in progress.     | All three review passes clear.                   |
 | `status:verify`  | Merged to `edge`. Waiting on human confirmation.  | A human confirms behavior or files a regression. |
 | `status:blocked` | Cannot proceed. Needs a `blocked:*` reason label. | The reason is recorded as resolved.              |
@@ -78,8 +78,8 @@ Status is a label. One status label per issue.
 | `status:dropped` | Abandoned. Reason recorded in a closing comment.  | Terminal.                                        |
 
 `status:claimed` for more than 24 hours with no pull request returns to
-`status:queued` and its worktree is removed. `status:blocked` for more than 7
-days goes to the triage inbox. Nothing closes automatically.
+`status:queued`, and its worktree is removed if it has one. `status:blocked`
+for more than 7 days goes to the triage inbox. Nothing closes automatically.
 
 An epic carries no status. It is not work, so there is nothing to claim, and
 duplicating its sub-issues' state on the parent gives that copy somewhere to
@@ -128,7 +128,7 @@ the run and starts at `/impl`.
 | `/spec-ify`, `/specify` | An idea or topic          | One design to `internal/features/<name>/plan.md`. Only when a decision is missing. |
 | `/decomp`, `/decompose` | An idea, spec, or finding | Files one epic and the sub-issues under it.                                        |
 | `/thunderstorm`         | Epic issue number         | One run over the epic. Claims each sub-issue, dispatches it, and reports.          |
-| `/impl`, `/implement`   | Issue number              | Claims the issue, works it in a worktree, opens a pull request.                    |
+| `/impl`, `/implement`   | Issue number              | Claims the issue, works it on an `agent/` branch, opens a pull request.            |
 | `/rev`                  | Branch or PR number       | Standard review pass. Comments only on the second pass.                            |
 | `/adv-rev`              | Branch or PR number       | Adversarial review pass. Always comments.                                          |
 | `/edit`, `/revise`      | PR number                 | Addresses review comments on that pull request.                                    |
@@ -190,7 +190,7 @@ without the underlying cause changing. Either stop is an escalation.
 | ----------- | --------------------------------------- | ---------------------------------- |
 | `main`      | The current release. Matches the tag.   | Release pull requests from `edge`. |
 | `edge`      | Merged work that is not released yet.   | Pull requests from `agent/*`.      |
-| `agent/<n>` | One sub-issue. One worktree. One owner. | Pushes from its worker.            |
+| `agent/<n>` | One sub-issue. One owner.               | Pushes from its worker.            |
 
 Every branch an agent pushes carries the `agent/` prefix, including work that
 has no issue behind it. Name that case for the work rather than the issue it
@@ -225,8 +225,8 @@ at least once while written down and believed.
 
 ## Worktrees
 
-One sub-issue gets one worktree, created outside the repository root so Cargo
-does not find the parent `.cargo/config.toml`:
+A worktree, where the run needs one, is created outside the repository root so
+Cargo does not find the parent `.cargo/config.toml`:
 
 ```sh
 git worktree add ../thndrs-worktrees/<issue> -b agent/<issue> origin/edge
@@ -240,13 +240,18 @@ meant to parallelize.
 Remove the worktree when the run ends. A removal that fails because of
 uncommitted changes is an escalation, not something to force.
 
+The `worktree` skill is the only thing that creates one. No definition in
+`.claude/agents/` declares `isolation`, so nothing provisions a worktree ahead
+of that skill and nothing lands one inside the repository root, where it would
+be untracked under `.gitignore`'s `!.claude/**` and read as work to commit. The
+belt on that is a `.gitignore` entry for `.claude/worktrees/`: a harness that
+places one there anyway leaves the checkout clean rather than asking a stop hook
+to commit a locked second checkout.
+
 ### Who gets one
 
-Every implementer gets a worktree, on either host. What a worktree separates is
-one writer from another, and a cloud container does not do that job: it
-separates the session from the user's machine, not one dispatched implementer
-from the next. `.claude/agents/implementer.md` declares `isolation: worktree`,
-so a dispatched implementer is given one whether or not the run asks.
+What a worktree separates is one writer from the next, so it is load-bearing
+exactly when two writers are live at once.
 
 Two implementers sharing a checkout share one index and one `HEAD`, so they
 cannot hold a branch each. The second to start moves `HEAD` when it creates its
@@ -257,6 +262,18 @@ branch in two worktrees does not fire, because there is only one worktree.
 `push-verified.sh` does not catch it either, because both pushes have a branch
 and both land; the only trace is that script naming a branch the run did not
 claim. An index lock collision is the rarer case and the only loud one.
+
+On a development machine every implementer gets one regardless, because the
+checkout is the user's working tree and an agent is never its writer.
+
+A cloud container is a checkout nobody else owns, so a run dispatching one
+implementer at a time works in it directly and creates no worktree. What the
+container does not do is separate two dispatched implementers from each other,
+and the moment a run takes two sub-issues at once each gets its own worktree
+again, outside the repository root. One writer is the condition, not the host.
+
+A cloud session working in the container checkout still renames its branch to
+`agent/<issue>` before the first push, under [Branches](#branches).
 
 A reviewer gets none. It writes nothing into the tree, so what it needs is a
 tree that does not move while it reads, which is a commit rather than a
@@ -319,11 +336,11 @@ replaced were already false within hours of being written.
 | Skill             | Owns                                                         |
 | ----------------- | ------------------------------------------------------------ |
 | `thunderstorm`    | One run: claims, dispatches, reports, stops. Writes no code. |
-| `implement`       | One issue, in one worktree, to one pull request.             |
+| `implement`       | One issue, on one branch, to one pull request.               |
 | `review`          | Standard and adversarial review passes.                      |
 | `revise`          | Addressing findings on a pull request.                       |
 | `github-board`    | The only writer of issue state.                              |
-| `worktree`        | Provisioning, build isolation, removal.                      |
+| `worktree`        | Who needs one, provisioning, build isolation, removal.       |
 | `release`         | `edge` to `main`, tag, changelog, publish.                   |
 | `rubber-duck`     | Design discussion and idea files.                            |
 | `specify`         | One design, when issues need a decision made first.          |

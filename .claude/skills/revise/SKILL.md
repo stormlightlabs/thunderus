@@ -32,15 +32,17 @@ holds no findings, say so and stop rather than inventing a pass to address.
 Collect every finding from the most recent review pass. Earlier passes are
 history; do not re-address a finding already resolved unless it recurred.
 
-## Work in the pull request's worktree
+## Work in the pull request's tree
 
 ```sh
 git worktree list
 ```
 
-Use the existing worktree for `agent/<n>` if it is still there. Create one from
-the pull request's head branch if it is not. Never make these edits in the
-user's primary checkout.
+Use the existing worktree for `agent/<n>` if it is still there. Where there is
+none, the `worktree` skill's **Who gets one** section says what to take: a cloud
+session working this pull request alone checks its head branch out in the
+container checkout, and anything else gets a worktree cut from that branch.
+Never make these edits in the user's primary checkout on a development machine.
 
 ## Decide on each finding
 
