@@ -6,9 +6,48 @@ description: Write commit messages and pull request descriptions for this reposi
 # Commits and pull requests
 
 Write for the person reading `git log` in a year with no memory of this work.
+They are skimming for one change among hundreds. Every line you add is a line
+they read before they find it.
 
 Use the `writing-docs` skill for the prose. Everything here is in addition to
 it.
+
+## Length
+
+Length is the first thing to get right here, because this repository squashes
+and the arithmetic is not obvious.
+
+GitHub builds the merged subject from the pull request title and appends
+` (#NN)`. It builds the merged body by concatenating every commit on the
+branch, each under a `* subject` bullet. So the text that reaches `edge` is the
+branch's commit messages added together, and the pull request description never
+reaches it at all.
+
+| Text                 | Target        | Where the number comes from         |
+| -------------------- | ------------- | ----------------------------------- |
+| Pull request title   | 53 characters | 59 allowed, less the ` (#NN)`       |
+| One commit body      | 15 lines      | The `writing-docs` commit target    |
+| Merged body          | 15 lines      | It is one commit like any other     |
+| Pull request body    | 20 or 40      | Short form, or headings on a big diff |
+| Pull request comment | 10 lines      | It is a reply, not a report         |
+
+Three commits at the 15-line target merge as a 48-line commit, and the median
+branch here is three. The target is for the merged message, so either the
+branch stays short or the squash message gets written by hand in GitHub's merge
+box, which is where 16 of the 17 squash merges on `edge` went wrong: their
+bodies run 15 to 385 lines, median 53.
+
+Nothing blocks on any of this. `check-commit-message.py` reports the body
+target and the projected squash size as advice and fails no run, because a
+change sometimes earns the room and no script can tell which one has. Shape is
+still an error, since a missing type is not a judgement call. A check that
+cannot be certain names what it finds and leaves the decision with the author;
+one that blocks on a judgement call only teaches authors `--no-verify`, which
+skips the checks that were certain too.
+
+`internal/ideas/commit-and-pr-length.md` holds the measurements behind every
+number here, the commands that reproduce them, and the sources for the
+conventions they came from.
 
 ## Commit messages
 
@@ -27,15 +66,20 @@ trailers, and unbreakable strings such as URLs are exempt from the column limit.
 It runs in two places and only one of them blocks. Enable the hook locally once
 with `git config core.hooksPath .githooks`, and it rejects a message while that
 message is still in the editor, where fixing it costs a keystroke. CI runs the
-same script over a pull request's commits with `--warn`: the violations appear
-as annotations and in the job summary, and the job passes anyway, because the
-only way to correct a pushed message is to rewrite history that someone may
-already have pulled. A rule worth a rebase is a rule worth catching at the
-hook.
+same script over a pull request's commits with `--warn`: the findings appear as
+annotations and in the job summary, and the job passes anyway, because the only
+way to correct a pushed message is to rewrite history that someone may already
+have pulled. A rule worth a rebase is a rule worth catching at the hook.
+
+Length is reported by both and rejected by neither, under [Length](#length).
+The CI run adds the projected size of the squash, which is the only place that
+number appears before someone clicks merge.
 
 The subject says what changed. The body says why, and only when the why is not
 obvious from the diff. A one-line commit is correct when the change explains
-itself.
+itself, and most of them do. Reach for a body when the diff cannot say why:
+a constraint from outside the repository, a rejected alternative, a bug the
+change is answering.
 
 Good:
 
@@ -79,35 +123,61 @@ model. The subject and body describe the change, not what produced it.
 
 ## Pull request bodies
 
+A reviewer wants to know what to look at and whether it works. Say that, and
+stop. The body is scaffolding for one review; it is not a record, because it
+never reaches `git log`.
+
+Most changes need only this:
+
 ```markdown
 Closes #<issue>
 
-## What
+One paragraph: what changed, and what behavior it produces.
 
-One paragraph. What changed and what behavior it produces.
+Verified with `<command>`: <result>.
 
-## Why
-
-The problem this solves, with evidence. Link the issue or the idea file.
-
-## Verification
-
-What was run, and what the result was. Name the commands.
-
-## Not covered
-
-What this does not do, what was not tested, and what was deferred with a link.
+Not covered: <what was left, with a link>.
 ```
 
-Requirements:
+Reach for headings when the change is large enough that a reviewer would
+otherwise scroll looking for the verification, which in practice means a
+diff over roughly 300 lines or one touching more than one crate:
 
-- `Verification` names actual commands and actual results. "Tests pass" without
-  the command is not verification. If a check was not run, say so.
+```markdown
+## What / ## Why / ## Verification / ## Not covered
+```
+
+Four headings over a six-line body is a form, not a description. A reviewer
+reads the headings, finds a sentence under each, and learns less than the one
+paragraph would have told them.
+
+Requirements, at either size:
+
+- `Verified` names actual commands and actual results. "Tests pass" without the
+  command is not verification. If a check was not run, say so.
 - `Not covered` is required and may not be empty. Write `Nothing` only when you
-  have looked for gaps and found none.
+  have looked for gaps and found none. One line is a complete answer.
 - Any test that was changed, removed, or narrowed gets a line explaining why.
-- Keep the body under roughly 40 lines. Longer means the change is too large or
-  the spec belongs in `internal/`.
+- Keep the short form under 20 lines, and a headings body under 40. Four
+  headings and their blank lines cost six before a word is written, which is
+  most of the reason to skip them on a small change. Longer than 40 means the
+  change is too large, or the spec belongs in `internal/` with a link.
+
+Do not restate the diff. Do not recount the path you took to the change: the
+dead ends, the thing you tried first, the file you read. A reviewer is deciding
+about the code in front of them.
+
+## Pull request comments
+
+A comment is a reply in a conversation. Ten lines is already long for one.
+
+- Answer the question that was asked. Do not summarize the change again.
+- One comment per review pass, not one per finding. The `review` skill sets
+  what a pass posts.
+- Say what you changed and where. `Fixed in <sha>` beats a paragraph.
+- Skip the acknowledgement-only comment. Resolving the thread says it.
+- No status tables, no progress checklists, no restating the plan. If a
+  reviewer needs the state of the branch, CI is the state of the branch.
 
 ## Changelog
 
@@ -120,7 +190,11 @@ that does not describe a behavior change.
 
 ## Do not
 
-- Pad a body to look thorough.
+- Pad a body to look thorough. Length reads as effort and costs the reader.
+- Narrate the work: what you tried first, what you read, what you ruled out.
+  The result is the deliverable.
+- Restate in the pull request what the commits already say, or in a comment
+  what the pull request already says.
 - Claim a check ran when it did not.
 - Sign a commit body as a model. A review comment carries a signature; a commit
   carries the trailers under [Attribution](#attribution) and nothing else.

@@ -40,6 +40,33 @@ run the TUI in a real terminal to inspect color and spacing.
 
 Before release work, run formatting, tests, snapshots, and package checks.
 
+## Commit messages
+
+A commit message reads `<type>: <what changed>`, with the subject under 60
+characters and the body wrapped at 72. The types are `feat`, `fix`, `docs`,
+`refactor`, `test`, `chore`, and `perf`.
+
+Enable the check once per checkout:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook rejects a malformed message while it is still in the editor. It
+reports length without rejecting it, because a change occasionally earns a long
+body and a hook cannot tell which one has. CI runs the same script over a pull
+request and never fails on it.
+
+Length is worth attention here because the repository squashes. GitHub builds
+the merged subject from the pull request title plus ` (#NN)`, and the merged
+body by concatenating every commit on the branch. A four-commit branch merges
+as a commit four bodies long, so either the branch stays short or the squash
+message gets edited in the merge box. The CI job prints the projected size
+before anyone clicks merge.
+
+Targets: 53 characters for a pull request title, 15 lines for a commit body,
+20 for a pull request description, 10 for a comment. None of them is enforced.
+
 ## Multiplexer-Assisted Development
 
 Use a terminal multiplexer when a task benefits from keeping an orchestrator, a
