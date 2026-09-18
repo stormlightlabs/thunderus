@@ -4,7 +4,7 @@
 
 ## v0.1.1 - 2026-09-17
 
-Tagged but not published. `0.1.0` is still the latest release on
+Tagged but not published. `0.1.0` is currently the latest release on
 crates.io.
 
 ### Added
