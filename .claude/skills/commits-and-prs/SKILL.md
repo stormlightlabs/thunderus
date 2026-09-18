@@ -31,10 +31,11 @@ reaches it at all.
 | Pull request body    | 20 or 40      | Short form, or headings on a big diff |
 | Pull request comment | 10 lines      | It is a reply, not a report         |
 
-Three commits at the 15-line target merge as a 48-line commit. The target is
-for the merged message, so either the branch stays short or the squash message
-gets written by hand in GitHub's merge box, which is where the last twelve
-merges here went wrong: their bodies run 15 to 98 lines, median 49.
+Three commits at the 15-line target merge as a 48-line commit, and the median
+branch here is three. The target is for the merged message, so either the
+branch stays short or the squash message gets written by hand in GitHub's merge
+box, which is where 16 of the 17 squash merges on `edge` went wrong: their
+bodies run 15 to 385 lines, median 53.
 
 Nothing blocks on any of this. `check-commit-message.py` reports the body
 target and the projected squash size as advice and fails no run, because a
@@ -43,6 +44,10 @@ still an error, since a missing type is not a judgement call. A check that
 cannot be certain names what it finds and leaves the decision with the author;
 one that blocks on a judgement call only teaches authors `--no-verify`, which
 skips the checks that were certain too.
+
+`internal/ideas/commit-and-pr-length.md` holds the measurements behind every
+number here, the commands that reproduce them, and the sources for the
+conventions they came from.
 
 ## Commit messages
 
