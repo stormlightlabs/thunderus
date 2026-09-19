@@ -104,27 +104,43 @@ the tailnet exists to operate the machine rather than to drive another harness.
 kinds, ACP and a PTY pane, and Pi is driven as a pane. Its JSONL RPC would be a
 better interface than a pane, and that is not reason enough for a third kind.
 
-### The reviewer gate is an extension written here
+### Third-party Pi packages are read before they are installed
 
-Pi's `tool_call` event can block a call, returning
-`{ block: true, reason, terminate? }`. That makes "a reviewer does not edit
-code" a check rather than a sentence in a skill. Blocking `write` and `edit` is
-exact; blocking a mutating `bash` command is a pattern list, and Pi's own
-security documentation says project trust does not sandbox tool calls and points
-at containers for a real boundary.
+Pi packages run with full system access and extensions execute arbitrary code,
+and the machine now holds an app private key, so a third-party extension is a
+credential exposure rather than only a supply-chain risk.
 
-This one is written in the repository rather than installed. Pi packages run
-with full system access and extensions execute arbitrary code, and the machine
-now holds an app private key, so a third-party extension is a credential
-exposure rather than only a supply-chain risk. `pi-web-access` for web search
-and `pi-mcp-extension` for MCP servers are the two worth reading and pinning;
-subagent packages wait until a run needs dispatch under Pi.
+`pi-web-access` for web search and `pi-mcp-extension` for MCP servers are the
+two worth reading and pinning. Subagent packages wait until a run needs dispatch
+under Pi.
 
-## Open
+### A read-only tree replaces the pattern list
 
-Whether the reviewer gate's pattern list stays maintainable, or whether a
-container is the honest answer. Settled by counting what the list has to grow to
-cover after the first few review passes run under it.
+A denylist of mutating `bash` commands is not maintainable. Pi hands the tool
+one command string for `bash -c`, so a list has to parse shell, and `eval`,
+substitution, quoting, and `python -c` all pass through it. Pi's own security
+documentation says project trust does not sandbox tool calls, and points at
+containers instead. The set of ways to write a file is open-ended too: `sed -i`,
+`tee`, a redirection, `dd`, `patch`, `git apply`, `install`, `truncate`.
+
+Mount the tree read-only instead and the spelling stops mattering. The `review`
+skill already reads through `git show <commit>:<path>` rather than a checkout,
+so a reviewer never needs to write:
+
+```sh
+bwrap --dev-bind / / --ro-bind "$PWD" "$PWD" --chdir "$PWD" -- pi -xt write,edit
+```
+
+Checked on 2026-09-19 under `bubblewrap` 0.11.2: `git show`, `git log`,
+`git diff`, and `git status` all answer, and `touch` fails with
+`Read-only file system`. `git fetch` fails too, on `.git/FETCH_HEAD`, so the run
+fetches the branch before it enters the sandbox.
+
+Keep blocking `write` and `edit` with `-xt`, and use Pi's `tool_call` event,
+which can block a call by returning `{ block: true, reason }`, to say why. That
+is not the boundary. It is what makes the refusal legible, so a reviewer that
+reaches for an editing tool is told what it is rather than reading a permission
+error.
 
 ## Sources
 
