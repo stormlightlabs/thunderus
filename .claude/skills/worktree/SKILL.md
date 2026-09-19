@@ -23,15 +23,15 @@ whether this work has a next writer.
 | A local session, directly | Its own worktree. The checkout is the user's. |
 | A cloud session, directly | A branch in the container checkout.           |
 
-A subagent always has one. The session that dispatched it is still sitting in
-the checkout, and a second subagent may be sent while the first works, so a
-subagent is never the only writer even when it is the only implementer. Two of
-them in one checkout share one index and one `HEAD`, so they cannot hold a
-branch each: the second to create its branch moves `HEAD` and takes the first's
-staged work with it, the first's later commits land on the second's branch, and
-the first's branch never leaves `origin/edge`. Git refuses one branch in two
-worktrees, but that refusal cannot fire here, because there is only one
-worktree.
+A subagent always has one. The session that dispatched it still sits in the
+checkout, and it can send a second subagent while the first works. So a subagent
+is never the only writer, even when it is the only implementer.
+
+Two of them in one checkout share one index and one `HEAD`, so neither can hold
+a branch. The second to create its branch moves `HEAD` for both. The first's
+staged work lands in the second's commit, its later commits land on the second's
+branch, and its own branch never leaves `origin/edge`. Git refuses one branch in
+two worktrees, but that refusal needs two worktrees to fire.
 
 The run creates it before dispatching rather than leaving the subagent to. A
 subagent making its own would place it relative to whatever directory it started

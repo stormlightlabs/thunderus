@@ -243,30 +243,26 @@ uncommitted changes is an escalation, not something to force.
 
 The `worktree` skill is the only thing here that makes one. The harness makes
 them too, from an `isolation` key in a definition under `.claude/agents/` or an
-`isolation` setting on a dispatch, and it places them at `.claude/worktrees/`.
-The root `.gitignore` re-includes everything under `.claude/`, so one landing
-there reads as work to commit. This repository asks for neither setting.
-
-`.claude/.gitignore` covers the case it does not control. It sits below the
-root file, and git takes the last matching pattern from the deepest one, so a
-negation added at the root cannot re-include the directory. What it cannot
-cover is a rename: the harness owns that name, and another one is untracked
-again.
+`isolation` setting on a dispatch, and it places them inside the repository
+root. This repository asks for neither.
 
 ### Who gets one
 
-Every dispatched subagent gets one, on either host, created by the run before it
-dispatches. A session working an issue itself takes one on a development
-machine, where the checkout is the user's, and works in the container checkout
-on a cloud session, where it belongs to nobody else. The `worktree` skill's
-**Who gets one** section holds the reasoning and is where that rule lives.
+Every dispatched subagent gets one, on either host, and the run creates it
+before dispatching. A session working an issue itself takes one on a development
+machine, where the checkout is the user's. On a cloud session it works in the
+container checkout, which belongs to nobody else. The `worktree` skill's
+**Who gets one** section holds the reasoning.
 
-The failure it prevents is a quiet one. Two implementers sharing a checkout
-share one index and one `HEAD`, so the second to start moves `HEAD` when it
-creates its branch and the first's staged work rides along. `push-verified.sh`
-does not catch it, because both pushes have a branch and both land; the only
-trace is that script naming a branch the run did not claim. An index lock
-collision is the rarer case and the only loud one.
+Two implementers in one checkout produce a failure nothing reports. They share
+one index and one `HEAD`, so the second to create its branch moves `HEAD` for
+both. The first's staged work then lands in the second's commit, and every
+commit it makes afterwards lands on the second's branch.
+
+`push-verified.sh` does not catch that. It compares each push against its own
+branch, and both pushes have one and both land. The only trace is that script
+naming a branch the run never claimed. An index lock collision is rarer and
+louder.
 
 A reviewer gets none. It writes nothing into the tree, so what it needs is a
 tree that does not move while it reads, which is a commit rather than a
