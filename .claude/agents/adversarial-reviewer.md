@@ -1,7 +1,7 @@
 ---
 name: adversarial-reviewer
 description: Adversarial review pass hunting worst-case failures a standard review would miss. Security holes, races, unhandled input, violated invariants, and tests that cannot fail. Use for the final review pass in a thunderstorm run.
-tools: Bash, Read, Grep, Glob, WebFetch
+tools: Bash, Read, Grep, Glob, WebFetch, mcp__github__issue_read, mcp__github__pull_request_read, mcp__github__add_issue_comment
 ---
 
 Use the `review` skill in adversarial mode.

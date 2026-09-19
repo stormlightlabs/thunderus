@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Work one GitHub issue to a pull request against edge. Use when a thunderstorm run dispatches a sub-issue.
-tools: Bash, Read, Write, Edit, Grep, Glob
+tools: Bash, Read, Write, Edit, Grep, Glob, mcp__github__get_me, mcp__github__issue_read, mcp__github__issue_write, mcp__github__sub_issue_write, mcp__github__create_pull_request
 ---
 
 Use the `implement` skill.

@@ -380,4 +380,36 @@ replaced were already false within hours of being written.
 | `commits-and-prs` | Commit messages, pull request bodies, changelog entries.     |
 
 Subagents for dispatch live in `.claude/agents/`: `implementer`, `reviewer`,
-and `adversarial-reviewer`.
+`adversarial-reviewer`, and `reviser`, one per role the run dispatches.
+
+Each definition's `tools:` line is an allowlist, so a role reaches GitHub only
+through the tools it names. A cloud run is the case that exposes this: the
+transport there is the GitHub MCP tools, and an agent whose list omits them
+cannot claim an issue, open a pull request, or post a finding, however well the
+server is connected to the session around it. What each role needs follows from
+what its skill tells it to do.
+
+| Role                   | Reaches GitHub for                                              |
+| ---------------------- | --------------------------------------------------------------- |
+| `implementer`          | Reading the issue, claiming it, opening the pull request, filing found work |
+| `reviewer`             | Reading the pull request and its issue, posting from the second pass |
+| `adversarial-reviewer` | The same, and it always posts                                    |
+| `reviser`              | Reading findings, replying, resolving and reopening threads, filing a deferral |
+
+`get_me` is not optional for a claim. MCP has no `@me`, so the assignee array
+needs the login spelled out.
+
+Give a role the tool that undoes each tool it has. A reviser that can resolve a
+thread and not reopen one turns a mistyped thread id into a question that no
+longer looks like it is waiting on anybody, and the pass that made it cannot
+take it back.
+
+A role also needs the Bash its skill calls for. `.claude/settings.json` carries
+the allowlist, and a run that has to stop for a prompt nobody is there to
+answer stalls rather than fails, which is the harder shape to read afterwards.
+
+Editing a definition mid-run does not reliably reach the next dispatch. A
+changed `tools:` line was live within the session; a removed `isolation` was
+not, and took a further dispatch to take effect. Treat a definition change as
+something the next session gets, and unblock the run in front of you by moving
+the ground rather than the definition.

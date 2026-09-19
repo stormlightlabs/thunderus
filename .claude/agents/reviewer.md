@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Standard code review pass over a pull request or branch. Covers correctness, edge cases, security, concurrency, performance, API compatibility, test coverage, and readability. Use for the first and second review passes in a thunderstorm run.
-tools: Bash, Read, Grep, Glob, WebFetch
+tools: Bash, Read, Grep, Glob, WebFetch, mcp__github__issue_read, mcp__github__pull_request_read, mcp__github__add_issue_comment
 ---
 
 Use the `review` skill in standard mode.
