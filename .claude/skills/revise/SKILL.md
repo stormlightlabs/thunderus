@@ -32,15 +32,18 @@ holds no findings, say so and stop rather than inventing a pass to address.
 Collect every finding from the most recent review pass. Earlier passes are
 history; do not re-address a finding already resolved unless it recurred.
 
-## Work in the pull request's worktree
+## Work in the pull request's tree
 
 ```sh
 git worktree list
 ```
 
-Use the existing worktree for `agent/<n>` if it is still there. Create one from
-the pull request's head branch if it is not. Never make these edits in the
-user's primary checkout.
+Use the existing worktree for `agent/<n>` if it is still there. Where there is
+none, take what the `worktree` skill's **Who gets one** section gives this pass
+as its writer. A dispatched pass gets a worktree, branched from the pull
+request's head rather than from `origin/edge`. A cloud session working the pull
+request itself checks that head branch out in the container checkout. Never make
+these edits in the user's primary checkout on a development machine.
 
 ## Decide on each finding
 

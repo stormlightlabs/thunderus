@@ -82,9 +82,9 @@ one issue make the board unreadable and the loop will pick the wrong transition.
 
 | From             | To               | When                                          |
 | ---------------- | ---------------- | --------------------------------------------- |
-| `status:queued`  | `status:claimed` | A run takes the issue and creates a worktree. |
+| `status:queued`  | `status:claimed` | A run takes the issue and starts work on it.  |
 | `status:claimed` | `status:review`  | A pull request opens.                         |
-| `status:claimed` | `status:queued`  | The run abandons it. Remove the worktree too. |
+| `status:claimed` | `status:queued`  | The run abandons it. Remove any worktree too. |
 | `status:review`  | `status:verify`  | The pull request merges to `edge`.            |
 | `status:verify`  | `status:done`    | The change ships in a release from `main`.    |
 | any              | `status:blocked` | Add a `blocked:*` label saying why.           |
