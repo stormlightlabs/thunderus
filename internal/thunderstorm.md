@@ -42,6 +42,10 @@ them. Two are load-bearing:
 
 - The MCP issue update replaces an issue's whole label and assignee set, where
   `gh issue edit` changes only what it names.
+- The MCP sub-issue read returns each child's whole body and takes no field
+  list. One epic here is 77,000 to 154,000 characters that way, so anything
+  reading hierarchy across the board goes to REST and filters the response
+  before reading it. The `triage` skill carries those calls.
 - Label definitions do not go through MCP. `.github/labels.yml` is applied by
   running `.claude/scripts/sync-labels.py` locally, or by dispatching
   `.github/workflows/labels.yml`, which runs that same script on a runner with
@@ -121,7 +125,8 @@ Status is a label. One status label per issue.
 
 `status:claimed` for more than 24 hours with no pull request returns to
 `status:queued`, and its worktree is removed if it has one. `status:blocked`
-for more than 7 days goes to the triage inbox. Nothing closes automatically.
+for more than 7 days surfaces in the next `/triage` report. Nothing closes
+automatically.
 
 An epic carries no status. It is not work, so there is nothing to claim, and
 duplicating its sub-issues' state on the parent gives that copy somewhere to
@@ -143,6 +148,7 @@ nothing.
 /r-d            an idea            internal/ideas/
 [/spec-ify]     a design           internal/features/<name>/plan.md
 /decomp         an epic and sub-issues
+[/triage]       which of them to dispatch next, and what runs at once
 /thunderstorm   one run over that epic, dispatching the stages below
 /impl           a pull request
 /rev, /adv-rev, /edit              review passes and their fixes
@@ -169,11 +175,61 @@ the run and starts at `/impl`.
 | `/r-d`, `/rubber-duck`  | A topic                   | Design discussion. Writes an entry to `internal/ideas/` on request.                |
 | `/spec-ify`, `/specify` | An idea or topic          | One design to `internal/features/<name>/plan.md`. Only when a decision is missing. |
 | `/decomp`, `/decompose` | An idea, spec, or finding | Files one epic and the sub-issues under it.                                        |
+| `/triage`               | Thread count or a scope   | Ranks the board and lays the top of it into lanes. Writes nothing.                 |
 | `/thunderstorm`         | Epic issue number         | One run over the epic. Claims each sub-issue, dispatches it, and reports.          |
 | `/impl`, `/implement`   | Issue number              | Claims the issue, works it on an `agent/` branch, opens a pull request.            |
 | `/rev`                  | Branch or PR number       | Standard review pass. Comments only on the second pass.                            |
 | `/adv-rev`              | Branch or PR number       | Adversarial review pass. Always comments.                                          |
 | `/edit`, `/revise`      | PR number                 | Addresses review comments on that pull request.                                    |
+
+## Choosing what to run next
+
+A run covers one epic. Several epics are open at once, sub-issues accumulate
+under all of them, and work arrives that belongs to none. `/triage` answers the
+question a run cannot: of everything queued, which issues go out now, and which
+of those are safe to work at the same time.
+
+Order comes from what the board already carries. An issue is ranked by how many
+open issues wait on it, then by whether it is a `type:fix`, then by how near its
+epic is to finishing, then by age. Nothing is ranked by a priority label,
+because the board defines none and a label a human has to keep current is one
+more thing that drifts from the work it describes. Scoping the run to an epic or
+an area is how a human says which part of the board matters today.
+
+Risk is not part of that order. It decides what may share a fan-out: an issue
+carrying `risk:high` takes a thread and a review sequence on its own, as does
+one with sub-issues of its own.
+
+Two things are only visible from a pass over the whole board. An issue filed
+under no epic is never reached by a run at all, because a run dispatches an
+epic's children; eight open issues were in that state when this was written.
+And an epic records the collisions it has with other epics in its body, which
+the run working either one cannot act on. A per-epic loop has no place to put
+either fact, which is most of why the board-wide pass exists.
+
+What limits parallel dispatch here is file ownership rather than the dependency
+graph. Two issues with no edge between them still collide when they write the
+same file, and most of the board carries one `area:*` label, so the area is too
+coarse to decide by. The epic body records which files each sub-issue owns, and
+`triage` treats a pair whose ownership is unrecorded as overlapping.
+
+The ranked list goes to chat and is derived again the next time it is asked
+for. It is not a document, for the reason given under [File
+conventions](#file-conventions): a list of pending work is wrong as soon as one
+issue closes, and a wrong copy on disk gets read in place of the board. Two
+threads reach the same order because they read the same board; what keeps them
+off each other's work is the claim, under the `github-board` skill.
+
+Work that is not filed cannot be ranked, because no other thread can see it. A
+thread dispatched on an unfiled item holds something invisible, and the next
+thread takes the same work up with nothing to warn it. Ad-hoc work is placed in
+the order and marked off-board, then filed through `/decomp` before anyone
+starts it.
+
+`triage` writes nothing at all: no file, no label, no claim. A claim made ahead
+of a dispatch reserves work that may never start, which is the state the
+24-hour rule exists to undo. It reports what the board needs repaired and
+leaves the repair to a `github-board` call a human asks for.
 
 ## Review sequence
 
@@ -365,6 +421,7 @@ replaced were already false within hours of being written.
 
 | Skill             | Owns                                                         |
 | ----------------- | ------------------------------------------------------------ |
+| `triage`          | Ranking the board and planning what several threads run.     |
 | `thunderstorm`    | One run: claims, dispatches, reports, stops. Writes no code. |
 | `implement`       | One issue, on one branch, to one pull request.               |
 | `review`          | Standard and adversarial review passes.                      |
