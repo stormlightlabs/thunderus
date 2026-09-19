@@ -1,6 +1,6 @@
 ---
 description: Rank the board into a dispatch plan for one or more threads
-argument-hint: [threads=N] [#epic|area:name] [ad-hoc work]
+argument-hint: [threads=N] [#parent|area:name] [ad-hoc work]
 ---
 
 Use the `triage` skill.

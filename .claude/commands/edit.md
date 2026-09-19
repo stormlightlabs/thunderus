@@ -9,4 +9,6 @@ Pull request: $ARGUMENTS
 
 Address the findings from the most recent review pass. Fix causes, not
 symptoms. Record every finding as fixed, not a defect, or deferred. Never weaken
-a test to clear a finding. Push to the same branch and post one signed reply.
+a test to clear a finding. Push to the same branch and post one reply under 150
+words, opening with one line naming the pass you answered and the model you ran
+at.
