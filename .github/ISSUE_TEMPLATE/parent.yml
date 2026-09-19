@@ -1,24 +1,28 @@
-name: Epic
+name: Parent issue
 description: A goal, a stop rule, and the sub-issues that are the work.
-labels: ["kind:epic"]
+labels: ["kind:parent"]
 body:
   - type: markdown
     attributes:
       value: |
-        An epic is what a run works through. It holds a goal and the condition
-        that ends it. Add sub-issues after opening this; they are the things
-        `/impl` claims, and this epic is not one of them.
+        A parent issue is what a run works through. It holds a goal and the
+        condition that ends it. Add sub-issues after opening this; they are the
+        things `/impl` claims, and this issue is not one of them.
 
-        A run is one pass over this epic, started by `/thunderstorm <number>`.
+        At most five open sub-issues. A run holds every one it dispatches in
+        one context, and past five that context is spent on work not started
+        yet. What does not fit is a second parent filed beside this one.
+
+        A run is one pass over this issue, started by `/storm <number>`.
         A run ends when every sub-issue is terminal, its budget is spent, or a
-        worker escalates. The epic stays open until its stop rule is met, so it
-        may take several runs.
+        worker escalates. The issue stays open until its stop rule is met, so
+        it may take several runs.
 
   - type: textarea
     id: goal
     attributes:
       label: Goal
-      description: What is different when this epic is finished.
+      description: What is different when this parent is finished.
     validations:
       required: true
 
@@ -27,7 +31,7 @@ body:
     attributes:
       label: Done when
       description: >
-        The condition that closes this epic, checkable without judgment. This
+        The condition that closes this issue, checkable without judgment. This
         is the stop rule, and it is not a budget: a run can end without it
         being met.
       placeholder: |
@@ -41,14 +45,14 @@ body:
     attributes:
       label: Planned sub-issues
       description: >
-        One line each, with the paths that sub-issue owns. File them as
-        sub-issues of this one after opening it: that relation is what a run
-        reads, and a list here is not it. GitHub tracks their state, so this
-        stays a plan rather than a checklist. Do not nest deeper than one
-        level. Below the table, name any collision with another epic's
-        sub-issues and which to sequence around which: a run works one epic
-        and cannot see those. The decompose skill's Recording overlap says
-        why, and /triage reads both.
+        One line each, with the paths that sub-issue owns, and at most
+        five. File them as sub-issues of this one after opening it: that
+        relation is what a run reads, and a list here is not it. GitHub tracks
+        their state, so this stays a plan rather than a checklist. Do not nest
+        deeper than one level. Below the table, name any collision with another
+        parent's sub-issues and which to sequence around which: a run works one
+        parent and cannot see those. The decompose skill's Recording overlap
+        says why, and /triage reads both.
       value: |
         | Sub-issue | Owns |
         | --- | --- |
@@ -67,22 +71,11 @@ body:
       required: false
 
   - type: textarea
-    id: not-in-this-epic
+    id: not-in-this-issue
     attributes:
-      label: Not in this epic
+      label: Not in this issue
       description: >
-        Scope this epic must not absorb. A worker that finds work here files it
-        separately.
+        Scope this issue must not absorb. A worker that finds work here files
+        it separately.
     validations:
       required: false
-
-  - type: dropdown
-    id: risk
-    attributes:
-      label: Risk
-      options:
-        - low — contained, easy to revert
-        - medium — crosses a module or changes observable behavior
-        - high — touches released behavior, data, or security
-    validations:
-      required: true

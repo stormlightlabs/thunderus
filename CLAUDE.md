@@ -74,8 +74,8 @@ Root level and `internal/` files do not require a docs build.
 
 ## Workflow
 
-`thunderstorm` is the development loop for this repository. An epic and its
-sub-issues are the work; a run is one pass over one epic. See
+`thunderstorm` is the development loop for this repository. A parent issue and
+its sub-issues are the work; a run is one pass over one parent. See
 `internal/thunderstorm.md` for statuses, review passes, and branch rules. Skills and commands live in `.claude/`;
 `.agents/skills` is a symlink to `.claude/skills` for harnesses that follow the
 AGENTS.md convention. `AGENTS.md` is a symlink to this file.

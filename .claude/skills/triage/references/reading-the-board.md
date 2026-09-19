@@ -25,25 +25,26 @@ last two are what make a second call unnecessary:
 | -------------------------------------- | -------------------------------- |
 | `issue_dependencies_summary.blocked_by` | Blockers still open. Zero is claimable. |
 | `issue_dependencies_summary.blocking`   | Open issues waiting on this one. Rank rule 1. |
-| `sub_issues_summary`                    | `total` and `completed` on an epic. Rank rule 3. |
-| `parent_issue_url`                      | Whether the issue sits under an epic at all. |
+| `sub_issues_summary`                    | `total` and `completed` on a parent. Rank rule 3. |
+| `parent_issue_url`                      | Whether the issue sits under a parent at all. |
 
 `blocked_by` counts the blockers still open where `total_blocked_by` counts
 every one, so an issue whose blockers have all closed reads as claimable with
 nobody resolving the edge. The `dependencies/blocked_by` endpoint answers the
 same question one issue at a time; do not spend it on a number already in hand.
 
-File ownership is the one thing the list does not carry. It lives in an epic's
-body, read one epic at a time and only for epics with a candidate in the
+File ownership is the one thing the list does not carry. It lives in a
+parent's body, read one parent at a time and only for parents with a candidate
+in the
 ranked set:
 
 ```sh
-gh api "repos/<owner>/<repo>/issues/<epic>" --jq .body
+gh api "repos/<owner>/<repo>/issues/<parent>" --jq .body
 ```
 
 Neither MCP tool replaces the list call. `issue_read` method `get_sub_issues`
 returns every child's whole body and takes no field list, 77,000 to 154,000
-characters for one epic here, and `list_issues` takes a `fields` list but omits
+characters for one parent here, and `list_issues` takes a `fields` list but omits
 both summary fields, so it cannot answer the buckets.
 
 ## The clock on a stale claim

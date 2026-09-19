@@ -6,7 +6,7 @@
 # type:    what kind of change. Matches the commit type.
 # area:    what part of the system. Several allowed.
 # risk:    blast radius if the change is wrong.
-# kind:    what shape of issue this is. An epic holds sub-issues and is never
+# kind:    what shape of issue this is. A parent holds sub-issues and is never
 #          claimed; an issue without a kind is a unit of work.
 # retired: names this repository used to define. The sync deletes them, so a
 #          rename does not leave the old label behind. Only a name is required;
@@ -110,10 +110,12 @@ risk:
     description: "Touches released behavior, data, or security."
 
 kind:
-  - name: "kind:epic"
+  - name: "kind:parent"
     color: "1f2933"
-    description: "A goal and its stop rule. Sub-issues are the work."
+    description: "Holds sub-issues. Never claimed. At most five open at once."
 
 retired:
   - name: "run"
     description: "Renamed to kind:epic. A run is a pass over an epic, not the epic."
+  - name: "kind:epic"
+    description: "Renamed to kind:parent. An epic was too large for one run's context."
