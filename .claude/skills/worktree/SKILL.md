@@ -6,10 +6,11 @@ description: Decide whether a unit of agent work needs its own git worktree, the
 # Worktree
 
 One unit of work gets one branch and one owner. Whether it also gets its own
-worktree is decided under [Who gets one](#who-gets-one). This skill is the only
-thing that creates one: no agent definition declares `isolation`, so nothing
-provisions a worktree before this skill is consulted and nothing lands one
-inside the repository root.
+worktree is decided under [Who gets one](#who-gets-one), and this skill is the
+only thing in the repository that makes one. Two other things can: an
+`isolation` key in a definition under `.claude/agents/`, and an `isolation`
+setting on a dispatch. Both place the worktree inside the repository root, so
+this repository uses neither.
 
 ## Who gets one
 
@@ -32,20 +33,24 @@ the first's branch never leaves `origin/edge`. Git refuses one branch in two
 worktrees, but that refusal cannot fire here, because there is only one
 worktree.
 
-The run creates it before dispatching, not the subagent after arriving. A
-subagent that has to make its own tree has already been handed a directory, and
-which one it got is the thing nobody can see afterwards.
+The run creates it before dispatching rather than leaving the subagent to. A
+subagent making its own would place it relative to whatever directory it started
+in, and that directory is recorded nowhere the run can read afterwards.
+
+Nothing checks any of this. The key, the dispatch setting, and the directory a
+subagent writes into are all rules a reader has to follow, and issue #69 covers
+only the first.
 
 A session working an issue itself on a development machine takes one too. The
 checkout there is the user's working tree and an agent is never its writer.
 
-The one case with no worktree is a cloud session working an issue itself. The
-container checkout belongs to nobody else, there is no subagent beside it, and a
-second tree inside the repository root only costs: it is untracked, so the
-checkout reads dirty and the stop hook asks for a locked second checkout to be
-committed, and Cargo can reach the parent `.cargo/config.toml` and build into
-the parent `target/`. That session still owns its branch — rename a
-harness-supplied branch name to `agent/<issue>` before the first push.
+The one case with no worktree is a cloud session working an issue itself, where
+the container checkout belongs to nobody else. A second tree there costs three
+things and buys nothing. It is untracked inside the repository root, so the
+checkout reads dirty. The stop hook then asks for a locked second checkout to be
+committed. Cargo can reach the parent `.cargo/config.toml` and build into the
+parent `target/`. That session still owns its branch: rename a harness-supplied
+name to `agent/<issue>` before the first push.
 
 A reviewer needs no worktree, only a tree that does not move while it reads,
 which is a commit. The `review` skill owns how to read one.

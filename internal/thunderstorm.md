@@ -1,6 +1,6 @@
 ---
 name: thunderstorm
-last_updated: 2026-09-18
+last_updated: 2026-09-19
 id: 01M2PWX233GKXE5M9SPTNTGN0D
 ---
 
@@ -34,7 +34,8 @@ protocol is the same; the transport to GitHub is not.
 | Local         | `gh`             |
 | Cloud session | GitHub MCP tools |
 
-Where a worker writes differs too, under [Worktrees](#worktrees).
+Where a worker writes is decided by dispatch rather than host, under
+[Worktrees](#worktrees).
 
 The `github-board` skill picks the transport and owns the differences between
 them. Two are load-bearing:
@@ -240,44 +241,29 @@ meant to parallelize.
 Remove the worktree when the run ends. A removal that fails because of
 uncommitted changes is an escalation, not something to force.
 
-The `worktree` skill is the only thing that creates one. No definition in
-`.claude/agents/` declares `isolation`, so nothing provisions a worktree ahead
-of that skill and nothing lands one inside the repository root, where it would
-be untracked under `.gitignore`'s `!.claude/**` and read as work to commit. The
-belt on that is a `.gitignore` entry for `.claude/worktrees/`: a harness that
-places one there anyway leaves the checkout clean rather than asking a stop hook
-to commit a locked second checkout.
+The `worktree` skill is the only thing here that makes one. The harness makes
+them too, from an `isolation` key in a definition under `.claude/agents/` or an
+`isolation` setting on a dispatch, and places them inside the repository root,
+where `.gitignore`'s `!.claude/**` leaves them untracked and reads them as work
+to commit. This repository uses neither. A `.gitignore` entry for
+`.claude/worktrees/` covers the case it does not control: a harness that places
+one there anyway leaves the checkout clean rather than asking a stop hook to
+commit a locked second checkout.
 
 ### Who gets one
 
-What a worktree separates is one writer from the next, so the question is
-whether the work has a next writer.
+Every dispatched subagent gets one, on either host, created by the run before it
+dispatches. A session working an issue itself takes one on a development
+machine, where the checkout is the user's, and works in the container checkout
+on a cloud session, where it belongs to nobody else. The `worktree` skill's
+**Who gets one** section holds the reasoning and is where that rule lives.
 
-Every dispatched subagent does, on either host, so every dispatched subagent
-gets a worktree. The run that sent it is still sitting in the checkout and may
-send a second subagent while the first works, which makes a lone implementer
-the only implementer rather than the only writer. The run creates the worktree
-before dispatching; a subagent that makes its own has already been handed a
-directory, and which one it took is the thing nobody can reconstruct afterwards.
-
-Two implementers sharing a checkout share one index and one `HEAD`, so they
-cannot hold a branch each. The second to start moves `HEAD` when it creates its
-branch, and the first's staged work rides along: it lands in the second's
-commit, every commit the first makes afterwards lands on the second's branch,
-and the first's branch never leaves `origin/edge`. The refusal that guards one
-branch in two worktrees does not fire, because there is only one worktree.
-`push-verified.sh` does not catch it either, because both pushes have a branch
-and both land; the only trace is that script naming a branch the run did not
-claim. An index lock collision is the rarer case and the only loud one.
-
-A session working an issue itself on a development machine takes one too,
-because the checkout there is the user's working tree and an agent is never its
-writer.
-
-The one case with no worktree is a cloud session working an issue itself. The
-container checkout belongs to nobody else and no subagent sits beside it, so a
-second tree buys no separation. That session renames its branch to
-`agent/<issue>` before the first push, under [Branches](#branches).
+The failure it prevents is a quiet one. Two implementers sharing a checkout
+share one index and one `HEAD`, so the second to start moves `HEAD` when it
+creates its branch and the first's staged work rides along. `push-verified.sh`
+does not catch it, because both pushes have a branch and both land; the only
+trace is that script naming a branch the run did not claim. An index lock
+collision is the rarer case and the only loud one.
 
 A reviewer gets none. It writes nothing into the tree, so what it needs is a
 tree that does not move while it reads, which is a commit rather than a

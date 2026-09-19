@@ -8,8 +8,9 @@ description: Run one thunderstorm loop over an epic and its sub-issues. Dispatch
 One run covers one epic and the sub-issues declared under it. A human
 starts every run. Nothing here runs on a schedule.
 
-This skill dispatches and reports. It writes no code and touches no working
-tree. See `internal/thunderstorm.md` for the protocol this obeys.
+This skill dispatches and reports. It writes no code and edits no files; the
+one thing it does in the checkout is create and remove the worktrees it hands
+out. See `internal/thunderstorm.md` for the protocol this obeys.
 
 ## Start
 
@@ -50,9 +51,9 @@ records before taking two at a time.
 Every implementer you dispatch gets its own worktree, on either host, and you
 create it before dispatching rather than leaving the subagent to. Two of them
 sharing a checkout share one `HEAD`, and the second to create its branch takes
-the first's work onto it without git raising anything. The `worktree` skill has
-the mechanism and is the only thing that creates one; you are the writer in the
-checkout they are kept out of.
+the first's work onto it without git raising anything. Make it through the
+`worktree` skill and do not ask the harness for one: an `isolation` setting on
+the dispatch places the worktree inside the repository root.
 
 For each sub-issue:
 

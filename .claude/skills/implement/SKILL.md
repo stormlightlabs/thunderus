@@ -38,13 +38,11 @@ a second run from taking the same issue, so make it before touching a tree.
 
 ## Take a working tree
 
-A dispatched implementer already has one: the run made it under step 2 of the
-`thunderstorm` skill and handed over the directory. Use it and skip this
-section.
+A dispatched implementer already has one: the run created it and handed over the
+directory. Use it and skip this section.
 
-A session invoked directly takes its own. The `worktree` skill's **Who gets
-one** section decides which of two, and is the only thing that creates a
-worktree.
+A session invoked directly takes its own tree. The `worktree` skill's **Who gets
+one** section says which kind, and is the only thing that creates a worktree.
 
 A cloud session holds a container checkout nobody else owns, so it works in that
 checkout and creates nothing beside it:
