@@ -76,6 +76,7 @@ pub enum SkillSource {
 }
 
 impl SkillSource {
+    /// Human-readable label for the discovery root this skill came from.
     pub fn label(self) -> &'static str {
         match self {
             SkillSource::User => "user",
@@ -95,6 +96,7 @@ pub enum SkillDiagnosticSeverity {
 }
 
 impl SkillDiagnosticSeverity {
+    /// Human-readable label for this severity, used in rendered diagnostics.
     pub fn label(self) -> &'static str {
         match self {
             SkillDiagnosticSeverity::Warning => "warning",
@@ -470,10 +472,13 @@ fn load_metadata(path: &Path, root: &SkillRoot) -> Result<(SkillMetadata, Option
     let byte_count = raw.len();
     let content_hash = tools::hash_content(&raw);
     let frontmatter = parse_frontmatter(&raw).map_err(|message| SkillDiagnostic::new(path, message))?;
+    // `to_string_lossy` rather than `to_str` so a non-UTF-8 directory name
+    // still names itself (with replacement characters) in the mismatch
+    // warning below, instead of silently reading back as `""`.
     let parent_name = path
         .parent()
         .and_then(Path::file_name)
-        .and_then(|name| name.to_str())
+        .map(|name| name.to_string_lossy())
         .unwrap_or_default();
 
     let name = frontmatter
@@ -485,7 +490,7 @@ fn load_metadata(path: &Path, root: &SkillRoot) -> Result<(SkillMetadata, Option
         .clone()
         .ok_or_else(|| SkillDiagnostic::new(path, "frontmatter description is required"))?;
 
-    let name_mismatch = validate_name(path, &name, parent_name)?;
+    let name_mismatch = validate_name(path, &name, parent_name.as_ref())?;
     if description.trim().is_empty() {
         return Err(SkillDiagnostic::new(path, "frontmatter description is required"));
     }
@@ -934,6 +939,43 @@ mod tests {
         assert_eq!(loaded.activation.name, "mire-review");
     }
 
+    /// A directory name that is not valid UTF-8 still names itself, lossily,
+    /// in the mismatch warning, rather than reading back as `""`.
+    #[cfg(unix)]
+    #[test]
+    fn skill_with_non_utf8_parent_directory_names_itself_lossily_in_the_warning() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let skills_root = dir.path().join(".thndrs/skills");
+        // 0x66 0x6f 0x80 0x6f is "fo\x80o", where 0x80 alone is not valid UTF-8.
+        let bad_dir_name = OsStr::from_bytes(b"fo\x80o");
+        let bad_dir = skills_root.join(bad_dir_name);
+        fs::create_dir_all(&bad_dir).expect("create non-utf8-named dir");
+        fs::write(
+            bad_dir.join("SKILL.md"),
+            "---\nname: mire-review\ndescription: Reviews changes for scope creep.\n---\n# Mire\n",
+        )
+        .expect("write SKILL.md");
+
+        let inventory = discover_only(&skills_root);
+
+        assert_eq!(inventory.skills.len(), 1);
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Warning);
+        assert!(
+            !inventory.diagnostics[0].message.contains("parent directory \"\""),
+            "a non-UTF-8 directory name must not read back as empty: {:?}",
+            inventory.diagnostics[0].message
+        );
+        assert!(
+            inventory.diagnostics[0].message.contains('\u{FFFD}'),
+            "the lossy rendering should show a replacement character for the invalid byte: {:?}",
+            inventory.diagnostics[0].message
+        );
+    }
+
     #[test]
     fn skill_with_empty_name_is_rejected() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -948,6 +990,63 @@ mod tests {
         assert_eq!(inventory.diagnostics.len(), 1);
         assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Error);
         assert!(inventory.diagnostics[0].message.contains("must not be empty"));
+    }
+
+    #[test]
+    fn skill_with_name_exceeding_64_characters_is_rejected() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let name = "a".repeat(65);
+        write(
+            &dir.path().join(format!(".thndrs/skills/{name}/SKILL.md")),
+            &format!("---\nname: {name}\ndescription: Helps.\n---\n# Skill\n"),
+        );
+
+        let inventory = discover_only(&dir.path().join(".thndrs/skills"));
+
+        assert!(inventory.skills.is_empty());
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Error);
+        assert!(inventory.diagnostics[0].message.contains("exceeds 64 characters"));
+    }
+
+    #[test]
+    fn skill_with_leading_hyphen_in_name_is_rejected() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join(".thndrs/skills/-bad/SKILL.md"),
+            "---\nname: \"-bad\"\ndescription: Helps.\n---\n# Skill\n",
+        );
+
+        let inventory = discover_only(&dir.path().join(".thndrs/skills"));
+
+        assert!(inventory.skills.is_empty());
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Error);
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("must not start or end with a hyphen or contain consecutive hyphens")
+        );
+    }
+
+    #[test]
+    fn skill_with_consecutive_hyphens_in_name_is_rejected() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join(".thndrs/skills/bad--name/SKILL.md"),
+            "---\nname: bad--name\ndescription: Helps.\n---\n# Skill\n",
+        );
+
+        let inventory = discover_only(&dir.path().join(".thndrs/skills"));
+
+        assert!(inventory.skills.is_empty());
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Error);
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("must not start or end with a hyphen or contain consecutive hyphens")
+        );
     }
 
     #[test]
@@ -983,6 +1082,18 @@ mod tests {
                 selected_path: dir.path().join(".agents/skills/mire/SKILL.md"),
                 ignored_paths: vec![dir.path().join(".claude/skills/mire-review/SKILL.md")],
             }]
+        );
+        // The *winning* copy still has a mismatched name (`mire-review` in a
+        // `mire` directory), so its warning must survive dedup even though
+        // this name has a duplicate. A deferral narrow enough to suppress
+        // the warning for any name with a duplicate — rather than only for
+        // the copy dedup discards — would pass every other assertion in this
+        // file while silently dropping this one.
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Warning);
+        assert_eq!(
+            inventory.diagnostics[0].path,
+            dir.path().join(".agents/skills/mire/SKILL.md")
         );
     }
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- Skill discovery no longer drops a skill whose frontmatter `name` differs
+  from its directory; the mismatch is now a warning diagnostic, not a
+  rejection.
+
 ## v0.1.1 - 2026-09-17
 
 Tagged but not published. `0.1.0` is currently the latest release on
@@ -61,12 +67,6 @@ crates.io.
   semantic colors across the built-in themes.
 - Simplified runtime labels and added continuous elapsed-turn timing to the
   composer header.
-
-### Fixed
-
-- Skill discovery no longer drops a skill whose frontmatter `name` differs
-  from its directory; the mismatch is now a warning diagnostic, not a
-  rejection.
 
 ## v0.1.0
 
