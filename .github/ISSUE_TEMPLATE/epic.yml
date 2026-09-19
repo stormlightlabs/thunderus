@@ -41,13 +41,20 @@ body:
     attributes:
       label: Planned sub-issues
       description: >
-        One line each. File them as sub-issues of this one after opening it:
-        that relation is what a run reads, and a list here is not it. GitHub
-        tracks their state, so this stays a plan rather than a checklist. Do
-        not nest deeper than one level.
+        One line each, with the paths that sub-issue owns. File them as
+        sub-issues of this one after opening it: that relation is what a run
+        reads, and a list here is not it. GitHub tracks their state, so this
+        stays a plan rather than a checklist. Do not nest deeper than one
+        level. Below the table, name any collision with another epic's
+        sub-issues and which to sequence around which: a run works one epic
+        and cannot see those. The decompose skill's Recording overlap says
+        why, and /triage reads both.
       value: |
-        -
-        -
+        | Sub-issue | Owns |
+        | --- | --- |
+        |  |  |
+
+        Collides with:
     validations:
       required: true
 

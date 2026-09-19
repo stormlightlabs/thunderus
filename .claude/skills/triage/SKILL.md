@@ -20,65 +20,93 @@ states that rule under **File conventions**.
 
 Two threads that both run this reach the same order, because they read the same
 board and apply the rules below in the same sequence. What stops them working
-the same issue is the claim, not the list. See `github-board` under **Claim**.
+the same issue is the claim, not the list, under `github-board`'s **Claim**.
 
-Writing nothing is also why triage does not claim ahead. A claim reserves work
-the thread may not start, and a claim nobody is working is the stale state the
-24-hour rule exists to undo.
+Triage does not claim ahead either. A claim reserves work the thread may never
+start, which is the stale state the 24-hour rule exists to undo.
+
+## Argument
+
+Every argument is prefixed, because the two numeric ones are otherwise the same
+token: `/triage 3` could ask for three threads or for epic 3.
+
+| Form               | Means                                    |
+| ------------------ | ---------------------------------------- |
+| `threads=<n>`      | Plan for `n` threads. Without it, two.   |
+| `#<n>` or `epic:<n>` | Narrow to that epic and its children.  |
+| `area:<name>`      | Narrow to issues carrying that label.    |
+| Anything else      | Ad-hoc work, under **Ad-hoc work** below. |
+
+A narrowing argument changes which issues are ranked and laid into lanes. It
+changes nothing else: read the whole board anyway, and report the repairs, the
+in-flight work and the issues no run reaches across all of it. Those are the
+parts a narrowed pass would otherwise stop surfacing, and they are the reason
+to run a board-wide pass rather than a run.
 
 ## Read
 
-Use the transport `github-board` picks, and read in this order:
+Read the whole board every pass, whatever the argument narrows.
 
-1. Every open issue, with labels, assignees, and `updated_at`.
-2. Which issues each `kind:epic` holds.
-3. The body of each epic that has a candidate under it, for file ownership.
-4. `blocked_by` for the candidates that survive the buckets, and not for the
-   rest. It is one call per issue, and an issue already ruled out needs none.
+One paginated call over the repository's open issues carries almost all of it:
+labels, assignees, `parent_issue_url`, and the two summary objects that answer
+the buckets and two of the rank rules without a second request per issue. File
+ownership is the one thing it does not carry, and that comes from the body of
+each epic holding a candidate.
 
-Step 1 through MCP is `list_issues` carrying a `fields` list that omits `body`.
-Steps 2 and 3 do not go through MCP at all, for a reason that only appears at
-this size: `issue_read` method `get_sub_issues` returns every child's full body
-and takes no field list, which on this board is 77,000 to 154,000 characters for
-one epic. Six of them is the whole pass spent on text triage does not read. Go
-to REST with the token `github-board` uses under **Dependencies**, and filter
-before the response is read:
-
-```sh
-gh_api "$api/<epic>/sub_issues?per_page=100" \
-  | jq -r '.[] | select(.state=="open") | .number'
-gh_api "$api/<epic>" | jq -r .body
-```
-
-Read an epic's body one epic at a time, and only for epics with a candidate.
+`references/reading-the-board.md` has the commands for both transports, the
+fields and what each one decides, and the two MCP tools that cannot replace
+the call along with the measurements that rule them out.
 
 ## Work no run can reach
 
-Two shapes go unworked because no `/thunderstorm` run can find them. Report
-both, every pass, before the lanes:
-
-- An open issue under no epic. `/thunderstorm` dispatches an epic's children,
-  so an issue with no parent is never reached by a run, however long it has
-  been queued. It is still claimable, and it still ranks.
-- An epic declaring no sub-issues. A run refuses to start one, so the epic sits
-  open holding nothing. It is not work and it does not rank; say it needs
-  children or closing.
+An open issue with an empty `parent_issue_url` is under no epic, and
+`/thunderstorm` dispatches an epic's children, so no run reaches it however
+long it stays queued. It is still claimable and it still ranks. Report these
+every pass, before the lanes, because nothing else on the board says they are
+going unworked. The other shape a run cannot reach, an epic holding nothing, is
+a repair under **Buckets** below.
 
 ## Buckets
 
-Sort every open issue into exactly one bucket before ranking anything. Ranking
-an issue nobody can claim spends the reader's attention on work that is not
-available.
+Set the epics aside first. An epic carries no `status:*` label and is not work,
+so it is not bucketed and never ranked. What it contributes is its
+`sub_issues_summary` to rank rule 3, and its body to the lanes.
 
-| Bucket        | Holds                                                       |
-| ------------- | ----------------------------------------------------------- |
+Sort every other open issue into the first row it matches, top down. The order
+is the precedence: a claim that has gone stale is a repair before it is
+somebody's work in flight.
+
+| Bucket        | Holds                                                        |
+| ------------- | ------------------------------------------------------------ |
+| Needs repair  | Any shape under **Repairs** below.                           |
 | In flight     | `status:claimed` or `status:review`. Another thread has it.  |
-| Needs repair  | A claim past 24 hours with no pull request, a block past 7 days, or two status labels. |
-| Not claimable | `status:queued` with an open blocker, or with an assignee.   |
-| Claimable     | `status:queued`, no assignee, every blocker closed.          |
+| Waiting       | `status:verify`, or `status:blocked` inside its 7 days.      |
+| Not claimable | `status:queued` with `blocked_by` above zero, or an assignee. |
+| Claimable     | `status:queued`, no assignee, `blocked_by` zero.             |
 
-Only the claimable bucket gets ranked. Report the other three; they are what
-tells the human the board is not what they thought.
+An issue with no `status:*` label reaches none of these rows, which is why the
+first one catches it: it is a repair, not a bucket.
+
+Only the claimable bucket is ranked. Report the rest; they are what tells the
+human the board is not the shape they thought.
+
+### Repairs
+
+Each shape breaks a rule another document owns. Report it and name the rule;
+the repair itself is a `github-board` write a human authorizes.
+
+| Shape                                             | Rule                      |
+| ------------------------------------------------- | ------------------------- |
+| `status:claimed` past 24 hours with no pull request | `internal/thunderstorm.md`, Statuses |
+| `status:blocked` past 7 days, or with no `blocked:*` reason | the same |
+| Two `status:*` labels on one issue, or none       | `github-board`, Status    |
+| `kind:epic` carrying `status:*` or `risk:*`       | `decompose`, The epic     |
+| `kind:epic` with `sub_issues_summary.total` zero  | no run can start it       |
+
+The first two are ages, and `updated_at` does not measure them: any comment or
+label bumps it, so an abandoned claim reads fresh the moment someone comments.
+The reference above gives the timeline read that does, and says to report an
+age as unverified rather than passing `updated_at` off as an answer.
 
 ## Rank
 
@@ -91,9 +119,11 @@ disagrees knows which rule to argue with.
    that holds something up.
 2. **`type:fix` ahead of the rest.** A fix names behavior that is wrong now,
    and everything else is built on top of it.
-3. **The epic nearest finishing.** An issue whose siblings are already merged
-   or in review outranks one under an epic nothing has started. Finishing an
-   epic retires its coordination cost; starting another adds one.
+3. **The epic nearest finishing.** Its epic's `sub_issues_summary`, by
+   `completed` against `total`, highest first. An issue whose siblings have
+   mostly landed outranks one under an epic nothing has started: finishing an
+   epic retires its coordination cost, and starting another adds one. An issue
+   under no epic scores zero here and is broken out of by rule 4.
 4. **Oldest first.** A stable tiebreaker. The oldest queued issue has already
    lost every ordering before this one.
 
@@ -101,24 +131,22 @@ Risk does not enter the rank. It decides lanes instead, below.
 
 ## Lanes
 
-A lane is what one thread works, in sequence. The argument says how many
-threads; without one, plan two.
+A lane is what one thread works, in sequence. `threads=<n>` says how many;
+without it, plan two.
 
-Two issues may sit in different lanes only when they own non-overlapping files.
-Read ownership from the epic body, where `decompose` records it as a table of
-sub-issue against the paths it owns. Epics filed before that convention carry
-no such table; where one is missing, say so and treat the pair as overlapping.
-An unrecorded overlap found by two implementers costs a rework, and holding an
-issue for one round costs a round.
+Two issues may sit in different lanes only when they own non-overlapping
+files. Ownership lives in the epic body, under the `decompose` skill's
+**Recording overlap**, which also asks an epic to name the collisions it has
+with other epics. Honor those as written, including an instruction to sequence
+a whole epic around one issue: a run works one epic and cannot see them.
 
-An epic body also records the collisions it has with other epics, in prose
-beside the table. Those are the ones worth the read: a run works one epic and
-cannot see them, which is most of why this command exists. Honor them as
-written, including an instruction to sequence a whole epic around one issue.
+Where an epic records no ownership, say so and treat every pair under it as
+overlapping. An unrecorded overlap found by two implementers costs a rework,
+and holding an issue for one round costs a round.
 
-`area:*` is the coarse fallback and a warning rather than a verdict. Most of
-this board carries `area:tui`, so an area match alone would serialize nearly
-everything. Name the shared area, then decide on files.
+`area:*` is a warning rather than a verdict, too broad to decide by: `area:tui`
+alone is 17 of the 38 queued issues here, so matching on area would hold back
+nearly half the board. Name the shared area, then decide on files.
 
 Two issues never share a fan-out:
 
@@ -136,28 +164,29 @@ Work that is not filed cannot be ranked, because no other thread can see it. A
 thread dispatched on an unfiled item holds something invisible, and the next
 thread picks the same work up with nothing to warn it.
 
-Name ad-hoc work in the argument and triage places it in the order, marked as
+Name ad-hoc work in the argument and triage places it in the order, marked
 off-board, with what it would displace. File it through `/decomp` before any
-thread takes it. Triage does not file it: `decompose` decides what to write and
-`github-board` writes it, and a command that ranks work should not also be
-creating the work it ranks.
+thread takes it. Triage does not file it: a command that ranks work should not
+also create the work it ranks.
 
 ## Report
 
 Under 40 lines, in this order:
 
-1. **Dispatch now.** One block per lane, each entry giving the number, the
-   title, `type:*`, `risk:*`, and the epic it sits under.
-2. **Held.** Claimable, but overlapping something already in a lane. Name what
-   it overlaps on.
-3. **Not claimable.** Name the open blocker or the assignee.
-4. **In flight.** What the other threads hold, so nothing is dispatched over
-   them.
-5. **Needs repair.** The transition each one wants. A human or a later
-   `github-board` call makes it.
+| Heading       | Carries                                                    |
+| ------------- | ---------------------------------------------------------- |
+| Dispatch now  | One block per lane: number, title, `type:*`, `risk:*`, epic. |
+| Held          | Claimable but overlapping a lane. Name what it overlaps on. |
+| Not claimable | The open blocker, or the assignee.                          |
+| In flight     | What the other threads hold, so nothing dispatches over them. |
+| No run reaches | The issues under no epic.                                  |
+| Needs repair  | The transition each one wants, for a human to authorize.    |
+
+Leave out a heading with nothing under it, and say `status:verify` and
+`status:blocked` work is waiting rather than listing it every pass.
 
 Close by naming the rule that placed the first entry and what would change the
-order. A plan whose reasoning is not visible cannot be overridden.
+order. A plan whose reasoning is not visible cannot be argued with.
 
 ## Do not
 

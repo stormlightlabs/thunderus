@@ -42,10 +42,11 @@ them. Two are load-bearing:
 
 - The MCP issue update replaces an issue's whole label and assignee set, where
   `gh issue edit` changes only what it names.
-- The MCP sub-issue read returns each child's whole body and takes no field
-  list. One epic here is 77,000 to 154,000 characters that way, so anything
-  reading hierarchy across the board goes to REST and filters the response
-  before reading it. The `triage` skill carries those calls.
+- Neither transport exposes the dependency and sub-issue counts the REST issue
+  list carries per issue, and the MCP sub-issue read returns each child's whole
+  body with no field list, 77,000 to 154,000 characters for one epic here. So a
+  pass reading the board rather than writing to it goes to REST, under the
+  `triage` skill's `references/reading-the-board.md`.
 - Label definitions do not go through MCP. `.github/labels.yml` is applied by
   running `.claude/scripts/sync-labels.py` locally, or by dispatching
   `.github/workflows/labels.yml`, which runs that same script on a runner with
@@ -187,49 +188,40 @@ the run and starts at `/impl`.
 A run covers one epic. Several epics are open at once, sub-issues accumulate
 under all of them, and work arrives that belongs to none. `/triage` answers the
 question a run cannot: of everything queued, which issues go out now, and which
-of those are safe to work at the same time.
+of those are safe to work at the same time. The `triage` skill holds the
+buckets, the ordering and the reading; what follows is why it is shaped that
+way.
 
-Order comes from what the board already carries. An issue is ranked by how many
-open issues wait on it, then by whether it is a `type:fix`, then by how near its
-epic is to finishing, then by age. Nothing is ranked by a priority label,
-because the board defines none and a label a human has to keep current is one
-more thing that drifts from the work it describes. Scoping the run to an epic or
-an area is how a human says which part of the board matters today.
+Order comes from what the board already carries: what an issue unblocks, then
+`type:fix`, then how near its epic is to finishing, then age. Nothing is ranked
+by a priority label, because the board defines none and a label a human has to
+keep current is one more thing that drifts from the work it describes. Scoping
+a pass to an epic or an area is how a human says which part matters today, and
+it narrows what gets ranked rather than what gets read.
 
-Risk is not part of that order. It decides what may share a fan-out: an issue
-carrying `risk:high` takes a thread and a review sequence on its own, as does
-one with sub-issues of its own.
+Risk stays out of that order and decides what may share a fan-out instead. What
+limits parallel dispatch here is file ownership rather than the dependency
+graph: two issues with no edge between them still collide when they write the
+same file, and an `area:*` label is too broad to decide by. `decompose` records
+ownership in the epic body under **Recording overlap**, and a pair whose
+ownership is unrecorded is treated as overlapping.
 
-Two things are only visible from a pass over the whole board. An issue filed
-under no epic is never reached by a run at all, because a run dispatches an
-epic's children; eight open issues were in that state when this was written.
-And an epic records the collisions it has with other epics in its body, which
-the run working either one cannot act on. A per-epic loop has no place to put
-either fact, which is most of why the board-wide pass exists.
-
-What limits parallel dispatch here is file ownership rather than the dependency
-graph. Two issues with no edge between them still collide when they write the
-same file, and most of the board carries one `area:*` label, so the area is too
-coarse to decide by. The epic body records which files each sub-issue owns, and
-`triage` treats a pair whose ownership is unrecorded as overlapping.
+Two things are visible only from a pass over the whole board, and a per-epic
+loop has nowhere to put either. An issue filed under no epic is never reached
+by a run, because a run dispatches an epic's children; #86 covers the ones
+outstanding and #87 decides whether the state is legal at all. And an epic
+records its collisions with other epics in its own body, which the run working
+either one cannot act on.
 
 The ranked list goes to chat and is derived again the next time it is asked
-for. It is not a document, for the reason given under [File
+for. It is not a document, for the reason under [File
 conventions](#file-conventions): a list of pending work is wrong as soon as one
 issue closes, and a wrong copy on disk gets read in place of the board. Two
-threads reach the same order because they read the same board; what keeps them
-off each other's work is the claim, under the `github-board` skill.
+threads reach the same order because they read the same board, and what keeps
+them off each other's work is the claim rather than the list.
 
-Work that is not filed cannot be ranked, because no other thread can see it. A
-thread dispatched on an unfiled item holds something invisible, and the next
-thread takes the same work up with nothing to warn it. Ad-hoc work is placed in
-the order and marked off-board, then filed through `/decomp` before anyone
-starts it.
-
-`triage` writes nothing at all: no file, no label, no claim. A claim made ahead
-of a dispatch reserves work that may never start, which is the state the
-24-hour rule exists to undo. It reports what the board needs repaired and
-leaves the repair to a `github-board` call a human asks for.
+`triage` writes nothing: no file, no label, no claim. It reports what the board
+needs repaired and leaves the repair to a `github-board` call a human asks for.
 
 ## Review sequence
 

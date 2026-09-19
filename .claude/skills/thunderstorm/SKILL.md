@@ -40,8 +40,8 @@ cannot state is not ready to start.
 
 Take sub-issues one at a time unless two are genuinely independent and own
 non-overlapping files. Two writers in one area produce rework, not throughput.
-What may share a fan-out is the `triage` skill's **Lanes** section, and a run
-taking two at once follows it rather than deciding again.
+The `triage` skill's **Lanes** section says what may share a fan-out; a run
+taking two at once applies those rules rather than deciding again.
 
 Read each sub-issue's `blocked_by` before claiming it, through the
 **Dependencies** section of `github-board`. An issue whose blockers are still

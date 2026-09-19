@@ -67,16 +67,39 @@ work** — `parent_issue_number` on the create, or `sub_issue_write` method `add
 afterwards, which takes the sub-issue's ID rather than its number.
 
 Where one sub-issue cannot start until another lands, record that as a
-dependency as well. The sub-issue relation says what the work is part of; it says
-nothing about order, and an epic whose order lives only in prose gets dispatched
-out of it. `github-board` carries the calls under **Dependencies**. Note also the
-file each sub-issue owns, in the epic body: a run decides what is safe to work at
-once from overlap, and two issues can be independent in the graph and still write
-the same file.
+dependency as well. The sub-issue relation says what the work is part of; it
+says nothing about order, and an epic whose order lives only in prose gets
+dispatched out of it. `github-board` carries the calls under **Dependencies**.
 
 A dependency is not `status:blocked`. That label ends a run, and it is for a
 block found while working. A sub-issue waiting on a sibling stays
 `status:queued`.
+
+## Recording overlap
+
+Two issues can be independent in the dependency graph and still write the same
+file, so the epic body carries what the graph cannot. Both parts below are read
+by `/triage` when it decides what several threads may work at once, and an epic
+recording neither is one whose sub-issues all have to be worked in sequence.
+
+Give the epic a table of each sub-issue against the paths it owns:
+
+```markdown
+| Sub-issue | Owns |
+| --- | --- |
+| #76 assert palette contrast | `cli/renderer/style.rs` |
+| #79 remove or bind `--thndrs-pink` | `docs/src/styles/theme.css` |
+```
+
+Then name, in prose beside it, every collision this epic has with another
+epic's sub-issues, and what to do about it. That half matters more than the
+table: a run works one epic, so an overlap with a second epic is invisible to
+both runs and to every reviewer reading either one. Say which issue to sequence
+around which, not merely that they touch.
+
+A path nobody can name yet is a sub-issue whose scope is still open. Say so in
+the table rather than leaving the row out, so a later pass treats it as
+overlapping instead of as unexamined.
 
 ## Depth
 
