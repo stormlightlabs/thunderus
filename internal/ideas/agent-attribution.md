@@ -1,6 +1,6 @@
 ---
 name: agent-attribution
-last_updated: 2026-09-18
+last_updated: 2026-09-19
 id: 01M2VZFXTS1HCMB42NHHZ5DECH
 ---
 
@@ -20,10 +20,10 @@ way. A squash merge takes its author from the pull request submitter and demotes
 every branch author to a `Co-Authored-By` trailer, and `/impl` opens the pull
 request as the owner, so no branch author survives the merge whatever it said.
 
-Review comments have the same shape. `internal/thunderstorm.md` records that
-reviews "post from whichever account runs them: Claude, Codex, or the
-repository owner", and the only marker separating the three is a signature line
-a model is asked to append.
+Review comments have the same shape. `internal/thunderstorm.md` Review sequence
+records that reviews post from whichever account runs them, which for a cloud
+session is `desertthunder`, and the only marker separating a model's comment
+from a person's is a signature line a model is asked to append.
 
 The trailer convention also names one harness. `Claude-Session` has no
 equivalent for Pi or Codex, and `internal/models.md` assigns implementer and
@@ -48,9 +48,11 @@ scoped to named repositories and to a subset of the permissions the
 installation holds, where a personal access token is long-lived and carries its
 owner's full access.
 
-The app needs Issues, Pull requests, and Contents at read and write, with
-webhooks disabled. It is installed on `thunderus` alone until a second
-repository runs work.
+The app opens pull requests and comments. It does not push: `origin` here is an
+SSH remote, so a branch goes up under the operator's key, and the squash
+discards branch authorship anyway. So the app needs Issues and Pull requests at
+write, Contents at read, and no webhooks. It is installed on `thunderus` alone
+until a second repository runs work.
 
 ### Authorship follows supervision, not the harness
 
@@ -107,7 +109,7 @@ would break the read-back that detects a lost race anyway. Attribution on a
 claim stays wrong, deliberately, and this paragraph is the record of that
 choice.
 
-### The rule becomes a check
+### A check holds the pull request author
 
 A `pull_request` job fails when a head branch matching `agent/*` carries a pull
 request author other than the app. The author rule for commits has been written

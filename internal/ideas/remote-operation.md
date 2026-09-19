@@ -43,11 +43,11 @@ and a narrow installation are what that buys back.
 `claude remote-control` runs a server on the machine and connects
 claude.ai/code or the mobile app to sessions that keep running locally, so
 filesystem access and execution stay on the machine. It serves up to 32
-concurrent sessions, and `--spawn worktree` gives each on-demand session its own
-git worktree, which is the rule
-`.claude/agents/implementer.md` already enforces for dispatched implementers. A
-sleeping laptop or a dropped network reconnects on its own, with messages and
-permission prompts queued in the meantime.
+concurrent sessions, and `--spawn worktree` gives each on-demand session its
+own git worktree, which matches what the `worktree` skill's **Who gets one**
+gives a local session working directly. A sleeping laptop or a dropped network
+reconnects on its own, with messages and permission prompts queued in the
+meantime.
 
 It requires a subscription and rejects API keys. Run it under a
 `systemd --user` unit so a reboot does not leave it absent.
@@ -128,19 +128,35 @@ skill already reads through `git show <commit>:<path>` rather than a checkout,
 so a reviewer never needs to write:
 
 ```sh
-bwrap --dev-bind / / --ro-bind "$PWD" "$PWD" --chdir "$PWD" -- pi -xt write,edit
+bwrap --dev-bind / / --ro-bind "$HOME" "$HOME" \
+      --tmpfs "$HOME/.config/trnds" --chdir "$PWD" -- pi -xt write,edit
 ```
 
+Bind the home directory rather than the checkout. Binding `$PWD` alone leaves
+everything else writable, including the app private key this machine now holds,
+so a reviewer that cannot edit the repository can still replace the credential
+the run writes with. The `--tmpfs` hides the key directory outright, because
+read-only stops a write and not a read.
+
 Checked on 2026-09-19 under `bubblewrap` 0.11.2: `git show`, `git log`,
-`git diff`, and `git status` all answer, and `touch` fails with
-`Read-only file system`. `git fetch` fails too, on `.git/FETCH_HEAD`, so the run
-fetches the branch before it enters the sandbox.
+`git diff`, and `git status` all answer; `touch` fails with
+`Read-only file system` in both the checkout and the home directory; and the key
+path is absent. `git fetch` fails too, on `.git/FETCH_HEAD`, so the run fetches
+the branch before it enters the sandbox.
 
 Keep blocking `write` and `edit` with `-xt`, and use Pi's `tool_call` event,
 which can block a call by returning `{ block: true, reason }`, to say why. That
 is not the boundary. It is what makes the refusal legible, so a reviewer that
 reaches for an editing tool is told what it is rather than reading a permission
 error.
+
+## Open
+
+What else the reviewer sandbox has to hide. The `--tmpfs` covers one directory
+because one credential is known to sit there. Anything else a reviewer should
+not read, a shell history or another tool's token, is unenumerated. Settled by
+listing what the home directory holds before the first review pass runs under
+it.
 
 ## Sources
 

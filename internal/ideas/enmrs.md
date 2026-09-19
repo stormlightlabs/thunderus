@@ -16,10 +16,11 @@ the operator's machine and that Claude Code Remote Control is how the operator
 reaches them. That path covers Claude Code sessions, requires a subscription,
 and rejects API keys.
 
-`thndrs` has none, so remote work depends on a harness this repository did not
-write. Codex and Pi staying local is a settled choice rather than a gap, and
-dogfooding `thndrs` in the roles it can take does not close this one: a `thndrs`
-session away from the machine cannot be reached at all.
+`thndrs` has no remote surface of its own, so remote work depends on a harness
+this repository did not write. Codex and Pi staying local is a settled choice
+rather than a gap, and dogfooding `thndrs` in the roles it can take does not
+close this one: a `thndrs` session away from the machine cannot be reached at
+all.
 
 ## Decisions
 
