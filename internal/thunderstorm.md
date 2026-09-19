@@ -80,15 +80,14 @@ comments all carry one account, and nothing inside a session changes that:
 carry their own authorization from the account connected at
 `claude.ai/connect-github`. Verified 2026-09-19.
 
-That is the whole rule now. A convention that tried to separate an agent's
-commits from the owner's was never checkable and is gone; the work is the
-owner's and the log says so.
+The convention that used to separate an agent's commits from the owner's is
+gone. It was never checkable, and the work is the owner's either way.
 
-One tag survives, because it answers a question a reader actually has. A review
-comment's first line names the model and reasoning level that pass ran at, so
-the record shows which reviewer found what and `models.md` stays checkable
-afterwards. `internal/ideas/agent-attribution.md` keeps the design for a
-mechanism rather than a tag; nothing plans to build it.
+Review comments still carry a model tag. The first line names the model and
+reasoning level that pass ran at, which is what shows who found a given defect
+and keeps `models.md` checkable afterwards.
+`internal/ideas/agent-attribution.md` holds the design for a mechanism that
+would replace the tag; nothing plans to build it.
 
 ## Statuses
 

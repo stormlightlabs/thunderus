@@ -100,6 +100,17 @@ cargo test --workspace --all-features --locked
 
 Run `pnpm --dir docs build` when anything under `docs/` changed.
 
+A change under `cli/renderer/` or `cli/app/` gets a captured frame:
+
+```sh
+cargo build -p thndrs && .claude/scripts/tui-capture.sh <scenario>
+```
+
+Show the rendered image in your report, and check any claim you make about it
+against the `.ansi` beside it. Two of the first three observations made from one
+of these images were wrong about what the application drew.
+`docs/src/content/docs/docs/development/tui-qa.md` carries the rest.
+
 Do not weaken, skip, or delete a test to make a gate pass. If a test is wrong,
 say so in the pull request body and explain why.
 

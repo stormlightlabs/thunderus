@@ -64,18 +64,16 @@ Length is reported and rejected by neither, under [Length](#length).
 ## Authorship
 
 Every commit here is authored by the repository owner. Agents work under their
-direction and the log says so; nothing tries to separate a commit an agent
-produced from one the owner typed, because the distinction was never checkable
-and the record is not improved by a convention that only sometimes holds.
+direction, and which one typed a given commit was never checkable, so the log
+does not try to say.
 
 Leave the trailers a harness writes exactly as it wrote them, and add none by
 hand. Name no model in a subject or a body. The message describes the change,
 not what produced it.
 
-A review comment is the exception, and the only one: its first line names the
-model and reasoning level the pass ran at, under the `review` skill. That is a
-claim about which reviewer found what, which `internal/models.md` needs and
-which a reader of the thread can use.
+Review comments carry a model tag. The first line names the model and reasoning
+level the pass ran at, under the `review` skill, because which reviewer found a
+defect is a question a reader of the thread asks.
 
 ## Pull request bodies
 

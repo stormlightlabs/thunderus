@@ -3,6 +3,19 @@
 `thndrs` is a minimal coding agent. Its default behavior is an explicit prompt,
 project instructions, local tools, and durable sessions.
 
+## Writing
+
+Use the `writing-docs` skill for every piece of prose you produce here. That
+means documentation, commit messages, pull request bodies, issue bodies, review
+comments, and the replies you write in chat. Load it before you write, not
+after, and read `references/tells.md` when the prose is longer than a
+paragraph.
+
+Nothing checks this and nothing will: style is a judgement a script cannot
+make, and a check that cannot be certain would only teach you to route around
+it. The rule is blunt instead. Prose written without the skill reads like it,
+and the tells it catalogues have each been shipped here at least once.
+
 ## Development
 
 The working tree is user-owned. Treat Git as read-only unless a user requests a Git

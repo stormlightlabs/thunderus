@@ -1,0 +1,21 @@
+# The capture set. One row per scenario, read by tui-capture.sh and by the
+# check that ties the theme rows to the Theme enum (issue 33).
+#
+# name	cols	rows	env	args	keys
+#
+# env and args are space-separated or "-" for none. keys is what send-keys -l
+# types after the pane settles, or "-" to capture the first settled frame.
+# A scenario naming a fixture resumes it, so run the generator first:
+#   cargo run -p thndrs --features dev-fixtures --example session_fixtures
+startup	100	30	-	--ephemeral	-
+picker-open	100	30	-	--session-dir=target/tui-fixtures/sessions	/resume picker-open
+streaming-mid-tool	100	30	-	--session-dir=target/tui-fixtures/sessions	/resume streaming-mid-tool
+tool-output-truncated	100	30	-	--session-dir=target/tui-fixtures/sessions	/resume tool-output-truncated
+permission-prompt	100	30	-	--session-dir=target/tui-fixtures/sessions	/resume permission-prompt
+error	100	30	-	--session-dir=target/tui-fixtures/sessions	/resume error
+narrow-60-cols	60	30	-	--session-dir=target/tui-fixtures/sessions	/resume narrow-60-cols
+short-16-rows	100	16	-	--session-dir=target/tui-fixtures/sessions	/resume short-16-rows
+no-color	100	30	NO_COLOR=1	--session-dir=target/tui-fixtures/sessions	/resume no-color
+theme-eldritch-minimal	100	30	-	--theme=eldritch-minimal --session-dir=target/tui-fixtures/sessions	/resume theme-eldritch-minimal
+theme-iceberg-dark	100	30	-	--theme=iceberg-dark --session-dir=target/tui-fixtures/sessions	/resume theme-iceberg-dark
+theme-catppuccin-mocha	100	30	-	--theme=catppuccin-mocha --session-dir=target/tui-fixtures/sessions	/resume theme-catppuccin-mocha

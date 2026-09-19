@@ -31,20 +31,18 @@ reviewer roles to both.
 
 ## Status
 
-Dropped on 2026-09-19, not deferred. The repository owner decided that every
-commit here is theirs, which is true and needs no mechanism: agents work under
-their direction, and a convention that tried to split the log by who typed it
-was never checkable.
+Dropped on 2026-09-19. The repository owner decided that every commit here is
+theirs, which needs no mechanism: agents work under their direction, and a
+convention splitting the log by who typed a commit was never checkable.
 
-One tag survives and is not part of this design. A review comment's first line
-names the model and reasoning level the pass ran at, because which reviewer
-found a defect is a real question a reader has. It is a tag in a comment, not
-an identity, and it needs no app.
+Review comments keep a model tag, which this design does not cover. The first
+line names the model and reasoning level the pass ran at, so a reader can see
+which reviewer found a given defect. A tag in a comment needs no app.
 
-Everything below is kept as a record of what the alternative would have cost: a
-GitHub App, a private key on the operator's machine, a CI check on the pull
-request author, and a claim that still could not be assigned to a bot. Read it
-if attribution ever has to settle something a human reading the thread cannot.
+Everything below records what the alternative would have cost: a GitHub App, a
+private key on the operator's machine, a CI check on the pull request author,
+and a claim that still could not be assigned to a bot. Read it if attribution
+ever has to settle something a human reading the thread cannot.
 
 ## Decisions
 
