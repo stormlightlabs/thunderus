@@ -1189,7 +1189,9 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
         Entry::User { text } => {
             let rail_style = CellStyle::new().fg(p.link).bg(bg).bold();
             let label_style = CellStyle::new().fg(p.link).bg(bg).bold();
-            let text_style = CellStyle::new().fg(p.secondary).bg(bg);
+            // The submitted prompt is read, not scanned: it carries the same
+            // body weight as the reply so a reader can find either one.
+            let text_style = CellStyle::new().fg(p.primary).bg(bg);
             LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
                 .build(context.user_label, text)
         }
@@ -1199,8 +1201,10 @@ fn entry_to_rows(entry: &Entry, context: &TranscriptRowContext<'_>) -> Vec<Row> 
         }
         Entry::Reasoning { text, streaming } => {
             let rail_style = CellStyle::new().fg(p.reasoning).bg(bg).bold();
-            let label_style = CellStyle::new().fg(p.secondary).bg(bg);
-            let text_style = CellStyle::new().fg(p.secondary).bg(bg).italic();
+            // Reasoning is the one family with a hue reserved to it. Label and
+            // body both take it, so the block is skippable by colour alone.
+            let label_style = CellStyle::new().fg(p.reasoning).bg(bg).bold();
+            let text_style = CellStyle::new().fg(p.reasoning).bg(bg).italic();
             let label = if *streaming { "Thinking ·" } else { "Thinking ✓" };
             LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
                 .build_compact(label, text)
