@@ -100,9 +100,21 @@ same input.
 Rendering is a convenience. A run without freeze on `PATH` still succeeds and
 the `.ansi` survives, so a contributor can `cat` it.
 
-Show the image from the session that produced it. GitHub renders no ANSI in a
-comment and takes no upload from an agent, so the pull request thread carries
-the stripped text and a person looking at a frame looks at it in chat.
+**Show the frames.** A capture nobody looks at has checked nothing. Render the
+scenarios a change touches and put the images in front of the maintainer in the
+session that produced them, before reporting the change as verified. GitHub
+renders no ANSI in a comment and takes no upload from an agent, so the pull
+request thread carries the stripped text and the image is shown in chat.
+
+Show them even when they look right. Three of the defects on the board were
+found by a person looking at a frame, not by the person who captured it: the
+row drawn twice at 60 columns, the tense mismatch on a running tool, and the
+doubled `$`. None of them failed a test.
+
+Render PNG to show a frame locally, since an image is what a person reads. The
+harness writes SVG because v0.2.2 segfaults rasterizing PNG in the cloud
+container; locally, `freeze frame.ansi -o frame.png` works and is easier to
+look at.
 
 Capture trailing blank rows and they render as dead space, so the script strips
 them. Strip them by hand before rendering, or the image shows padding the
