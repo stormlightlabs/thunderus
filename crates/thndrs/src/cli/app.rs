@@ -698,8 +698,8 @@ pub enum AgentEvent {
         /// Structured shell result if this was a `run_shell` tool, else `None`.
         /// Boxed to avoid a large enum variant (`ProcessResult` carries multiple `Vec<String>` values).
         shell_result: Option<Box<tools::shell::ProcessResult>>,
-        /// Typed process outcome carried from [`ToolOutput`], `None` for tools
-        /// that are not process-backed.
+        /// Typed process outcome carried from the tool's `ToolOutput`, `None`
+        /// for tools that are not process-backed.
         process: Option<ProcessMetrics>,
     },
     /// A state-aware projection relation for one completed tool result.
