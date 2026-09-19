@@ -1,6 +1,6 @@
 ---
 name: thunderstorm
-last_updated: 2026-09-17
+last_updated: 2026-09-19
 id: 01M2PWX233GKXE5M9SPTNTGN0D
 ---
 
@@ -62,6 +62,47 @@ fails the hook, so a missing renderer costs an image rather than a run, and
 toolchains. The hook exits immediately outside the cloud, where a checkout
 already has all of this.
 `.claude/settings.json` registers it.
+
+### Identity
+
+Every GitHub write from a cloud session is authored by the repository owner.
+Convention carries the distinction instead. That is the decision: no machine
+account and no app installation.
+
+Two credential paths reach GitHub from a cloud session, and both resolved to
+`desertthunder` when checked on 2026-09-19.
+
+| Path                       | Checked with |
+| -------------------------- | ------------ |
+| GitHub MCP tools           | `get_me`     |
+| `GH_TOKEN`, `GITHUB_TOKEN` | `GET /user`  |
+
+Only the second path is configurable. The container environment sets those two
+variables, so an environment holding a machine user's fine-grained PAT would
+move REST writes to that account. The MCP server is remote, reached over
+streamable HTTP, and authorized as the account connected at
+`claude.ai/connect-github`. A remote server does not read the container's
+environment, so the same PAT leaves pull requests and comments authored by the
+owner.
+
+A half migration costs more than none, because a reader then has to know which
+surface produced a write before its author name says anything. Moving both
+paths means reconnecting the connector as the machine user, which re-identifies
+a human's own interactive sessions with it.
+
+Two conventions stand in for an account a query could filter on:
+
+- A review comment ends with a signature naming the model and reasoning level,
+  under [Review sequence](#review-sequence).
+- A commit is authored as `Claude <noreply@anthropic.com>` and carries a
+  `Claude-Session` trailer, under the `commits-and-prs` skill's Attribution.
+
+Neither is queryable, and that is what the decision gives up. Activity feeds,
+`author:` filters, and branch protection rules all see the owner, so telling an
+agent's writes from a human's means reading them. Reopen this if GitHub
+attribution has to decide something a human reading the thread cannot settle.
+The same goes for a cloud session gaining a way to point its MCP auth at an app
+installation.
 
 ## Statuses
 
