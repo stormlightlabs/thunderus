@@ -398,6 +398,39 @@ check(
     f"exit={bare.returncode} stderr={bare.stderr.strip()[:120]}",
 )
 
+# A plan a milestone tracks names it, so either side of the link is reachable
+# from the other. The value is optional and checked only when present.
+MS = "https://github.com/stormlightlabs/thunderus/milestone/1"
+
+
+def with_milestone(value: str) -> str:
+    return (
+        f"---\nname: tracked\nlast_updated: 2026-09-17\n"
+        f"id: {GOOD}\nmilestone: {value}\n---\n\n# Body\n"
+    )
+
+
+ok_ms = run({"internal/tracked.md": with_milestone(MS)})
+check(
+    "a milestone URL passes",
+    ok_ms.returncode == 0,
+    f"exit={ok_ms.returncode} err={ok_ms.stderr.strip()[:110]}",
+)
+
+bad_ms = run({"internal/tracked.md": with_milestone("UI Polish")})
+check(
+    "a milestone that is not a URL is rejected",
+    bad_ms.returncode != 0 and "milestone" in bad_ms.stderr,
+    f"exit={bad_ms.returncode} err={bad_ms.stderr.strip()[:110]}",
+)
+
+no_ms = run({"internal/tracked.md": block("tracked")})
+check(
+    "a document with no milestone still passes",
+    no_ms.returncode == 0,
+    f"exit={no_ms.returncode} err={no_ms.stderr.strip()[:110]}",
+)
+
 print()
 if failures:
     print(f"{len(failures)} failed: {', '.join(failures)}")

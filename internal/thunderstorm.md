@@ -26,10 +26,11 @@ Five is the cap because a run holds every sub-issue it dispatches in one
 context. Eleven spends that context on work the dispatcher has not started,
 which is how a run loses track of the one it is on.
 
-Above that sits the epic, which a run never takes. It groups issues and holds
-what none of them can see from inside: a blocker between two, an ordering
-across them, a file both write. Splitting for the cap is what makes an epic
-worth filing, because the two halves still share those.
+Above that sits the milestone, which is not an issue. It groups issues and
+holds what none of them can see from inside: a blocker between two, an ordering
+across them, a file both write. Splitting for the cap is what makes one worth
+opening, because the two halves still share those. A milestone cannot be
+dispatched by mistake, so no rule is needed saying not to.
 
 Run state lives in the issues, so a run survives a killed session and any
 harness can resume it.
@@ -108,12 +109,11 @@ Status is a label. One status label per issue.
 for more than 7 days surfaces in the next `/triage` report. Nothing closes
 automatically.
 
-Neither an epic nor an issue with sub-issues carries a status or a risk.
-Neither is work, so there is nothing to claim and no blast radius to size, and
+An issue with sub-issues carries no status and no risk. It is not work, so there is nothing to claim and no blast radius to size, and
 duplicating a child's state on a parent gives that copy somewhere to drift.
 
-The full label set, including `area:*`, `risk:*`, `type:*`, and `kind:epic`
-for the containers that group them, lives in `.github/labels.yml`. Its `retired:`
+The full label set — `status:*`, `blocked:*`, `type:*`, `area:*`, `risk:*` —
+lives in `.github/labels.yml`. There is no `kind:`: grouping is a milestone. Its `retired:`
 group names labels this repository has stopped defining, which the sync
 deletes: a rename that only adds the new name leaves the old one in the picker,
 teaching the next contributor a rule that no longer holds. Apply it with
@@ -127,7 +127,7 @@ nothing.
 ```text
 /r-d            an idea            internal/ideas/
 [/spec-ify]     a design           internal/features/<name>/plan.md
-/decomp         issues of up to five sub-issues, in an epic if several
+/decomp         issues of up to five sub-issues, in a milestone if several
 [/triage]       which of them to dispatch next, and what runs at once
 /storm          one run over one of those issues, dispatching the stages below
 /impl           a pull request
@@ -145,7 +145,7 @@ stage that files issues. `github-board` performs those writes but decides
 nothing about what to write.
 
 A run is what carries a sub-issue from queued to merged: `/storm` claims each
-one and dispatches the stages under it. An epic is never a run's argument. One issue worked on its own skips the
+one and dispatches the stages under it. One issue worked on its own skips the
 run and starts at `/impl`.
 
 ## Commands
@@ -154,7 +154,7 @@ run and starts at `/impl`.
 | ----------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
 | `/r-d`, `/rubber-duck`  | A topic                   | Design discussion. Writes an entry to `internal/ideas/` on request.                |
 | `/spec-ify`, `/specify` | An idea or topic          | One design to `internal/features/<name>/plan.md`. Only when a decision is missing. |
-| `/decomp`, `/decompose` | An idea, spec, or finding | Files the issues a run can take, their sub-issues, and an epic if several.         |
+| `/decomp`, `/decompose` | An idea, spec, or finding | Files the issues a run can take, their sub-issues, and a milestone if several.     |
 | `/triage`               | Thread count or a scope   | Ranks the board and lays the top of it into lanes. Writes nothing.                 |
 | `/storm`, `/thunderstorm` | Issue number, then `one` | One run over that issue. Claims each sub-issue, dispatches it, and reports. |
 | `/impl`, `/implement`   | Issue number              | Claims the issue, works it on an `agent/` branch, opens a pull request.            |
@@ -184,8 +184,8 @@ under no parent is never reached by a run, because a run dispatches an issue's
 children; #86 covers the ones outstanding and #87 decides whether the state is
 legal at all.
 
-What crosses two issues is no longer that case: it belongs in the epic above
-them, which both runs read.
+What crosses two issues is no longer that case: it belongs in their
+milestone's description, which both runs read.
 
 The ranked list goes to chat and is derived again the next time it is asked
 for. It is not a document, for the reason under [File
@@ -305,6 +305,15 @@ id: <ULID>
 
 Generate the identifier with `.claude/scripts/ulid.py`. The identifier never
 changes once assigned. Update `last_updated` when the content changes.
+
+A plan under `internal/features/` that a milestone tracks names it as well:
+
+```yaml
+milestone: https://github.com/stormlightlabs/thunderus/milestone/1
+```
+
+The key is optional and checked for shape when present, so a reader of the
+document reaches the work and a reader of the milestone reaches the reasoning.
 
 `.claude/scripts/check-frontmatter.py` checks the whole tree and runs in CI,
 where `--since` also compares each identifier against the pull request's base

@@ -2,6 +2,7 @@
 name: transcript
 last_updated: 2026-09-17
 id: 01M2RP8M7WPM6D6SMA4TF6ZHKW
+milestone: https://github.com/stormlightlabs/thunderus/milestone/1
 ---
 
 # Transcript

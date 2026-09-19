@@ -42,6 +42,9 @@ from pathlib import Path
 
 FENCE = "---"
 REQUIRED = ("name", "last_updated", "id")
+# Optional. A plan that a milestone tracks names it, so a reader of the
+# document reaches the work and a reader of the milestone reaches the reasoning.
+MILESTONE = re.compile(r"^https://github\.com/[\w.-]+/[\w.-]+/milestone/\d+$")
 FIELD = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -258,6 +261,13 @@ def _check_values(fields: dict[str, str]) -> list[str]:
     identifier = fields.get("id")
     if identifier and not ULID.match(identifier):
         problems.append(f"id is {identifier!r}, expected a 26-character ULID")
+
+    milestone = fields.get("milestone")
+    if milestone and not MILESTONE.match(milestone):
+        problems.append(
+            f"milestone is {milestone!r}, expected a milestone URL such as "
+            "https://github.com/owner/repo/milestone/1"
+        )
 
     return problems
 

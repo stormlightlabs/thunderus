@@ -8,9 +8,9 @@ description: Run one thunderstorm loop over an issue and its sub-issues. Dispatc
 One run covers one issue and the sub-issues declared under it. A human starts
 every run. Nothing here runs on a schedule.
 
-An epic is not that issue. It groups several of them and holds what crosses
-them, and a run over one would load every sibling's work into a context that
-dispatches none of it. Dispatch the issues under an epic, one run each.
+A milestone is not that issue. It groups several of them and holds what
+crosses them, and it is not an issue at all, so there is nothing there to
+dispatch. Take the issues in a milestone one run each.
 
 This skill dispatches and reports. It writes no code and edits no files; the
 one thing it does in the checkout is create and remove the worktrees it hands
@@ -34,9 +34,6 @@ Through MCP: `issue_read` method `get`, then method `get_sub_issues`.
 Stop and ask when any of these is true:
 
 - It declares no sub-issues. It is a unit of work; use `/impl` instead.
-- It carries `kind:epic`. It is a container; run the issues under it instead,
-  one at a time, and read its body first for the ordering and the file
-  collisions that only it records.
 - It has more than five open sub-issues. Split it through `/decomp` first: a
   run holds every sub-issue it dispatches in one context, and past five that
   context is spent on work not yet started.
@@ -58,8 +55,8 @@ Read each sub-issue's `blocked_by` before claiming it, through the
 open is not claimable, whatever its status label says, and dispatching one
 anyway produces a worker with nothing to build on. Independent in the dependency
 graph is not the same as safe to run at once: check the file ownership this
-issue records, and its epic's body for what crosses to a sibling, before taking
-two at a time.
+issue records, and its milestone's description for what crosses to a sibling,
+before taking two at a time.
 
 Every implementer you dispatch gets its own worktree, on either host, and you
 create it before dispatching rather than leaving the subagent to. Two of them
@@ -134,8 +131,7 @@ Report the reason and what remains. Do not open new work to keep a run alive.
 A worker that finds adjacent work files a new issue beside this one and does
 not start it. Self-expanding scope is how a run stops being one.
 
-The `Not in this issue` section is binding, and so is the epic's where there is
-one. Work named there gets
+The `Not in this issue` section is binding, and so is the milestone's. Work named there gets
 filed, never absorbed.
 
 ## Do not

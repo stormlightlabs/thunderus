@@ -23,8 +23,8 @@ Through MCP: `issue_read` method `get`, then method `get_sub_issues`.
 Stop and ask when any of these is true:
 
 - The issue has no acceptance criteria you could verify.
-- The issue has sub-issues. It is an epic or a run unit rather than a unit of
-  work; run it with `/storm`, or work its sub-issues one at a time.
+- The issue has sub-issues. It is what `/storm` takes rather than a unit of
+  work; run it, or work its sub-issues one at a time.
 - The issue is already `claimed` by someone else.
 - The work needs a decision the issue does not record.
 
