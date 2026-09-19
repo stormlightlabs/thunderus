@@ -48,9 +48,12 @@ calls for more ACP work.
 The clients are editors. Claude Code and Codex are each reachable as an ACP
 *agent* through an adapter, which is the direction `thndrs` already consumes
 through `model = "acp:<name>"`; `usage/acp.md` configures `codex-acp` that way.
-Pi and opencode are assumed to sit on the same side of the protocol, but that
-was not verified and nothing here should rest on it. So `acp serve` buys Zed,
-not those four.
+Pi is not on that side, which `remote-operation.md`
+(`01M2VZFXVCF6XSDF3PWMQYTWHT`) records from the installed package: its machine
+interface is `pi --mode rpc`, a line-delimited JSON protocol of its own over
+stdio, so `model = "acp:pi"` reaches nothing. opencode was assumed to sit beside
+it and that is still unverified. So `acp serve` buys Zed, not those four, and
+driving Pi is a subprocess rather than an ACP session.
 
 ### The interop target is both directions, in that order
 
@@ -101,7 +104,10 @@ to equal the parent directory, and Mire ships `name: mire-review` in `mire/`.
 The failure is fatal rather than advisory: the discovery test asserts the
 inventory is empty on a mismatch. The same rule rejects at least one
 Anthropic-shipped skill, so it is stricter than the ecosystem it is trying to be
-compatible with.
+compatible with. Pi reached the same conclusion from the other side: it
+implements the Agent Skills standard but allows a name to differ from its
+parent directory, and its documentation gives the reason as that rule being
+"suboptimal for shared skill directories used across multiple agent harnesses".
 
 Relaxing that rule is the whole integration. Mire owns the review artifact,
 anchoring, refresh, and human disposition; `thndrs` owns the reviewer. The
