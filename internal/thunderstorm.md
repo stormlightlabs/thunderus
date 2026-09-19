@@ -65,30 +65,25 @@ already has all of this.
 
 ### Identity
 
-Every GitHub write from a cloud session is authored by the repository owner.
-Convention carries the distinction instead. That is the decision: no machine
-account and no app installation.
+Every GitHub write from a cloud session is authored by the human whose account
+the session runs under. Nothing separates an agent's pull requests and comments
+from that person's own. Convention carries that distinction instead. That is the
+decision: no machine account and no app installation.
 
-Two credential paths reach GitHub from a cloud session, and both resolved to
-`desertthunder` when checked on 2026-09-19.
+No credential inside a session decides this, which is the reason. The container
+holds `GH_TOKEN` and `GITHUB_TOKEN` for the REST path that the `github-board`
+skill scopes to dependency edges. Both are a 14-character placeholder. The
+outbound proxy injects the real credential, so `GET /user` returns the same
+login given a bogus token or no header at all. The MCP tools carry their own
+authorization, from the account connected at `claude.ai/connect-github`, which
+the environment does not set either.
 
-| Path                       | Checked with |
-| -------------------------- | ------------ |
-| GitHub MCP tools           | `get_me`     |
-| `GH_TOKEN`, `GITHUB_TOKEN` | `GET /user`  |
-
-Only the second path is configurable. The container environment sets those two
-variables, so an environment holding a machine user's fine-grained PAT would
-move REST writes to that account. The MCP server is remote, reached over
-streamable HTTP, and authorized as the account connected at
-`claude.ai/connect-github`. A remote server does not read the container's
-environment, so the same PAT leaves pull requests and comments authored by the
-owner.
-
-A half migration costs more than none, because a reader then has to know which
-surface produced a write before its author name says anything. Moving both
-paths means reconnecting the connector as the machine user, which re-identifies
-a human's own interactive sessions with it.
+A machine user's fine-grained PAT placed in the environment therefore changes
+nothing. A probe run after placing it there reports the unchanged login, which
+reads as a working check. Moving identity is one action: reconnecting the
+connector as the machine user. That is what makes it costly, because the same
+connector authorizes a human's own interactive sessions, which would post as
+the machine user with it.
 
 Two conventions stand in for an account a query could filter on:
 
@@ -98,11 +93,19 @@ Two conventions stand in for an account a query could filter on:
   `Claude-Session` trailer, under the `commits-and-prs` skill's Attribution.
 
 Neither is queryable, and that is what the decision gives up. Activity feeds,
-`author:` filters, and branch protection rules all see the owner, so telling an
-agent's writes from a human's means reading them. Reopen this if GitHub
-attribution has to decide something a human reading the thread cannot settle.
-The same goes for a cloud session gaining a way to point its MCP auth at an app
-installation.
+`author:` filters, and branch protection rules all see `desertthunder`, so
+telling an agent's writes from a human's means reading them. Reopen this if
+GitHub attribution has to decide something a human reading the thread cannot
+settle. The same goes for a cloud session gaining a way to point its MCP auth
+at an app installation.
+
+Checked on 2026-09-19. `get_me` and `GET /user` both return `desertthunder`.
+`GET /user` returns it with a bogus bearer too, which is what shows the
+environment is not the credential.
+
+The MCP side is inferred rather than observed. `USE_SHTTP_MCP=true` and the
+proxy's bypass for `mcp-proxy.anthropic.com` show the tools reach a remote
+server. What authorizes that server was not observed from here.
 
 ## Statuses
 
@@ -197,9 +200,10 @@ signature that pass ran under. A first pass leaves its trace in the reply to
 it, which is also what makes the model rule in `internal/models.md` checkable
 after the fact.
 
-Reviews post from whichever account runs them: Claude, Codex, or the
-repository owner. Every comment ends with a signature naming the model and its
-reasoning level, so the record shows which reviewer produced which finding.
+Reviews post from whichever account runs them, and a Claude cloud session runs
+as `desertthunder` under [Identity](#identity). Every comment ends with a
+signature naming the model and its reasoning level, so the record shows which
+reviewer produced which finding.
 
 ```text
 — claude-opus-5 · high
