@@ -176,9 +176,16 @@ hierarchy and nothing writes `blocked_by`. The transport table already assumes a
 cloud session cannot fall back to `gh`, and the current image carries no `gh`
 binary at all, so this is the one board operation that goes to the REST API
 directly.
-It is also the only place this skill reaches past the transport table, and it
-reaches it for dependency relations alone. Everything else still goes through
+It is the only place this skill reaches past the transport table, and it
+reaches it for dependency relations alone. Every board write still goes through
 `gh` or MCP.
+
+Reading is where that stops being the whole story. The `triage` skill reads the
+board through the same REST path, for the dependency and sub-issue counts the
+issue list carries and neither transport exposes. Its
+`references/reading-the-board.md` holds those calls. A read that goes around
+the transport table costs nothing a write would, and the rule above is about
+writes.
 
 A cloud container has `GH_TOKEN` and `GITHUB_TOKEN` in the environment. Use one
 of them; do not print either, and do not pass a token on a command line where it
