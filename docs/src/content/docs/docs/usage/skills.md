@@ -127,13 +127,12 @@ the runtime permission boundary.
 Diagnostics carry a severity. Skills with invalid frontmatter (missing or
 malformed `name`/`description`, bad reference paths, and similar) are skipped
 with an error diagnostic. A `name` that differs from its directory is not
-skipped: the directory decides which skill is discovered, the frontmatter
-`name` is what activates it and appears in the prompt, and the mismatch is
-reported as a warning diagnostic instead. The startup banner and `/skills`
-label the two differently ("Skill skipped" versus "Skill warning") so a
-loaded, activatable skill is never shown the way a dropped one is. Diagnostics
-are shown compactly so users can fix local skill packages without turning
-broken metadata into prompt noise.
+skipped. The frontmatter `name` is what activates the skill and what appears
+in the prompt; the mismatch is reported as a warning diagnostic instead. The
+startup banner and `/skills` label the two differently ("Skill skipped"
+versus "Skill warning") so a loaded, activatable skill is never shown the way
+a dropped one is. Diagnostics are shown compactly so users can fix local
+skill packages without turning broken metadata into prompt noise.
 
 Selection and deduplication key on `name`, since that is the activation key,
 not on the directory. Duplicate names most often arise when compatibility

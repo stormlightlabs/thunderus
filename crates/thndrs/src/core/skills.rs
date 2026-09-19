@@ -582,12 +582,11 @@ fn normalize_reference_path(raw: &str) -> Result<PathBuf, &'static str> {
 
 /// Validates the frontmatter `name`'s shape and flags a directory mismatch.
 ///
-/// Discovery selects a skill by the directory that holds its `SKILL.md`, so a
-/// `name` that differs from that directory is not fatal: it is reported back
-/// as a non-fatal [`SkillDiagnostic`] warning and the frontmatter value is
-/// still used as the skill's display label and activation key. Only
-/// malformed `name` values (length, character set, hyphen placement) reject
-/// the skill outright.
+/// A `name` that differs from the directory holding its `SKILL.md` is not
+/// fatal: it is reported back as a non-fatal [`SkillDiagnostic`] warning, and
+/// the frontmatter value is still used as the skill's display label and
+/// activation key. Only malformed `name` values (length, character set,
+/// hyphen placement) reject the skill outright.
 fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<Option<SkillDiagnostic>, SkillDiagnostic> {
     if name.trim().is_empty() {
         return Err(SkillDiagnostic::new(path, "name must not be empty"));
@@ -614,16 +613,13 @@ fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<Option<Sk
     Ok((name != parent_name).then(|| {
         SkillDiagnostic::warning(
             path,
-            format!(
-                "name {name:?} differs from parent directory {parent_name:?}; \
-                 the directory decides which skill is discovered, and {name:?} is what activates it"
-            ),
+            format!("name {name:?} differs from parent directory {parent_name:?}; activate it as {name:?}"),
         )
     }))
 }
 
 fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
-    let mut skills = Vec::new();
+    let mut skills: Vec<(SkillMetadata, Option<SkillDiagnostic>)> = Vec::new();
     let mut diagnostics = Vec::new();
 
     for root in roots {
@@ -636,7 +632,7 @@ fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
     let mut selected_skills: Vec<SkillMetadata> = Vec::new();
     let mut selected_by_name: HashMap<String, usize> = HashMap::new();
     let mut duplicates: BTreeMap<String, SkillDuplicate> = BTreeMap::new();
-    for skill in skills {
+    for (skill, name_mismatch) in skills {
         if let Some(&selected_index) = selected_by_name.get(&skill.name) {
             let duplicate = duplicates.entry(skill.name.clone()).or_insert_with(|| SkillDuplicate {
                 name: skill.name.clone(),
@@ -647,6 +643,10 @@ fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
             continue;
         }
         selected_by_name.insert(skill.name.clone(), selected_skills.len());
+        // The mismatch warning names the skill as activatable by its
+        // frontmatter `name`; only surface it once dedup has confirmed this
+        // is the copy that name actually resolves to.
+        diagnostics.extend(name_mismatch);
         selected_skills.push(skill);
     }
 
@@ -702,7 +702,8 @@ fn skill_install_suffix(path: &Path) -> Option<PathBuf> {
 }
 
 fn discover_dir(
-    dir: &Path, root: &SkillRoot, depth: usize, skills: &mut Vec<SkillMetadata>, diagnostics: &mut Vec<SkillDiagnostic>,
+    dir: &Path, root: &SkillRoot, depth: usize, skills: &mut Vec<(SkillMetadata, Option<SkillDiagnostic>)>,
+    diagnostics: &mut Vec<SkillDiagnostic>,
 ) {
     if depth > SkillConstants::DiscoveryDepth.into() {
         diagnostics.push(SkillDiagnostic::new(dir, "maximum skill discovery depth reached"));
@@ -712,10 +713,10 @@ fn discover_dir(
     let skill_file = dir.join("SKILL.md");
     if skill_file.is_file() {
         match load_metadata(&skill_file, root) {
-            Ok((skill, warning)) => {
-                diagnostics.extend(warning);
-                skills.push(skill);
-            }
+            // The name-mismatch warning is deferred to `discover_from_roots`,
+            // which only surfaces it once dedup confirms this copy is the
+            // one its frontmatter `name` actually activates.
+            Ok((skill, warning)) => skills.push((skill, warning)),
             Err(diagnostic) => diagnostics.push(diagnostic),
         }
         return;
@@ -909,12 +910,27 @@ mod tests {
                 .contains("differs from parent directory")
         );
         assert!(
-            inventory.diagnostics[0].message.contains("is what activates it"),
+            inventory.diagnostics[0]
+                .message
+                .contains("activate it as \"mire-review\""),
             "warning should tell the user the name activates the skill, not the directory: {:?}",
             inventory.diagnostics[0].message
         );
+        assert!(
+            !inventory.diagnostics[0].message.contains("directory decides"),
+            "warning must not claim the directory decides which skill is discovered: {:?}",
+            inventory.diagnostics[0].message
+        );
 
-        let loaded = load_skill(&inventory.skills[0]).expect("mismatched skill still activates");
+        // `/skill mire-review` looks the skill up by its frontmatter `name`
+        // (see `accept_skill_suggestion` in `cli/app/input.rs`), not by
+        // directory or inventory position, so the test does the same.
+        let skill = inventory
+            .skills
+            .iter()
+            .find(|skill| skill.name == "mire-review")
+            .expect("mire-review is discoverable by name");
+        let loaded = load_skill(skill).expect("mismatched skill still activates");
         assert_eq!(loaded.activation.name, "mire-review");
     }
 
@@ -967,6 +983,50 @@ mod tests {
                 selected_path: dir.path().join(".agents/skills/mire/SKILL.md"),
                 ignored_paths: vec![dir.path().join(".claude/skills/mire-review/SKILL.md")],
             }]
+        );
+    }
+
+    /// A name-mismatch warning tells the user the frontmatter `name`
+    /// activates the skill. If the mismatched copy loses dedup to another
+    /// skill with the same `name`, that claim is false: activating the name
+    /// loads the *other* copy, not the one the warning was about. The
+    /// warning must not survive for a skill that discovery goes on to
+    /// ignore as a duplicate.
+    #[test]
+    fn mismatch_warning_is_suppressed_for_a_skill_discovery_ignores_as_a_duplicate() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join("user/.agents/skills/mire-review/SKILL.md"),
+            "---\nname: mire-review\ndescription: Reviews changes for scope creep.\n---\n# Mire\n",
+        );
+        write(
+            &dir.path().join("project/.agents/skills/mire/SKILL.md"),
+            "---\nname: mire-review\ndescription: A different mire-review skill.\n---\n# Mire\n",
+        );
+
+        let inventory = discover_from_roots(vec![
+            SkillRoot { path: dir.path().join("user/.agents/skills"), source: SkillSource::User },
+            SkillRoot { path: dir.path().join("project/.agents/skills"), source: SkillSource::Project },
+        ]);
+
+        assert_eq!(inventory.skills.len(), 1);
+        assert_eq!(
+            inventory.skills[0].path,
+            dir.path().join("user/.agents/skills/mire-review/SKILL.md")
+        );
+        assert_eq!(
+            inventory.duplicates,
+            vec![SkillDuplicate {
+                name: "mire-review".to_string(),
+                selected_path: dir.path().join("user/.agents/skills/mire-review/SKILL.md"),
+                ignored_paths: vec![dir.path().join("project/.agents/skills/mire/SKILL.md")],
+            }]
+        );
+        assert!(
+            inventory.diagnostics.is_empty(),
+            "the selected skill's directory matches its name, and the mismatched \
+             copy was ignored as a duplicate, so no mismatch warning should be reported: {:?}",
+            inventory.diagnostics
         );
     }
 

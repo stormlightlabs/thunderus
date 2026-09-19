@@ -1028,6 +1028,34 @@ fn plain_status_entries_render_as_system() {
     );
 }
 
+/// The skill picker pushes a skill-warning diagnostic as a plain
+/// `Entry::Status { text: diagnostic.summary() }` (see `open_skill_picker`
+/// in `cli/app/input.rs`). `status_label_for` recovers the "Skill warning"
+/// label by matching the exact two-space prefix `summary()` emits; render
+/// the real `summary()` output here so a spacing change in `summary()`
+/// fails this test instead of silently relabeling the entry "System".
+#[test]
+fn skill_warning_status_entry_renders_with_skill_warning_label() {
+    let diagnostic = SkillDiagnostic {
+        path: PathBuf::from("/Users/test/.agents/skills/mire/SKILL.md"),
+        message: "name \"mire-review\" differs from parent directory \"mire\"; activate it as \"mire-review\""
+            .to_string(),
+        severity: skills::SkillDiagnosticSeverity::Warning,
+    };
+    let entry = Entry::Status { text: diagnostic.summary() };
+
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(
+        rendered.contains("Skill warning"),
+        "skill diagnostic summary should render with the Skill warning label:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("System"),
+        "a skill warning must not fall through to the generic System label:\n{rendered}"
+    );
+}
+
 #[test]
 fn snapshot_tool_search_results() {
     let entry = Entry::Tool {
