@@ -238,7 +238,7 @@ impl ProcessResult {
 
     /// Build the [`ToolOutput`] corresponding to this process result.
     pub fn to_tool_output(&self) -> ToolOutput {
-        let mut output = match ToolStatus::from(self.status) {
+        let output = match ToolStatus::from(self.status) {
             ToolStatus::Running | ToolStatus::Ok => ToolOutput::ok(NAME, self.to_output_lines()),
             _ => {
                 let mut output = self.to_failed_output();
@@ -248,8 +248,10 @@ impl ProcessResult {
                 output
             }
         };
-        output.process = self.process_metrics();
-        output
+        match self.process_metrics() {
+            Some(metrics) => output.with_process_metrics(metrics),
+            None => output,
+        }
     }
 }
 

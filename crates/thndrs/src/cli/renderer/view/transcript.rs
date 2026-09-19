@@ -255,7 +255,7 @@ fn single_activity_summary(
     if name == "run_shell" {
         let metadata = process.map_or_else(
             || shell_result_metadata_fallback(output),
-            |metrics| ShellResultMetadata::from_metrics(metrics, status),
+            ShellResultMetadata::from_metrics,
         );
         if let Some(duration) = metadata.duration {
             details.push(duration);
@@ -422,12 +422,14 @@ struct ShellResultMetadata {
 impl ShellResultMetadata {
     /// Project the typed outcome of a process-backed tool.
     ///
-    /// An exit code is shown only for a failure, which is what the prose
-    /// carried: a command that succeeded reports `exit 0` to nobody.
-    fn from_metrics(metrics: ProcessMetrics, status: ToolStatus) -> Self {
+    /// A zero exit code is the absence of news and is not shown, which is what
+    /// the prose carried: only a failing command ever printed `exit` into its
+    /// summary line. The code itself decides that, so the projection does not
+    /// depend on a second enum agreeing with it.
+    fn from_metrics(metrics: ProcessMetrics) -> Self {
         Self {
             duration: Some(format_duration(metrics.elapsed_millis())),
-            exit_code: (status == ToolStatus::Failed).then_some(metrics.exit_code).flatten(),
+            exit_code: metrics.exit_code.filter(|code| *code != 0),
         }
     }
 }

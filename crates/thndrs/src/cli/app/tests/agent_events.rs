@@ -999,3 +999,40 @@ fn acp_permission_run_cancel_responds_cancelled() {
     assert!(app.overlay.permission().is_none());
     assert_eq!(app.runtime.run_state, RunState::Idle);
 }
+
+/// The typed outcome has to survive the event, not merely exist on it. The
+/// compiler checks that `ToolFinished` carries a `process`; only a test checks
+/// that the handler passes it on rather than dropping it.
+#[test]
+fn a_finished_shell_tool_leaves_its_typed_outcome_on_the_block() {
+    let mut app = fresh_app();
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolStarted {
+            id: String::from("toolu_shell"),
+            name: String::from("run_shell"),
+            arguments: String::from(r#"{"argv":["cargo","test"]}"#),
+        }),
+    );
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolFinished {
+            id: String::from("toolu_shell"),
+            output: vec!["$ cargo test [one-shot failed exit 101 4800ms]".to_string()],
+            status: ToolStatus::Failed,
+            write_result: None,
+            shell_result: None,
+            process: Some(ProcessMetrics::new(Some(101), std::time::Duration::from_millis(4_800))),
+        }),
+    );
+
+    let process = app
+        .transcript
+        .entries
+        .blocks()
+        .find_map(|block| block.process())
+        .expect("the finished shell block should carry its typed outcome");
+
+    assert_eq!(process.exit_code, Some(101));
+    assert_eq!(process.elapsed_millis(), 4_800);
+}

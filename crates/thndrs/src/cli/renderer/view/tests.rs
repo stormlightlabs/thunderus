@@ -582,6 +582,11 @@ fn semantic_write_patch_summary_uses_nested_argument_path() {
 /// bare entry, so the typed outcome reaches the block metadata the renderer
 /// reads.
 fn rendered_shell_activity(summary: &str, process: Option<ProcessMetrics>) -> String {
+    rendered_shell_status(summary, process, ToolStatus::Failed)
+}
+
+/// Render the same call with a chosen lifecycle status.
+fn rendered_shell_status(summary: &str, process: Option<ProcessMetrics>, status: ToolStatus) -> String {
     let mut app = test_app();
     app.transcript
         .entries
@@ -595,7 +600,7 @@ fn rendered_shell_activity(summary: &str, process: Option<ProcessMetrics>) -> St
         .entries
         .finish_tool(
             "call-1",
-            ToolStatus::Failed,
+            status,
             vec![
                 "error: command failed (exit 101)".to_string(),
                 summary.to_string(),
@@ -639,6 +644,33 @@ fn typed_process_outcome_survives_a_reworded_summary_line() {
         !reworded_prose.contains("4.8s · exit 101"),
         "without typed fields the wording is still what the fallback reads: {reworded_prose}"
     );
+}
+
+/// A zero exit code is the absence of news. The prose never printed one, and
+/// neither does the typed projection, which is the common case for a command.
+#[test]
+fn a_successful_command_reports_its_duration_and_no_exit_code() {
+    let rendered = rendered_shell_status(
+        "$ cargo test renderer [one-shot ok 4800ms]",
+        Some(ProcessMetrics::new(Some(0), std::time::Duration::from_millis(4_800))),
+        ToolStatus::Ok,
+    );
+
+    assert!(rendered.contains("4.8s"), "{rendered}");
+    assert!(!rendered.contains("exit"), "{rendered}");
+}
+
+/// A command killed before it reported a code shows a duration alone.
+#[test]
+fn a_cancelled_command_reports_a_duration_without_an_exit_code() {
+    let rendered = rendered_shell_status(
+        "$ cargo test renderer [one-shot cancelled 1200ms]",
+        Some(ProcessMetrics::new(None, std::time::Duration::from_millis(1_200))),
+        ToolStatus::Cancelled,
+    );
+
+    assert!(rendered.contains("1.2s"), "{rendered}");
+    assert!(!rendered.contains("exit"), "{rendered}");
 }
 
 /// A transcript rebuilt from a session record carries no typed outcome, so the
