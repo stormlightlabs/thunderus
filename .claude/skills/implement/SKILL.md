@@ -106,8 +106,9 @@ A change under `cli/renderer/` or `cli/app/` gets a captured frame:
 cargo build -p thndrs && .claude/scripts/tui-capture.sh <scenario>
 ```
 
-Show the rendered image in your report, and check any claim you make about it
-against the `.ansi` beside it. Two of the first three observations made from one
+Show the rendered image in your report. A capture nobody looks at has checked
+nothing, so put the frame in front of whoever asked before calling the change
+verified, and check any claim you make about it against the `.ansi` beside it. Two of the first three observations made from one
 of these images were wrong about what the application drew.
 `docs/src/content/docs/docs/development/tui-qa.md` carries the rest.
 

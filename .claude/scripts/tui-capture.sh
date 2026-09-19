@@ -43,12 +43,34 @@ if [ ! -x "$binary" ]; then
 fi
 mkdir -p "$out"
 
+# Workaround for issue 105. A session writer removes its lock on Drop, which a
+# killed pane skips, and the lock is an empty file so nothing can tell a dead
+# writer from a live one. Captures kill panes by design, so every run would
+# otherwise poison the next one: 26 locks accumulated here in one afternoon and
+# every resume scenario captured an error frame instead.
+#
+# Safe because this directory is generated scratch under /target. Delete this
+# block once a lock can be checked for liveness.
+fixtures="$root/target/tui-fixtures/sessions"
+if [ -d "$fixtures" ]; then
+  find "$fixtures" -name '*.lock' -delete 2>/dev/null || true
+fi
+
 # Poll until the pane stops changing. A fixed wait passes on an idle laptop and
 # fails under container load, and a capture of a half-drawn frame reads as a
 # layout defect rather than as the timing it is.
 settle() {
-  local target="$1" previous="" current="" stable=0 i
+  local target="$1" previous="" current="" stable=0 i visible
   for i in $(seq 1 100); do
+    visible=$(tmuxc capture-pane -p -t "$target" 2>/dev/null | tr -d '[:space:]' | wc -c)
+    # An empty pane holds still too. Three identical blank frames once passed
+    # for settled and wrote a capture holding one escape character.
+    if [ "$visible" -lt 20 ]; then
+      stable=0
+      previous=""
+      command sleep 0.1
+      continue
+    fi
     current=$(tmuxc capture-pane -p -t "$target" 2>/dev/null | cksum)
     if [ "$current" = "$previous" ]; then
       stable=$((stable + 1))
@@ -110,15 +132,19 @@ capture_one() {
     return 1
   fi
 
-  # Trailing blank rows pad the capture to the pane height. They are not part
-  # of the frame and render as dead space.
+  # -S asks for more history than exists, and tmux answers with blank rows above
+  # the frame; trailing blanks pad it to the pane height below. Neither is
+  # something the application drew, and both render as dead space in an image.
   python3 - "$ansi" <<'PY'
 import re, sys
 path = sys.argv[1]
 lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
 bare = re.compile(r"\x1b\[[0-9;]*m")
-while lines and not bare.sub("", lines[-1]).strip():
+blank = lambda line: not bare.sub("", line).strip()
+while lines and blank(lines[-1]):
     lines.pop()
+while lines and blank(lines[0]):
+    lines.pop(0)
 open(path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
 PY
 
@@ -138,11 +164,17 @@ PY
 wanted="${1:-}"
 found=0
 failed=0
+# Read the whole table first. A command inside a `while read` loop that takes
+# stdin eats the rest of the table, and the run then captures one scenario and
+# reports success.
+rows_read=$(scenarios)
 while IFS=$'\t' read -r name cols rows env args keys; do
+  [ -z "$name" ] && continue
   [ -n "$wanted" ] && [ "$wanted" != "$name" ] && continue
   found=1
-  capture_one "$name" "$cols" "$rows" "$env" "$args" "$keys" || failed=$((failed + 1))
-done < <(scenarios)
+  capture_one "$name" "$cols" "$rows" "$env" "$args" "$keys" < /dev/null \
+    || failed=$((failed + 1))
+done <<< "$rows_read"
 
 if [ "$found" = 0 ]; then
   echo "no scenario named '$wanted'. Run --list for the set." >&2
