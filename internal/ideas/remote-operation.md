@@ -81,7 +81,7 @@ discovery there is not recursive, and `.claude/commands/` is flat.
 Pi has no remote control in the installed build. Its experimental remote
 harness exists, but its own development documentation records that the
 server and client commands are "excluded from npm packages and standalone
-binaries". So Pi is reached through tmux over the tailnet.
+binaries".
 
 ### Pi's machine interface is its own JSONL RPC, not ACP
 
@@ -90,13 +90,19 @@ with commands in and events out. It is not ACP, so `model = "acp:pi"` does not
 reach it. The framing is strict: LF only, and Pi's documentation names Node's
 `readline` as non-compliant because it also splits on U+2028 and U+2029.
 
+### Remote work is Claude only
+
+Codex and Pi keep their roles in `../models.md` and keep running this workflow
+locally. Neither gains a remote surface: Pi's is excluded from its published
+builds, and Codex cloud is another host rather than a way into this machine. A
+run started away from the machine is a Claude Code session, and the shell over
+the tailnet exists to operate the machine rather than to drive another harness.
+
 ### Lndrs gets no worker kind for Pi
 
-Pi is transitional. It runs GPT models until `thndrs` can be dogfooded in those
-roles, and then it leaves the way Codex already has.
 `../features/lndrs/plan.md` (`01M2S3GAM20S0VNJ4A10MBBWR0`) keeps its two worker
-kinds, ACP and a PTY pane, and Pi is driven as a pane or not at all. A third
-kind would be built for a worker already scheduled for removal.
+kinds, ACP and a PTY pane, and Pi is driven as a pane. Its JSONL RPC would be a
+better interface than a pane, and that is not reason enough for a third kind.
 
 ### The reviewer gate is an extension written here
 
@@ -115,10 +121,6 @@ and `pi-mcp-extension` for MCP servers are the two worth reading and pinning;
 subagent packages wait until a run needs dispatch under Pi.
 
 ## Open
-
-Whether `pi-web-ui`, a third-party browser cockpit, is an acceptable second
-remote surface. It would cover from a phone what Remote Control covers for
-Claude. Settled by reading its source, against the key on the same machine.
 
 Whether the reviewer gate's pattern list stays maintainable, or whether a
 container is the honest answer. Settled by counting what the list has to grow to

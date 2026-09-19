@@ -1,6 +1,6 @@
 ---
 name: enmrs
-last_updated: 2026-09-18
+last_updated: 2026-09-19
 id: 01M2VZKCYG893B14P5N7A5JA3V
 ---
 
@@ -16,12 +16,10 @@ the operator's machine and that Claude Code Remote Control is how the operator
 reaches them. That path covers Claude Code sessions, requires a subscription,
 and rejects API keys.
 
-Nothing covers the rest. `thndrs` has no remote surface. Pi has an experimental
-one whose server and client commands are excluded from its published packages
-and standalone binaries. So an operator away from the machine can drive one
-harness out of the three `internal/models.md` assigns roles to, and the two
-review passes that must not share a model with the implementer are the ones left
-behind.
+`thndrs` has none, so remote work depends on a harness this repository did not
+write. Codex and Pi staying local is a settled choice rather than a gap, and
+dogfooding `thndrs` in the roles it can take does not close this one: a `thndrs`
+session away from the machine cannot be reached at all.
 
 ## Decisions
 
