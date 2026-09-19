@@ -119,12 +119,16 @@ accepts one here.
 The Verified badge is a separate matter: it tracks a cryptographic signature,
 not the author address, and signing is out of scope here.
 
-Either commit ends with the trailers the harness supplies:
+Either commit carries whatever trailers the harness supplies:
 
 ```text
 Co-Authored-By: <model> <noreply@anthropic.com>
 Claude-Session: <session url>
 ```
+
+A harness that supplies neither leaves neither, and nothing checks for them, so
+their absence says nothing about who wrote a commit. Only the author field
+answers that.
 
 The session link is the useful half: it is the only way back to the reasoning
 behind a change once the branch is merged. Nothing else in the message names a

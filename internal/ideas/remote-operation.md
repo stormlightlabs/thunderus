@@ -43,11 +43,11 @@ and a narrow installation are what that buys back.
 `claude remote-control` runs a server on the machine and connects
 claude.ai/code or the mobile app to sessions that keep running locally, so
 filesystem access and execution stay on the machine. It serves up to 32
-concurrent sessions, and `--spawn worktree` gives each on-demand session its
-own git worktree, which matches what the `worktree` skill's **Who gets one**
-gives a local session working directly. A sleeping laptop or a dropped network
-reconnects on its own, with messages and permission prompts queued in the
-meantime.
+concurrent sessions by default, and `--spawn worktree` gives each on-demand
+session its own git worktree, which matches what the `worktree` skill's
+**Who gets one** gives a local session working directly. A sleeping laptop or a
+dropped network reconnects on its own, with messages and permission prompts
+queued in the meantime.
 
 It requires a subscription and rejects API keys. Run it under a
 `systemd --user` unit so a reboot does not leave it absent.
@@ -123,40 +123,51 @@ documentation says project trust does not sandbox tool calls, and points at
 containers instead. The set of ways to write a file is open-ended too: `sed -i`,
 `tee`, a redirection, `dd`, `patch`, `git apply`, `install`, `truncate`.
 
-Mount the tree read-only instead and the spelling stops mattering. The `review`
-skill already reads through `git show <commit>:<path>` rather than a checkout,
-so a reviewer never needs to write:
+Mount everything read-only and open holes deliberately. The `review` skill
+already reads through `git show <commit>:<path>` rather than a checkout, so a
+reviewer needs no writable path at all:
 
 ```sh
-bwrap --dev-bind / / --ro-bind "$HOME" "$HOME" \
-      --tmpfs "$HOME/.config/trnds" --chdir "$PWD" -- pi -xt write,edit
+env -u SSH_AUTH_SOCK -u GH_TOKEN -u GITHUB_TOKEN \
+  bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp \
+        --tmpfs /run/user/"$UID" --tmpfs "$HOME/.config" --tmpfs "$HOME/.ssh" \
+        --chdir "$PWD" --unshare-pid -- pi -xt write,edit
 ```
 
-Bind the home directory rather than the checkout. Binding `$PWD` alone leaves
-everything else writable, including the app private key this machine now holds,
-so a reviewer that cannot edit the repository can still replace the credential
-the run writes with. The `--tmpfs` hides the key directory outright, because
-read-only stops a write and not a read.
+A read-only root rather than `--dev-bind / /` with holes cut in it, because the
+second is the denylist this section just rejected, moved to the mount layer. It
+has to name everything a reviewer must not reach, and a name left out is a
+writable path.
 
-Checked on 2026-09-19 under `bubblewrap` 0.11.2: `git show`, `git log`,
-`git diff`, and `git status` all answer; `touch` fails with
-`Read-only file system` in both the checkout and the home directory; and the key
-path is absent. `git fetch` fails too, on `.git/FETCH_HEAD`, so the run fetches
-the branch before it enters the sandbox.
+The credential mounts are what the first attempt at this missed. Read-only alone
+leaves a reviewer authenticated: `gh` reads its token from the keyring under
+`/run/user/$UID`, ssh reads a key from `~/.ssh`, and either one can merge the
+pull request under review. Unsetting `SSH_AUTH_SOCK` is not enough on its own,
+because ssh falls back to the key files.
+
+Checked on 2026-09-19 under `bubblewrap` 0.11.2, running the command above:
+`git log` and `git show` answer, `touch` fails with `Read-only file system`,
+`gh auth status` reports not logged in, `ssh -T git@github.com` fails host key
+verification, and `git push --dry-run` fails on access rights.
 
 Keep blocking `write` and `edit` with `-xt`, and use Pi's `tool_call` event,
-which can block a call by returning `{ block: true, reason }`, to say why. That
-is not the boundary. It is what makes the refusal legible, so a reviewer that
-reaches for an editing tool is told what it is rather than reading a permission
-error.
+which can block a call by returning `{ block: true, reason }`, to say why. The
+mounts are the boundary. The tool denylist makes the refusal legible, so a
+reviewer reaching for an editing tool is told what it is rather than reading a
+permission error.
 
 ## Open
 
-What else the reviewer sandbox has to hide. The `--tmpfs` covers one directory
-because one credential is known to sit there. Anything else a reviewer should
-not read, a shell history or another tool's token, is unenumerated. Settled by
-listing what the home directory holds before the first review pass runs under
-it.
+What else the reviewer sandbox has to hide from reads. The write set is empty by
+default now, so a directory left out leaks a read rather than a write, but the
+`--tmpfs` list still enumerates credentials by hand and covers the two this
+machine is known to hold. Settled by listing what the home directory carries
+before the first review pass runs under it.
+
+Whether Pi runs at all with `$HOME/.config` and the session directory read-only.
+The mounts were checked against `git` and `gh`, not against `pi`, which writes
+sessions under `~/.pi`. Settled by running one review pass and reading what it
+fails on.
 
 ## Sources
 

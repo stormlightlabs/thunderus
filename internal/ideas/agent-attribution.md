@@ -38,9 +38,11 @@ no app installation, with conventions standing in. Its reasoning is scoped to a
 cloud session, where the container's `GH_TOKEN` is a proxy placeholder and the
 MCP tools carry authorization from the account connected at
 `claude.ai/connect-github`, so a credential placed in the environment changes
-nothing. That section names its own reopen condition, and runs moving to the
-operator's machine is one: `gh` there holds a real token, and an installation
-token is a real token.
+nothing. The two reopen conditions that section does name are different ones:
+attribution having to settle what a reader cannot, and a cloud session gaining a
+way to point its MCP authorization at an app. This is a third, and adopting it
+means adding it there: runs move off cloud sessions entirely, so `gh` holds a
+real token and an installation token is a real token.
 
 GitHub does not bill for app bot accounts, and a machine user consumes a
 license. An app's installation access tokens expire after one hour and can be
@@ -98,16 +100,16 @@ keep the workflow they already have.
 
 ### Claims stay on the human assignee
 
-A GitHub App cannot be an issue assignee. GitHub rejects the write, naming the
-bot, and `github-board` defines a claim as a status transition followed by
-`--add-assignee @me` with the claim confirmed only when `assignees` is exactly
-`[me]`.
+A GitHub App cannot be an issue assignee. The assignability endpoint answers 404
+for `github-actions[bot]` and `dependabot[bot]` on this repository and 204 for
+`desertthunder`. `github-board` defines a claim as a status transition followed
+by `--add-assignee @me`, confirmed only when `assignees` is exactly `[me]`.
 
 Nothing here works around that. A claim is run state that the 24-hour rule
 expires, the operator dispatches every run by hand, and one shared identity
 would break the read-back that detects a lost race anyway. Attribution on a
-claim stays wrong, deliberately, and this paragraph is the record of that
-choice.
+claim stays wrong, and this section is where that was chosen rather than
+overlooked.
 
 ### A check holds the pull request author
 
@@ -116,6 +118,10 @@ request author other than the app. The author rule for commits has been written
 down across twenty commits without holding, and `internal/thunderstorm.md`
 already states the order: make it impossible or make it fail loudly, and only
 then write prose.
+
+The check lands after the app, not with this decision. `implement/SKILL.md` runs
+`gh pr create` as the operator today, so a check merged first fails every pull
+request the loop opens, including the one carrying this file.
 
 ### Thunderstorm stays in this repository
 
@@ -134,8 +140,9 @@ can apply to every installed repository from one place.
 ## Open
 
 Whether a squash merge of a pull request opened by an app attributes the merge
-commit to the app's bot identity. The documented rule is that the author comes
-from the submitter, and how that renders for a bot submitter is unverified. If
+commit to the app's bot identity. The rule that the author comes from the
+submitter is inferred from this repository's own merges rather than documented,
+and how it renders for a bot submitter is unverified. If
 it holds, the app closes the problem on its own. Settled by opening one
 throwaway pull request as the app, squashing it, and reading
 `git log --format='%an <%ae>'`.
@@ -155,16 +162,25 @@ commits.
 
 - `git log` over 401 commits at `52a447b`, for the two author identities and
   the twenty `Claude-Session` trailers.
-- [Git commit author shown when squash merging](https://github.blog/changelog/2022-09-15-git-commit-author-shown-when-squash-merging-a-pull-request/),
-  for the author coming from the pull request submitter.
-- [People who consume a license](https://docs.github.com/en/billing/managing-the-plan-for-your-github-account/about-per-user-pricing),
-  for app bots not consuming one.
+- The twenty agent commits themselves, for a squash taking its author from the
+  pull request submitter. Each carries a `Co-Authored-By` trailer and an author
+  of the person who opened the pull request. The
+  [2022 changelog](https://github.blog/changelog/2022-09-15-git-commit-author-shown-when-squash-merging-a-pull-request/)
+  shows the author being chosen at merge time but does not state the rule, so
+  the rule is inferred from the commits rather than documented.
+- [About per-user pricing](https://docs.github.com/en/billing/managing-the-plan-for-your-github-account/about-per-user-pricing),
+  for who consumes a license. It enumerates members, outside collaborators, and
+  pending invitations, and does not name app bots either way, so their exclusion
+  is inferred from that list rather than stated.
 - [Authenticating as a GitHub App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation),
   for the one-hour token, the repository and permission scoping, and a webhook
   server being optional.
-- [Assigning an agent from a workflow](https://github.com/orgs/community/discussions/186820),
-  for GitHub refusing a bot as an assignee. A community thread quoting the
-  validation error, not reference documentation.
+- `gh api repos/stormlightlabs/thunderus/assignees/<name>` run on 2026-09-19,
+  for bots not being assignable here: 404 for `github-actions[bot]` and
+  `dependabot[bot]`, 204 for `desertthunder`. The 404 does not distinguish an
+  unassignable account from an unknown one, and
+  [the assignees API](https://docs.github.com/en/rest/issues/assignees) does not
+  address bot accounts at all.
 - [Configure cloud environments](https://code.claude.com/docs/en/cloud-environments),
   read 2026-09-18, for the environment variable warning, API credentials
   excluding GitHub, the GitHub proxy, and the pinned GraphQL operation set.
