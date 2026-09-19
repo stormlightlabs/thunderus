@@ -937,13 +937,24 @@ impl App {
                 .map(|diagnostic| super::path_display::transcript_line(&diagnostic.summary(), &self.runtime.cwd)),
         );
         diagnostics.extend(self.transcript.skill_diagnostics.iter().map(|diagnostic| {
+            // `to_string_lossy` rather than `to_str` so a non-UTF-8 directory
+            // name still names itself (with replacement characters) in the
+            // rendered banner line, matching `load_metadata` in
+            // `core/skills.rs` instead of falling back to "unknown".
             let name = diagnostic
                 .path
                 .parent()
                 .and_then(std::path::Path::file_name)
-                .and_then(std::ffi::OsStr::to_str)
-                .unwrap_or("unknown");
-            format!("Skill skipped ({name}): {}", diagnostic.message)
+                .map(std::ffi::OsStr::to_string_lossy)
+                .unwrap_or_else(|| std::borrow::Cow::Borrowed("unknown"));
+            match diagnostic.severity {
+                crate::skills::SkillDiagnosticSeverity::Error => {
+                    format!("Skill skipped ({name}): {}", diagnostic.message)
+                }
+                crate::skills::SkillDiagnosticSeverity::Warning => {
+                    format!("Skill warning ({name}): {}", diagnostic.message)
+                }
+            }
         }));
 
         let mut rows = Vec::new();
@@ -1769,6 +1780,8 @@ fn status_label_for(text: &str) -> &'static str {
         "Session log"
     } else if text.starts_with("provider:") || text.starts_with("tool budget:") {
         "Diagnostic"
+    } else if text.starts_with("skill diagnostic  warning") {
+        "Skill warning"
     } else if text.starts_with("queued ") {
         "Queued"
     } else if text.starts_with("queue target:") {

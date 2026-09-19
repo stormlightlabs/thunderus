@@ -76,11 +76,31 @@ pub enum SkillSource {
 }
 
 impl SkillSource {
+    /// Human-readable label for the discovery root this skill came from.
     pub fn label(self) -> &'static str {
         match self {
             SkillSource::User => "user",
             SkillSource::Project => "project",
             SkillSource::Configured => "configured",
+        }
+    }
+}
+
+/// Severity of a [`SkillDiagnostic`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum SkillDiagnosticSeverity {
+    /// The skill still loaded and is activatable; the diagnostic is advisory.
+    Warning,
+    /// The skill was not loaded.
+    Error,
+}
+
+impl SkillDiagnosticSeverity {
+    /// Human-readable label for this severity, used in rendered diagnostics.
+    pub fn label(self) -> &'static str {
+        match self {
+            SkillDiagnosticSeverity::Warning => "warning",
+            SkillDiagnosticSeverity::Error => "error",
         }
     }
 }
@@ -121,15 +141,29 @@ pub struct SkillMetadata {
 pub struct SkillDiagnostic {
     pub path: PathBuf,
     pub message: String,
+    /// Whether the skill still loaded ([`SkillDiagnosticSeverity::Warning`])
+    /// or was dropped ([`SkillDiagnosticSeverity::Error`]).
+    pub severity: SkillDiagnosticSeverity,
 }
 
 impl SkillDiagnostic {
+    /// A diagnostic for a skill that was not loaded.
     fn new(path: impl Into<PathBuf>, message: impl Into<String>) -> Self {
-        Self { path: path.into(), message: message.into() }
+        Self { path: path.into(), message: message.into(), severity: SkillDiagnosticSeverity::Error }
+    }
+
+    /// A diagnostic for a skill that loaded despite the issue described.
+    fn warning(path: impl Into<PathBuf>, message: impl Into<String>) -> Self {
+        Self { path: path.into(), message: message.into(), severity: SkillDiagnosticSeverity::Warning }
     }
 
     pub fn summary(&self) -> String {
-        format!("skill diagnostic  {}: {}", self.path.display(), self.message)
+        format!(
+            "skill diagnostic  {}  {}: {}",
+            self.severity.label(),
+            self.path.display(),
+            self.message
+        )
     }
 }
 
@@ -432,16 +466,19 @@ fn should_skip_dir(name: &str) -> bool {
     name.starts_with('.') || matches!(name, "node_modules" | "target" | "dist" | "build")
 }
 
-fn load_metadata(path: &Path, root: &SkillRoot) -> Result<SkillMetadata, SkillDiagnostic> {
+fn load_metadata(path: &Path, root: &SkillRoot) -> Result<(SkillMetadata, Option<SkillDiagnostic>), SkillDiagnostic> {
     let raw = fs::read_to_string(path)
         .map_err(|err| SkillDiagnostic::new(path, format!("failed to read SKILL.md: {err}")))?;
     let byte_count = raw.len();
     let content_hash = tools::hash_content(&raw);
     let frontmatter = parse_frontmatter(&raw).map_err(|message| SkillDiagnostic::new(path, message))?;
+    // `to_string_lossy` rather than `to_str` so a non-UTF-8 directory name
+    // still names itself (with replacement characters) in the mismatch
+    // warning below, instead of silently reading back as `""`.
     let parent_name = path
         .parent()
         .and_then(Path::file_name)
-        .and_then(|name| name.to_str())
+        .map(|name| name.to_string_lossy())
         .unwrap_or_default();
 
     let name = frontmatter
@@ -453,7 +490,7 @@ fn load_metadata(path: &Path, root: &SkillRoot) -> Result<SkillMetadata, SkillDi
         .clone()
         .ok_or_else(|| SkillDiagnostic::new(path, "frontmatter description is required"))?;
 
-    validate_name(path, &name, parent_name)?;
+    let name_mismatch = validate_name(path, &name, parent_name.as_ref())?;
     if description.trim().is_empty() {
         return Err(SkillDiagnostic::new(path, "frontmatter description is required"));
     }
@@ -466,20 +503,23 @@ fn load_metadata(path: &Path, root: &SkillRoot) -> Result<SkillMetadata, SkillDi
     }
     let references = parse_reference_paths(path, frontmatter.references)?;
 
-    Ok(SkillMetadata {
-        name,
-        description,
-        path: path.to_path_buf(),
-        root: path.parent().unwrap_or(path).to_path_buf(),
-        content_hash,
-        byte_count,
-        source: root.source,
-        allowed_tools: frontmatter.allowed_tools.into_vec(),
-        license: frontmatter.license,
-        compatibility: frontmatter.compatibility,
-        metadata: frontmatter.metadata,
-        references,
-    })
+    Ok((
+        SkillMetadata {
+            name,
+            description,
+            path: path.to_path_buf(),
+            root: path.parent().unwrap_or(path).to_path_buf(),
+            content_hash,
+            byte_count,
+            source: root.source,
+            allowed_tools: frontmatter.allowed_tools.into_vec(),
+            license: frontmatter.license,
+            compatibility: frontmatter.compatibility,
+            metadata: frontmatter.metadata,
+            references,
+        },
+        name_mismatch,
+    ))
 }
 
 fn parse_reference_paths(
@@ -545,12 +585,16 @@ fn normalize_reference_path(raw: &str) -> Result<PathBuf, &'static str> {
     Ok(normalized)
 }
 
-fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<(), SkillDiagnostic> {
-    if name != parent_name {
-        return Err(SkillDiagnostic::new(
-            path,
-            format!("name {name:?} must match parent directory {parent_name:?}"),
-        ));
+/// Validates the frontmatter `name`'s shape and flags a directory mismatch.
+///
+/// A `name` that differs from the directory holding its `SKILL.md` is not
+/// fatal: it is reported back as a non-fatal [`SkillDiagnostic`] warning, and
+/// the frontmatter value is still used as the skill's display label and
+/// activation key. Only malformed `name` values (length, character set,
+/// hyphen placement) reject the skill outright.
+fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<Option<SkillDiagnostic>, SkillDiagnostic> {
+    if name.trim().is_empty() {
+        return Err(SkillDiagnostic::new(path, "name must not be empty"));
     }
     if name.len() > SkillConstants::NameLen.into() {
         let l: usize = SkillConstants::NameLen.into();
@@ -571,11 +615,16 @@ fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<(), Skill
             "name must not start or end with a hyphen or contain consecutive hyphens",
         ));
     }
-    Ok(())
+    Ok((name != parent_name).then(|| {
+        SkillDiagnostic::warning(
+            path,
+            format!("name {name:?} differs from parent directory {parent_name:?}; activate it as {name:?}"),
+        )
+    }))
 }
 
 fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
-    let mut skills = Vec::new();
+    let mut skills: Vec<(SkillMetadata, Option<SkillDiagnostic>)> = Vec::new();
     let mut diagnostics = Vec::new();
 
     for root in roots {
@@ -588,7 +637,7 @@ fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
     let mut selected_skills: Vec<SkillMetadata> = Vec::new();
     let mut selected_by_name: HashMap<String, usize> = HashMap::new();
     let mut duplicates: BTreeMap<String, SkillDuplicate> = BTreeMap::new();
-    for skill in skills {
+    for (skill, name_mismatch) in skills {
         if let Some(&selected_index) = selected_by_name.get(&skill.name) {
             let duplicate = duplicates.entry(skill.name.clone()).or_insert_with(|| SkillDuplicate {
                 name: skill.name.clone(),
@@ -599,6 +648,10 @@ fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
             continue;
         }
         selected_by_name.insert(skill.name.clone(), selected_skills.len());
+        // The mismatch warning names the skill as activatable by its
+        // frontmatter `name`; only surface it once dedup has confirmed this
+        // is the copy that name actually resolves to.
+        diagnostics.extend(name_mismatch);
         selected_skills.push(skill);
     }
 
@@ -654,7 +707,8 @@ fn skill_install_suffix(path: &Path) -> Option<PathBuf> {
 }
 
 fn discover_dir(
-    dir: &Path, root: &SkillRoot, depth: usize, skills: &mut Vec<SkillMetadata>, diagnostics: &mut Vec<SkillDiagnostic>,
+    dir: &Path, root: &SkillRoot, depth: usize, skills: &mut Vec<(SkillMetadata, Option<SkillDiagnostic>)>,
+    diagnostics: &mut Vec<SkillDiagnostic>,
 ) {
     if depth > SkillConstants::DiscoveryDepth.into() {
         diagnostics.push(SkillDiagnostic::new(dir, "maximum skill discovery depth reached"));
@@ -664,7 +718,10 @@ fn discover_dir(
     let skill_file = dir.join("SKILL.md");
     if skill_file.is_file() {
         match load_metadata(&skill_file, root) {
-            Ok(skill) => skills.push(skill),
+            // The name-mismatch warning is deferred to `discover_from_roots`,
+            // which only surfaces it once dedup confirms this copy is the
+            // one its frontmatter `name` actually activates.
+            Ok((skill, warning)) => skills.push((skill, warning)),
             Err(diagnostic) => diagnostics.push(diagnostic),
         }
         return;
@@ -806,7 +863,7 @@ mod tests {
         for root in [".claude/skills", ".codex/skills"] {
             write(
                 &dir.path().join(root).join("skill-deslop/SKILL.md"),
-                "---\nname: deslop\ndescription: Helps.\n---\n# Skill\n",
+                "---\nname: Deslop!\ndescription: Helps.\n---\n# Skill\n",
             );
         }
 
@@ -817,11 +874,270 @@ mod tests {
 
         assert!(inventory.skills.is_empty());
         assert_eq!(inventory.diagnostics.len(), 1);
-        assert!(inventory.diagnostics[0].message.contains("must match parent directory"));
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("must contain only lowercase letters, numbers, and hyphens")
+        );
         assert!(
             inventory.diagnostics[0]
                 .message
                 .contains("also found in 1 other skill root")
+        );
+    }
+
+    /// Reproduces the shape of `stormlightlabs/mire`'s bundled skill: the
+    /// frontmatter `name` (`mire-review`) differs from the directory that
+    /// holds it (`mire`).
+    #[test]
+    fn skill_with_name_differing_from_directory_loads_with_a_warning() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join(".agents/skills/mire/SKILL.md"),
+            "---\nname: mire-review\ndescription: Reviews changes for scope creep.\n---\n# Mire\n",
+        );
+
+        let inventory = discover_only(&dir.path().join(".agents/skills"));
+
+        assert_eq!(inventory.skills.len(), 1);
+        assert_eq!(inventory.skills[0].name, "mire-review");
+        assert_eq!(
+            inventory.skills[0].path,
+            dir.path().join(".agents/skills/mire/SKILL.md")
+        );
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Warning);
+        assert!(inventory.diagnostics[0].message.contains("\"mire-review\""));
+        assert!(inventory.diagnostics[0].message.contains("\"mire\""));
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("differs from parent directory")
+        );
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("activate it as \"mire-review\""),
+            "warning should tell the user the name activates the skill, not the directory: {:?}",
+            inventory.diagnostics[0].message
+        );
+        assert!(
+            !inventory.diagnostics[0].message.contains("directory decides"),
+            "warning must not claim the directory decides which skill is discovered: {:?}",
+            inventory.diagnostics[0].message
+        );
+
+        // `/skill mire-review` looks the skill up by its frontmatter `name`
+        // (see `accept_skill_suggestion` in `cli/app/input.rs`), not by
+        // directory or inventory position, so the test does the same.
+        let skill = inventory
+            .skills
+            .iter()
+            .find(|skill| skill.name == "mire-review")
+            .expect("mire-review is discoverable by name");
+        let loaded = load_skill(skill).expect("mismatched skill still activates");
+        assert_eq!(loaded.activation.name, "mire-review");
+    }
+
+    /// A directory name that is not valid UTF-8 still names itself, lossily,
+    /// in the mismatch warning, rather than reading back as `""`.
+    #[cfg(unix)]
+    #[test]
+    fn skill_with_non_utf8_parent_directory_names_itself_lossily_in_the_warning() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let skills_root = dir.path().join(".thndrs/skills");
+        // 0x66 0x6f 0x80 0x6f is "fo\x80o", where 0x80 alone is not valid UTF-8.
+        let bad_dir_name = OsStr::from_bytes(b"fo\x80o");
+        let bad_dir = skills_root.join(bad_dir_name);
+        fs::create_dir_all(&bad_dir).expect("create non-utf8-named dir");
+        fs::write(
+            bad_dir.join("SKILL.md"),
+            "---\nname: mire-review\ndescription: Reviews changes for scope creep.\n---\n# Mire\n",
+        )
+        .expect("write SKILL.md");
+
+        let inventory = discover_only(&skills_root);
+
+        assert_eq!(inventory.skills.len(), 1);
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Warning);
+        assert!(
+            !inventory.diagnostics[0].message.contains("parent directory \"\""),
+            "a non-UTF-8 directory name must not read back as empty: {:?}",
+            inventory.diagnostics[0].message
+        );
+        assert!(
+            inventory.diagnostics[0].message.contains('\u{FFFD}'),
+            "the lossy rendering should show a replacement character for the invalid byte: {:?}",
+            inventory.diagnostics[0].message
+        );
+    }
+
+    #[test]
+    fn skill_with_empty_name_is_rejected() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join(".thndrs/skills/blank/SKILL.md"),
+            "---\nname: \"\"\ndescription: Helps.\n---\n# Skill\n",
+        );
+
+        let inventory = discover_only(&dir.path().join(".thndrs/skills"));
+
+        assert!(inventory.skills.is_empty());
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Error);
+        assert!(inventory.diagnostics[0].message.contains("must not be empty"));
+    }
+
+    #[test]
+    fn skill_with_name_exceeding_64_characters_is_rejected() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let name = "a".repeat(65);
+        write(
+            &dir.path().join(format!(".thndrs/skills/{name}/SKILL.md")),
+            &format!("---\nname: {name}\ndescription: Helps.\n---\n# Skill\n"),
+        );
+
+        let inventory = discover_only(&dir.path().join(".thndrs/skills"));
+
+        assert!(inventory.skills.is_empty());
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Error);
+        assert!(inventory.diagnostics[0].message.contains("exceeds 64 characters"));
+    }
+
+    #[test]
+    fn skill_with_leading_hyphen_in_name_is_rejected() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join(".thndrs/skills/-bad/SKILL.md"),
+            "---\nname: \"-bad\"\ndescription: Helps.\n---\n# Skill\n",
+        );
+
+        let inventory = discover_only(&dir.path().join(".thndrs/skills"));
+
+        assert!(inventory.skills.is_empty());
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Error);
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("must not start or end with a hyphen or contain consecutive hyphens")
+        );
+    }
+
+    #[test]
+    fn skill_with_consecutive_hyphens_in_name_is_rejected() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join(".thndrs/skills/bad--name/SKILL.md"),
+            "---\nname: bad--name\ndescription: Helps.\n---\n# Skill\n",
+        );
+
+        let inventory = discover_only(&dir.path().join(".thndrs/skills"));
+
+        assert!(inventory.skills.is_empty());
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Error);
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("must not start or end with a hyphen or contain consecutive hyphens")
+        );
+    }
+
+    #[test]
+    fn skills_named_alike_from_different_directories_collide_as_duplicates() {
+        // A frontmatter `name` mismatch can make two differently-named
+        // directories resolve to the same skill `name`. Selection still
+        // keys on `name` (the activation key), so this is a duplicate like
+        // any other, resolved deterministically by discovery-root order.
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join(".agents/skills/mire/SKILL.md"),
+            "---\nname: mire-review\ndescription: Reviews changes for scope creep.\n---\n# Mire\n",
+        );
+        write(
+            &dir.path().join(".claude/skills/mire-review/SKILL.md"),
+            "---\nname: mire-review\ndescription: A different mire-review skill.\n---\n# Mire\n",
+        );
+
+        let inventory = discover_from_roots(vec![
+            SkillRoot { path: dir.path().join(".agents/skills"), source: SkillSource::User },
+            SkillRoot { path: dir.path().join(".claude/skills"), source: SkillSource::User },
+        ]);
+
+        assert_eq!(inventory.skills.len(), 1);
+        assert_eq!(
+            inventory.skills[0].path,
+            dir.path().join(".agents/skills/mire/SKILL.md")
+        );
+        assert_eq!(
+            inventory.duplicates,
+            vec![SkillDuplicate {
+                name: "mire-review".to_string(),
+                selected_path: dir.path().join(".agents/skills/mire/SKILL.md"),
+                ignored_paths: vec![dir.path().join(".claude/skills/mire-review/SKILL.md")],
+            }]
+        );
+        // The *winning* copy still has a mismatched name (`mire-review` in a
+        // `mire` directory), so its warning must survive dedup even though
+        // this name has a duplicate. A deferral narrow enough to suppress
+        // the warning for any name with a duplicate — rather than only for
+        // the copy dedup discards — would pass every other assertion in this
+        // file while silently dropping this one.
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Warning);
+        assert_eq!(
+            inventory.diagnostics[0].path,
+            dir.path().join(".agents/skills/mire/SKILL.md")
+        );
+    }
+
+    /// A name-mismatch warning tells the user the frontmatter `name`
+    /// activates the skill. If the mismatched copy loses dedup to another
+    /// skill with the same `name`, that claim is false: activating the name
+    /// loads the *other* copy, not the one the warning was about. The
+    /// warning must not survive for a skill that discovery goes on to
+    /// ignore as a duplicate.
+    #[test]
+    fn mismatch_warning_is_suppressed_for_a_skill_discovery_ignores_as_a_duplicate() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join("user/.agents/skills/mire-review/SKILL.md"),
+            "---\nname: mire-review\ndescription: Reviews changes for scope creep.\n---\n# Mire\n",
+        );
+        write(
+            &dir.path().join("project/.agents/skills/mire/SKILL.md"),
+            "---\nname: mire-review\ndescription: A different mire-review skill.\n---\n# Mire\n",
+        );
+
+        let inventory = discover_from_roots(vec![
+            SkillRoot { path: dir.path().join("user/.agents/skills"), source: SkillSource::User },
+            SkillRoot { path: dir.path().join("project/.agents/skills"), source: SkillSource::Project },
+        ]);
+
+        assert_eq!(inventory.skills.len(), 1);
+        assert_eq!(
+            inventory.skills[0].path,
+            dir.path().join("user/.agents/skills/mire-review/SKILL.md")
+        );
+        assert_eq!(
+            inventory.duplicates,
+            vec![SkillDuplicate {
+                name: "mire-review".to_string(),
+                selected_path: dir.path().join("user/.agents/skills/mire-review/SKILL.md"),
+                ignored_paths: vec![dir.path().join("project/.agents/skills/mire/SKILL.md")],
+            }]
+        );
+        assert!(
+            inventory.diagnostics.is_empty(),
+            "the selected skill's directory matches its name, and the mismatched \
+             copy was ignored as a duplicate, so no mismatch warning should be reported: {:?}",
+            inventory.diagnostics
         );
     }
 

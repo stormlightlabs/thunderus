@@ -1402,7 +1402,11 @@ pub fn open_reasoning_effort_picker(app: &mut App) {
 
 pub fn open_skill_picker(app: &mut App) {
     for diagnostic in &app.transcript.skill_diagnostics {
-        app.transcript.entries.push(Entry::Error { text: diagnostic.summary() });
+        let entry = match diagnostic.severity {
+            skills::SkillDiagnosticSeverity::Error => Entry::Error { text: diagnostic.summary() },
+            skills::SkillDiagnosticSeverity::Warning => Entry::Status { text: diagnostic.summary() },
+        };
+        app.transcript.entries.push(entry);
     }
 
     if app.transcript.skills.is_empty() {

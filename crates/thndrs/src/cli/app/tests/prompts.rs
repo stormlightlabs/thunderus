@@ -176,6 +176,34 @@ fn prompt_template_render_error_preserves_invocation() {
 }
 
 #[test]
+fn skill_picker_reports_warnings_distinctly_from_skipped_skills() {
+    let mut app = fresh_app();
+    app.transcript.skill_diagnostics = vec![
+        skills::SkillDiagnostic {
+            path: std::path::PathBuf::from("/repo/.agents/skills/mire/SKILL.md"),
+            message: "name \"mire-review\" differs from parent directory \"mire\"".to_string(),
+            severity: skills::SkillDiagnosticSeverity::Warning,
+        },
+        skills::SkillDiagnostic {
+            path: std::path::PathBuf::from("/repo/.agents/skills/bad/SKILL.md"),
+            message: "invalid YAML frontmatter".to_string(),
+            severity: skills::SkillDiagnosticSeverity::Error,
+        },
+    ];
+
+    open_skill_picker(&mut app);
+
+    assert!(matches!(
+        app.transcript.entries.first(),
+        Some(Entry::Status { text }) if text.contains("differs from parent directory")
+    ));
+    assert!(matches!(
+        app.transcript.entries.get(1),
+        Some(Entry::Error { text }) if text.contains("invalid YAML frontmatter")
+    ));
+}
+
+#[test]
 fn prompt_template_queues_rendered_followup_while_working() {
     let mut app = working_app_with_streaming();
     app.composer.input = PromptInput::from("/review src/lib.rs");

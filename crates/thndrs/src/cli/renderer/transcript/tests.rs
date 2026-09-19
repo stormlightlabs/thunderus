@@ -824,6 +824,7 @@ fn snapshot_startup_banner_with_context_and_diagnostics() {
     app.transcript.skill_diagnostics = vec![SkillDiagnostic {
         path: std::path::PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
         message: "invalid YAML frontmatter".to_string(),
+        severity: skills::SkillDiagnosticSeverity::Error,
     }];
     assert_snapshot(
         "transcript_startup_banner_with_context_and_diagnostics",
@@ -838,6 +839,7 @@ fn banner_promotes_skill_diagnostics_without_exposing_paths() {
     app.transcript.skill_diagnostics = vec![SkillDiagnostic {
         path: std::path::PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
         message: "invalid YAML frontmatter".to_string(),
+        severity: skills::SkillDiagnosticSeverity::Error,
     }];
 
     let rendered = render_banner_styled(&app, 80);
@@ -845,6 +847,61 @@ fn banner_promotes_skill_diagnostics_without_exposing_paths() {
     assert!(rendered.contains("ATTENTION"));
     assert!(rendered.contains("Skill skipped (bad): invalid YAML frontmatter"));
     assert!(!rendered.contains("/Users/test"));
+}
+
+#[test]
+fn banner_shows_skill_warnings_distinctly_from_skipped_skills() {
+    let _guard = crate::test_env::lock();
+    let mut app = test_app();
+    app.transcript.skill_diagnostics = vec![SkillDiagnostic {
+        path: std::path::PathBuf::from("/Users/test/.agents/skills/mire/SKILL.md"),
+        message: "name \"mire-review\" differs from parent directory \"mire\"".to_string(),
+        severity: skills::SkillDiagnosticSeverity::Warning,
+    }];
+
+    let rendered = render_banner_styled(&app, 80);
+
+    assert!(rendered.contains("ATTENTION"));
+    assert!(
+        rendered.contains("Skill warning (mire): name \"mire-review\" differs from parent directory"),
+        "a loaded skill's warning must not read as skipped:\n{rendered}"
+    );
+    assert!(!rendered.contains("Skill skipped (mire)"));
+    assert!(!rendered.contains("/Users/test"));
+}
+
+/// A non-UTF-8 parent directory name still names itself, lossily, in the
+/// banner's `({name})` prefix, rather than falling back to "unknown" (see
+/// `core::skills::load_metadata`, which uses the same `to_string_lossy`
+/// rendering for the same diagnostic's mismatch message).
+#[cfg(unix)]
+#[test]
+fn banner_names_non_utf8_skill_directory_lossily_instead_of_unknown() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let _guard = crate::test_env::lock();
+    let mut app = test_app();
+    // 0x66 0x6f 0x80 0x6f is "fo\x80o", where 0x80 alone is not valid UTF-8.
+    let bad_dir_name = OsStr::from_bytes(b"fo\x80o");
+    app.transcript.skill_diagnostics = vec![SkillDiagnostic {
+        path: std::path::PathBuf::from("/Users/test/.agents/skills")
+            .join(bad_dir_name)
+            .join("SKILL.md"),
+        message: "name \"mire-review\" differs from parent directory \"fo\u{FFFD}o\"".to_string(),
+        severity: skills::SkillDiagnosticSeverity::Warning,
+    }];
+
+    let rendered = render_banner_styled(&app, 80);
+
+    assert!(
+        !rendered.contains("Skill warning (unknown)"),
+        "a non-UTF-8 directory name must not read back as unknown:\n{rendered}"
+    );
+    assert!(
+        rendered.contains('\u{FFFD}'),
+        "the lossy rendering should show a replacement character for the invalid byte:\n{rendered}"
+    );
 }
 
 #[test]
@@ -901,6 +958,7 @@ fn banner_keeps_skipped_skill_diagnostics_compact() {
     app.transcript.skill_diagnostics = vec![skills::SkillDiagnostic {
         path: home_path.clone(),
         message: "invalid YAML frontmatter: unknown field".to_string(),
+        severity: skills::SkillDiagnosticSeverity::Error,
     }];
 
     let rendered = render_banner_styled(&app, 80);
@@ -1034,6 +1092,34 @@ fn plain_status_entries_render_as_system() {
     assert!(
         !rendered.contains("Notice"),
         "plain status label should not be Notice:\n{rendered}"
+    );
+}
+
+/// The skill picker pushes a skill-warning diagnostic as a plain
+/// `Entry::Status { text: diagnostic.summary() }` (see `open_skill_picker`
+/// in `cli/app/input.rs`). `status_label_for` recovers the "Skill warning"
+/// label by matching the exact two-space prefix `summary()` emits; render
+/// the real `summary()` output here so a spacing change in `summary()`
+/// fails this test instead of silently relabeling the entry "System".
+#[test]
+fn skill_warning_status_entry_renders_with_skill_warning_label() {
+    let diagnostic = SkillDiagnostic {
+        path: PathBuf::from("/Users/test/.agents/skills/mire/SKILL.md"),
+        message: "name \"mire-review\" differs from parent directory \"mire\"; activate it as \"mire-review\""
+            .to_string(),
+        severity: skills::SkillDiagnosticSeverity::Warning,
+    };
+    let entry = Entry::Status { text: diagnostic.summary() };
+
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(
+        rendered.contains("Skill warning"),
+        "skill diagnostic summary should render with the Skill warning label:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("System"),
+        "a skill warning must not fall through to the generic System label:\n{rendered}"
     );
 }
 

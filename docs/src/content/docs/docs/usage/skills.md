@@ -48,9 +48,10 @@ Discovered skills appear in two places:
 - the startup screen, as a compact `[Skills]` list for the user;
 - the model-visible self-knowledge snapshot, as names, sources, and paths.
 
-The regular prompt also includes available skill metadata so the assistant can
-decide when a skill might apply. This follows progressive disclosure: route from
-small metadata first, then read the skill instructions when the task needs them.
+The regular prompt also carries each skill's metadata. The model routes on
+`description`, deciding from that field alone whether a skill fits, before it
+loads any instruction body. That is progressive disclosure: the small field
+first, the instructions once the task needs them.
 
 ## Activate or Read a Skill
 
@@ -76,9 +77,11 @@ Activate or read the skill again if its instructions are needed in the restored 
 
 ## Skill Shape
 
-`SKILL.md` should start with YAML frontmatter. `name` and `description` are the
-important routing fields. The name should be stable and match the skill
-directory. The description should say what the skill does and when to use it.
+`SKILL.md` should start with YAML frontmatter carrying `name` and
+`description`. Keep `name` stable and matching the skill's directory;
+[Diagnostics](#diagnostics) covers a mismatch. In `description`, say what the
+skill does and when to use it; [Prompt Exposure](#prompt-exposure) covers how
+it is read.
 
 Optional frontmatter fields are preserved as metadata when present:
 
@@ -123,10 +126,24 @@ the runtime permission boundary.
 
 ## Diagnostics
 
-Malformed skills are skipped and surfaced as diagnostics. Diagnostics are shown
-compactly so users can fix local skill packages without turning broken metadata
-into prompt noise. Duplicate names are expected when compatibility roots overlap;
-they are resolved silently and listed by `thndrs skills doctor`.
+Diagnostics carry a severity. Invalid frontmatter (a missing or malformed
+`name` or `description`, a bad reference path) skips the skill and reports an
+error. A `name` that differs from its directory reports a warning and loads
+the skill, since `name` is what activates it and what reaches the prompt.
+
+The two read differently wherever they surface. The startup banner writes
+"Skill skipped" or "Skill warning". `/skills` uses the entry kind: a skipped
+skill is an Error entry, a loaded one a Status entry. Diagnostics stay compact
+so a broken local package can be fixed without filling the prompt with its
+metadata.
+
+Selection and deduplication key on `name`, the activation key. The directory
+decides only where the file was found. Duplicate names usually come from
+overlapping compatibility roots, such as the same skill under `.claude/skills`
+and `.codex/skills`, though a `name`/directory mismatch can also collide two
+differently named directories. The first match in discovery-root order is
+selected, the rest are ignored, and `thndrs skills doctor` lists the selection
+alongside the ignored paths.
 
 ## Further Reading
 

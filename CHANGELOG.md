@@ -9,6 +9,11 @@
   reasoning block carries its own colour, so the three kinds of turn no
   longer share one muted ink.
 
+### Fixed
+
+- A skill whose frontmatter `name` differs from its directory now loads,
+  and the mismatch is reported as a warning.
+
 ## v0.1.1 - 2026-09-17
 
 Tagged but not published. `0.1.0` is currently the latest release on

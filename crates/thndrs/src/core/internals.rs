@@ -426,7 +426,11 @@ mod tests {
             truncated: false,
             byte_count: 9,
         };
-        let diagnostic = SkillDiagnostic { path: "/repo/bad/SKILL.md".into(), message: "invalid".to_string() };
+        let diagnostic = SkillDiagnostic {
+            path: "/repo/bad/SKILL.md".into(),
+            message: "invalid".to_string(),
+            severity: crate::skills::SkillDiagnosticSeverity::Error,
+        };
         let snapshot = test_snapshot(
             "test-model",
             vec!["base_identity".to_string(), "self_knowledge".to_string()],
