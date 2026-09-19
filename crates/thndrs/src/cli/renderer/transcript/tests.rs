@@ -791,6 +791,7 @@ fn snapshot_startup_banner_with_context_and_diagnostics() {
     app.transcript.skill_diagnostics = vec![SkillDiagnostic {
         path: std::path::PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
         message: "invalid YAML frontmatter".to_string(),
+        severity: skills::SkillDiagnosticSeverity::Error,
     }];
     assert_snapshot(
         "transcript_startup_banner_with_context_and_diagnostics",
@@ -805,12 +806,34 @@ fn banner_promotes_skill_diagnostics_without_exposing_paths() {
     app.transcript.skill_diagnostics = vec![SkillDiagnostic {
         path: std::path::PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
         message: "invalid YAML frontmatter".to_string(),
+        severity: skills::SkillDiagnosticSeverity::Error,
     }];
 
     let rendered = render_banner_styled(&app, 80);
 
     assert!(rendered.contains("ATTENTION"));
     assert!(rendered.contains("Skill skipped (bad): invalid YAML frontmatter"));
+    assert!(!rendered.contains("/Users/test"));
+}
+
+#[test]
+fn banner_shows_skill_warnings_distinctly_from_skipped_skills() {
+    let _guard = crate::test_env::lock();
+    let mut app = test_app();
+    app.transcript.skill_diagnostics = vec![SkillDiagnostic {
+        path: std::path::PathBuf::from("/Users/test/.agents/skills/mire/SKILL.md"),
+        message: "name \"mire-review\" differs from parent directory \"mire\"".to_string(),
+        severity: skills::SkillDiagnosticSeverity::Warning,
+    }];
+
+    let rendered = render_banner_styled(&app, 80);
+
+    assert!(rendered.contains("ATTENTION"));
+    assert!(
+        rendered.contains("Skill warning (mire): name \"mire-review\" differs from parent directory"),
+        "a loaded skill's warning must not read as skipped:\n{rendered}"
+    );
+    assert!(!rendered.contains("Skill skipped (mire)"));
     assert!(!rendered.contains("/Users/test"));
 }
 
@@ -868,6 +891,7 @@ fn banner_keeps_skipped_skill_diagnostics_compact() {
     app.transcript.skill_diagnostics = vec![skills::SkillDiagnostic {
         path: home_path.clone(),
         message: "invalid YAML frontmatter: unknown field".to_string(),
+        severity: skills::SkillDiagnosticSeverity::Error,
     }];
 
     let rendered = render_banner_styled(&app, 80);

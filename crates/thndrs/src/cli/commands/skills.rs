@@ -74,22 +74,25 @@ mod tests {
             std::fs::write(skill, "---\nname: example-skill\ndescription: Helps.\n---\n# Skill\n")
                 .expect("write skill");
         }
+        let home = tempfile::tempdir().expect("temp home");
 
-        let cli = Cli::try_parse_from([
-            "thndrs",
-            "--cwd",
-            path.to_str().expect("workspace path"),
-            "skills",
-            "doctor",
-        ])
-        .expect("parse");
-        let command = match &cli.command {
-            Some(Command::Skills { command }) => command,
-            _ => panic!("expected skills doctor command"),
-        };
-        let mut output = Cursor::new(Vec::new());
-        run_with_writer(&cli, command, &mut output).expect("run doctor");
-        let output = String::from_utf8(output.into_inner()).expect("UTF-8 output");
+        let output = crate::test_env::with_home(home.path(), || {
+            let cli = Cli::try_parse_from([
+                "thndrs",
+                "--cwd",
+                path.to_str().expect("workspace path"),
+                "skills",
+                "doctor",
+            ])
+            .expect("parse");
+            let command = match &cli.command {
+                Some(Command::Skills { command }) => command,
+                _ => panic!("expected skills doctor command"),
+            };
+            let mut output = Cursor::new(Vec::new());
+            run_with_writer(&cli, command, &mut output).expect("run doctor");
+            String::from_utf8(output.into_inner()).expect("UTF-8 output")
+        });
 
         assert!(output.contains("thndrs skills doctor"));
         assert!(output.contains("duplicates:"));
@@ -106,28 +109,38 @@ mod tests {
         let skill = path.join(".agents/skills/mire/SKILL.md");
         std::fs::create_dir_all(skill.parent().expect("skill parent")).expect("create skill parent");
         std::fs::write(
-            skill,
+            &skill,
             "---\nname: mire-review\ndescription: Reviews changes for scope creep.\n---\n# Mire\n",
         )
         .expect("write skill");
+        // Isolate HOME so a real skill on the host machine cannot supply its
+        // own mismatch diagnostic and make this assertion pass regardless of
+        // whether the fixture actually produced one.
+        let home = tempfile::tempdir().expect("temp home");
 
-        let cli = Cli::try_parse_from([
-            "thndrs",
-            "--cwd",
-            path.to_str().expect("workspace path"),
-            "skills",
-            "doctor",
-        ])
-        .expect("parse");
-        let command = match &cli.command {
-            Some(Command::Skills { command }) => command,
-            _ => panic!("expected skills doctor command"),
-        };
-        let mut output = Cursor::new(Vec::new());
-        run_with_writer(&cli, command, &mut output).expect("run doctor");
-        let output = String::from_utf8(output.into_inner()).expect("UTF-8 output");
+        let output = crate::test_env::with_home(home.path(), || {
+            let cli = Cli::try_parse_from([
+                "thndrs",
+                "--cwd",
+                path.to_str().expect("workspace path"),
+                "skills",
+                "doctor",
+            ])
+            .expect("parse");
+            let command = match &cli.command {
+                Some(Command::Skills { command }) => command,
+                _ => panic!("expected skills doctor command"),
+            };
+            let mut output = Cursor::new(Vec::new());
+            run_with_writer(&cli, command, &mut output).expect("run doctor");
+            String::from_utf8(output.into_inner()).expect("UTF-8 output")
+        });
 
         assert!(output.contains("diagnostics:"));
-        assert!(output.contains("differs from parent directory"));
+        let mismatch_line = output
+            .lines()
+            .find(|line| line.contains("differs from parent directory"))
+            .expect("mismatch diagnostic line");
+        assert!(mismatch_line.contains(skill.to_str().expect("skill path is UTF-8")));
     }
 }

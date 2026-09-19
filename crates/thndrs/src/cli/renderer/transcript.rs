@@ -943,7 +943,14 @@ impl App {
                 .and_then(std::path::Path::file_name)
                 .and_then(std::ffi::OsStr::to_str)
                 .unwrap_or("unknown");
-            format!("Skill skipped ({name}): {}", diagnostic.message)
+            match diagnostic.severity {
+                crate::skills::SkillDiagnosticSeverity::Error => {
+                    format!("Skill skipped ({name}): {}", diagnostic.message)
+                }
+                crate::skills::SkillDiagnosticSeverity::Warning => {
+                    format!("Skill warning ({name}): {}", diagnostic.message)
+                }
+            }
         }));
 
         let mut rows = Vec::new();
@@ -1765,6 +1772,8 @@ fn status_label_for(text: &str) -> &'static str {
         "Session log"
     } else if text.starts_with("provider:") || text.starts_with("tool budget:") {
         "Diagnostic"
+    } else if text.starts_with("skill diagnostic  warning") {
+        "Skill warning"
     } else if text.starts_with("queued ") {
         "Queued"
     } else if text.starts_with("queue target:") {

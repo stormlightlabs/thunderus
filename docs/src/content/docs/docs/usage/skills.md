@@ -77,11 +77,9 @@ Activate or read the skill again if its instructions are needed in the restored 
 ## Skill Shape
 
 `SKILL.md` should start with YAML frontmatter. `name` and `description` are the
-important routing fields. The skill's directory selects it during discovery;
-`name` is the display label used for activation and should be stable and match
-the directory. A mismatch is not fatal: the skill still loads under its
-frontmatter `name`, and `thndrs skills doctor` reports the mismatch as a
-diagnostic. The description should say what the skill does and when to use it.
+important routing fields. `name` should be stable and match the skill's
+directory; see [Diagnostics](#diagnostics) for what happens when it does not.
+The description should say what the skill does and when to use it.
 
 Optional frontmatter fields are preserved as metadata when present:
 
@@ -126,13 +124,24 @@ the runtime permission boundary.
 
 ## Diagnostics
 
-Skills with invalid frontmatter (missing or malformed `name`/`description`,
-bad reference paths, and similar) are skipped and surfaced as diagnostics. A
-`name` that differs from its directory is not skipped: the skill still loads
-and the mismatch is reported as a diagnostic instead. Diagnostics are shown
-compactly so users can fix local skill packages without turning broken metadata
-into prompt noise. Duplicate names are expected when compatibility roots overlap;
-they are resolved silently and listed by `thndrs skills doctor`.
+Diagnostics carry a severity. Skills with invalid frontmatter (missing or
+malformed `name`/`description`, bad reference paths, and similar) are skipped
+with an error diagnostic. A `name` that differs from its directory is not
+skipped: the directory decides which skill is discovered, the frontmatter
+`name` is what activates it and appears in the prompt, and the mismatch is
+reported as a warning diagnostic instead. The startup banner and `/skills`
+label the two differently ("Skill skipped" versus "Skill warning") so a
+loaded, activatable skill is never shown the way a dropped one is. Diagnostics
+are shown compactly so users can fix local skill packages without turning
+broken metadata into prompt noise.
+
+Selection and deduplication key on `name`, since that is the activation key,
+not on the directory. Duplicate names most often arise when compatibility
+roots overlap (the same skill installed under `.claude/skills` and
+`.codex/skills`, for example), but a `name`/directory mismatch can also make
+two differently named directories collide. Either way, the first matching
+skill in discovery-root order is selected, the rest are ignored, and
+`thndrs skills doctor` lists both the selection and the ignored paths.
 
 ## Further Reading
 

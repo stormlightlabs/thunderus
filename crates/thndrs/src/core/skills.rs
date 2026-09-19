@@ -85,6 +85,24 @@ impl SkillSource {
     }
 }
 
+/// Severity of a [`SkillDiagnostic`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum SkillDiagnosticSeverity {
+    /// The skill still loaded and is activatable; the diagnostic is advisory.
+    Warning,
+    /// The skill was not loaded.
+    Error,
+}
+
+impl SkillDiagnosticSeverity {
+    pub fn label(self) -> &'static str {
+        match self {
+            SkillDiagnosticSeverity::Warning => "warning",
+            SkillDiagnosticSeverity::Error => "error",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SkillInventory {
     pub skills: Vec<SkillMetadata>,
@@ -121,15 +139,29 @@ pub struct SkillMetadata {
 pub struct SkillDiagnostic {
     pub path: PathBuf,
     pub message: String,
+    /// Whether the skill still loaded ([`SkillDiagnosticSeverity::Warning`])
+    /// or was dropped ([`SkillDiagnosticSeverity::Error`]).
+    pub severity: SkillDiagnosticSeverity,
 }
 
 impl SkillDiagnostic {
+    /// A diagnostic for a skill that was not loaded.
     fn new(path: impl Into<PathBuf>, message: impl Into<String>) -> Self {
-        Self { path: path.into(), message: message.into() }
+        Self { path: path.into(), message: message.into(), severity: SkillDiagnosticSeverity::Error }
+    }
+
+    /// A diagnostic for a skill that loaded despite the issue described.
+    fn warning(path: impl Into<PathBuf>, message: impl Into<String>) -> Self {
+        Self { path: path.into(), message: message.into(), severity: SkillDiagnosticSeverity::Warning }
     }
 
     pub fn summary(&self) -> String {
-        format!("skill diagnostic  {}: {}", self.path.display(), self.message)
+        format!(
+            "skill diagnostic  {}  {}: {}",
+            self.severity.label(),
+            self.path.display(),
+            self.message
+        )
     }
 }
 
@@ -557,6 +589,9 @@ fn normalize_reference_path(raw: &str) -> Result<PathBuf, &'static str> {
 /// malformed `name` values (length, character set, hyphen placement) reject
 /// the skill outright.
 fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<Option<SkillDiagnostic>, SkillDiagnostic> {
+    if name.trim().is_empty() {
+        return Err(SkillDiagnostic::new(path, "name must not be empty"));
+    }
     if name.len() > SkillConstants::NameLen.into() {
         let l: usize = SkillConstants::NameLen.into();
         return Err(SkillDiagnostic::new(path, format!("name exceeds {l} characters")));
@@ -577,11 +612,11 @@ fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<Option<Sk
         ));
     }
     Ok((name != parent_name).then(|| {
-        SkillDiagnostic::new(
+        SkillDiagnostic::warning(
             path,
             format!(
                 "name {name:?} differs from parent directory {parent_name:?}; \
-                 the directory selects the skill and the name is used only as a display label"
+                 the directory decides which skill is discovered, and {name:?} is what activates it"
             ),
         )
     }))
@@ -865,6 +900,7 @@ mod tests {
             dir.path().join(".agents/skills/mire/SKILL.md")
         );
         assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Warning);
         assert!(inventory.diagnostics[0].message.contains("\"mire-review\""));
         assert!(inventory.diagnostics[0].message.contains("\"mire\""));
         assert!(
@@ -872,9 +908,66 @@ mod tests {
                 .message
                 .contains("differs from parent directory")
         );
+        assert!(
+            inventory.diagnostics[0].message.contains("is what activates it"),
+            "warning should tell the user the name activates the skill, not the directory: {:?}",
+            inventory.diagnostics[0].message
+        );
 
         let loaded = load_skill(&inventory.skills[0]).expect("mismatched skill still activates");
         assert_eq!(loaded.activation.name, "mire-review");
+    }
+
+    #[test]
+    fn skill_with_empty_name_is_rejected() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join(".thndrs/skills/blank/SKILL.md"),
+            "---\nname: \"\"\ndescription: Helps.\n---\n# Skill\n",
+        );
+
+        let inventory = discover_only(&dir.path().join(".thndrs/skills"));
+
+        assert!(inventory.skills.is_empty());
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].severity, SkillDiagnosticSeverity::Error);
+        assert!(inventory.diagnostics[0].message.contains("must not be empty"));
+    }
+
+    #[test]
+    fn skills_named_alike_from_different_directories_collide_as_duplicates() {
+        // A frontmatter `name` mismatch can make two differently-named
+        // directories resolve to the same skill `name`. Selection still
+        // keys on `name` (the activation key), so this is a duplicate like
+        // any other, resolved deterministically by discovery-root order.
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join(".agents/skills/mire/SKILL.md"),
+            "---\nname: mire-review\ndescription: Reviews changes for scope creep.\n---\n# Mire\n",
+        );
+        write(
+            &dir.path().join(".claude/skills/mire-review/SKILL.md"),
+            "---\nname: mire-review\ndescription: A different mire-review skill.\n---\n# Mire\n",
+        );
+
+        let inventory = discover_from_roots(vec![
+            SkillRoot { path: dir.path().join(".agents/skills"), source: SkillSource::User },
+            SkillRoot { path: dir.path().join(".claude/skills"), source: SkillSource::User },
+        ]);
+
+        assert_eq!(inventory.skills.len(), 1);
+        assert_eq!(
+            inventory.skills[0].path,
+            dir.path().join(".agents/skills/mire/SKILL.md")
+        );
+        assert_eq!(
+            inventory.duplicates,
+            vec![SkillDuplicate {
+                name: "mire-review".to_string(),
+                selected_path: dir.path().join(".agents/skills/mire/SKILL.md"),
+                ignored_paths: vec![dir.path().join(".claude/skills/mire-review/SKILL.md")],
+            }]
+        );
     }
 
     #[test]
