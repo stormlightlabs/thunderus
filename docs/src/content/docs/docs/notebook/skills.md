@@ -24,8 +24,8 @@ are loaded only when the active task needs them.
   optional.
 - **Names are constrained for stable discovery:** A skill name is 1-64
   characters and is limited to lowercase letters, numbers, and single
-  hyphens. It should match the parent directory; a mismatch loads the skill
-  anyway and is reported as a warning diagnostic.
+  hyphens. It should match the parent directory; a mismatch still loads and
+  reports a warning.
 - **Descriptions drive activation:** The description should say both what the
   skill does and when to use it, with concrete keywords that help an agent select
   the skill.

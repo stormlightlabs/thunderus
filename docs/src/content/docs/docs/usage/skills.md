@@ -48,11 +48,10 @@ Discovered skills appear in two places:
 - the startup screen, as a compact `[Skills]` list for the user;
 - the model-visible self-knowledge snapshot, as names, sources, and paths.
 
-The regular prompt also includes available skill metadata so the model can
-decide when a skill might apply. The model routes on `description`: it decides
-from that field alone whether the skill fits, before any instruction body is
-loaded. This follows progressive disclosure: route from small metadata first,
-then read the skill instructions when the task needs them.
+The regular prompt also carries each skill's metadata. The model routes on
+`description`, deciding from that field alone whether a skill fits, before it
+loads any instruction body. That is progressive disclosure: the small field
+first, the instructions once the task needs them.
 
 ## Activate or Read a Skill
 
@@ -78,11 +77,11 @@ Activate or read the skill again if its instructions are needed in the restored 
 
 ## Skill Shape
 
-`SKILL.md` should start with YAML frontmatter, with `name` and `description`
-fields. `name` should be stable and match the skill's directory; see
-[Diagnostics](#diagnostics) for what happens when it does not. Write
-`description` as it will be read for routing (see [Prompt
-Exposure](#prompt-exposure)): say what the skill does and when to use it.
+`SKILL.md` should start with YAML frontmatter carrying `name` and
+`description`. Keep `name` stable and matching the skill's directory;
+[Diagnostics](#diagnostics) covers a mismatch. In `description`, say what the
+skill does and when to use it; [Prompt Exposure](#prompt-exposure) covers how
+it is read.
 
 Optional frontmatter fields are preserved as metadata when present:
 
@@ -127,25 +126,24 @@ the runtime permission boundary.
 
 ## Diagnostics
 
-Diagnostics carry a severity. Skills with invalid frontmatter (missing or
-malformed `name`/`description`, bad reference paths, and similar) are skipped
-with an error diagnostic. A `name` that differs from its directory is not
-skipped. The frontmatter `name` is what activates the skill and what appears
-in the prompt; the mismatch is reported as a warning diagnostic instead. The
-startup banner labels the two differently ("Skill skipped" versus "Skill
-warning"). `/skills` separates them by entry kind instead: a dropped skill
-renders as an Error entry, a loaded skill with a warning as a Status entry
-labeled "Skill warning". Either way, a loaded, activatable skill is never
-shown the way a dropped one is. Diagnostics are shown compactly so users can
-fix local skill packages without turning broken metadata into prompt noise.
+Diagnostics carry a severity. Invalid frontmatter (a missing or malformed
+`name` or `description`, a bad reference path) skips the skill and reports an
+error. A `name` that differs from its directory reports a warning and loads
+the skill, since `name` is what activates it and what reaches the prompt.
 
-Selection and deduplication key on `name`, since that is the activation key,
-not on the directory. Duplicate names most often arise when compatibility
-roots overlap (the same skill installed under `.claude/skills` and
-`.codex/skills`, for example), but a `name`/directory mismatch can also make
-two differently named directories collide. Either way, the first matching
-skill in discovery-root order is selected, the rest are ignored, and
-`thndrs skills doctor` lists both the selection and the ignored paths.
+The two read differently wherever they surface. The startup banner writes
+"Skill skipped" or "Skill warning". `/skills` uses the entry kind: a skipped
+skill is an Error entry, a loaded one a Status entry. Diagnostics stay compact
+so a broken local package can be fixed without filling the prompt with its
+metadata.
+
+Selection and deduplication key on `name`, the activation key. The directory
+decides only where the file was found. Duplicate names usually come from
+overlapping compatibility roots, such as the same skill under `.claude/skills`
+and `.codex/skills`, though a `name`/directory mismatch can also collide two
+differently named directories. The first match in discovery-root order is
+selected, the rest are ignored, and `thndrs skills doctor` lists the selection
+alongside the ignored paths.
 
 ## Further Reading
 
