@@ -131,6 +131,8 @@ cover it too.
   and say how many `nit` rows you left out.
 - Cite `<path>:<line>` instead of quoting the diff back at its author.
 - Group repeats. One finding naming every site beats one finding per site.
+- Post findings and nothing else. Branch state a reader can see for
+  themselves, such as the base branch having moved, is not one.
 
 ## Which passes post
 
