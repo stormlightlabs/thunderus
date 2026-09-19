@@ -6,9 +6,9 @@
 # type:    what kind of change. Matches the commit type.
 # area:    what part of the system. Several allowed.
 # risk:    blast radius if the change is wrong.
-# kind:    what shape of issue this is. An epic groups issues and is never
-#          claimed or dispatched; an issue with sub-issues is what a run takes;
-#          an issue without either is a unit of work.
+# Grouping is a milestone, not a label. A milestone is not an issue, so nothing
+# can dispatch one by mistake, its description holds what crosses its issues,
+# and the progress bar comes free. An issue with sub-issues is what a run takes.
 # retired: names this repository used to define. The sync deletes them, so a
 #          rename does not leave the old label behind. Only a name is required;
 #          the description says what replaced it.
@@ -110,13 +110,10 @@ risk:
     color: "b5442f"
     description: "Touches released behavior, data, or security."
 
-kind:
-  - name: "kind:epic"
-    color: "1f2933"
-    description: "Groups issues and holds what crosses them. Never dispatched."
-
 retired:
   - name: "run"
     description: "Renamed to kind:epic. A run is a pass over an epic, not the epic."
   - name: "kind:parent"
-    description: "Unneeded. An issue with sub-issues and no kind:epic is the run unit."
+    description: "Unneeded. An issue with sub-issues is the run unit."
+  - name: "kind:epic"
+    description: "Replaced by milestones, which cannot be dispatched by mistake."

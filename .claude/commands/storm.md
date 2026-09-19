@@ -8,9 +8,10 @@ Use the `thunderstorm` skill.
 Issue: $ARGUMENTS (an issue number, then `one` to stop after the first
 sub-issue reaches `status:review`)
 
-Stop and ask if it declares no sub-issues, carries `kind:epic`, has more than
-five open sub-issues, has no checkable stop rule, or holds one another run has
-claimed. An epic is a container: run the issues under it instead. Restate the
+Stop and ask if it declares no sub-issues, has more than five open ones, has no
+checkable stop rule, or holds one another run has claimed. Read its milestone's
+description first where it has one: the order and the file collisions that
+cross its sibling issues live only there. Restate the
 stop condition before dispatching anything.
 
 Claim each sub-issue, give it a worktree, dispatch an implementer, then run the

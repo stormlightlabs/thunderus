@@ -2,6 +2,7 @@
 name: tui-verification
 last_updated: 2026-09-19
 id: 01M2RNSY07A522766KBV2DPR41
+milestone: https://github.com/stormlightlabs/thunderus/milestone/1
 ---
 
 # TUI verification

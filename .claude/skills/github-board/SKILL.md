@@ -49,14 +49,17 @@ Two differences decide correctness, so read them before the first write:
 | Sub-issues   | `gh issue view <n> --json subIssues`                                         | `issue_read` method `get_sub_issues`           |
 | Labels alone | `gh issue view <n> --json labels`                                            | `issue_read` method `get_labels`               |
 
-Three shapes. An epic carries `kind:epic`, groups issues and is never
-dispatched. An issue with sub-issues and no `kind:epic` is what a run takes, at
-most five of them open at once. A sub-issue is the unit of work.
+Two shapes of issue. One with sub-issues is what a run takes, at most five of
+them open at once; a sub-issue is the unit of work. Grouping above that is a
+milestone, which is not an issue.
 
-Neither of the first two is ever claimed: no owner, no `status:*`, no `risk:*`,
-because their state is whatever their children say. A run is a pass over the
-middle one, which outlives the runs that work it. The `decompose` skill's
-**Three shapes** carries the rest.
+An issue with sub-issues is never claimed: no owner, no `status:*`, no
+`risk:*`, because its state is whatever its children say. It outlives the runs
+that work it. The `decompose` skill's **Three shapes** carries the rest.
+
+Set a milestone with `gh issue edit <n> --milestone <name>`, read one with
+`gh issue list --milestone <name>`, and create or edit one through
+`gh api repos/{owner}/{repo}/milestones`; there is no `gh milestone` command.
 
 ## Status
 

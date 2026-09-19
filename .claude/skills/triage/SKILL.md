@@ -9,7 +9,7 @@ One pass over the whole board. It produces an order to dispatch in and a plan
 for running several issues at once. It reads everything and writes nothing.
 
 `/storm` runs one issue and its sub-issues. This chooses among them, and among
-the issues that belong to no epic at all.
+the issues that belong to no milestone at all.
 
 ## The list is re-derived, never stored
 
@@ -33,7 +33,7 @@ token: `/triage 3` could ask for three threads or for issue 3.
 | Form               | Means                                    |
 | ------------------ | ---------------------------------------- |
 | `threads=<n>`      | Plan for `n` threads. Without it, two.   |
-| `#<n>` or `epic:<n>`   | Narrow to that issue or epic and its children. |
+| `#<n>` or `milestone:<name>` | Narrow to that issue, or to a milestone's issues. |
 | `area:<name>`      | Narrow to issues carrying that label.    |
 | Anything else      | Ad-hoc work, under **Ad-hoc work** below. |
 
@@ -50,7 +50,7 @@ One paginated call over the repository's open issues carries almost all of it,
 including the summary objects that answer the buckets and two of the rank rules
 without a second request per issue. File ownership is the one thing it does not
 carry, and that comes from the body above each candidate: its own issue, and
-the epic over it.
+the milestone over it.
 
 `references/reading-the-board.md` has the commands, the fields and what each
 one decides, and why the MCP tools cannot replace the call.
@@ -67,8 +67,8 @@ of these, and printing them all buries the lanes.
 
 ## Buckets
 
-Set the epics and the run units aside first. Neither carries a `status:*` label
-and neither is work, so neither is bucketed or ranked. What they contribute is
+Set the run units aside first. One carries no `status:*` label and is not work,
+so it is not bucketed or ranked. What they contribute is
 `sub_issues_summary` to rank rule 3, and their bodies to the lanes.
 
 Sort every other open issue into the first row it matches, top down. The order
@@ -100,7 +100,6 @@ the repair itself is a `github-board` write a human authorizes.
 | `status:blocked` past 7 days, or with no `blocked:*` reason | the same |
 | Two `status:*` labels on one issue, or none       | `github-board`, Status    |
 | An issue with children carrying `status:*` or `risk:*` | `decompose`, The issue a run takes |
-| `kind:epic` whose children have no children of their own | a run unit wearing a container's label |
 | More than five open children on a run unit        | `decompose`, Sizing       |
 
 The first two are ages, and `updated_at` does not measure them: any comment or
@@ -136,7 +135,8 @@ without it, plan two.
 
 Two issues may sit in different lanes only when they own non-overlapping
 files. Ownership lives in the body above them, under the `decompose` skill's
-**Recording overlap**: the run unit's body for its own sub-issues, the epic's
+**Recording overlap**: the run unit's body for its own sub-issues, its
+milestone's description
 for what crosses its children. Honor those as written, including an instruction
 to sequence a whole issue around one sub-issue: a run works one issue and
 cannot see its siblings.

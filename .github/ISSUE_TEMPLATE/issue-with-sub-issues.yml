@@ -8,9 +8,9 @@ body:
         and the condition that ends it. Add sub-issues after opening it; they
         are the things `/impl` claims, and this issue is not one of them.
 
-        Take no `kind:` label. An issue with sub-issues and no `kind:epic` is
-        the run unit, which is the whole test. If this needs to sit beside
-        other issues in one body of work, file an Epic above it.
+        Take no `kind:` label; there are none. An issue with sub-issues is
+        the run unit, which is the whole test. If this sits beside other
+        issues in one body of work, put them all in a milestone.
 
         At most five open sub-issues. A run holds every one it dispatches in
         one context, and past five that context is spent on work not started
