@@ -37,9 +37,10 @@ The run creates it before dispatching rather than leaving the subagent to. A
 subagent making its own would place it relative to whatever directory it started
 in, and that directory is recorded nowhere the run can read afterwards.
 
-Nothing checks any of this. The key, the dispatch setting, and the directory a
-subagent writes into are all rules a reader has to follow, and issue #69 covers
-only the first.
+`.claude/.gitignore` catches a worktree that lands at `.claude/worktrees/`
+anyway, so the checkout stays clean. Nothing catches the rest: the key, the
+dispatch setting, and the directory a subagent writes into are rules a reader
+has to follow. Delete this paragraph for whichever of them a check later covers.
 
 A session working an issue itself on a development machine takes one too. The
 checkout there is the user's working tree and an agent is never its writer.
@@ -112,14 +113,17 @@ Raise the cap only after measuring.
 
 ## Remove
 
-Removal is part of the run, not cleanup for later. A run that took no worktree
-deletes only its branch, once the pull request has merged:
+Removal is part of the run, not cleanup for later:
 
 ```sh
 git worktree remove ../thndrs-worktrees/<issue>
-git branch -d agent/<issue>
+git branch -d agent/<issue>   # a run that took no worktree runs this line alone
 git worktree prune
 ```
+
+Run the middle line once the pull request has merged. `git worktree remove`
+fails with `not a working tree` where there was none, so a run working in a
+container checkout skips the first and third.
 
 `remove` refuses to discard uncommitted changes. Treat that refusal as an
 escalation: inspect what is there and report it. Do not pass `--force` to get

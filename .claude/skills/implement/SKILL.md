@@ -49,12 +49,18 @@ checkout and creates nothing beside it:
 
 ```sh
 git fetch origin
-git switch -c agent/<n> origin/edge   # or: git branch -m agent/<n>
+git branch -m agent/<n>
 ```
 
-Rename a harness-supplied branch rather than keeping it. Every branch an agent
-pushes carries the `agent/` prefix, and that prefix is what tells a human
-reading the branch list which branches an agent owns.
+Rename the harness-supplied branch rather than keeping it or branching afresh.
+Every branch an agent pushes carries the `agent/` prefix, which is what tells a
+human reading the branch list what an agent owns. The rename also keeps whatever
+that branch already carries: `git switch -c agent/<n> origin/edge` matches it
+only while the branch sits at `origin/edge`, and otherwise leaves its commits on
+a name this session no longer uses. Harness branches get deleted, so that
+residue becomes unreachable rather than untidy.
+
+Where there is no branch to rename, that same `git switch -c` creates one.
 
 A local session takes a worktree, because the checkout there is the user's. It
 goes outside the repository root so Cargo does not find the parent

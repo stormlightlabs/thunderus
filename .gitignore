@@ -7,6 +7,8 @@ docs/target
 
 # Agent configuration is tracked. These negations keep the files in the
 # repository when a global or editor ignore rule would otherwise drop them.
+# Add new ones here rather than below: git takes the last matching pattern, so
+# a negation at the end of this file re-includes what the exclusions exclude.
 !CLAUDE.md
 !AGENTS.md
 !.claude/
@@ -16,6 +18,3 @@ docs/target
 
 # Local overrides stay out of the repository.
 .claude/settings.local.json
-
-# A worktree placed here is a second checkout, not work to commit.
-.claude/worktrees/

@@ -71,7 +71,7 @@ Status is a label. One status label per issue.
 | Label            | Meaning                                           | Leaves when                                      |
 | ---------------- | ------------------------------------------------- | ------------------------------------------------ |
 | `status:queued`  | Ready to work. No owner.                          | A run claims it.                                 |
-| `status:claimed` | A worker owns it and holds a working tree.        | A pull request opens, or the run abandons it.    |
+| `status:claimed` | A worker owns it and has somewhere to write.      | A pull request opens, or the run abandons it.    |
 | `status:review`  | Pull request open. Review passes in progress.     | All three review passes clear.                   |
 | `status:verify`  | Merged to `edge`. Waiting on human confirmation.  | A human confirms behavior or files a regression. |
 | `status:blocked` | Cannot proceed. Needs a `blocked:*` reason label. | The reason is recorded as resolved.              |
@@ -243,12 +243,15 @@ uncommitted changes is an escalation, not something to force.
 
 The `worktree` skill is the only thing here that makes one. The harness makes
 them too, from an `isolation` key in a definition under `.claude/agents/` or an
-`isolation` setting on a dispatch, and places them inside the repository root,
-where `.gitignore`'s `!.claude/**` leaves them untracked and reads them as work
-to commit. This repository uses neither. A `.gitignore` entry for
-`.claude/worktrees/` covers the case it does not control: a harness that places
-one there anyway leaves the checkout clean rather than asking a stop hook to
-commit a locked second checkout.
+`isolation` setting on a dispatch, and it places them at `.claude/worktrees/`.
+The root `.gitignore` re-includes everything under `.claude/`, so one landing
+there reads as work to commit. This repository asks for neither setting.
+
+`.claude/.gitignore` covers the case it does not control. It sits below the
+root file, and git takes the last matching pattern from the deepest one, so a
+negation added at the root cannot re-include the directory. What it cannot
+cover is a rename: the harness owns that name, and another one is untracked
+again.
 
 ### Who gets one
 
