@@ -1,6 +1,6 @@
 ---
 name: tui-verification
-last_updated: 2026-09-17
+last_updated: 2026-09-19
 id: 01M2RNSY07A522766KBV2DPR41
 ---
 
@@ -198,31 +198,41 @@ the comment to edit. Matching on the author and a title prefix would find the
 review passes' comments too, since those post to the same thread under the same
 account.
 
-### What the comment cannot carry
+### Where the image goes
 
-Losing color in the pull request is the accepted cost. GitHub renders no ANSI in
-a comment, and there is no route by which an agent uploads an image to one, so
-the alternatives are a CI job this track rejects or a committed artifact this
-track exists to avoid. Structure, spacing, alignment, truncation, and rhythm all
-survive in plain text, and those are what a capture is read for. A defect that
-is only visible in color is not covered here and stays with the human
-confirmation at `status:verify`.
+Settled 2026-09-19 by running the pipeline: tmux captures the pane, freeze
+renders the `.ansi` to a PNG or an SVG, and the image is shown in chat, where
+the maintainer and a reviewing agent both read it.
 
-The harness writes its `.ansi` files to ignored scratch space, and they are what
-the posted text is stripped from. They stay on disk after a run for whoever
-wants the colored frame: `cat` shows it in a terminal, and freeze renders it to
-an image locally. Freeze is a local convenience here
-rather than a step in the loop, installed from `.claude/hooks/session-start.sh`
-at a pinned version in the report-and-continue style that hook already uses. A
-capture run that does not find it posts its comment as usual.
+That is a route this file previously said did not exist. It assumed the only
+destinations were a pull request comment, which renders no ANSI and takes no
+upload from an agent, and a committed artifact this track exists to avoid. Chat
+is neither. The pull request comment still carries stripped plain text, because
+structure, spacing, alignment and truncation all survive there and it is what a
+reader coming to the thread later finds.
 
-At v0.2.2 freeze drops `\e[3m` italic, `\e[2m` dim, `\e[7m` reverse, and basic
-backgrounds, while rendering bold, underline, every foreground, 256-color
-backgrounds, and truecolor. `ratatui_style` sets `ITALIC` and `DIM`
-(`crates/thndrs/src/cli/renderer/ratatui.rs:77-93`), so a regression in either
-leaves a freeze image unchanged. A frame correct in the `.ansi` file and wrong
-in the image is a freeze defect. The application does not change to suit the
-renderer.
+`.claude/scripts/tui-capture.sh` is the harness. It writes both files to
+`target/tui-captures/`, which `/target` already ignores, so nothing generated is
+committed. The commands and the three tmux details that have each cost a run
+are in `docs/src/content/docs/docs/development/tui-qa.md`.
+
+### Checking a visual claim
+
+The first frame rendered under this harness produced three observations, and two
+were wrong. Trailing blank rows read as the application leaving dead space,
+when they were padding to the requested pane height. Highlight bands read as
+ragged, when the ANSI showed three of them painting to width 100 and the fourth
+being a different element at 50.
+
+Check a visual claim against the `.ansi` before reporting it. The harness
+strips trailing blank rows for the same reason. `tui-qa.md` carries the
+measurement, and the rule is cheap: count the visible width of the rows in
+question and say what the numbers are.
+
+The observation that did survive is worth the example. The application draws 18
+rows whether the pane is 20, 30 or 45 tall. That is a product question rather
+than a defect, and it is the kind of thing a person looking at an image asks and
+a reviewer reading a diff does not.
 
 ## Who runs it
 

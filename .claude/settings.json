@@ -47,7 +47,15 @@
       "Bash(.claude/scripts/push-verified.sh:*)",
       "Bash(rg:*)",
       "Bash(.claude/scripts/ulid.py:*)",
-      "Bash(.claude/scripts/check-commit-message.py:*)"
+      "Bash(.claude/scripts/check-commit-message.py:*)",
+      "Bash(.claude/scripts/tui-capture.sh:*)",
+      "Bash(tmux new-session:*)",
+      "Bash(tmux send-keys:*)",
+      "Bash(tmux capture-pane:*)",
+      "Bash(tmux kill-session:*)",
+      "Bash(tmux list-panes:*)",
+      "Bash(tmux resize-window:*)",
+      "Bash(freeze:*)"
     ],
     "deny": [
       "Bash(gh pr merge:*)",
