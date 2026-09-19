@@ -38,7 +38,7 @@ Where a worker writes is decided by dispatch rather than host, under
 [Worktrees](#worktrees).
 
 The `github-board` skill picks the transport and owns the differences between
-them. Two are load-bearing:
+them. Two of those differences decide whether a write lands at all:
 
 - The MCP issue update replaces an issue's whole label and assignee set, where
   `gh issue edit` changes only what it names.
@@ -54,20 +54,12 @@ them. Two are load-bearing:
   wants a label the manifest does not define is still blocked; the manifest
   changes first.
 
-A cloud container starts with no Cargo registry, no `target/`, and no
-`docs/node_modules`, so `.claude/hooks/session-start.sh` warms the first and
-third before the session begins. It also runs `rustup update stable`, because
-the image pins whatever stable was current when it was built while CI installs
-the current one, and a check that passes against the older compiler can still
-fail on CI. The 1.88 job is what guards compatibility, not the age of the
-toolchain a session happens to hold. It installs `freeze` at a pinned version
-too, because a container carries no renderer and the frames a capture run posts
-are stripped of their color before they reach a pull request. No step's failure
-fails the hook, so a missing renderer costs an image rather than a run, and
+A cloud container starts with no dependency caches, so
+`.claude/hooks/session-start.sh` warms them before the session begins, tracks
+current stable, and installs the renderer a capture run posts frames with. Its
+own comments carry the reason for each. No step's failure fails the hook, and
 `.claude/hooks/session-start-test.py` holds that rule in place against stub
-toolchains. The hook exits immediately outside the cloud, where a checkout
-already has all of this.
-`.claude/settings.json` registers it.
+toolchains. `.claude/settings.json` registers it.
 
 ### Identity
 
@@ -137,10 +129,10 @@ duplicating its sub-issues' state on the parent gives that copy somewhere to
 drift.
 
 The full label set, including `area:*`, `risk:*`, `type:*`, and `kind:epic` for
-the issues runs work through, lives in `.github/labels.yml`. Its `retired:` group
-names labels this repository has stopped defining, which the sync deletes: a
-rename that only adds the new name leaves the old one in the picker, teaching
-the next contributor a rule that no longer holds. Apply it with
+the issues runs work through, lives in `.github/labels.yml`. Its `retired:`
+group names labels this repository has stopped defining, which the sync
+deletes: a rename that only adds the new name leaves the old one in the picker,
+teaching the next contributor a rule that no longer holds. Apply it with
 `.claude/scripts/sync-labels.py`.
 
 ## Stages
@@ -266,17 +258,9 @@ The implementer and the reviewer never share a model in one run. See
 
 ### Finding format
 
-```text
-<severity> · <path>:<line> — <problem> → <why it matters> → <fix direction>
-```
-
-Severity is one of `blocker`, `high`, `medium`, `low`, `nit`. An adversarial
-finding that could not be reproduced or traced is marked `unverified` and stays
-below `high`. A posted comment holds one line per finding, most severe first,
-and stays under 40 lines.
-
-An edit pass stops after 5 cycles, or when the same finding appears twice
-without the underlying cause changing. Either stop is an escalation.
+The `review` skill holds the one-line format and the severity table, and the
+`revise` skill holds the stop rules for an edit pass. Either stop is an
+escalation.
 
 ## Branches
 
@@ -303,8 +287,8 @@ compares, and refuses outright when `HEAD` is detached.
 
 ## Recording a failure mode
 
-A run that discovers a way to be confidently wrong writes down the mechanism,
-not the apology. The order matters:
+A run that discovers a way to be confidently wrong writes down the mechanism
+that allowed it. Work through these in order:
 
 1. Make it impossible, or make it fail loudly. A check that runs beats a rule
    that has to be remembered.
@@ -319,50 +303,18 @@ that had been broken at least once while written down and believed.
 
 ## Worktrees
 
-A worktree, where the work takes one, is created outside the repository root so
-Cargo does not find the parent `.cargo/config.toml`:
+Who gets one, how it is created, how it is removed, and what goes wrong when
+two writers share a checkout are all in the `worktree` skill. Only that skill
+creates one: `check-isolation.py` fails CI for any text under `.claude/` that
+asks the harness instead.
 
-```sh
-git worktree add ../thndrs-worktrees/<issue> -b agent/<issue> origin/edge
-```
-
-Each worktree keeps its own `target/`. Share compilation through
-`RUSTC_WRAPPER=sccache`, never through a shared `CARGO_TARGET_DIR`: Cargo locks
-the build directory, so a shared target directory serializes the builds it was
-meant to parallelize.
-
-Remove the worktree when the run ends. A removal that fails because of
-uncommitted changes is an escalation, not something to force.
-
-Worktrees can only be made via the `worktree` skill, and `check-isolation.py`
-fails CI for any text under `.claude/` that asks the harness instead. What no
-check covers is in that skill's **Who gets one** section.
-
-### Who gets one
-
-Every dispatched subagent gets one, on either host, and the run creates it
-before dispatching. A session working an issue itself takes one on a development
-machine, where the checkout is the user's. On a cloud session it works in the
-container checkout, which belongs to nobody else. The `worktree` skill's
-**Who gets one** section holds the reasoning.
-
-Two implementers in one checkout produce a failure nothing reports. They share
-one index and one `HEAD`, so the second to create its branch moves `HEAD` for
-both. The first's staged work then lands in the second's commit, and every
-commit it makes afterwards lands on the second's branch.
-
-`push-verified.sh` does not catch that. It compares each push against its own
-branch, and both pushes have one and both land. The only trace is that script
-naming a branch the run never claimed. An index lock collision is rarer and
-louder.
-
-A reviewer gets none. It writes nothing into the tree, so what it needs is a
-tree that does not move while it reads, which is a commit rather than a
-directory. The `review` skill owns that discipline: fetch the branch, read
-through `git show <commit>:<path>`, and name the commit. Name the pull request
-with it. A branch is deleted when its pull request merges and the commit goes
-unreachable with it, so a review that cites a SHA alone is unreadable by the
-time anyone goes back to it.
+Two rules sit here instead of there. A removal that fails because of
+uncommitted changes is an escalation rather than something to force. And a
+reviewer gets no worktree, because it needs a tree that does not move while it
+reads, which is a commit rather than a directory. The `review` skill owns that
+discipline, down to naming the commit in the pull request: a branch is deleted
+when its pull request merges, so a review citing a SHA alone is unreadable by
+the time anyone goes back to it.
 
 ## File conventions
 
@@ -390,8 +342,8 @@ files named `plan`. That decision is issue 9. Nothing else is waived: once one
 of those files carries a block, its date and its identifier answer to the check
 like any other.
 
-An issue cut from a document cites that document's identifier — this one is
-`01M2PWX233GKXE5M9SPTNTGN0D` — so the trail is readable from either end. What
+An issue cut from a document cites that document's identifier, so the trail is
+readable from either end. This document's is `01M2PWX233GKXE5M9SPTNTGN0D`. What
 no document carries is a list of pending work: the board holds that, and a list
 of gaps goes stale the moment one closes. Two bullets in the list this document
 replaced were already false within hours of being written.
@@ -447,8 +399,8 @@ what its skill tells it to do.
 | `adversarial-reviewer` | The same, and it always posts                                    |
 | `reviser`              | Reading findings, replying, resolving and reopening threads, filing a deferral |
 
-`get_me` is not optional for a claim. MCP has no `@me`, so the assignee array
-needs the login spelled out.
+A claim needs `get_me`. MCP has no `@me`, so the assignee array needs the login
+spelled out.
 
 Give a role the tool that undoes each tool it has. A reviser that can resolve a
 thread and not reopen one turns a mistyped thread id into a question that no
