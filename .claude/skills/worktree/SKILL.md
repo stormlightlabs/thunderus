@@ -7,10 +7,8 @@ description: Decide whether a unit of agent work needs its own git worktree, the
 
 One unit of work gets one branch and one owner. Whether it also gets its own
 worktree is decided under [Who gets one](#who-gets-one), and this skill is the
-only thing in the repository that makes one. Two other things can: an
-`isolation` key in a definition under `.claude/agents/`, and an `isolation`
-setting on a dispatch. Both place the worktree inside the repository root, so
-this repository uses neither.
+only thing in the repository that makes one. `check-isolation.py` holds that in
+CI.
 
 ## Who gets one
 
@@ -37,10 +35,21 @@ The run creates it before dispatching rather than leaving the subagent to. A
 subagent making its own would place it relative to whatever directory it started
 in, and that directory is recorded nowhere the run can read afterwards.
 
-`.claude/.gitignore` catches a worktree that lands at `.claude/worktrees/`
-anyway, so the checkout stays clean. Nothing catches the rest: the key, the
-dispatch setting, and the directory a subagent writes into are rules a reader
-has to follow. Delete this paragraph for whichever of them a check later covers.
+`.claude/.gitignore` keeps a worktree that lands at `.claude/worktrees/` out of
+the checkout's status, so one made by mistake does not also read as dirty.
+
+Two things here are still rules a reader has to follow, because both are
+decided at runtime and recorded nowhere the tree can read:
+
+- **An `isolation` argument on a dispatch.** The check reads the text a
+  dispatch would be copied from, so it catches the setting written into a
+  definition or a code block. A run that passes the argument without that text
+  existing anywhere gets the harness worktree and nothing notices. Pass no
+  `isolation` on an Agent call, whatever a prompt asks for.
+- **The directory a dispatched subagent writes into.** It starts in the run's
+  checkout and stays there unless it changes directory. Compare the paths the
+  subagent reports touching against the directory the run handed it before
+  believing the worktree was used.
 
 A session working an issue itself on a development machine takes one too. The
 checkout there is the user's working tree and an agent is never its writer.

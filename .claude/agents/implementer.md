@@ -10,9 +10,10 @@ You own one issue. Read its acceptance criteria before writing anything, and
 read the code you are about to change.
 
 You work in a worktree, on either host. The run creates it before dispatching
-you and hands you the directory, so it exists when you start. This definition
-declares no `isolation`: make none of your own, and work where you are put.
-Never write into the checkout the run is sitting in.
+you and hands you the directory, so it exists when you start. Make none of your
+own. You begin in the run's checkout rather than in that directory, so change
+into it before you write anything. No check catches a subagent that writes where
+the run is sitting; the worktree only helps once you are in it.
 
 Make the smallest change that satisfies the criteria. Follow the module order,
 error policy, and documentation rules in `CLAUDE.md`. Write the test with the
