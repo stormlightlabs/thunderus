@@ -1,0 +1,83 @@
+name: Issue with sub-issues
+description: A goal, a stop rule, and the sub-issues that are the work.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is what a run works through: `/storm <number>`. It holds a goal
+        and the condition that ends it. Add sub-issues after opening it; they
+        are the things `/impl` claims, and this issue is not one of them.
+
+        Take no `kind:` label. An issue with sub-issues and no `kind:epic` is
+        the run unit, which is the whole test. If this needs to sit beside
+        other issues in one body of work, file an Epic above it.
+
+        At most five open sub-issues. A run holds every one it dispatches in
+        one context, and past five that context is spent on work not started
+        yet. What does not fit is a second parent filed beside this one.
+
+        A run ends when every sub-issue is terminal, its budget is spent, or a
+        worker escalates. The issue stays open until its stop rule is met, so
+        it may take several runs.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What is different when this issue is finished.
+    validations:
+      required: true
+
+  - type: textarea
+    id: done-when
+    attributes:
+      label: Done when
+      description: >
+        The condition that closes this issue, checkable without judgment. This
+        is the stop rule, and it is not a budget: a run can end without it
+        being met.
+      placeholder: |
+        `thndrs mcp` lists every configured server with its trust state, and a
+        project server cannot start until a recorded approval says it may.
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: Planned sub-issues
+      description: >
+        One line each, with the paths that sub-issue owns, and at most
+        five. File them as sub-issues of this one after opening it: that
+        relation is what a run reads, and a list here is not it. GitHub tracks
+        their state, so this stays a plan rather than a checklist. Do not nest
+        deeper than one level. Below the table, name any collision with another
+        parent's sub-issues and which to sequence around which: a run works one
+        parent and cannot see those. The decompose skill's Recording overlap
+        says why, and /triage reads both.
+      value: |
+        | Sub-issue | Owns |
+        | --- | --- |
+        |  |  |
+
+        Collides with:
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Source
+      description: The idea file, spec, or discussion this came from.
+    validations:
+      required: false
+
+  - type: textarea
+    id: not-in-this-issue
+    attributes:
+      label: Not in this issue
+      description: >
+        Scope this issue must not absorb. A worker that finds work here files
+        it separately.
+    validations:
+      required: false

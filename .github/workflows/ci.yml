@@ -95,43 +95,6 @@ jobs:
       - name: Check every agent and skill definition
         run: .claude/scripts/check-isolation.py
 
-  commits:
-    name: Commit messages
-    # Only a pull request has a range to check. A push to edge or main carries
-    # commits that were already checked on the branch they came from.
-    #
-    # This job reports and never fails. A message is cheap to fix while it sits
-    # in the editor, which is where the commit-msg hook catches it, and dear to
-    # fix afterwards: rewriting a pushed branch to correct a character count
-    # costs more than the character count is worth. The warnings and the job
-    # summary keep the state visible without gating the branch on it.
-    #
-    # Length findings are softer still: they never fail even the hook. They are
-    # here to be read by whoever writes the squash message, which is the only
-    # version of this text that reaches the trunk.
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # The default shallow clone cannot see the base commit.
-          fetch-depth: 0
-      - name: Check the checker
-        run: .claude/scripts/check-commit-message-test.py
-      - name: Report every commit message on the branch
-        run: |
-          .claude/scripts/check-commit-message.py --warn --range \
-            "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
-            | tee "$RUNNER_TEMP/commits.txt"
-          {
-            echo "### Commit messages"
-            echo
-            echo '```text'
-            # The ::warning:: lines are annotations, not summary content.
-            grep -v '^::' "$RUNNER_TEMP/commits.txt" || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
   msrv:
     name: Rust 1.88 compatibility
     runs-on: ubuntu-latest
@@ -163,3 +126,4 @@ jobs:
       # to run here: no toolchain, no network, and no cache to warm.
       - name: Check the session start hook
         run: .claude/hooks/session-start-test.py
+

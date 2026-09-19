@@ -27,15 +27,11 @@ The standard passes read the change as written. The adversarial pass reads it
 as hostile input, an unlucky interleaving, or a caller who ignores the
 documentation would.
 
-- Name the input, the ordering, or the state that produces the failure. A
-  worst case with no path to it is not a finding.
-- Say how far you got: reproduced with a test you ran, traced through the
-  code, or suspected. Mark the third kind `unverified` and keep it out of the
-  `blocker` and `high` rows.
-- Prefer a few findings you can support to a list you cannot. One proven race
-  changes the diff. Six guesses cost the next editor a day.
-- Read the tests for what they do not assert. A test that passes against the
-  old behavior and the new one covers neither.
+`.claude/agents/adversarial-reviewer.md` lists what it hunts and what it owes
+each finding: a named input, ordering or state, and how far you got. One rule
+is worth repeating here because it is the one that inflates a comment — prefer
+a few findings you can support to a list you cannot. One proven race changes
+the diff; six guesses cost the next editor a day.
 
 ### Complexity
 
@@ -122,13 +118,12 @@ case is speculation; drop it or mark it `nit`.
 
 ## Keep the report readable
 
-A report is prose in this repository, so the `writing-docs` length targets
-cover it too.
-
 - One line per finding, most severe first. No preamble, and no closing section
   restating the lines above it.
-- Keep a comment under 40 lines. Past ten findings, give the ten that matter
-  and say how many `nit` rows you left out.
+- **Under 200 words**, counted in words because GitHub soft-wraps a comment and
+  a line count there measures nothing. Past ten findings, give the ten that
+  matter and say how many `nit` rows you left out. Cut a finding rather than
+  compressing ten into denser prose.
 - Cite `<path>:<line>` instead of quoting the diff back at its author.
 - Group repeats. One finding naming every site beats one finding per site.
 - Report findings and nothing else, to the thread and to whoever invoked the
@@ -152,14 +147,10 @@ change. What outlived a round of fixes is the part worth recording. An
 adversarial pass is the last thing before a human reads the diff, so the record
 has to show it ran.
 
-The invoker says which pass this is. `/rev` takes it as an argument and the
-sequence in `.claude/skills/thunderstorm/SKILL.md` fixes it at dispatch. Do not
-infer it from the thread, which answers the question wrongly in three
-directions: a pass that found nothing leaves nothing behind, an `/edit` reply
-is signed and finding-shaped, and a comment can be edited or deleted after the
-fact. Where no pass is named, this is a first pass. Open each comment by naming
-the pass that wrote it, which is what makes a second-pass comment evidence that
-a first pass ran.
+The invoker says which pass this is; `/rev` takes it as an argument and the
+`thunderstorm` skill fixes it at dispatch. Do not infer it from the thread,
+which gets it wrong: a pass that found nothing leaves nothing behind, and a
+comment can be edited or deleted. Where no pass is named, this is a first pass.
 
 A pass that posts nothing still owes its findings to the invoker, because they
 are the next `/edit` pass's only input. An orchestrator hands them to `/edit`
@@ -168,22 +159,25 @@ second pass can work out, having never seen the first.
 
 ## Post the findings
 
-Post one comment per pass, not one per finding. Open it with the commit the
-pass read and the pull request it belongs to:
+Post one comment per pass, not one per finding, **under 200 words**. Open it
+with one line carrying which pass this is, what it read, and what it ran as:
 
 ```text
-Reviewed at <commit> on #<n>.
+Second standard pass on #12 at 4f2a91c · claude-opus-5 · high
 ```
 
-Both, not the commit alone. The branch is deleted when its pull request merges
-and the commit goes unreachable with it, so a review citing only a SHA is
-unreadable by the time anyone goes back to it.
+The pull request as well as the commit, because the branch is deleted when its
+pull request merges and a review citing only a SHA is unreadable by the time
+anyone goes back to it. The model and level because `internal/models.md` sets
+which model runs which pass, and this line is the only record that check can
+read afterwards. Use the identifier the harness reports, not a friendly name.
 
-End every comment with a signature naming the model and reasoning level:
+That line is the whole ceremony. Nothing goes at the bottom: the harness
+appends its own footer, and a signature under it was displaced in 54 of the 57
+comments this repository has posted.
 
-```text
-— <model-id> · <reasoning-level>
-```
+Two hundred words is ten findings at one line each. When they do not fit, cut a
+finding and say how many you left out. Do not compress ten into denser prose.
 
 ```sh
 gh pr comment <n> --body-file <file>

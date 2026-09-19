@@ -1,6 +1,6 @@
 ---
 name: commit-and-pr-length
-last_updated: 2026-09-18
+last_updated: 2026-09-19
 id: 01M2S96YAWBQX8Y53FFQF3GCZE
 ---
 
@@ -20,9 +20,8 @@ Measured on `edge` at `de489a8`, over the 17 squash merges it carries:
 | Commits per merged branch       | —        | median 3, max 31          |
 | Pull request description        | 40 lines | median 47.5 lines         |
 
-Reproduce the first three with `.claude/scripts/check-commit-message.py
---warn --range <base>..<head>`, which reports each body and the projected
-squash size. The fourth came from the pull request API over the 18 pull
+Reproduced at the time with `check-commit-message.py --warn --range`, which no
+longer exists; see **Outcome**. The fourth came from the pull request API over the 18 pull
 requests open or merged on 2026-09-18; their median body is also 385 words,
 which is the top of the 200-to-400 band the sources below give for a large
 change, for descriptions that are mostly documentation edits.
@@ -79,6 +78,30 @@ Targets, with where each number comes from:
 | Merged body          | 15 lines      | It is one commit like any other     |
 | Pull request body    | 20 or 40      | Short form, or headings on a big diff |
 | Pull request comment | 10 lines      | It is a reply, not a report         |
+
+## Outcome
+
+Settled on 2026-09-19, and not the way this file proposed. Both Open questions
+below are answered by the same change and neither needed a judgement call.
+
+The repository now merges with `squash_merge_commit_title=PR_TITLE` and
+`squash_merge_commit_message=PR_BODY`. A squash no longer concatenates the
+branch, so the sum this file computes does not happen, the merge-box edit it
+asks for is unnecessary, and the number of commits on a branch stops being a
+constraint on how work is split. The projection and the `--range` mode that
+printed it are deleted; `--pr` checks the title and body instead, which is the
+text that lands.
+
+What this file got right is that the enforcement level was the question. What
+it got wrong is that it looked for the right level of *reporting* on a text
+nobody could fix cheaply, when the fix was to change which text lands. The
+three levels are prevention, detection and blocking; a repository setting is
+prevention, and it was one API call away the whole time.
+
+Two targets changed with it. A commit body has no target on a branch, because
+the squash discards it. Comments moved from lines to words, after a measurement
+showing that a comment inside the 40-line cap ran a median 392 words: GitHub
+soft-wraps, so a line count there measures nothing.
 
 ## Open
 

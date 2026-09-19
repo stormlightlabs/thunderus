@@ -49,10 +49,14 @@ Two differences decide correctness, so read them before the first write:
 | Sub-issues   | `gh issue view <n> --json subIssues`                                         | `issue_read` method `get_sub_issues`           |
 | Labels alone | `gh issue view <n> --json labels`                                            | `issue_read` method `get_labels`               |
 
-An epic carries `kind:epic`. Its sub-issues are the units of work, and the epic
-itself is never claimed: it has no owner and no `status:*` label, because its
-state is whatever its sub-issues say. A run is a pass over one epic, so an epic
-outlives the runs that work it.
+Three shapes. An epic carries `kind:epic`, groups issues and is never
+dispatched. An issue with sub-issues and no `kind:epic` is what a run takes, at
+most five of them open at once. A sub-issue is the unit of work.
+
+Neither of the first two is ever claimed: no owner, no `status:*`, no `risk:*`,
+because their state is whatever their children say. A run is a pass over the
+middle one, which outlives the runs that work it. The `decompose` skill's
+**Three shapes** carries the rest.
 
 ## Status
 
@@ -89,6 +93,11 @@ one issue make the board unreadable and the loop will pick the wrong transition.
 | `status:verify`  | `status:done`    | The change ships in a release from `main`.    |
 | any              | `status:blocked` | Add a `blocked:*` label saying why.           |
 | any              | `status:dropped` | Close with a comment giving the reason.       |
+
+Every row but one is a write this skill performs. The `status:review` row is
+not: a person merges the pull request in GitHub and moves that label, and no
+skill, script or command here does either. Report that a pull request is ready
+and stop.
 
 ## Claim
 
@@ -166,83 +175,20 @@ by refusing to close an issue whose blockers are open.
 A dependency is an ordering known when the issues are filed. It is not
 `status:blocked`, which stops a run (see the `thunderstorm` skill's stop
 conditions) and belongs to a block discovered while working. An issue waiting
-on a sibling stays `status:queued` and keeps its place in the epic's dispatch
-order.
+on a sibling stays `status:queued` and keeps its place in the dispatch order.
 
-### Neither transport reaches them
+### Neither transport performs them
 
 The GitHub MCP server exposes no dependency tool: `sub_issue_write` writes
-hierarchy and nothing writes `blocked_by`. The transport table already assumes a
-cloud session cannot fall back to `gh`, and the current image carries no `gh`
-binary at all, so this is the one board operation that goes to the REST API
-directly.
-It is the only place this skill reaches past the transport table, and it
-reaches it for dependency relations alone. Every board write still goes through
-`gh` or MCP.
+hierarchy and nothing writes `blocked_by`, and a cloud image carries no `gh`
+binary to fall back to. So this is the one board operation that goes to the
+REST API directly, and it is the only place this skill reaches past the
+transport table. Every other board write still goes through `gh` or MCP.
 
-Reading is where that stops being the whole story. The `triage` skill reads the
-board through the same REST path, for the dependency and sub-issue counts the
-issue list carries and neither transport exposes. Its
-`references/reading-the-board.md` holds those calls. A read that goes around
-the transport table costs nothing a write would, and the rule above is about
-writes.
-
-A cloud container has `GH_TOKEN` and `GITHUB_TOKEN` in the environment. Use one
-of them; do not print either, and do not pass a token on a command line where it
-lands in shell history.
-
-### Read
-
-```sh
-api=https://api.github.com/repos/<owner>/<repo>/issues
-gh_api() {
-  curl -sS \
-    -H "Authorization: Bearer $GH_TOKEN" \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" "$@"
-}
-
-gh_api "$api/<n>/dependencies/blocked_by"   # what <n> waits for
-gh_api "$api/<n>/dependencies/blocking"     # what waits for <n>
-```
-
-Both return an array of issue objects, empty when there is no relation. Read
-`blocked_by` before claiming anything: an issue whose blockers are still open is
-not claimable, whatever its status label says.
-
-### Write
-
-```sh
-gh_api -X POST -H "Content-Type: application/json" \
-  "$api/<blocked-number>/dependencies/blocked_by" \
-  -d '{"issue_id": <blocker-id>}'
-```
-
-`201` is success. Removing one is the same path with `-X DELETE` and no body.
-
-Two things make this fail in ways the error message only half explains:
-
-- **The body takes an issue ID, the path takes an issue number.** They are
-  different values, and an issue's ID is global where its number is per
-  repository, so a number sent as `issue_id` is not the issue you meant. Get the
-  ID from the `id` field of `issue_write` method `create`, or from
-  `gh_api "$api/<n>"` piped through `jq .id`.
-- **`Content-Type: application/json` is required.** Without it the request fails
-  `415` even though the body is valid JSON and every other header is right. The
-  `Accept` header does not cover this.
-
-### Verify
-
-The relation is stored once and projected both ways, so reading it back from the
-other end is a real check rather than an echo:
-
-```sh
-gh_api "$api/<blocker>/dependencies/blocking" | jq -r '.[].number'
-```
-
-Report the graph you wrote, in both directions. A dependency nobody announced is
-an ordering nobody can question, and a missing one is invisible until a run
-dispatches into it.
+`references/dependencies.md` holds the read, write, and verify calls, and the
+token rule that goes with them. `triage`'s `references/reading-the-board.md`
+holds the read path for the counts the issue list carries and neither transport
+exposes.
 
 ## Label definitions
 

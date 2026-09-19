@@ -23,8 +23,8 @@ Through MCP: `issue_read` method `get`, then method `get_sub_issues`.
 Stop and ask when any of these is true:
 
 - The issue has no acceptance criteria you could verify.
-- The issue has sub-issues. It is an epic rather than a unit of work; work its
-  sub-issues individually, or run the whole epic with `/thunderstorm`.
+- The issue has sub-issues. It is an epic or a run unit rather than a unit of
+  work; run it with `/storm`, or work its sub-issues one at a time.
 - The issue is already `claimed` by someone else.
 - The work needs a decision the issue does not record.
 
@@ -105,8 +105,19 @@ say so in the pull request body and explain why.
 
 ## Open the pull request
 
-Use the `commits-and-prs` skill for the commit messages and the pull request
-body. Base the pull request on `edge`.
+Base the pull request on `edge`.
+
+The title and body become the squash commit, verbatim. Write them to that:
+
+- Title under **53 characters**, as `<type>: <what changed>`. GitHub appends
+  ` (#NN)`, and 59 is the limit.
+- Body under **20 lines, wrapped at 72 columns**, with no headings. `## What`
+  reaches `git log` as the literal characters `## What`.
+- `Closes #<n>`, a `Verified with <command>` line naming a command you ran, and
+  a `Not covered` line that is not empty.
+
+`commits-and-prs` carries the rest, and
+`.claude/scripts/check-commit-message.py --pr` reports both before the merge.
 
 Push with `.claude/scripts/push-verified.sh`, which compares the remote ref to
 local `HEAD` afterwards. `git push` exits zero for a push that carried nothing,

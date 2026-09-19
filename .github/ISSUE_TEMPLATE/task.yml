@@ -6,8 +6,8 @@ body:
     attributes:
       value: |
         A task is what `/impl` claims. Keep it to one change with one pull
-        request. If it needs several, open a Run instead and file these as its
-        sub-issues.
+        request. If it needs several, open a parent issue instead and file
+        these as its sub-issues.
 
   - type: textarea
     id: summary

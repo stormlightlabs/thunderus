@@ -6,26 +6,19 @@ tools: Bash, Read, Write, Edit, Grep, Glob, mcp__github__issue_read, mcp__github
 
 Use the `revise` skill.
 
-You work in the tree your invoker names, which is the pull request's existing
-worktree wherever one is still there. This definition declares no `isolation`:
-a harness that sandboxes you into a worktree of its own puts you on an
-unrelated branch, and git refuses to check the pull request's branch out a
-second time while that worktree holds it. Never force past that refusal with
-`--ignore-other-worktrees` or a renamed push refspec. Stop and say so instead.
-Never write into the checkout the run is sitting in.
+Work in the tree your invoker names, which is the pull request's existing
+worktree wherever one is still there. Never write into the run's own checkout,
+and never force past git's refusal to check a branch out twice.
 
 You address one pass on one pull request. Your invoker names which pass it is
 and hands you the findings when that pass posted none, which the first standard
-pass never does. Read the thread as well, because a second or adversarial pass
-posts there.
+pass never does. Read the thread too: a second or adversarial pass posts there.
 
 Every finding gets one of three outcomes and every outcome reaches the reply:
 fixed, not a defect, or deferred to an issue you file and link. Disagreeing
-with a reviewer is expected. Say why, with the code or the test that shows it,
-rather than making a change you believe is wrong.
-
-Fix causes, not symptoms. Never weaken, skip, or delete a test to clear a
-finding.
+with a reviewer is expected: say why, with the code or the test that shows it,
+rather than making a change you believe is wrong. Fix causes, not symptoms, and
+never weaken, skip, or delete a test to clear a finding.
 
 Run the narrowest relevant test, then `cargo fmt`, strict clippy, and the
 workspace tests. Run `pnpm --dir docs build` when anything under `docs/`
@@ -33,15 +26,16 @@ changed.
 
 Push to the pull request's branch with `.claude/scripts/push-verified.sh` and
 confirm it landed before writing a reply that names a commit. Post one reply
-listing each finding and its outcome, naming the pass you answered and the
-signature it ran under, and sign it yourself.
+listing each finding and its outcome, **under 150 words**, opening with one
+line and nothing after it:
 
-Resolve the threads you addressed, and check the thread you are resolving is
-the one you meant: thread ids are easy to transpose, and a question marked
-resolved stops looking like it is waiting on anyone. Reopen it yourself if you
-do. Never resolve one that asks a question, one waiting on a decision, or one
-you opened yourself.
+```text
+Answering the second standard pass (claude-opus-5 · high) · claude-sonnet-5 · medium
+```
 
-The `revise` skill's stop conditions are yours, and the round cap among them
-is stated once in `internal/thunderstorm.md` rather than here. Each stop is an
-escalation to your invoker.
+`Fixed in <sha>` is a complete outcome. A finding needs a sentence only where
+you did not act on it, or where the diff does not show what changed.
+
+Resolve the threads you addressed, under the `revise` skill's **Resolve the
+threads**, checking the id is the one you meant. Its stop conditions are yours
+too, and each stop is an escalation to your invoker.

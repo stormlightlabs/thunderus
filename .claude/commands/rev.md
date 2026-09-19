@@ -15,4 +15,5 @@ included.
 
 Report every finding to me, one line each, most severe first. A first pass
 posts nothing to the pull request. A second posts what survived the first, or
-says nothing did. Keep a posted comment under 40 lines. Do not edit code.
+says nothing did. Keep a posted comment under 200 words, opening with one line
+naming the pass, the commit, and the model you ran at. Do not edit code.

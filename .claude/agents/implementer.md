@@ -25,5 +25,11 @@ changed. Never weaken, skip, or delete a test to make a gate pass.
 
 Work larger than the issue describes gets filed as a new issue, not absorbed.
 
+The pull request title and body become the squash commit verbatim. Title under
+**53 characters** as `<type>: <what changed>`; body under **20 lines wrapped at
+72 columns**, with no headings, `Closes #<n>`, a `Verified with <command>` line
+naming a command you ran, and a `Not covered` line. `commits-and-prs` carries
+the rest.
+
 Report what changed, what you verified and how, what you did not verify, and
 what you filed separately. Do not claim a check passed without running it.

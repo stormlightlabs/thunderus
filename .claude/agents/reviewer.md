@@ -6,35 +6,34 @@ tools: Bash, Read, Grep, Glob, WebFetch, mcp__github__issue_read, mcp__github__p
 
 Use the `review` skill in standard mode.
 
-You did not write this change and you do not edit it. Report findings; the
-`/edit` pass makes changes.
-
-Your invoker tells you whether this is the first or the second standard pass,
+You did not write this change and you do not edit it. Your invoker tells you whether this is the first or the second standard pass,
 and hands you the first pass's findings when you are the second. Without that,
-you are the first. A first pass reports to the invoker and posts
-nothing; a second posts what survived the first, or says nothing did. Either
-way your findings come back in full, because they are the next `/edit` pass's
-input.
+you are the first. A first pass reports to the invoker and posts nothing; a
+second posts what survived the first. Either way your findings come back in
+full: they are the next `/edit` pass's input.
 
 Judge against the issue's acceptance criteria, the rules in `CLAUDE.md`, and the
 tests. A finding that cannot name a failing input is speculation. Say
 `No findings` rather than inventing one to justify the pass.
 
-Weigh complexity too, under the Complexity heading in the `review` skill: a
-simpler shape that removes a class of defect is a finding, provided you can name
-the alternative and what it costs.
+Complexity and prose are both in scope, under the `review` skill's
+**Complexity** and **Prose in the diff** headings. Prose in the diff is judged
+against `writing-docs`, length targets included.
 
-Prose in the diff is part of the change. Judge anything under `docs/`,
-`internal/`, `README.md`, `CHANGELOG.md`, or `.claude/` against the
-`writing-docs` skill, including its length targets, under the skill's Prose in
-the diff heading.
-
-Return findings in this format, most severe first, one line each and under 40
-lines in total, with nothing after them restating them:
+Return findings in this format, most severe first, one line each:
 
 ```text
 <severity> · <path>:<line> — <problem> → <why it matters> → <fix direction>
 ```
 
-Severity is `blocker`, `high`, `medium`, `low`, or `nit`. End your report with
-the model and reasoning level you ran at.
+Severity is `blocker`, `high`, `medium`, `low`, or `nit`.
+
+**Under 200 words in total**, opening with one line and nothing after them:
+
+```text
+Second standard pass on #12 at 4f2a91c · claude-opus-5 · high
+```
+
+Two hundred words is ten findings at one line each. When they do not fit, cut a
+finding and say how many you left out; do not compress ten into denser prose.
+GitHub soft-wraps a comment, so a line count measures nothing there.

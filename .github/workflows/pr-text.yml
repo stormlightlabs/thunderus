@@ -1,0 +1,52 @@
+name: Pull request text
+
+# The title and body of a pull request become the squash commit on edge, so
+# this checks the text that reaches the trunk. The branch's own commit messages
+# do not, which is why no job reads them.
+#
+# It needs its own workflow for the `edited` trigger. Editing a title or a body
+# fires `edited`, which is not in the default set for `pull_request`, so a fix
+# made in the text box would never be re-checked. Adding `edited` to ci.yml
+# would rerun the Rust gates on every typo.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-text-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  text:
+    name: Pull request text
+    runs-on: ubuntu-latest
+    steps:
+      # No range is read any more, so the default shallow clone is enough.
+      - uses: actions/checkout@v4
+      - name: Check the checker
+        run: .claude/scripts/check-commit-message-test.py
+      - name: Report the text that becomes the squash commit
+        # The title and body go through the environment and into files. A title
+        # is written by whoever opened the pull request, and one interpolated
+        # into a run block with ${{ }} would be executed rather than checked.
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_TITLE" > "$RUNNER_TEMP/title.txt"
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/body.txt"
+          .claude/scripts/check-commit-message.py --warn --pr \
+            --title-file "$RUNNER_TEMP/title.txt" \
+            --body-file "$RUNNER_TEMP/body.txt" \
+            | tee "$RUNNER_TEMP/text.txt"
+          {
+            echo "### Pull request text"
+            echo
+            echo '```text'
+            # The ::warning:: lines are annotations, not summary content.
+            grep -v '^::' "$RUNNER_TEMP/text.txt" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

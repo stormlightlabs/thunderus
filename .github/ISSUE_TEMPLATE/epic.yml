@@ -1,60 +1,57 @@
 name: Epic
-description: A goal, a stop rule, and the sub-issues that are the work.
+description: A body of work spanning several issues, and what crosses them.
 labels: ["kind:epic"]
 body:
   - type: markdown
     attributes:
       value: |
-        An epic is what a run works through. It holds a goal and the condition
-        that ends it. Add sub-issues after opening this; they are the things
-        `/impl` claims, and this epic is not one of them.
+        An epic groups issues. It is never claimed and never dispatched: a run
+        takes one issue with sub-issues, and `/storm` refuses an epic.
 
-        A run is one pass over this epic, started by `/thunderstorm <number>`.
-        A run ends when every sub-issue is terminal, its budget is spent, or a
-        worker escalates. The epic stays open until its stop rule is met, so it
-        may take several runs.
+        File one only when the work needs more than one run. An epic holding a
+        single issue is a heading.
+
+        What it must carry is the part a run cannot see. A run works one issue
+        and never loads its siblings, so a blocker between two of them, an
+        ordering across them, or a file both write is invisible from inside
+        either. This is the only place that survives.
 
   - type: textarea
     id: goal
     attributes:
       label: Goal
-      description: What is different when this epic is finished.
+      description: What is different when every issue under this is finished.
     validations:
       required: true
 
   - type: textarea
-    id: done-when
+    id: issues
     attributes:
-      label: Done when
+      label: Issues under this
       description: >
-        The condition that closes this epic, checkable without judgment. This
-        is the stop rule, and it is not a budget: a run can end without it
-        being met.
-      placeholder: |
-        `thndrs mcp` lists every configured server with its trust state, and a
-        project server cannot start until a recorded approval says it may.
-    validations:
-      required: true
-
-  - type: textarea
-    id: plan
-    attributes:
-      label: Planned sub-issues
-      description: >
-        One line each, with the paths that sub-issue owns. File them as
-        sub-issues of this one after opening it: that relation is what a run
-        reads, and a list here is not it. GitHub tracks their state, so this
-        stays a plan rather than a checklist. Do not nest deeper than one
-        level. Below the table, name any collision with another epic's
-        sub-issues and which to sequence around which: a run works one epic
-        and cannot see those. The decompose skill's Recording overlap says
-        why, and /triage reads both.
+        One line each, in dispatch order. File them as sub-issues of this one
+        after opening it; a list here is not that relation. Each holds at most
+        five open sub-issues of its own.
       value: |
-        | Sub-issue | Owns |
+        | Issue | Runs when |
         | --- | --- |
         |  |  |
+    validations:
+      required: true
 
-        Collides with:
+  - type: textarea
+    id: crossings
+    attributes:
+      label: What crosses them
+      description: >
+        Dependencies between the issues above, and every file two of them both
+        write. Say which to sequence around which, not merely that they touch.
+        Record dependencies as GitHub issue dependencies as well; this table is
+        what a reader gets, that relation is what GitHub enforces.
+      value: |
+        | Crossing | Sequence |
+        | --- | --- |
+        |  |  |
     validations:
       required: true
 
@@ -70,19 +67,6 @@ body:
     id: not-in-this-epic
     attributes:
       label: Not in this epic
-      description: >
-        Scope this epic must not absorb. A worker that finds work here files it
-        separately.
+      description: Scope this must not absorb. A worker that finds it files it separately.
     validations:
       required: false
-
-  - type: dropdown
-    id: risk
-    attributes:
-      label: Risk
-      options:
-        - low — contained, easy to revert
-        - medium — crosses a module or changes observable behavior
-        - high — touches released behavior, data, or security
-    validations:
-      required: true

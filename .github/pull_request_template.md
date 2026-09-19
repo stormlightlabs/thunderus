@@ -1,21 +1,20 @@
 Closes #
 
-<!-- A reviewer wants to know what to look at and whether it works. Most
-     changes need only the three lines below; delete this comment and write
-     them. This body never reaches git log, so it is scaffolding for one
-     review rather than a record.
+<!-- This body IS the commit message. The repository squashes with
+     squash_merge_commit_message=PR_BODY, so every line below reaches git log
+     verbatim, read by someone skimming for one change among hundreds.
 
-     For a large change — a diff over roughly 300 lines, or one touching more
-     than one crate — replace them with the headings at the bottom of this
-     comment, which give a reviewer somewhere to look for the verification.
+     So: wrap at 72 columns, stay under 20 lines, and use no headings — a
+     "## What" arrives in the log as the literal characters "## What". Keep the
+     title under 53 characters, as "<type>: <what changed>"; GitHub appends
+     " (#NN)" and the limit is 59.
 
-     Keep the short form under 20 lines and a headings body under 40, and keep
-     the title under 53 characters: GitHub appends " (#NN)", limit 59.
-
-     ## What / ## Why / ## Verification / ## Not covered
+     Delete this comment and write the three parts below. CI reports the title
+     and body on every edit, and fails on neither.
 -->
 
-<!-- One paragraph: what changed, and what behavior it produces. -->
+<!-- One paragraph: what changed, and what behavior it produces. Not the diff,
+     and not the path you took to it. -->
 
 Verified with <!-- command -->: <!-- result. "Tests pass" without the command
 is not verification. Say so plainly if a check was not run. -->

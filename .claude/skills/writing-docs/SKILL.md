@@ -38,23 +38,34 @@ them stops a document from growing past what a reader will finish. Match the
 length to what a reader has to do with the document, and check it against these
 targets.
 
-| Document                          | Target    |
-| --------------------------------- | --------- |
-| Error message                     | 2 lines   |
-| Chat reply                        | 20 lines  |
-| Commit body                       | 15 lines  |
-| Pull request description          | 20 lines  |
-| Pull request description, headings | 40 lines |
-| Pull request comment              | 10 lines  |
-| Review comment                    | 40 lines  |
-| Command or agent definition       | 40 lines  |
-| `SKILL.md`                        | 200 lines |
-| Docs page, README, internal spec  | 300 lines |
+**Count lines only where something wraps them.** A file wraps at 80, a commit
+body at 72, a terminal at its width. Everything GitHub renders — a pull request
+body, a comment, an issue — is soft-wrapped, so one paragraph is one line and a
+line count measures nothing. Those are counted in words. A comment that passed
+the old 40-line cap ran 392 words, which is how the targets below were being
+met and missed at the same time.
 
-The git rows interact: a squash merge concatenates a branch's commit bodies, so
-the merged commit is their sum rather than any one of them. The
-`commits-and-prs` skill holds that arithmetic and the character budget a pull
-request title has before GitHub's ` (#NN)` suffix overflows it.
+| Text                             | Unit       | Target |
+| -------------------------------- | ---------- | ------ |
+| Error message                    | lines      | 2      |
+| Pull request title               | characters | 53     |
+| Pull request body                | lines      | 20     |
+| Review comment                   | words      | 200    |
+| Edit reply                       | words      | 150    |
+| Any other pull request comment   | words      | 100    |
+| Issue body                       | words      | 250    |
+| Chat reply                       | lines      | 20     |
+| Command or agent definition      | lines      | 40     |
+| `SKILL.md`                       | lines      | 200    |
+| Docs page, README, internal spec | lines      | 300    |
+
+The pull request body counts in lines because it is a commit body: this
+repository merges with `squash_merge_commit_message=PR_BODY`, so the body
+reaches `git log` verbatim and is written wrapped at 72 columns. The title is
+the subject, and 53 is 59 less the ` (#NN)` GitHub appends. `commits-and-prs`
+holds both, and `.claude/scripts/check-commit-message.py --pr` reports them on
+every pull request. The review and reply numbers live with `review` and
+`revise`, which is where they are read.
 
 A reference page that enumerates a surface, every configuration key or every
 flag, grows with that surface and is the usual exception. It still needs
@@ -79,6 +90,11 @@ than the length did, so split by audience or by task, never by size alone.
 
 Never drop a fact, a number, a limit, or a qualifier to reach a target. A
 document whose facts do not fit is more than one document.
+
+A comment is the exception, because it is a reply rather than a record. When a
+review comment does not fit, cut a finding and say how many you left out; do
+not compress ten findings into denser prose. The reader can ask for the rest,
+and the tenth `nit` was never what the length was for.
 
 ## Plain technical prose
 

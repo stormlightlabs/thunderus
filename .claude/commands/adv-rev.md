@@ -15,5 +15,5 @@ thread or was handed to you with this target.
 
 Name the input, ordering, or state that reaches each failure, and mark a
 finding you could not verify `unverified`. Few supported findings beat a long
-list. Always post one signed comment under 40 lines, even to record that
+list. Always post one signed comment under 200 words, even to record that
 nothing was found. Do not edit code.
