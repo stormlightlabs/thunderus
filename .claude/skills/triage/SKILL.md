@@ -8,8 +8,8 @@ description: Read the whole board and rank what to dispatch next, as lanes that 
 One pass over the whole board. It produces an order to dispatch in and a plan
 for running several issues at once. It reads everything and writes nothing.
 
-`/storm` runs one parent issue. This chooses among them, and among the
-issues that belong to no parent at all.
+`/storm` runs one issue and its sub-issues. This chooses among them, and among
+the issues that belong to no epic at all.
 
 ## The list is re-derived, never stored
 
@@ -28,12 +28,12 @@ start, which is the stale state the 24-hour rule exists to undo.
 ## Argument
 
 Every argument is prefixed, because the two numeric ones are otherwise the same
-token: `/triage 3` could ask for three threads or for parent issue 3.
+token: `/triage 3` could ask for three threads or for issue 3.
 
 | Form               | Means                                    |
 | ------------------ | ---------------------------------------- |
 | `threads=<n>`      | Plan for `n` threads. Without it, two.   |
-| `#<n>` or `parent:<n>` | Narrow to that parent and its children. |
+| `#<n>` or `epic:<n>`   | Narrow to that issue or epic and its children. |
 | `area:<name>`      | Narrow to issues carrying that label.    |
 | Anything else      | Ad-hoc work, under **Ad-hoc work** below. |
 
@@ -49,7 +49,8 @@ Read the whole board every pass, whatever the argument narrows.
 One paginated call over the repository's open issues carries almost all of it,
 including the summary objects that answer the buckets and two of the rank rules
 without a second request per issue. File ownership is the one thing it does not
-carry, and that comes from the body of each parent holding a candidate.
+carry, and that comes from the body above each candidate: its own issue, and
+the epic over it.
 
 `references/reading-the-board.md` has the commands, the fields and what each
 one decides, and why the MCP tools cannot replace the call.
@@ -57,7 +58,7 @@ one decides, and why the MCP tools cannot replace the call.
 ## Work no run can reach
 
 An open issue with an empty `parent_issue_url` is under no parent, and
-`/storm` dispatches a parent's children, so no run reaches it however long it
+`/storm` dispatches an issue's children, so no run reaches it however long it
 stays queued. It is still claimable and it still ranks, and `/impl` takes it
 directly.
 
@@ -66,9 +67,9 @@ of these, and printing them all buries the lanes.
 
 ## Buckets
 
-Set the parents aside first. A parent carries no `status:*` label and is not
-work, so it is not bucketed and never ranked. What it contributes is its
-`sub_issues_summary` to rank rule 3, and its body to the lanes.
+Set the epics and the run units aside first. Neither carries a `status:*` label
+and neither is work, so neither is bucketed or ranked. What they contribute is
+`sub_issues_summary` to rank rule 3, and their bodies to the lanes.
 
 Sort every other open issue into the first row it matches, top down. The order
 is the precedence: a claim that has gone stale is a repair before it is
@@ -98,9 +99,9 @@ the repair itself is a `github-board` write a human authorizes.
 | `status:claimed` past 24 hours with no pull request | `internal/thunderstorm.md`, Statuses |
 | `status:blocked` past 7 days, or with no `blocked:*` reason | the same |
 | Two `status:*` labels on one issue, or none       | `github-board`, Status    |
-| An issue with children carrying `status:*` or `risk:*` | `decompose`, The parent issue |
-| `kind:parent` with no children, or children with no `kind:parent` | the label and the relation disagree |
-| More than five open children under one parent     | `decompose`, Sizing       |
+| An issue with children carrying `status:*` or `risk:*` | `decompose`, The issue a run takes |
+| `kind:epic` whose children have no children of their own | a run unit wearing a container's label |
+| More than five open children on a run unit        | `decompose`, Sizing       |
 
 The first two are ages, and `updated_at` does not measure them: any comment or
 label bumps it, so an abandoned claim reads fresh the moment someone comments.
@@ -118,11 +119,11 @@ disagrees knows which rule to argue with.
    that holds something up.
 2. **`type:fix` ahead of the rest.** A fix names behavior that is wrong now,
    and everything else is built on top of it.
-3. **The parent nearest finishing.** Its parent's `sub_issues_summary`, by
-   `completed` against `total`, highest first. An issue whose siblings have
-   mostly landed outranks one under a parent nothing has started: finishing a
-   parent retires its coordination cost, and starting another adds one. An
-   issue under no parent scores zero here and is broken out of by rule 4.
+3. **The issue nearest finishing.** Its parent's `sub_issues_summary`, by
+   `completed` against `total`, highest first. A sub-issue whose siblings have
+   mostly landed outranks one under an issue nothing has started: finishing one
+   retires its coordination cost, and starting another adds one. Work under no
+   parent scores zero here and is broken out of by rule 4.
 4. **Oldest first.** A stable tiebreaker. The oldest queued issue has already
    lost every ordering before this one.
 
@@ -134,13 +135,13 @@ A lane is what one thread works, in sequence. `threads=<n>` says how many;
 without it, plan two.
 
 Two issues may sit in different lanes only when they own non-overlapping
-files. Ownership lives in the parent's body, under the `decompose` skill's
-**Recording overlap**, which also asks a parent to name the collisions it has
-with other parents. Honor those as written, including an instruction to
-sequence a whole parent around one issue: a run works one parent and cannot see
-them.
+files. Ownership lives in the body above them, under the `decompose` skill's
+**Recording overlap**: the run unit's body for its own sub-issues, the epic's
+for what crosses its children. Honor those as written, including an instruction
+to sequence a whole issue around one sub-issue: a run works one issue and
+cannot see its siblings.
 
-Where a parent records no ownership, say so and treat every pair under it as
+Where nothing records ownership, say so and treat every pair under it as
 overlapping: an unrecorded overlap found by two implementers costs a rework,
 and holding an issue for one round costs a round.
 
@@ -152,7 +153,7 @@ Two issues never share a fan-out:
 - Either carries `risk:high`. It touches released behavior, data, or security,
   and it wants a thread and a review sequence to itself.
 - Either has sub-issues. `implement` refuses an issue with children, so it is
-  a parent that `/storm` takes, not a lane entry.
+  something `/storm` takes, not a lane entry.
 
 Three issues per lane is enough. Past that the plan is a backlog, and the board
 already holds one.

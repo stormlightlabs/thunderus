@@ -49,12 +49,14 @@ Two differences decide correctness, so read them before the first write:
 | Sub-issues   | `gh issue view <n> --json subIssues`                                         | `issue_read` method `get_sub_issues`           |
 | Labels alone | `gh issue view <n> --json labels`                                            | `issue_read` method `get_labels`               |
 
-A parent carries `kind:parent`. Its sub-issues are the units of work, and the
-parent itself is never claimed: it has no owner, no `status:*` label and no
-`risk:*` label, because its state is whatever its sub-issues say. A run is a
-pass over one parent, so the parent outlives the runs that work it. At most
-five of its sub-issues are open at once, under the `decompose` skill's
-**Sizing**.
+Three shapes. An epic carries `kind:epic`, groups issues and is never
+dispatched. An issue with sub-issues and no `kind:epic` is what a run takes, at
+most five of them open at once. A sub-issue is the unit of work.
+
+Neither of the first two is ever claimed: no owner, no `status:*`, no `risk:*`,
+because their state is whatever their children say. A run is a pass over the
+middle one, which outlives the runs that work it. The `decompose` skill's
+**Three shapes** carries the rest.
 
 ## Status
 
@@ -173,8 +175,7 @@ by refusing to close an issue whose blockers are open.
 A dependency is an ordering known when the issues are filed. It is not
 `status:blocked`, which stops a run (see the `thunderstorm` skill's stop
 conditions) and belongs to a block discovered while working. An issue waiting
-on a sibling stays `status:queued` and keeps its place in the parent's dispatch
-order.
+on a sibling stays `status:queued` and keeps its place in the dispatch order.
 
 ### Neither transport performs them
 

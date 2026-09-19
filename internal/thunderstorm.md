@@ -7,21 +7,29 @@ id: 01M2PWX233GKXE5M9SPTNTGN0D
 # Thunderstorm
 
 Thunderstorm is the development loop for this repository. One run covers one
-parent issue and the sub-issues declared under it. A human starts every run.
+issue and the sub-issues declared under it. A human starts every run.
 Nothing runs on a schedule.
+
+This is the protocol and the reasoning behind it.
+`guides/using-thunderstorm.md` (`01M2XBVYTZDXTW42ZSCFEEW0QS`) is the operator's
+version: what to type, when, and what to skip.
 
 ## What a run is
 
-A run is one pass over one parent issue. The parent is the issue you file: a
-goal, a stop rule, and at most five open sub-issues that are the units of work.
-The two are not the same thing, and the difference shows the first time a
-budget runs out: the run ends, the parent does not, and the next run picks it
-up where this one stopped.
+A run is one pass over one issue and the sub-issues under it: a goal, a stop
+rule, and at most five open sub-issues that are the units of work. The run and
+the issue are not the same thing, and the difference shows the first time a
+budget runs out: the run ends, the issue does not, and the next run picks it up
+where this one stopped.
 
 Five is the cap because a run holds every sub-issue it dispatches in one
-context. A parent of eleven spends that context on work the dispatcher has not
-started, which is how a run loses track of the one it is on. What does not fit
-is a second parent, and there is no tier above them.
+context. Eleven spends that context on work the dispatcher has not started,
+which is how a run loses track of the one it is on.
+
+Above that sits the epic, which a run never takes. It groups issues and holds
+what none of them can see from inside: a blocker between two, an ordering
+across them, a file both write. Splitting for the cap is what makes an epic
+worth filing, because the two halves still share those.
 
 Run state lives in the issues, so a run survives a killed session and any
 harness can resume it.
@@ -50,7 +58,7 @@ them. Two of those differences decide whether a write lands at all:
   `gh issue edit` changes only what it names.
 - Neither transport exposes the dependency and sub-issue counts the REST issue
   list carries per issue, and the MCP sub-issue read returns each child's whole
-  body with no field list, 77,000 to 154,000 characters for one parent here. So a
+  body with no field list, 77,000 to 154,000 characters for one issue here. So a
   pass reading the board rather than writing to it goes to REST, under the
   `triage` skill's `references/reading-the-board.md`.
 - Label definitions do not go through MCP. `.github/labels.yml` is applied by
@@ -100,12 +108,12 @@ Status is a label. One status label per issue.
 for more than 7 days surfaces in the next `/triage` report. Nothing closes
 automatically.
 
-A parent carries no status and no risk. It is not work, so there is nothing to
-claim and no blast radius to size, and duplicating its sub-issues' state on it
-gives that copy somewhere to drift.
+Neither an epic nor an issue with sub-issues carries a status or a risk.
+Neither is work, so there is nothing to claim and no blast radius to size, and
+duplicating a child's state on a parent gives that copy somewhere to drift.
 
-The full label set, including `area:*`, `risk:*`, `type:*`, and `kind:parent`
-for the issues runs work through, lives in `.github/labels.yml`. Its `retired:`
+The full label set, including `area:*`, `risk:*`, `type:*`, and `kind:epic`
+for the containers that group them, lives in `.github/labels.yml`. Its `retired:`
 group names labels this repository has stopped defining, which the sync
 deletes: a rename that only adds the new name leaves the old one in the picker,
 teaching the next contributor a rule that no longer holds. Apply it with
@@ -119,9 +127,9 @@ nothing.
 ```text
 /r-d            an idea            internal/ideas/
 [/spec-ify]     a design           internal/features/<name>/plan.md
-/decomp         a parent issue and up to five sub-issues
+/decomp         issues of up to five sub-issues, in an epic if several
 [/triage]       which of them to dispatch next, and what runs at once
-/storm          one run over that parent, dispatching the stages below
+/storm          one run over one of those issues, dispatching the stages below
 /impl           a pull request
 /rev, /adv-rev, /edit              review passes and their fixes
 a human         squashes it into edge, in GitHub
@@ -137,7 +145,7 @@ stage that files issues. `github-board` performs those writes but decides
 nothing about what to write.
 
 A run is what carries a sub-issue from queued to merged: `/storm` claims each
-one and dispatches the stages under it. One issue worked on its own skips the
+one and dispatches the stages under it. An epic is never a run's argument. One issue worked on its own skips the
 run and starts at `/impl`.
 
 ## Commands
@@ -146,9 +154,9 @@ run and starts at `/impl`.
 | ----------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
 | `/r-d`, `/rubber-duck`  | A topic                   | Design discussion. Writes an entry to `internal/ideas/` on request.                |
 | `/spec-ify`, `/specify` | An idea or topic          | One design to `internal/features/<name>/plan.md`. Only when a decision is missing. |
-| `/decomp`, `/decompose` | An idea, spec, or finding | Files one parent issue and up to five sub-issues under it.                         |
+| `/decomp`, `/decompose` | An idea, spec, or finding | Files the issues a run can take, their sub-issues, and an epic if several.         |
 | `/triage`               | Thread count or a scope   | Ranks the board and lays the top of it into lanes. Writes nothing.                 |
-| `/storm`, `/storm` | Parent issue number, then `one` | One run over the parent. Claims each sub-issue, dispatches it, and reports. |
+| `/storm`, `/thunderstorm` | Issue number, then `one` | One run over that issue. Claims each sub-issue, dispatches it, and reports. |
 | `/impl`, `/implement`   | Issue number              | Claims the issue, works it on an `agent/` branch, opens a pull request.            |
 | `/rev`                  | Branch or PR number       | Standard review pass. Comments only on the second pass.                            |
 | `/adv-rev`              | Branch or PR number       | Adversarial review pass. Always comments.                                          |
@@ -159,8 +167,8 @@ An alias is a symlink to its canonical file, so the pair cannot drift.
 
 ## Choosing what to run next
 
-A run covers one parent. Several parents are open at once, sub-issues accumulate
-under all of them, and work arrives that belongs to none. `/triage` answers the
+A run covers one issue. Several are open at once, sub-issues accumulate under
+all of them, and work arrives that belongs to none. `/triage` answers the
 question a run cannot: of everything queued, which issues go out now, and which
 of those are safe to work at the same time. The `triage` skill holds the
 buckets, the ordering and the reading; what follows is why it is shaped that
@@ -171,12 +179,13 @@ label a human has to keep current is one more thing that drifts from the work it
 describes. The order comes from what the board already carries, and the `triage`
 skill states it.
 
-Two things are visible only from a pass over the whole board, and a per-parent
-loop has nowhere to put either. An issue filed under no parent is never reached
-by a run, because a run dispatches a parent's children; #86 covers the ones
-outstanding and #87 decides whether the state is legal at all. And a parent
-records its collisions with other parents in its own body, which the run working
-either one cannot act on.
+One thing is visible only from a pass over the whole board. An issue filed
+under no parent is never reached by a run, because a run dispatches an issue's
+children; #86 covers the ones outstanding and #87 decides whether the state is
+legal at all.
+
+What crosses two issues is no longer that case: it belongs in the epic above
+them, which both runs read.
 
 The ranked list goes to chat and is derived again the next time it is asked
 for. It is not a document, for the reason under [File

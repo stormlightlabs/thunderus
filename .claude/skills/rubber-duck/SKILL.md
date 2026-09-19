@@ -68,7 +68,7 @@ Use the `writing-docs` skill for the prose.
 ## Moving on
 
 An idea becomes work when it has acceptance criteria someone could verify.
-At that point file it as an issue, or as a parent with sub-issues, and
+At that point file it as an issue, or as an issue with sub-issues, and
 link the idea file. Until then it stays an idea.
 
 ## Do not

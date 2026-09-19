@@ -1,15 +1,16 @@
 ---
-description: Run one loop over a parent issue and its sub-issues
+description: Run one loop over an issue and its sub-issues
 argument-hint: [issue number] [one]
 ---
 
 Use the `thunderstorm` skill.
 
-Parent issue: $ARGUMENTS (an issue number, then `one` to stop after the first
+Issue: $ARGUMENTS (an issue number, then `one` to stop after the first
 sub-issue reaches `status:review`)
 
-Stop and ask if it declares no sub-issues, has more than five open ones, has no
-checkable stop rule, or holds a sub-issue another run has claimed. Restate the
+Stop and ask if it declares no sub-issues, carries `kind:epic`, has more than
+five open sub-issues, has no checkable stop rule, or holds one another run has
+claimed. An epic is a container: run the issues under it instead. Restate the
 stop condition before dispatching anything.
 
 Claim each sub-issue, give it a worktree, dispatch an implementer, then run the

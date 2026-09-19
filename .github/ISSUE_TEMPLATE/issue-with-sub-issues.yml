@@ -1,19 +1,21 @@
-name: Parent issue
+name: Issue with sub-issues
 description: A goal, a stop rule, and the sub-issues that are the work.
-labels: ["kind:parent"]
 body:
   - type: markdown
     attributes:
       value: |
-        A parent issue is what a run works through. It holds a goal and the
-        condition that ends it. Add sub-issues after opening this; they are the
-        things `/impl` claims, and this issue is not one of them.
+        This is what a run works through: `/storm <number>`. It holds a goal
+        and the condition that ends it. Add sub-issues after opening it; they
+        are the things `/impl` claims, and this issue is not one of them.
+
+        Take no `kind:` label. An issue with sub-issues and no `kind:epic` is
+        the run unit, which is the whole test. If this needs to sit beside
+        other issues in one body of work, file an Epic above it.
 
         At most five open sub-issues. A run holds every one it dispatches in
         one context, and past five that context is spent on work not started
         yet. What does not fit is a second parent filed beside this one.
 
-        A run is one pass over this issue, started by `/storm <number>`.
         A run ends when every sub-issue is terminal, its budget is spent, or a
         worker escalates. The issue stays open until its stop rule is met, so
         it may take several runs.
@@ -22,7 +24,7 @@ body:
     id: goal
     attributes:
       label: Goal
-      description: What is different when this parent is finished.
+      description: What is different when this issue is finished.
     validations:
       required: true
 
