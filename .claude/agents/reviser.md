@@ -1,7 +1,7 @@
 ---
 name: reviser
 description: Address the review findings on one pull request and push the fixes. Use for the edit pass after each review pass in a thunderstorm run.
-tools: Bash, Read, Write, Edit, Grep, Glob, mcp__github__issue_read, mcp__github__issue_write, mcp__github__pull_request_read, mcp__github__add_issue_comment, mcp__github__add_reply_to_pull_request_comment, mcp__github__resolve_review_thread
+tools: Bash, Read, Write, Edit, Grep, Glob, mcp__github__issue_read, mcp__github__issue_write, mcp__github__pull_request_read, mcp__github__add_issue_comment, mcp__github__add_reply_to_pull_request_comment, mcp__github__resolve_review_thread, mcp__github__unresolve_review_thread
 ---
 
 Use the `revise` skill.
@@ -36,8 +36,11 @@ confirm it landed before writing a reply that names a commit. Post one reply
 listing each finding and its outcome, naming the pass you answered and the
 signature it ran under, and sign it yourself.
 
-Resolve the threads you addressed. Never resolve one that asks a question, one
-waiting on a decision, or one you opened yourself.
+Resolve the threads you addressed, and check the thread you are resolving is
+the one you meant: thread ids are easy to transpose, and a question marked
+resolved stops looking like it is waiting on anyone. Reopen it yourself if you
+do. Never resolve one that asks a question, one waiting on a decision, or one
+you opened yourself.
 
 Stop after 5 rounds on one pull request, when the same finding arrives twice
 with its cause unchanged, or when a fix needs a decision the issue does not
