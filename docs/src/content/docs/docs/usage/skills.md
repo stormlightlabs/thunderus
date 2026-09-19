@@ -49,8 +49,11 @@ Discovered skills appear in two places:
 - the model-visible self-knowledge snapshot, as names, sources, and paths.
 
 The regular prompt also includes available skill metadata so the assistant can
-decide when a skill might apply. This follows progressive disclosure: route from
-small metadata first, then read the skill instructions when the task needs them.
+decide when a skill might apply. A skill's `description` is what the agent
+triggers on: it is the field the model reads to decide whether the skill fits
+the current task, before any instruction body is loaded. This follows
+progressive disclosure: route from small metadata first, then read the skill
+instructions when the task needs them.
 
 ## Activate or Read a Skill
 
@@ -76,10 +79,11 @@ Activate or read the skill again if its instructions are needed in the restored 
 
 ## Skill Shape
 
-`SKILL.md` should start with YAML frontmatter. `name` and `description` are the
-important routing fields. `name` should be stable and match the skill's
-directory; see [Diagnostics](#diagnostics) for what happens when it does not.
-The description should say what the skill does and when to use it.
+`SKILL.md` should start with YAML frontmatter, with `name` and `description`
+fields. `name` should be stable and match the skill's directory; see
+[Diagnostics](#diagnostics) for what happens when it does not. Write
+`description` as it will be read for routing (see [Prompt
+Exposure](#prompt-exposure)): say what the skill does and when to use it.
 
 Optional frontmatter fields are preserved as metadata when present:
 
