@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- Transcript rows separate by weight as well as by label. A submitted
+  prompt now reads at the same strength as the reply to it, and a
+  reasoning block carries its own colour, so the three kinds of turn no
+  longer share one muted ink.
+
 ### Fixed
 
 - Skill discovery no longer drops a skill whose frontmatter `name` differs

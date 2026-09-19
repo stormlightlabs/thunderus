@@ -52,8 +52,10 @@ Every implementer you dispatch gets its own worktree, on either host, and you
 create it before dispatching rather than leaving the subagent to. Two of them
 sharing a checkout share one `HEAD`, and the second to create its branch takes
 the first's work onto it without git raising anything. Make it through the
-`worktree` skill and do not ask the harness for one: an `isolation` setting on
-the dispatch places the worktree inside the repository root.
+`worktree` skill and pass no `isolation` on the dispatch itself. Tell the
+implementer the directory it is to work in. That argument and whether the
+implementer goes there are the two parts of this no check covers, so read its
+report for the paths it touched rather than assuming.
 
 For each sub-issue:
 

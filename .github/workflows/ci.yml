@@ -81,6 +81,20 @@ jobs:
           .claude/scripts/check-frontmatter.py \
             --since "${{ github.event.pull_request.base.sha }}"
 
+  definitions:
+    name: Agent definitions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The harness provisions a worktree from an `isolation` key before any
+      # skill is read, and places it inside the repository root where Cargo
+      # reaches the parent .cargo/config.toml. The key is one edit away from
+      # coming back, and nothing about the tree looks wrong once it has.
+      - name: Check the checker
+        run: .claude/scripts/check-isolation-test.py
+      - name: Check every agent and skill definition
+        run: .claude/scripts/check-isolation.py
+
   commits:
     name: Commit messages
     # Only a pull request has a range to check. A push to edge or main carries

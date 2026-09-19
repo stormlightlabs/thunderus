@@ -174,6 +174,39 @@ fn test_skill(name: &str) -> skills::SkillMetadata {
 }
 
 #[test]
+fn user_assistant_and_reasoning_bodies_do_not_share_an_ink_role() {
+    let palette = renderer::style::palette();
+    let body_role = |entry: &Entry, body: &str| {
+        ctx(80)
+            .rows_for_entry(entry)
+            .iter()
+            .flat_map(|row| row.spans.clone())
+            .find(|span| span.text.contains(body))
+            .unwrap_or_else(|| panic!("no span carrying {body:?}"))
+            .style
+            .fg
+    };
+
+    let user = body_role(&Entry::User { text: "the prompt body".to_string() }, "the prompt body");
+    let agent = body_role(
+        &Entry::Agent { text: "the reply body".to_string(), streaming: false },
+        "the reply body",
+    );
+    let reasoning = body_role(
+        &Entry::Reasoning { text: "the thinking body".to_string(), streaming: false },
+        "the thinking body",
+    );
+
+    // A reader separates the three families by weight before reading a label.
+    assert_eq!(user, palette.primary, "user prose is read, not scanned");
+    assert_eq!(agent, palette.primary, "assistant prose is read, not scanned");
+    assert_eq!(reasoning, palette.reasoning, "reasoning owns its hue");
+    assert_ne!(user, reasoning);
+    assert_ne!(user, palette.secondary, "the prompt is not metadata");
+    assert_ne!(reasoning, palette.secondary);
+}
+
+#[test]
 fn snapshot_user_message_normal() {
     let entry = Entry::User { text: "Hello, can you help me with this?".to_string() };
     assert_snapshot("transcript_user_message_normal", &render_entry_styled(&entry, 80));

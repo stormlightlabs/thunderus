@@ -262,9 +262,9 @@ not the apology. The order matters:
 3. Delete the prose once a check covers it. Guidance that describes a failure
    something else now catches is read as optional and trains people to skim.
 
-Three checks here exist for that reason: the commit-message hook, the commit
-report in CI, and `push-verified.sh`. Each replaced a rule that had been broken
-at least once while written down and believed.
+Four checks here exist for that reason: the commit-message hook, the commit
+report in CI, `push-verified.sh`, and `check-isolation.py`. Each replaced a rule
+that had been broken at least once while written down and believed.
 
 ## Worktrees
 
@@ -283,10 +283,9 @@ meant to parallelize.
 Remove the worktree when the run ends. A removal that fails because of
 uncommitted changes is an escalation, not something to force.
 
-The `worktree` skill is the only thing here that makes one. The harness makes
-them too, from an `isolation` key in a definition under `.claude/agents/` or an
-`isolation` setting on a dispatch, and it places them inside the repository
-root. This repository asks for neither.
+Worktrees can only be made via the `worktree` skill, and `check-isolation.py`
+fails CI for any text under `.claude/` that asks the harness instead. What no
+check covers is in that skill's **Who gets one** section.
 
 ### Who gets one
 
