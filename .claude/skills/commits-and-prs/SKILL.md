@@ -14,40 +14,30 @@ it.
 
 ## Length
 
-Length is the first thing to get right here, because this repository squashes
-and the arithmetic is not obvious.
+The pull request title and body become the squash commit, verbatim. This
+repository merges with `squash_merge_commit_title=PR_TITLE` and
+`squash_merge_commit_message=PR_BODY`, so there is one text to get right and
+one place to get it right: the pull request. A branch's own commit messages are
+discarded at merge and are checked for shape alone.
 
-GitHub builds the merged subject from the pull request title and appends
-` (#NN)`. It builds the merged body by concatenating every commit on the
-branch, each under a `* subject` bullet. So the text that reaches `edge` is the
-branch's commit messages added together, and the pull request description never
-reaches it at all.
+| Text                   | Target        | Where the number comes from      |
+| ---------------------- | ------------- | -------------------------------- |
+| Pull request title     | 53 characters | 59 allowed, less the ` (#NN)`    |
+| Pull request body      | 20 lines      | It is the commit body            |
+| Pull request comment   | 100 words     | A reply, not a report            |
+| Review comment         | 200 words     | Ten findings; see `review`       |
+| Edit reply             | 150 words     | Ten outcomes; see `revise`       |
 
-| Text                 | Target        | Where the number comes from         |
-| -------------------- | ------------- | ----------------------------------- |
-| Pull request title   | 53 characters | 59 allowed, less the ` (#NN)`       |
-| One commit body      | 15 lines      | The `writing-docs` commit target    |
-| Merged body          | 15 lines      | It is one commit like any other     |
-| Pull request body    | 20 or 40      | Short form, or headings on a big diff |
-| Pull request comment | 10 lines      | It is a reply, not a report         |
+The body is a commit body, so **wrap it at 72 columns** and use no headings:
+`## What` reaches `git log` as the literal characters `## What`. One shape, at
+one size.
 
-Three commits at the 15-line target merge as a 48-line commit, and the median
-branch here is three. The target is for the merged message, so either the
-branch stays short or the squash message gets written by hand in GitHub's merge
-box, which is where 16 of the 17 squash merges on `edge` went wrong: their
-bodies run 15 to 385 lines, median 53.
+Comments are counted in words because GitHub soft-wraps them. A 40-line comment
+there is 400 words, which is how the old line targets were met and missed at
+once. `writing-docs` carries that rule for everything else.
 
-Nothing blocks on any of this. `check-commit-message.py` reports the body
-target and the projected squash size as advice and fails no run, because a
-change sometimes earns the room and no script can tell which one has. Shape is
-still an error, since a missing type is not a judgement call. A check that
-cannot be certain names what it finds and leaves the decision with the author;
-one that blocks on a judgement call only teaches authors `--no-verify`, which
-skips the checks that were certain too.
-
-`internal/ideas/commit-and-pr-length.md` holds the measurements behind every
-number here, the commands that reproduce them, and the sources for the
-conventions they came from.
+`.claude/scripts/check-commit-message.py --pr --title-file <f> --body-file <f>`
+reports the title and the body, and CI runs it on every edit to either.
 
 ## Commit messages
 
@@ -63,76 +53,37 @@ Types used here: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`.
 60-character subject, the blank line, and the 72-column body. Fenced blocks,
 trailers, and unbreakable strings such as URLs are exempt from the column limit.
 
-It runs in two places and only one of them blocks. Enable the hook locally once
-with `git config core.hooksPath .githooks`, and it rejects a message while that
-message is still in the editor, where fixing it costs a keystroke. CI runs the
-same script over a pull request's commits with `--warn`: the findings appear as
-annotations and in the job summary, and the job passes anyway, because the only
-way to correct a pushed message is to rewrite history that someone may already
-have pulled. A rule worth a rebase is a rule worth catching at the hook.
+It runs in two places. Enable the hook locally once with
+`git config core.hooksPath .githooks`, and it rejects a branch message while
+that message is still in the editor. CI runs the same script in `--pr` mode
+over the title and body, which is the text that lands, and reports without
+failing: both stay editable until the merge, so naming a problem is worth more
+than blocking on it.
 
-Length is reported by both and rejected by neither, under [Length](#length).
-The CI run adds the projected size of the squash, which is the only place that
-number appears before someone clicks merge.
-
-The subject says what changed. The body says why, and only when the why is not
-obvious from the diff. A one-line commit is correct when the change explains
-itself, and most of them do. Reach for a body when the diff cannot say why:
-a constraint from outside the repository, a rejected alternative, a bug the
-change is answering.
-
-Good:
-
-```text
-fix: collapse nested if in instance percentage check
-
-Clippy's collapsible_if fires under -D warnings, which has failed CI
-on every run since 2026-08-18.
-```
-
-Do not write:
-
-- `fix: fix bug`, `chore: updates`, or any subject that could describe any
-  commit.
-- A body that restates the diff line by line.
-- A list of every file touched. That is what the diff is for.
-- Attribution to a model or tool in the subject or body. The trailers under
-  [Attribution](#attribution) carry that.
-
-One commit does one thing. A commit that needs "and" in its subject is two
-commits.
-
+Length is reported and rejected by neither, under [Length](#length).
 ## Attribution
 
 A commit from a session the repository owner drove turn by turn is authored by
-them, with the model recorded as a co-author. They made the decisions the commit
-records. A commit from a dispatched agent is authored as
-`Claude <noreply@anthropic.com>`. So the log says which commits a person
-directed and which an agent produced on its own.
+them. They made the decisions the commit records. A commit from a dispatched
+agent is authored by the agent. So the log says which commits a person directed
+and which an agent produced on its own.
 
-Nothing in the tree records which case a commit came from. A worktree does not
-answer it, because a local session working directly takes one too, under the
-`worktree` skill's **Who gets one**. So this is a convention, like the review
-signature, and `internal/thunderstorm.md` Identity says why this repository
-accepts one here.
+Nothing in the tree records which case a commit came from, and a worktree does
+not answer it: a local session working directly takes one too, under the
+`worktree` skill's **Who gets one**. This is a convention, and
+`internal/ideas/agent-attribution.md` holds the design for a mechanism that
+would not be.
+
+Leave the trailers a harness writes exactly as it wrote them, and add none by
+hand. They name whichever harness produced the commit, a harness that writes
+none leaves none, and nothing checks for them, so their absence says nothing
+about who wrote a commit. Only the author field answers that.
+
+Name no model in a subject or a body. The message describes the change, not
+what produced it.
 
 The Verified badge is a separate matter: it tracks a cryptographic signature,
 not the author address, and signing is out of scope here.
-
-Either commit carries whatever trailers the harness supplies:
-
-```text
-Co-Authored-By: <model> <noreply@anthropic.com>
-Claude-Session: <session url>
-```
-
-A harness that supplies neither leaves neither, and nothing checks for them, so
-their absence says nothing about who wrote a commit. Only the author field
-answers that.
-
-The session link is the useful half: it is the only way back to the reasoning
-behind a change once the branch is merged. Nothing else in the message names a
-model. The subject and body describe the change, not what produced it.
 
 ## Pull request bodies
 
@@ -152,29 +103,22 @@ Verified with `<command>`: <result>.
 Not covered: <what was left, with a link>.
 ```
 
-Reach for headings when the change is large enough that a reviewer would
-otherwise scroll looking for the verification, which in practice means a
-diff over roughly 300 lines or one touching more than one crate:
+There is no second, longer form. A body with headings reaches `git log` with
+its `##` characters intact, and four headings over a six-line body is a form
+rather than a description: a reviewer reads the headings, finds a sentence
+under each, and learns less than the one paragraph would have told them. A
+change too large to describe in twenty lines wants a document in `internal/`
+and a link to it.
 
-```markdown
-## What / ## Why / ## Verification / ## Not covered
-```
-
-Four headings over a six-line body is a form, not a description. A reviewer
-reads the headings, finds a sentence under each, and learns less than the one
-paragraph would have told them.
-
-Requirements, at either size:
+Requirements:
 
 - `Verified` names actual commands and actual results. "Tests pass" without the
   command is not verification. If a check was not run, say so.
 - `Not covered` is required and may not be empty. Write `Nothing` only when you
   have looked for gaps and found none. One line is a complete answer.
 - Any test that was changed, removed, or narrowed gets a line explaining why.
-- Keep the short form under 20 lines, and a headings body under 40. Four
-  headings and their blank lines cost six before a word is written, which is
-  most of the reason to skip them on a small change. Longer than 40 means the
-  change is too large, or the spec belongs in `internal/` with a link.
+- Twenty lines, wrapped at 72 columns. It is the commit body, and the reader
+  is skimming `git log` for one change among hundreds.
 
 Do not restate the diff. Do not recount the path you took to the change: the
 dead ends, the thing you tried first, the file you read. A reviewer is deciding
@@ -182,7 +126,11 @@ about the code in front of them.
 
 ## Pull request comments
 
-A comment is a reply in a conversation. Ten lines is already long for one.
+A comment is a reply in a conversation. A hundred words is already long for
+one, and GitHub soft-wraps, so count words rather than lines.
+
+The harness appends its own footer. That is the harness's line, not a
+signature; add none of your own.
 
 - Answer the question that was asked. Do not summarize the change again.
 - One comment per review pass, not one per finding. The `review` skill sets
@@ -209,5 +157,6 @@ that does not describe a behavior change.
 - Restate in the pull request what the commits already say, or in a comment
   what the pull request already says.
 - Claim a check ran when it did not.
-- Sign a commit body as a model. A review comment carries a signature; a commit
-  carries the trailers under [Attribution](#attribution) and nothing else.
+- Sign a commit body as a model. A commit carries the trailers under
+  [Attribution](#attribution) and nothing else.
+- Write a pull request body with headings. It is the commit message.

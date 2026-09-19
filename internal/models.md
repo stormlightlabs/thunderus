@@ -1,13 +1,14 @@
 ---
 name: models
-last_updated: 2026-09-17
+last_updated: 2026-09-19
 id: 01M2PXCQDS6JFP04C2JK1T6XMD
 ---
 
 # Model assignments
 
 Which model runs which thunderstorm role. A review comment names the model and
-reasoning level it came from, so the record shows who found what.
+reasoning level it came from in its first line, so the record shows who found
+what.
 
 ## Roles
 
@@ -42,13 +43,9 @@ configuration produce close to one pass of coverage.
 The adversarial pass assumes the standard passes ran. Give it a configuration
 tuned for finding what they missed rather than repeating them.
 
-## Signature
+## Where the record lives
 
-Every review and revision comment ends with the model and reasoning level:
-
-```text
-— <model-id> · <reasoning-level>
-```
-
-Use the identifier the harness reports, not a friendly name. Commits carry no
-signature.
+A review comment's opening line names the model and reasoning level it ran at,
+under the `review` skill's **Post the findings**; an edit reply names both the
+pass it answers and its own. That line is the only record, and it is what makes
+the rules above checkable after the fact. Commits carry no signature.
