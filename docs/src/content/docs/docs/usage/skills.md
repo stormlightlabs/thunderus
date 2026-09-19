@@ -48,12 +48,11 @@ Discovered skills appear in two places:
 - the startup screen, as a compact `[Skills]` list for the user;
 - the model-visible self-knowledge snapshot, as names, sources, and paths.
 
-The regular prompt also includes available skill metadata so the assistant can
-decide when a skill might apply. A skill's `description` is what the agent
-triggers on: it is the field the model reads to decide whether the skill fits
-the current task, before any instruction body is loaded. This follows
-progressive disclosure: route from small metadata first, then read the skill
-instructions when the task needs them.
+The regular prompt also includes available skill metadata so the model can
+decide when a skill might apply. The model routes on `description`: it decides
+from that field alone whether the skill fits, before any instruction body is
+loaded. This follows progressive disclosure: route from small metadata first,
+then read the skill instructions when the task needs them.
 
 ## Activate or Read a Skill
 
@@ -133,10 +132,12 @@ malformed `name`/`description`, bad reference paths, and similar) are skipped
 with an error diagnostic. A `name` that differs from its directory is not
 skipped. The frontmatter `name` is what activates the skill and what appears
 in the prompt; the mismatch is reported as a warning diagnostic instead. The
-startup banner and `/skills` label the two differently ("Skill skipped"
-versus "Skill warning") so a loaded, activatable skill is never shown the way
-a dropped one is. Diagnostics are shown compactly so users can fix local
-skill packages without turning broken metadata into prompt noise.
+startup banner labels the two differently ("Skill skipped" versus "Skill
+warning"). `/skills` separates them by entry kind instead: a dropped skill
+renders as an Error entry, a loaded skill with a warning as a Status entry
+labeled "Skill warning". Either way, a loaded, activatable skill is never
+shown the way a dropped one is. Diagnostics are shown compactly so users can
+fix local skill packages without turning broken metadata into prompt noise.
 
 Selection and deduplication key on `name`, since that is the activation key,
 not on the directory. Duplicate names most often arise when compatibility

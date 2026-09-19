@@ -870,6 +870,40 @@ fn banner_shows_skill_warnings_distinctly_from_skipped_skills() {
     assert!(!rendered.contains("/Users/test"));
 }
 
+/// A non-UTF-8 parent directory name still names itself, lossily, in the
+/// banner's `({name})` prefix, rather than falling back to "unknown" (see
+/// `core::skills::load_metadata`, which uses the same `to_string_lossy`
+/// rendering for the same diagnostic's mismatch message).
+#[cfg(unix)]
+#[test]
+fn banner_names_non_utf8_skill_directory_lossily_instead_of_unknown() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let _guard = crate::test_env::lock();
+    let mut app = test_app();
+    // 0x66 0x6f 0x80 0x6f is "fo\x80o", where 0x80 alone is not valid UTF-8.
+    let bad_dir_name = OsStr::from_bytes(b"fo\x80o");
+    app.transcript.skill_diagnostics = vec![SkillDiagnostic {
+        path: std::path::PathBuf::from("/Users/test/.agents/skills")
+            .join(bad_dir_name)
+            .join("SKILL.md"),
+        message: "name \"mire-review\" differs from parent directory \"fo\u{FFFD}o\"".to_string(),
+        severity: skills::SkillDiagnosticSeverity::Warning,
+    }];
+
+    let rendered = render_banner_styled(&app, 80);
+
+    assert!(
+        !rendered.contains("Skill warning (unknown)"),
+        "a non-UTF-8 directory name must not read back as unknown:\n{rendered}"
+    );
+    assert!(
+        rendered.contains('\u{FFFD}'),
+        "the lossy rendering should show a replacement character for the invalid byte:\n{rendered}"
+    );
+}
+
 #[test]
 fn banner_hides_routine_context_inventory() {
     let _guard = crate::test_env::lock();
