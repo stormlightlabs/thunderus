@@ -1,6 +1,6 @@
 ---
 name: remote-operation
-last_updated: 2026-09-18
+last_updated: 2026-09-19
 id: 01M2VZFXVCF6XSDF3PWMQYTWHT
 ---
 
@@ -90,6 +90,14 @@ with commands in and events out. It is not ACP, so `model = "acp:pi"` does not
 reach it. The framing is strict: LF only, and Pi's documentation names Node's
 `readline` as non-compliant because it also splits on U+2028 and U+2029.
 
+### Lndrs gets no worker kind for Pi
+
+Pi is transitional. It runs GPT models until `thndrs` can be dogfooded in those
+roles, and then it leaves the way Codex already has.
+`../features/lndrs/plan.md` (`01M2S3GAM20S0VNJ4A10MBBWR0`) keeps its two worker
+kinds, ACP and a PTY pane, and Pi is driven as a pane or not at all. A third
+kind would be built for a worker already scheduled for removal.
+
 ### The reviewer gate is an extension written here
 
 Pi's `tool_call` event can block a call, returning
@@ -115,10 +123,6 @@ Claude. Settled by reading its source, against the key on the same machine.
 Whether the reviewer gate's pattern list stays maintainable, or whether a
 container is the honest answer. Settled by counting what the list has to grow to
 cover after the first few review passes run under it.
-
-Whether lndrs needs a third worker kind. `../features/lndrs/plan.md`
-(`01M2S3GAM20S0VNJ4A10MBBWR0`) names ACP workers and PTY panes, and Pi is
-neither.
 
 ## Sources
 
