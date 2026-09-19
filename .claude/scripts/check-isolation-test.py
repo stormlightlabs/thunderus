@@ -92,6 +92,33 @@ CASES = (
         ),
     ),
     Case(
+        label="a flow mapping in the frontmatter fails",
+        files={"agents/a.md": "---\n{name: a, isolation: worktree}\n---\n\nB.\n"},
+        code=1,
+        err=("frontmatter declares isolation",),
+        why=(
+            "Valid YAML that a real frontmatter parser reads, and no line in it "
+            "reduces to a leading `isolation:`. A line-oriented check passes it."
+        ),
+    ),
+    Case(
+        label="a flow mapping inside a value fails",
+        files={"agents/a.md": "---\nname: a\nagent: {isolation: x}\n---\n\nB.\n"},
+        code=1,
+        err=("frontmatter declares isolation",),
+        why="The line's own key is `agent`, so matching only the key misses it.",
+    ),
+    Case(
+        label="a byte order mark does not hide the key",
+        files={"agents/a.md": "﻿---\nname: a\nisolation: worktree\n---\n\nB.\n"},
+        code=1,
+        err=("frontmatter declares isolation",),
+        why=(
+            "An editor that writes a BOM puts a character before the fence. "
+            "Nothing else scans .claude/, so the miss is not caught downstream."
+        ),
+    ),
+    Case(
         label="the setting in a fenced block fails",
         files={
             "agents/a.md": '---\nname: a\n---\n\n```json\n{"isolation": "x"}\n```\n'
@@ -127,12 +154,18 @@ CASES = (
     ),
     Case(
         label="the word inside a value passes",
-        files={"agents/a.md": "---\nname: a\ndescription: Isolation.\n---\n\nB.\n"},
+        files={
+            "agents/a.md": (
+                "---\nname: a\n"
+                "description: Remove it with Rust build isolation. Use when.\n"
+                "---\n\nB.\n"
+            )
+        },
         code=0,
         why=(
-            "Every definition has a description, and the worktree skill's says "
-            "'build isolation'. A check keying on the word rather than the "
-            "declaration fails the whole tree on the day it lands."
+            "The worktree skill's own description says 'build isolation'. This "
+            "is the line the flow-mapping fallback could false-positive on, so "
+            "it has to stay lowercase and stay passing."
         ),
     ),
     Case(

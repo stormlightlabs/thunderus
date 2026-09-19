@@ -38,12 +38,18 @@ in, and that directory is recorded nowhere the run can read afterwards.
 `.claude/.gitignore` keeps a worktree that lands at `.claude/worktrees/` out of
 the checkout's status, so one made by mistake does not also read as dirty.
 
-One thing here is still a rule a reader has to follow: the directory a
-dispatched subagent writes into. It starts in the run's checkout and stays
-there unless it changes directory, and that choice is made at runtime and
-recorded nowhere the tree can read, so no check can see it. Compare the
-subagent's working directory against the one the run handed it before believing
-the worktree was used.
+Two things here are still rules a reader has to follow, because both are
+decided at runtime and recorded nowhere the tree can read:
+
+- **An `isolation` argument on a dispatch.** The check reads the text a
+  dispatch would be copied from, so it catches the setting written into a
+  definition or a code block. A run that passes the argument without that text
+  existing anywhere gets the harness worktree and nothing notices. Pass no
+  `isolation` on an Agent call, whatever a prompt asks for.
+- **The directory a dispatched subagent writes into.** It starts in the run's
+  checkout and stays there unless it changes directory. Compare the paths the
+  subagent reports touching against the directory the run handed it before
+  believing the worktree was used.
 
 A session working an issue itself on a development machine takes one too. The
 checkout there is the user's working tree and an agent is never its writer.

@@ -13,9 +13,11 @@ checks both:
 - An `isolation` key in the frontmatter of a definition. The harness provisions
   from the definition before any skill is read, so the key wins over every
   sentence written under it.
-- An `isolation` setting on a dispatch. That is an argument to a tool call
-  rather than a file, so what is checkable here is the text a dispatch gets
-  copied from: a fenced code block naming the setting.
+- An `isolation` setting on a dispatch, as far as a file can carry one. That is
+  an argument to a tool call rather than a file, so what is checkable here is
+  the text a dispatch gets copied from: a fenced code block naming the setting.
+  A dispatch that passes the argument without the text existing anywhere in the
+  tree is outside this check, and the `worktree` skill says so.
 
 The rule is therefore that `isolation` may be discussed in prose and never
 declared. A sentence saying not to reach for it reads as prose; the same word in
@@ -77,7 +79,10 @@ def check_tree(root: Path) -> tuple[int, list[str]]:
         checked += 1
 
         try:
-            text = path.read_text(encoding="utf-8")
+            # utf-8-sig rather than utf-8: an editor that writes a BOM would
+            # otherwise put a character in front of the opening fence, and the
+            # block stops being frontmatter to everything below.
+            text = path.read_text(encoding="utf-8-sig")
         except UnicodeDecodeError as error:
             failures.append(
                 f"{relative}: is not valid UTF-8 "
@@ -151,6 +156,11 @@ def _frontmatter_problems(lines: list[str]) -> list[str]:
     `check-frontmatter.py` owns block shape. Reading to the end of the file
     would make every fenced `---` inside the body look like frontmatter, so an
     unclosed block is passed over rather than guessed at.
+
+    The block has to open the file. Skipping blank lines to find the fence would
+    make a `---` anywhere above the first heading look like frontmatter, and the
+    harness does not read one that starts late either, so a file with a blank
+    line above the fence carries no key this check is missing.
     """
     if not lines or lines[0] != FENCE:
         return []
@@ -163,14 +173,26 @@ def _frontmatter_problems(lines: list[str]) -> list[str]:
     for number, line in enumerate(lines[1:end], start=2):
         match = FIELD.match(line)
         if match and match.group(2) == KEY:
-            value = match.group(3) or "(empty)"
-            problems.append(
-                f"line {number}: frontmatter declares {KEY}: {value}. "
-                "The harness provisions from this key before any skill is read; "
-                "the `worktree` skill makes the worktree instead."
-            )
+            problems.append(_declared(number, match.group(3) or "(empty)"))
+        # The key in a shape no line-leading match reaches: a flow mapping such
+        # as `{name: a, isolation: worktree}`, or one nested in another key's
+        # value. Both are YAML the harness reads, and a check that only matches
+        # a key at the start of a line passes them. The line's own key has
+        # already been ruled out above, so prose in a value is not caught here:
+        # it would have to write the word with a colon or in quotes.
+        elif SETTING.search(line):
+            problems.append(_declared(number, "(inside this line)"))
 
     return problems
+
+
+def _declared(number: int, value: str) -> str:
+    """The one message every frontmatter declaration reports, however it is written."""
+    return (
+        f"line {number}: frontmatter declares {KEY}: {value}. "
+        "The harness provisions from this key before any skill is read; "
+        "the `worktree` skill makes the worktree instead."
+    )
 
 
 def _code_problems(lines: list[str]) -> list[str]:
