@@ -7,15 +7,21 @@ id: 01M2PWX233GKXE5M9SPTNTGN0D
 # Thunderstorm
 
 Thunderstorm is the development loop for this repository. One run covers one
-epic and the sub-issues declared under it. A human starts every run. Nothing
-runs on a schedule.
+parent issue and the sub-issues declared under it. A human starts every run.
+Nothing runs on a schedule.
 
 ## What a run is
 
-A run is one pass over one epic. The epic is the issue you file: a goal, a stop
-rule, and the sub-issues that are the units of work. The two are not the same
-thing, and the difference shows the first time a budget runs out: the run ends,
-the epic does not, and the next run picks it up where this one stopped.
+A run is one pass over one parent issue. The parent is the issue you file: a
+goal, a stop rule, and at most five open sub-issues that are the units of work.
+The two are not the same thing, and the difference shows the first time a
+budget runs out: the run ends, the parent does not, and the next run picks it
+up where this one stopped.
+
+Five is the cap because a run holds every sub-issue it dispatches in one
+context. A parent of eleven spends that context on work the dispatcher has not
+started, which is how a run loses track of the one it is on. What does not fit
+is a second parent, and there is no tier above them.
 
 Run state lives in the issues, so a run survives a killed session and any
 harness can resume it.
@@ -44,7 +50,7 @@ them. Two of those differences decide whether a write lands at all:
   `gh issue edit` changes only what it names.
 - Neither transport exposes the dependency and sub-issue counts the REST issue
   list carries per issue, and the MCP sub-issue read returns each child's whole
-  body with no field list, 77,000 to 154,000 characters for one epic here. So a
+  body with no field list, 77,000 to 154,000 characters for one parent here. So a
   pass reading the board rather than writing to it goes to REST, under the
   `triage` skill's `references/reading-the-board.md`.
 - Label definitions do not go through MCP. `.github/labels.yml` is applied by
@@ -54,56 +60,26 @@ them. Two of those differences decide whether a write lands at all:
   wants a label the manifest does not define is still blocked; the manifest
   changes first.
 
-A cloud container starts with no dependency caches, so
-`.claude/hooks/session-start.sh` warms them before the session begins, tracks
-current stable, and installs the renderer a capture run posts frames with. Its
-own comments carry the reason for each. No step's failure fails the hook, and
-`.claude/hooks/session-start-test.py` holds that rule in place against stub
-toolchains. `.claude/settings.json` registers it.
+A cloud container starts with no dependency caches, which
+`.claude/hooks/session-start.sh` warms before the session begins. Its own
+comments carry the reason for each step, and no step's failure fails the hook.
 
 ### Identity
 
 A cloud session's pull requests and comments are authored by the human whose
-account it runs under. GitHub shows no difference between those writes and that
-person's own. This repository accepts that and relies on convention instead: no
-machine account, no app installation.
+account it runs under, and nothing inside a session chooses that: `GH_TOKEN` is
+a placeholder the outbound proxy substitutes, and the MCP tools carry their own
+authorization from the account connected at `claude.ai/connect-github`. So a
+machine user's token in the environment changes nothing. Verified 2026-09-19.
 
-Nothing inside a session chooses that account. The container holds `GH_TOKEN`
-and `GITHUB_TOKEN` for the REST path `github-board` scopes to dependency edges.
-Both are a 14-character placeholder that the outbound proxy substitutes before a
-request leaves. The MCP tools carry their own authorization from the account
-connected at `claude.ai/connect-github`, which the environment does not set
-either.
+This repository accepts that and relies on convention: an agent's commits are
+authored by the agent, under the `commits-and-prs` skill's **Attribution**, and
+a review comment's first line names the model it ran at. Neither is queryable;
+`author:` filters and branch protection all see one account.
 
-A machine user's fine-grained PAT in the environment therefore changes nothing,
-and the probe below cannot tell you so. Moving identity takes one action,
-reconnecting the connector as the machine user. The cost is that the same
-connector authorizes a human's own interactive sessions, which would then post
-as the machine user too.
-
-Two conventions stand in for an account a query could filter on:
-
-- A review comment ends with a signature naming the model and reasoning level,
-  under [Review sequence](#review-sequence).
-- A commit from a dispatched agent is authored as
-  `Claude <noreply@anthropic.com>`. One from a session a person drove is
-  authored by them. Trailers naming the model and the session come from the
-  harness where it supplies them, and nothing checks for either. Both cases are
-  under the `commits-and-prs` skill's Attribution.
-
-Neither is queryable. Activity feeds, `author:` filters, and branch protection
-rules all see `desertthunder`, so telling an agent's writes from a human's means
-reading them. Reopen the decision if GitHub attribution has to settle something
-a human reading the thread cannot. The same applies if a cloud session gains a
-way to point its MCP authorization at an app installation.
-
-Checked on 2026-09-19. `get_me` and `GET /user` both return `desertthunder`, and
-`GET /user` returns it with a bogus bearer as well. That last case is what rules
-the environment out.
-
-The MCP side is inferred rather than observed. `USE_SHTTP_MCP=true` and the
-proxy's bypass for `mcp-proxy.anthropic.com` show the tools reach a remote
-server. What authorizes that server was not observed from here.
+`internal/ideas/agent-attribution.md` holds the design for a mechanism that
+would not be a convention, and what it costs. Reopen this if attribution has to
+settle something a human reading the thread cannot.
 
 ## Statuses
 
@@ -124,12 +100,12 @@ Status is a label. One status label per issue.
 for more than 7 days surfaces in the next `/triage` report. Nothing closes
 automatically.
 
-An epic carries no status. It is not work, so there is nothing to claim, and
-duplicating its sub-issues' state on the parent gives that copy somewhere to
-drift.
+A parent carries no status and no risk. It is not work, so there is nothing to
+claim and no blast radius to size, and duplicating its sub-issues' state on it
+gives that copy somewhere to drift.
 
-The full label set, including `area:*`, `risk:*`, `type:*`, and `kind:epic` for
-the issues runs work through, lives in `.github/labels.yml`. Its `retired:`
+The full label set, including `area:*`, `risk:*`, `type:*`, and `kind:parent`
+for the issues runs work through, lives in `.github/labels.yml`. Its `retired:`
 group names labels this repository has stopped defining, which the sync
 deletes: a rename that only adds the new name leaves the old one in the picker,
 teaching the next contributor a rule that no longer holds. Apply it with
@@ -143,12 +119,12 @@ nothing.
 ```text
 /r-d            an idea            internal/ideas/
 [/spec-ify]     a design           internal/features/<name>/plan.md
-/decomp         an epic and sub-issues
+/decomp         a parent issue and up to five sub-issues
 [/triage]       which of them to dispatch next, and what runs at once
-/thunderstorm   one run over that epic, dispatching the stages below
+/storm          one run over that parent, dispatching the stages below
 /impl           a pull request
 /rev, /adv-rev, /edit              review passes and their fixes
-a human         merges to edge
+a human         squashes it into edge, in GitHub
 ```
 
 A spec is written only when a sub-issue's stop rule cannot be written without
@@ -160,9 +136,9 @@ is a summary with more words.
 stage that files issues. `github-board` performs those writes but decides
 nothing about what to write.
 
-A run is what carries a sub-issue from queued to merged: `/thunderstorm` claims
-each one and dispatches the stages under it. One issue worked on its own skips
-the run and starts at `/impl`.
+A run is what carries a sub-issue from queued to merged: `/storm` claims each
+one and dispatches the stages under it. One issue worked on its own skips the
+run and starts at `/impl`.
 
 ## Commands
 
@@ -170,50 +146,42 @@ the run and starts at `/impl`.
 | ----------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
 | `/r-d`, `/rubber-duck`  | A topic                   | Design discussion. Writes an entry to `internal/ideas/` on request.                |
 | `/spec-ify`, `/specify` | An idea or topic          | One design to `internal/features/<name>/plan.md`. Only when a decision is missing. |
-| `/decomp`, `/decompose` | An idea, spec, or finding | Files one epic and the sub-issues under it.                                        |
+| `/decomp`, `/decompose` | An idea, spec, or finding | Files one parent issue and up to five sub-issues under it.                         |
 | `/triage`               | Thread count or a scope   | Ranks the board and lays the top of it into lanes. Writes nothing.                 |
-| `/thunderstorm`         | Epic issue number         | One run over the epic. Claims each sub-issue, dispatches it, and reports.          |
+| `/storm`, `/storm` | Parent issue number, then `one` | One run over the parent. Claims each sub-issue, dispatches it, and reports. |
 | `/impl`, `/implement`   | Issue number              | Claims the issue, works it on an `agent/` branch, opens a pull request.            |
 | `/rev`                  | Branch or PR number       | Standard review pass. Comments only on the second pass.                            |
 | `/adv-rev`              | Branch or PR number       | Adversarial review pass. Always comments.                                          |
 | `/edit`, `/revise`      | PR number                 | Addresses review comments on that pull request.                                    |
+| `/release`              | A version                 | `edge` to `main`, tag, publish. Confirms three times.                              |
+
+An alias is a symlink to its canonical file, so the pair cannot drift.
 
 ## Choosing what to run next
 
-A run covers one epic. Several epics are open at once, sub-issues accumulate
+A run covers one parent. Several parents are open at once, sub-issues accumulate
 under all of them, and work arrives that belongs to none. `/triage` answers the
 question a run cannot: of everything queued, which issues go out now, and which
 of those are safe to work at the same time. The `triage` skill holds the
 buckets, the ordering and the reading; what follows is why it is shaped that
 way.
 
-Order comes from what the board already carries: what an issue unblocks, then
-`type:fix`, then how near its epic is to finishing, then age. Nothing is ranked
-by a priority label, because the board defines none and a label a human has to
-keep current is one more thing that drifts from the work it describes. Scoping
-a pass to an epic or an area is how a human says which part matters today, and
-it narrows what gets ranked rather than what gets read.
+Nothing is ranked by a priority label, because the board defines none and a
+label a human has to keep current is one more thing that drifts from the work it
+describes. The order comes from what the board already carries, and the `triage`
+skill states it.
 
-Risk stays out of that order and decides what may share a fan-out instead. What
-limits parallel dispatch here is file ownership rather than the dependency
-graph: two issues with no edge between them still collide when they write the
-same file, and an `area:*` label is too broad to decide by. `decompose` records
-ownership in the epic body under **Recording overlap**, and a pair whose
-ownership is unrecorded is treated as overlapping.
-
-Two things are visible only from a pass over the whole board, and a per-epic
-loop has nowhere to put either. An issue filed under no epic is never reached
-by a run, because a run dispatches an epic's children; #86 covers the ones
-outstanding and #87 decides whether the state is legal at all. And an epic
-records its collisions with other epics in its own body, which the run working
+Two things are visible only from a pass over the whole board, and a per-parent
+loop has nowhere to put either. An issue filed under no parent is never reached
+by a run, because a run dispatches a parent's children; #86 covers the ones
+outstanding and #87 decides whether the state is legal at all. And a parent
+records its collisions with other parents in its own body, which the run working
 either one cannot act on.
 
 The ranked list goes to chat and is derived again the next time it is asked
 for. It is not a document, for the reason under [File
 conventions](#file-conventions): a list of pending work is wrong as soon as one
-issue closes, and a wrong copy on disk gets read in place of the board. Two
-threads reach the same order because they read the same board, and what keeps
-them off each other's work is the claim rather than the list.
+issue closes, and a wrong copy on disk gets read in place of the board.
 
 `triage` writes nothing: no file, no label, no claim. It reports what the board
 needs repaired and leaves the repair to a `github-board` call a human asks for.
@@ -221,7 +189,9 @@ needs repaired and leaves the repair to a `github-board` call a human asks for.
 ## Review sequence
 
 Three review passes, each followed by an edit pass. No pass starts before the
-previous edit pass finishes.
+previous edit pass finishes. `/rev` costs less than a defect on `edge` and the
+passes are cheap to run; what is expensive is a long comment, which is why they
+are budgeted below rather than fewer.
 
 1. `/rev` runs the first pass and reports to whoever dispatched it.
 2. `/edit` addresses those findings, which it is handed rather than reading
@@ -235,32 +205,33 @@ previous edit pass finishes.
 Which pass is which comes from the dispatch, not from reading the thread. The
 `review` skill says why under Which passes post.
 
-The thread still records all three passes even though the first does not
-comment on it, because every `/edit` reply names the pass it answers and the
-signature that pass ran under. A first pass leaves its trace in the reply to
-it, which is also what makes the model rule in `internal/models.md` checkable
-after the fact.
-
-Reviews post from whichever account runs them, which for a Claude cloud session
-is `desertthunder`, under [Identity](#identity). Every comment ends with a
-signature naming the model and its reasoning level, so the record shows which
-reviewer produced which finding.
+Every comment opens with one line naming the pass, the commit it read, and the
+model and reasoning level it ran at. Nothing goes at the bottom: the harness
+appends its own footer there. That opener is what records a first pass, which
+posts nothing itself, and what makes the model rule in
+[models.md](models.md) checkable afterwards.
 
 ```text
-— claude-opus-5 · high
+Second standard pass on #12 at 4f2a91c · claude-opus-5 · high
 ```
 
+A comment is budgeted in words, not lines, because GitHub soft-wraps: 200 for a
+review, 150 for a reply. The `review` and `revise` skills hold those, the
+one-line finding format, the severity table, and the edit pass's stop rules.
+Either stop is an escalation.
+
 A reviewer does not edit code. An editor does not approve its own work. Only a
-human merges to `edge`.
+human merges to `edge`, in GitHub, by hand.
 
-The implementer and the reviewer never share a model in one run. See
-[models.md](models.md) for which model runs which role.
+That last one is a check rather than a rule, under [Recording a failure
+mode](#recording-a-failure-mode). `.claude/settings.json` denies `gh pr merge`,
+`gh pr review`, `git merge`, and a push to `edge` or `main`, so a session
+cannot merge whatever it has been told. The repository ships no merge script
+and no `/merge` command either: a named path is what turns a capability into
+the obvious next step, and an agent approving or merging its own work is the
+failure the whole review sequence exists to prevent.
 
-### Finding format
-
-The `review` skill holds the one-line format and the severity table, and the
-`revise` skill holds the stop rules for an edit pass. Either stop is an
-escalation.
+The implementer and the reviewer never share a model in one run.
 
 ## Branches
 
@@ -297,24 +268,19 @@ that allowed it. Work through these in order:
 3. Delete the prose once a check covers it. Guidance that describes a failure
    something else now catches is read as optional and trains people to skim.
 
-Four checks here exist for that reason: the commit-message hook, the commit
-report in CI, `push-verified.sh`, and `check-isolation.py`. Each replaced a rule
-that had been broken at least once while written down and believed.
+The checks under `.claude/scripts/` exist for that reason, each having replaced
+a rule that was broken at least once while written down and believed. The
+clearest case is length: a target missed by 28 of 30 merges became a repository
+setting, and the prose explaining the arithmetic went with it.
 
 ## Worktrees
 
-Who gets one, how it is created, how it is removed, and what goes wrong when
-two writers share a checkout are all in the `worktree` skill. Only that skill
-creates one: `check-isolation.py` fails CI for any text under `.claude/` that
-asks the harness instead.
-
-Two rules sit here instead of there. A removal that fails because of
-uncommitted changes is an escalation rather than something to force. And a
-reviewer gets no worktree, because it needs a tree that does not move while it
-reads, which is a commit rather than a directory. The `review` skill owns that
-discipline, down to naming the commit in the pull request: a branch is deleted
-when its pull request merges, so a review citing a SHA alone is unreadable by
-the time anyone goes back to it.
+The `worktree` skill owns all of it, and is the only thing that creates one:
+`check-isolation.py` fails CI for any text under `.claude/` that asks the
+harness instead. Two rules sit here rather than there. A removal that fails on
+uncommitted changes is an escalation, never forced. And a reviewer gets no
+worktree: it needs a tree that does not move while it reads, which is a commit
+rather than a directory.
 
 ## File conventions
 
@@ -338,49 +304,29 @@ orphans every issue citing it.
 
 The name rule is waived for `internal/features/*/plan.md` and `tasks.md` until
 their scheme is decided, because a name matching its filename would give five
-files named `plan`. That decision is issue 9. Nothing else is waived: once one
-of those files carries a block, its date and its identifier answer to the check
-like any other.
+files named `plan`. That decision is issue 9.
 
 An issue cut from a document cites that document's identifier, so the trail is
 readable from either end. This document's is `01M2PWX233GKXE5M9SPTNTGN0D`. What
 no document carries is a list of pending work: the board holds that, and a list
-of gaps goes stale the moment one closes. Two bullets in the list this document
-replaced were already false within hours of being written.
+of gaps goes stale the moment one closes.
 
 ## Layout
 
 | Path                    | Holds                                                          |
 | ----------------------- | -------------------------------------------------------------- |
 | `.claude/skills/`       | Skills. `.agents/skills` symlinks here.                        |
-| `.claude/commands/`     | Slash commands.                                                |
+| `.claude/commands/`     | Slash commands. An alias is a symlink to its canonical file.   |
 | `.claude/agents/`       | Subagent definitions for dispatch.                             |
-| `.claude/scripts/`      | Helper scripts. `sync-labels.py` also runs in CI.              |
-| `.claude/hooks/`        | Session hooks. Dependency warming for cloud sessions.          |
 | `.githooks/`            | Git hooks. Enable with `git config core.hooksPath .githooks`.  |
-| `.claude/settings.json` | Hook and permission configuration. Tracked.                    |
 | `internal/`             | Plans, specs, ideas, QA notes. Not published by the docs site. |
-| `internal/ideas/`       | Output of rubber-duck sessions.                                |
-| `internal/features/`    | One directory per feature track, holding its `plan.md`.        |
 | `CLAUDE.md`             | Repository instructions. `AGENTS.md` symlinks here.            |
 
 ## Skills
 
-| Skill             | Owns                                                         |
-| ----------------- | ------------------------------------------------------------ |
-| `triage`          | Ranking the board and planning what several threads run.     |
-| `thunderstorm`    | One run: claims, dispatches, reports, stops. Writes no code. |
-| `implement`       | One issue, on one branch, to one pull request.               |
-| `review`          | Standard and adversarial review passes.                      |
-| `revise`          | Addressing findings on a pull request.                       |
-| `github-board`    | The only writer of issue state.                              |
-| `worktree`        | Who needs one, provisioning, build isolation, removal.       |
-| `release`         | `edge` to `main`, tag, changelog, publish.                   |
-| `rubber-duck`     | Design discussion and idea files.                            |
-| `specify`         | One design, when issues need a decision made first.          |
-| `decompose`       | Cutting an idea or spec into an epic and its sub-issues.     |
-| `writing-docs`    | Prose in the docs site, `internal/`, and chat.               |
-| `commits-and-prs` | Commit messages, pull request bodies, changelog entries.     |
+`.claude/skills/` holds one directory per skill, each stating in its own
+frontmatter what it owns. That list is not copied here, because a copy drifts
+and the directory does not.
 
 Subagents for dispatch live in `.claude/agents/`: `implementer`, `reviewer`,
 `adversarial-reviewer`, and `reviser`, one per role the run dispatches.

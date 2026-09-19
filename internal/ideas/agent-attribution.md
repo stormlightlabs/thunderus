@@ -29,6 +29,21 @@ The trailer convention also names one harness. `Claude-Session` has no
 equivalent for Pi or Codex, and `internal/models.md` assigns implementer and
 reviewer roles to both.
 
+## Status
+
+Not started, and deliberately out of the 2026-09-19 workflow cleanup. Everything
+below needs a GitHub App, a private key on the operator's machine, and a CI
+check, which is a project rather than a section of one.
+
+Two things that cleanup did change here. The per-comment model signature is
+gone: a review comment's first line now carries the pass, the commit and the
+model, because a signature at the bottom was displaced by the harness's own
+footer in 54 of 57 comments sampled. And the commit author rule in
+`commits-and-prs` no longer names a harness, so it reads the same for Pi and
+Codex, which answers the third Open question below without waiting for a run.
+
+The rest stands as written.
+
 ## Decisions
 
 ### A GitHub App rather than a machine user

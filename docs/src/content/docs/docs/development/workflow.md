@@ -54,18 +54,25 @@ git config core.hooksPath .githooks
 
 The hook rejects a malformed message while it is still in the editor. It
 reports length without rejecting it, because a change occasionally earns a long
-body and a hook cannot tell which one has. CI runs the same script over a pull
-request and never fails on it.
+body and a hook cannot tell which one has.
 
-Length is worth attention here because the repository squashes. GitHub builds
-the merged subject from the pull request title plus ` (#NN)`, and the merged
-body by concatenating every commit on the branch. A four-commit branch merges
-as a commit four bodies long, so either the branch stays short or the squash
-message gets edited in the merge box. The CI job prints the projected size
-before anyone clicks merge.
+What reaches the trunk is the pull request, not the branch. The repository
+squashes with `squash_merge_commit_title=PR_TITLE` and
+`squash_merge_commit_message=PR_BODY`, so the title becomes the subject and the
+body becomes the commit body, verbatim; the branch's own messages are
+discarded. Write the body wrapped at 72 columns with no headings, because a
+`## What` arrives in `git log` as those characters.
 
-Targets: 53 characters for a pull request title, 15 lines for a commit body,
-20 for a pull request description, 10 for a comment. None of them is enforced.
+Targets: 53 characters for a pull request title, which is 59 less the ` (#NN)`
+GitHub appends; 20 lines for the body; 200 words for a review comment and 150
+for a reply, counted in words because GitHub soft-wraps them. CI reports the
+title and body on every edit to either and fails on neither, since both stay
+editable until the merge.
+
+Merging is a person's step, done in GitHub. `.claude/settings.json` denies
+`gh pr merge`, `gh pr review`, `git merge`, and pushes to `edge` and `main`,
+and the repository ships no merge script and no merge command, so an agent
+cannot merge or approve its own work.
 
 ## Multiplexer-Assisted Development
 
