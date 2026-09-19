@@ -64,6 +64,47 @@ toolchains. The hook exits immediately outside the cloud, where a checkout
 already has all of this.
 `.claude/settings.json` registers it.
 
+### Identity
+
+A cloud session's pull requests and comments are authored by the human whose
+account it runs under. GitHub shows no difference between those writes and that
+person's own. This repository accepts that and relies on convention instead: no
+machine account, no app installation.
+
+Nothing inside a session chooses that account. The container holds `GH_TOKEN`
+and `GITHUB_TOKEN` for the REST path `github-board` scopes to dependency edges.
+Both are a 14-character placeholder that the outbound proxy substitutes before a
+request leaves. The MCP tools carry their own authorization from the account
+connected at `claude.ai/connect-github`, which the environment does not set
+either.
+
+A machine user's fine-grained PAT in the environment therefore changes nothing,
+and the probe below cannot tell you so. Moving identity takes one action,
+reconnecting the connector as the machine user. The cost is that the same
+connector authorizes a human's own interactive sessions, which would then post
+as the machine user too.
+
+Two conventions stand in for an account a query could filter on:
+
+- A review comment ends with a signature naming the model and reasoning level,
+  under [Review sequence](#review-sequence).
+- A commit is authored as `Claude <noreply@anthropic.com>` and carries a
+  `Claude-Session` trailer, under the `commits-and-prs` skill's Attribution.
+
+Neither is queryable. Activity feeds, `author:` filters, and branch protection
+rules all see `desertthunder`, so telling an agent's writes from a human's means
+reading them. Reopen the decision if GitHub attribution has to settle something
+a human reading the thread cannot. The same applies if a cloud session gains a
+way to point its MCP authorization at an app installation.
+
+Checked on 2026-09-19. `get_me` and `GET /user` both return `desertthunder`, and
+`GET /user` returns it with a bogus bearer as well. That last case is what rules
+the environment out.
+
+The MCP side is inferred rather than observed. `USE_SHTTP_MCP=true` and the
+proxy's bypass for `mcp-proxy.anthropic.com` show the tools reach a remote
+server. What authorizes that server was not observed from here.
+
 ## Statuses
 
 Status is a label. One status label per issue.
@@ -157,9 +198,10 @@ signature that pass ran under. A first pass leaves its trace in the reply to
 it, which is also what makes the model rule in `internal/models.md` checkable
 after the fact.
 
-Reviews post from whichever account runs them: Claude, Codex, or the
-repository owner. Every comment ends with a signature naming the model and its
-reasoning level, so the record shows which reviewer produced which finding.
+Reviews post from whichever account runs them, which for a Claude cloud session
+is `desertthunder`, under [Identity](#identity). Every comment ends with a
+signature naming the model and its reasoning level, so the record shows which
+reviewer produced which finding.
 
 ```text
 — claude-opus-5 · high
