@@ -516,7 +516,7 @@ impl PersistedTurn {
                     },
                 );
             }
-            AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
+            AgentEvent::ToolFinished { id, output, status, write_result, shell_result, .. } => {
                 let artifact = state.artifact_store(session_id).and_then(|store| {
                     store
                         .create_tool_evidence(&format!("tool:{id}"), output)

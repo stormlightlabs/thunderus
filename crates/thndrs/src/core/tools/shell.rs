@@ -54,7 +54,7 @@ use super::{MAX_LINE_LEN, MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolDefinition, ToolOu
 use crate::app::ToolStatus;
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::utils;
-use thndrs_agent::CancelToken;
+use thndrs_agent::{CancelToken, ProcessMetrics};
 
 /// Maximum number of output lines retained for the transcript/tool result.
 const MAX_OUTPUT_LINES: usize = 200;
@@ -227,9 +227,18 @@ impl ProcessResult {
         ToolOutput::failed("run_shell", err)
     }
 
+    /// Typed outcome of this run, for consumers that need the exit status and
+    /// the elapsed time rather than the prose in [`ProcessResult::summary`].
+    ///
+    /// A background process that is still running has not spent its wall clock
+    /// yet and has no exit status, so it reports no metrics.
+    pub fn process_metrics(&self) -> Option<ProcessMetrics> {
+        (self.status != ProcessStatus::Running).then(|| ProcessMetrics::new(self.exit_code, self.elapsed))
+    }
+
     /// Build the [`ToolOutput`] corresponding to this process result.
     pub fn to_tool_output(&self) -> ToolOutput {
-        match ToolStatus::from(self.status) {
+        let mut output = match ToolStatus::from(self.status) {
             ToolStatus::Running | ToolStatus::Ok => ToolOutput::ok(NAME, self.to_output_lines()),
             _ => {
                 let mut output = self.to_failed_output();
@@ -238,7 +247,9 @@ impl ProcessResult {
                 output.model.lines = lines;
                 output
             }
-        }
+        };
+        output.process = self.process_metrics();
+        output
     }
 }
 

@@ -129,6 +129,7 @@ fn maps_tool_start_and_completion_with_redaction() {
             status: ToolStatus::Ok,
             write_result: None,
             shell_result: None,
+            process: None,
         }]
     );
 }

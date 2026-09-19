@@ -229,11 +229,11 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             persist_completed_observation(app);
             None
         }
-        AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
+        AgentEvent::ToolFinished { id, output, status, write_result, shell_result, process } => {
             app.runtime.provider_retry = None;
             app.runtime.ttft.stop_on_semantic_output();
             finalize_streaming(app);
-            match finish_tool_output(app, &id, status, &output) {
+            match finish_tool_output(app, &id, status, &output, process) {
                 Ok(artifact) => persist_tool_entry_with_artifact(app, &id, artifact),
                 Err(error) => {
                     app.transcript.entries.push(Entry::Error { text: error.to_string() });
@@ -825,7 +825,7 @@ pub fn refresh_mcp_config_audit(app: &mut App, turn_id: &str) {
 }
 
 fn finish_tool_output(
-    app: &mut App, id: &str, status: ToolStatus, output: &[String],
+    app: &mut App, id: &str, status: ToolStatus, output: &[String], process: Option<ProcessMetrics>,
 ) -> Result<Option<artifacts::ArtifactMetadata>, ToolLifecycleError> {
     let artifact = app
         .session
@@ -844,7 +844,9 @@ fn finish_tool_output(
             .insert(id.to_string(), write.metadata.handle.clone());
     }
     let truncated = safe_output != output;
-    app.transcript.entries.finish_tool(id, status, safe_output, truncated)?;
+    app.transcript
+        .entries
+        .finish_tool(id, status, safe_output, truncated, process)?;
     Ok(artifact.map(|write| write.metadata))
 }
 

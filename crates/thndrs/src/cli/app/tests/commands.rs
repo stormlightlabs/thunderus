@@ -106,6 +106,7 @@ fn background_shell_result_registers_in_process_registry() {
             output: vec!["background task done".to_string()],
             status: ToolStatus::Ok,
             write_result: None,
+            process: shell_result.process_metrics(),
             shell_result: Some(Box::new(shell_result)),
         }),
     );

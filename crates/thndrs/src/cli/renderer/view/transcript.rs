@@ -113,16 +113,15 @@ fn activity_projection(
     if !is_routine_exploration(&entries[entry_index]) {
         let base_name = name.split('#').next().unwrap_or(name);
         let detail_open = open_detail == Some(entry_index);
+        let activity = ToolActivity {
+            name: base_name,
+            arguments,
+            status: *status,
+            output,
+            process: entries.block(entry_index).and_then(|block| block.process()),
+        };
         return ActivityProjection::Summary {
-            summary: single_activity_summary(
-                app,
-                base_name,
-                arguments,
-                *status,
-                output,
-                detail_target == Some(entry_index),
-                detail_open,
-            ),
+            summary: single_activity_summary(app, activity, detail_target == Some(entry_index), detail_open),
             show_tool: detail_open,
         };
     }
@@ -192,10 +191,26 @@ fn activity_projection(
     }
 }
 
+/// One finished or running tool call, as the summary projection reads it.
+#[derive(Clone, Copy)]
+struct ToolActivity<'a> {
+    /// Tool name without the provider-call identity suffix.
+    name: &'a str,
+    /// Raw tool arguments, as JSON text.
+    arguments: &'a str,
+    /// Lifecycle status of the call.
+    status: ToolStatus,
+    /// Display lines the tool produced.
+    output: &'a [String],
+    /// Typed process outcome, absent for a tool that is not process-backed and
+    /// for a transcript rebuilt from a record that predates it.
+    process: Option<ProcessMetrics>,
+}
+
 fn single_activity_summary(
-    app: &App, name: &str, arguments: &str, status: ToolStatus, output: &[String], detail_target: bool,
-    detail_open: bool,
+    app: &App, activity: ToolActivity<'_>, detail_target: bool, detail_open: bool,
 ) -> ActivitySummary {
+    let ToolActivity { name, arguments, status, output, process } = activity;
     let command = (name == "run_shell").then(|| shell_command(arguments)).flatten();
     let verification = command.as_deref().and_then(verification_command);
     let kind = if is_edit_tool(name) {
@@ -238,7 +253,10 @@ fn single_activity_summary(
         }
     }
     if name == "run_shell" {
-        let metadata = shell_result_metadata(output);
+        let metadata = process.map_or_else(
+            || shell_result_metadata_fallback(output),
+            |metrics| ShellResultMetadata::from_metrics(metrics, status),
+        );
         if let Some(duration) = metadata.duration {
             details.push(duration);
         }
@@ -401,7 +419,25 @@ struct ShellResultMetadata {
     exit_code: Option<i32>,
 }
 
-fn shell_result_metadata(output: &[String]) -> ShellResultMetadata {
+impl ShellResultMetadata {
+    /// Project the typed outcome of a process-backed tool.
+    ///
+    /// An exit code is shown only for a failure, which is what the prose
+    /// carried: a command that succeeded reports `exit 0` to nobody.
+    fn from_metrics(metrics: ProcessMetrics, status: ToolStatus) -> Self {
+        Self {
+            duration: Some(format_duration(metrics.elapsed_millis())),
+            exit_code: (status == ToolStatus::Failed).then_some(metrics.exit_code).flatten(),
+        }
+    }
+}
+
+/// Recover the outcome of a shell run from its display prose.
+///
+/// This is the fallback for a transcript rebuilt from a session record written
+/// before the outcome travelled as typed data. Live runs carry
+/// [`ProcessMetrics`] and never reach it.
+fn shell_result_metadata_fallback(output: &[String]) -> ShellResultMetadata {
     let Some(summary) = output
         .iter()
         .map(|line| tool_output::sanitize_terminal_text(line))

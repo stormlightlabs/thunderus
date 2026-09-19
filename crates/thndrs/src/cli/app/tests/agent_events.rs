@@ -192,6 +192,7 @@ fn reading_a_discovered_skill_announces_it_during_the_run_once() {
                 status: ToolStatus::Ok,
                 write_result: None,
                 shell_result: None,
+                process: None,
             }),
         );
     }
@@ -244,6 +245,7 @@ fn failed_skill_read_does_not_announce_the_skill() {
             status: ToolStatus::Failed,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
     );
 
@@ -274,6 +276,7 @@ fn tool_finished_sets_output_and_status() {
             status: ToolStatus::Ok,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
     );
     assert_eq!(
@@ -317,6 +320,7 @@ fn tool_artifact_bodies_require_context_capture_opt_in() {
                 status: ToolStatus::Ok,
                 write_result: None,
                 shell_result: None,
+                process: None,
             }),
         );
 
@@ -346,6 +350,7 @@ fn tool_finished_marks_failed_status() {
             status: ToolStatus::Failed,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
     );
     match &app.transcript.entries[0] {
@@ -471,6 +476,7 @@ fn failed_tool_error_line_is_visible_and_persisted() {
             status: ToolStatus::Failed,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
     );
 
@@ -918,6 +924,7 @@ fn completed_request_snapshot_tracks_tool_observations_and_transcript_links() {
             status: ToolStatus::Ok,
             write_result: None,
             shell_result: None,
+            process: None,
         },
     );
 
