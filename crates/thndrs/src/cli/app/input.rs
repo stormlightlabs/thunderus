@@ -1404,8 +1404,6 @@ pub fn open_skill_picker(app: &mut App) {
     for diagnostic in &app.transcript.skill_diagnostics {
         let entry = match diagnostic.severity {
             skills::SkillDiagnosticSeverity::Error => Entry::Error { text: diagnostic.summary() },
-            // The skill loaded and is activatable; do not flag it the same
-            // way as a skipped skill (see stormlightlabs/thunderus#56).
             skills::SkillDiagnosticSeverity::Warning => Entry::Status { text: diagnostic.summary() },
         };
         app.transcript.entries.push(entry);

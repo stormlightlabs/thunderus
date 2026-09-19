@@ -11,9 +11,8 @@
 
 ### Fixed
 
-- Skill discovery no longer drops a skill whose frontmatter `name` differs
-  from its directory; the mismatch is now a warning diagnostic, not a
-  rejection.
+- A skill whose frontmatter `name` differs from its directory now loads,
+  and the mismatch is reported as a warning.
 
 ## v0.1.1 - 2026-09-17
 
