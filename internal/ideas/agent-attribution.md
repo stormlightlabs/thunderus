@@ -31,18 +31,20 @@ reviewer roles to both.
 
 ## Status
 
-Not started, and deliberately out of the 2026-09-19 workflow cleanup. Everything
-below needs a GitHub App, a private key on the operator's machine, and a CI
-check, which is a project rather than a section of one.
+Dropped on 2026-09-19, not deferred. The repository owner decided that every
+commit here is theirs, which is true and needs no mechanism: agents work under
+their direction, and a convention that tried to split the log by who typed it
+was never checkable.
 
-Two things that cleanup did change here. The per-comment model signature is
-gone: a review comment's first line now carries the pass, the commit and the
-model, because a signature at the bottom was displaced by the harness's own
-footer in 54 of 57 comments sampled. And the commit author rule in
-`commits-and-prs` no longer names a harness, so it reads the same for Pi and
-Codex, which answers the third Open question below without waiting for a run.
+One tag survives and is not part of this design. A review comment's first line
+names the model and reasoning level the pass ran at, because which reviewer
+found a defect is a real question a reader has. It is a tag in a comment, not
+an identity, and it needs no app.
 
-The rest stands as written.
+Everything below is kept as a record of what the alternative would have cost: a
+GitHub App, a private key on the operator's machine, a CI check on the pull
+request author, and a claim that still could not be assigned to a bot. Read it
+if attribution ever has to settle something a human reading the thread cannot.
 
 ## Decisions
 

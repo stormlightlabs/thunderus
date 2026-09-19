@@ -74,20 +74,21 @@ comments carry the reason for each step, and no step's failure fails the hook.
 
 ### Identity
 
-A cloud session's pull requests and comments are authored by the human whose
-account it runs under, and nothing inside a session chooses that: `GH_TOKEN` is
-a placeholder the outbound proxy substitutes, and the MCP tools carry their own
-authorization from the account connected at `claude.ai/connect-github`. So a
-machine user's token in the environment changes nothing. Verified 2026-09-19.
+Everything here is authored by the repository owner. Pull requests, commits and
+comments all carry one account, and nothing inside a session changes that:
+`GH_TOKEN` is a placeholder the outbound proxy substitutes, and the MCP tools
+carry their own authorization from the account connected at
+`claude.ai/connect-github`. Verified 2026-09-19.
 
-This repository accepts that and relies on convention: an agent's commits are
-authored by the agent, under the `commits-and-prs` skill's **Attribution**, and
-a review comment's first line names the model it ran at. Neither is queryable;
-`author:` filters and branch protection all see one account.
+That is the whole rule now. A convention that tried to separate an agent's
+commits from the owner's was never checkable and is gone; the work is the
+owner's and the log says so.
 
-`internal/ideas/agent-attribution.md` holds the design for a mechanism that
-would not be a convention, and what it costs. Reopen this if attribution has to
-settle something a human reading the thread cannot.
+One tag survives, because it answers a question a reader actually has. A review
+comment's first line names the model and reasoning level that pass ran at, so
+the record shows which reviewer found what and `models.md` stays checkable
+afterwards. `internal/ideas/agent-attribution.md` keeps the design for a
+mechanism rather than a tag; nothing plans to build it.
 
 ## Statuses
 

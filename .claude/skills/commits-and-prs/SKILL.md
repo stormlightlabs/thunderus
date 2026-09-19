@@ -61,29 +61,21 @@ failing: both stay editable until the merge, so naming a problem is worth more
 than blocking on it.
 
 Length is reported and rejected by neither, under [Length](#length).
-## Attribution
+## Authorship
 
-A commit from a session the repository owner drove turn by turn is authored by
-them. They made the decisions the commit records. A commit from a dispatched
-agent is authored by the agent. So the log says which commits a person directed
-and which an agent produced on its own.
-
-Nothing in the tree records which case a commit came from, and a worktree does
-not answer it: a local session working directly takes one too, under the
-`worktree` skill's **Who gets one**. This is a convention, and
-`internal/ideas/agent-attribution.md` holds the design for a mechanism that
-would not be.
+Every commit here is authored by the repository owner. Agents work under their
+direction and the log says so; nothing tries to separate a commit an agent
+produced from one the owner typed, because the distinction was never checkable
+and the record is not improved by a convention that only sometimes holds.
 
 Leave the trailers a harness writes exactly as it wrote them, and add none by
-hand. They name whichever harness produced the commit, a harness that writes
-none leaves none, and nothing checks for them, so their absence says nothing
-about who wrote a commit. Only the author field answers that.
+hand. Name no model in a subject or a body. The message describes the change,
+not what produced it.
 
-Name no model in a subject or a body. The message describes the change, not
-what produced it.
-
-The Verified badge is a separate matter: it tracks a cryptographic signature,
-not the author address, and signing is out of scope here.
+A review comment is the exception, and the only one: its first line names the
+model and reasoning level the pass ran at, under the `review` skill. That is a
+claim about which reviewer found what, which `internal/models.md` needs and
+which a reader of the thread can use.
 
 ## Pull request bodies
 
@@ -157,6 +149,5 @@ that does not describe a behavior change.
 - Restate in the pull request what the commits already say, or in a comment
   what the pull request already says.
 - Claim a check ran when it did not.
-- Sign a commit body as a model. A commit carries the trailers under
-  [Attribution](#attribution) and nothing else.
+- Sign a commit body as a model, or name one in it.
 - Write a pull request body with headings. It is the commit message.
