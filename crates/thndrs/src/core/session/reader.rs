@@ -165,6 +165,10 @@ impl SessionReader {
                             *status,
                             output.clone(),
                             artifact.as_ref().is_some_and(|artifact| artifact.truncated),
+                            // A session record does not carry the typed process
+                            // outcome yet, so a resumed transcript falls back to
+                            // the prose in the summary line.
+                            None,
                         )
                         .is_err()
                         && let Some(entry) = record.to_entry()

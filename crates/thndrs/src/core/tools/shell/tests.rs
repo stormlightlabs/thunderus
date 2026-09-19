@@ -374,6 +374,68 @@ fn failed_process_summary_includes_exit_code() {
 }
 
 #[test]
+fn tool_output_carries_the_outcome_as_typed_fields() {
+    let result = ProcessResult {
+        process_id: None,
+        command: vec!["cargo".to_string(), "test".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: ProcessStatus::Failed,
+        exit_code: Some(101),
+        stdout: vec![],
+        stderr: vec![],
+        output_truncated: false,
+        elapsed: Duration::from_millis(4_800),
+        kind: ProcessKind::OneShot,
+    };
+
+    let output = result.to_tool_output();
+
+    assert_eq!(
+        output.process,
+        Some(ProcessMetrics::new(Some(101), Duration::from_millis(4_800)))
+    );
+}
+
+#[test]
+fn a_running_background_process_reports_no_outcome_yet() {
+    let result = ProcessResult {
+        process_id: Some(1),
+        command: vec!["sleep".to_string(), "60".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: ProcessStatus::Running,
+        exit_code: None,
+        stdout: vec![],
+        stderr: vec![],
+        output_truncated: false,
+        elapsed: Duration::from_millis(3),
+        kind: ProcessKind::Background,
+    };
+
+    assert_eq!(result.process_metrics(), None);
+    assert_eq!(result.to_tool_output().process, None);
+}
+
+#[test]
+fn a_killed_process_reports_elapsed_time_without_an_exit_code() {
+    let result = ProcessResult {
+        process_id: None,
+        command: vec!["sleep".to_string(), "60".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: ProcessStatus::Timeout,
+        exit_code: None,
+        stdout: vec![],
+        stderr: vec![],
+        output_truncated: false,
+        elapsed: Duration::from_secs(120),
+        kind: ProcessKind::OneShot,
+    };
+
+    let metrics = result.process_metrics().expect("a terminal process reports metrics");
+    assert_eq!(metrics.exit_code, None);
+    assert_eq!(metrics.elapsed_millis(), 120_000);
+}
+
+#[test]
 fn process_result_to_output_lines_includes_markers() {
     let result = ProcessResult {
         process_id: None,

@@ -1,6 +1,6 @@
 ---
 name: thunderstorm
-last_updated: 2026-09-17
+last_updated: 2026-09-19
 id: 01M2PWX233GKXE5M9SPTNTGN0D
 ---
 
@@ -34,7 +34,8 @@ protocol is the same; the transport to GitHub is not.
 | Local         | `gh`             |
 | Cloud session | GitHub MCP tools |
 
-Worktrees work the same way on both, under [Worktrees](#worktrees).
+Where a worker writes is decided by dispatch rather than host, under
+[Worktrees](#worktrees).
 
 The `github-board` skill picks the transport and owns the differences between
 them. Two are load-bearing:
@@ -63,6 +64,47 @@ toolchains. The hook exits immediately outside the cloud, where a checkout
 already has all of this.
 `.claude/settings.json` registers it.
 
+### Identity
+
+A cloud session's pull requests and comments are authored by the human whose
+account it runs under. GitHub shows no difference between those writes and that
+person's own. This repository accepts that and relies on convention instead: no
+machine account, no app installation.
+
+Nothing inside a session chooses that account. The container holds `GH_TOKEN`
+and `GITHUB_TOKEN` for the REST path `github-board` scopes to dependency edges.
+Both are a 14-character placeholder that the outbound proxy substitutes before a
+request leaves. The MCP tools carry their own authorization from the account
+connected at `claude.ai/connect-github`, which the environment does not set
+either.
+
+A machine user's fine-grained PAT in the environment therefore changes nothing,
+and the probe below cannot tell you so. Moving identity takes one action,
+reconnecting the connector as the machine user. The cost is that the same
+connector authorizes a human's own interactive sessions, which would then post
+as the machine user too.
+
+Two conventions stand in for an account a query could filter on:
+
+- A review comment ends with a signature naming the model and reasoning level,
+  under [Review sequence](#review-sequence).
+- A commit is authored as `Claude <noreply@anthropic.com>` and carries a
+  `Claude-Session` trailer, under the `commits-and-prs` skill's Attribution.
+
+Neither is queryable. Activity feeds, `author:` filters, and branch protection
+rules all see `desertthunder`, so telling an agent's writes from a human's means
+reading them. Reopen the decision if GitHub attribution has to settle something
+a human reading the thread cannot. The same applies if a cloud session gains a
+way to point its MCP authorization at an app installation.
+
+Checked on 2026-09-19. `get_me` and `GET /user` both return `desertthunder`, and
+`GET /user` returns it with a bogus bearer as well. That last case is what rules
+the environment out.
+
+The MCP side is inferred rather than observed. `USE_SHTTP_MCP=true` and the
+proxy's bypass for `mcp-proxy.anthropic.com` show the tools reach a remote
+server. What authorizes that server was not observed from here.
+
 ## Statuses
 
 Status is a label. One status label per issue.
@@ -70,7 +112,7 @@ Status is a label. One status label per issue.
 | Label            | Meaning                                           | Leaves when                                      |
 | ---------------- | ------------------------------------------------- | ------------------------------------------------ |
 | `status:queued`  | Ready to work. No owner.                          | A run claims it.                                 |
-| `status:claimed` | A worker owns it and a worktree exists.           | A pull request opens, or the run abandons it.    |
+| `status:claimed` | A worker owns it and has somewhere to write.      | A pull request opens, or the run abandons it.    |
 | `status:review`  | Pull request open. Review passes in progress.     | All three review passes clear.                   |
 | `status:verify`  | Merged to `edge`. Waiting on human confirmation.  | A human confirms behavior or files a regression. |
 | `status:blocked` | Cannot proceed. Needs a `blocked:*` reason label. | The reason is recorded as resolved.              |
@@ -78,8 +120,8 @@ Status is a label. One status label per issue.
 | `status:dropped` | Abandoned. Reason recorded in a closing comment.  | Terminal.                                        |
 
 `status:claimed` for more than 24 hours with no pull request returns to
-`status:queued` and its worktree is removed. `status:blocked` for more than 7
-days goes to the triage inbox. Nothing closes automatically.
+`status:queued`, and its worktree is removed if it has one. `status:blocked`
+for more than 7 days goes to the triage inbox. Nothing closes automatically.
 
 An epic carries no status. It is not work, so there is nothing to claim, and
 duplicating its sub-issues' state on the parent gives that copy somewhere to
@@ -128,7 +170,7 @@ the run and starts at `/impl`.
 | `/spec-ify`, `/specify` | An idea or topic          | One design to `internal/features/<name>/plan.md`. Only when a decision is missing. |
 | `/decomp`, `/decompose` | An idea, spec, or finding | Files one epic and the sub-issues under it.                                        |
 | `/thunderstorm`         | Epic issue number         | One run over the epic. Claims each sub-issue, dispatches it, and reports.          |
-| `/impl`, `/implement`   | Issue number              | Claims the issue, works it in a worktree, opens a pull request.                    |
+| `/impl`, `/implement`   | Issue number              | Claims the issue, works it on an `agent/` branch, opens a pull request.            |
 | `/rev`                  | Branch or PR number       | Standard review pass. Comments only on the second pass.                            |
 | `/adv-rev`              | Branch or PR number       | Adversarial review pass. Always comments.                                          |
 | `/edit`, `/revise`      | PR number                 | Addresses review comments on that pull request.                                    |
@@ -156,9 +198,10 @@ signature that pass ran under. A first pass leaves its trace in the reply to
 it, which is also what makes the model rule in `internal/models.md` checkable
 after the fact.
 
-Reviews post from whichever account runs them: Claude, Codex, or the
-repository owner. Every comment ends with a signature naming the model and its
-reasoning level, so the record shows which reviewer produced which finding.
+Reviews post from whichever account runs them, which for a Claude cloud session
+is `desertthunder`, under [Identity](#identity). Every comment ends with a
+signature naming the model and its reasoning level, so the record shows which
+reviewer produced which finding.
 
 ```text
 — claude-opus-5 · high
@@ -190,7 +233,7 @@ without the underlying cause changing. Either stop is an escalation.
 | ----------- | --------------------------------------- | ---------------------------------- |
 | `main`      | The current release. Matches the tag.   | Release pull requests from `edge`. |
 | `edge`      | Merged work that is not released yet.   | Pull requests from `agent/*`.      |
-| `agent/<n>` | One sub-issue. One worktree. One owner. | Pushes from its worker.            |
+| `agent/<n>` | One sub-issue. One owner.               | Pushes from its worker.            |
 
 Every branch an agent pushes carries the `agent/` prefix, including work that
 has no issue behind it. Name that case for the work rather than the issue it
@@ -225,8 +268,8 @@ at least once while written down and believed.
 
 ## Worktrees
 
-One sub-issue gets one worktree, created outside the repository root so Cargo
-does not find the parent `.cargo/config.toml`:
+A worktree, where the work takes one, is created outside the repository root so
+Cargo does not find the parent `.cargo/config.toml`:
 
 ```sh
 git worktree add ../thndrs-worktrees/<issue> -b agent/<issue> origin/edge
@@ -240,23 +283,28 @@ meant to parallelize.
 Remove the worktree when the run ends. A removal that fails because of
 uncommitted changes is an escalation, not something to force.
 
+The `worktree` skill is the only thing here that makes one. The harness makes
+them too, from an `isolation` key in a definition under `.claude/agents/` or an
+`isolation` setting on a dispatch, and it places them inside the repository
+root. This repository asks for neither.
+
 ### Who gets one
 
-Every implementer gets a worktree, on either host. What a worktree separates is
-one writer from another, and a cloud container does not do that job: it
-separates the session from the user's machine, not one dispatched implementer
-from the next. `.claude/agents/implementer.md` declares `isolation: worktree`,
-so a dispatched implementer is given one whether or not the run asks.
+Every dispatched subagent gets one, on either host, and the run creates it
+before dispatching. A session working an issue itself takes one on a development
+machine, where the checkout is the user's. On a cloud session it works in the
+container checkout, which belongs to nobody else. The `worktree` skill's
+**Who gets one** section holds the reasoning.
 
-Two implementers sharing a checkout share one index and one `HEAD`, so they
-cannot hold a branch each. The second to start moves `HEAD` when it creates its
-branch, and the first's staged work rides along: it lands in the second's
-commit, every commit the first makes afterwards lands on the second's branch,
-and the first's branch never leaves `origin/edge`. The refusal that guards one
-branch in two worktrees does not fire, because there is only one worktree.
-`push-verified.sh` does not catch it either, because both pushes have a branch
-and both land; the only trace is that script naming a branch the run did not
-claim. An index lock collision is the rarer case and the only loud one.
+Two implementers in one checkout produce a failure nothing reports. They share
+one index and one `HEAD`, so the second to create its branch moves `HEAD` for
+both. The first's staged work then lands in the second's commit, and every
+commit it makes afterwards lands on the second's branch.
+
+`push-verified.sh` does not catch that. It compares each push against its own
+branch, and both pushes have one and both land. The only trace is that script
+naming a branch the run never claimed. An index lock collision is rarer and
+louder.
 
 A reviewer gets none. It writes nothing into the tree, so what it needs is a
 tree that does not move while it reads, which is a commit rather than a
@@ -319,11 +367,11 @@ replaced were already false within hours of being written.
 | Skill             | Owns                                                         |
 | ----------------- | ------------------------------------------------------------ |
 | `thunderstorm`    | One run: claims, dispatches, reports, stops. Writes no code. |
-| `implement`       | One issue, in one worktree, to one pull request.             |
+| `implement`       | One issue, on one branch, to one pull request.               |
 | `review`          | Standard and adversarial review passes.                      |
 | `revise`          | Addressing findings on a pull request.                       |
 | `github-board`    | The only writer of issue state.                              |
-| `worktree`        | Provisioning, build isolation, removal.                      |
+| `worktree`        | Who needs one, provisioning, build isolation, removal.       |
 | `release`         | `edge` to `main`, tag, changelog, publish.                   |
 | `rubber-duck`     | Design discussion and idea files.                            |
 | `specify`         | One design, when issues need a decision made first.          |
@@ -332,4 +380,36 @@ replaced were already false within hours of being written.
 | `commits-and-prs` | Commit messages, pull request bodies, changelog entries.     |
 
 Subagents for dispatch live in `.claude/agents/`: `implementer`, `reviewer`,
-and `adversarial-reviewer`.
+`adversarial-reviewer`, and `reviser`, one per role the run dispatches.
+
+Each definition's `tools:` line is an allowlist, so a role reaches GitHub only
+through the tools it names. A cloud run is the case that exposes this: the
+transport there is the GitHub MCP tools, and an agent whose list omits them
+cannot claim an issue, open a pull request, or post a finding, however well the
+server is connected to the session around it. What each role needs follows from
+what its skill tells it to do.
+
+| Role                   | Reaches GitHub for                                              |
+| ---------------------- | --------------------------------------------------------------- |
+| `implementer`          | Reading the issue, claiming it, opening the pull request, filing found work |
+| `reviewer`             | Reading the pull request and its issue, posting from the second pass |
+| `adversarial-reviewer` | The same, and it always posts                                    |
+| `reviser`              | Reading findings, replying, resolving and reopening threads, filing a deferral |
+
+`get_me` is not optional for a claim. MCP has no `@me`, so the assignee array
+needs the login spelled out.
+
+Give a role the tool that undoes each tool it has. A reviser that can resolve a
+thread and not reopen one turns a mistyped thread id into a question that no
+longer looks like it is waiting on anybody, and the pass that made it cannot
+take it back.
+
+A role also needs the Bash its skill calls for. `.claude/settings.json` carries
+the allowlist, and a run that has to stop for a prompt nobody is there to
+answer stalls rather than fails, which is the harder shape to read afterwards.
+
+Editing a definition mid-run does not reliably reach the next dispatch. A
+changed `tools:` line was live within the session; a removed `isolation` was
+not, and took a further dispatch to take effect. Treat a definition change as
+something the next session gets, and unblock the run in front of you by moving
+the ground rather than the definition.

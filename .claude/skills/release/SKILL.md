@@ -49,6 +49,14 @@ Update `version` in `crates/thndrs/Cargo.toml` and
 `crates/thndrs-agent/Cargo.toml`, then `cargo update --workspace` so
 `Cargo.lock` matches.
 
+### Tags before the first release
+
+The command above answers `v0.1.1`. `v0.1.0` is unreachable from `main` and
+`edge` and never answers, which is not a broken tag. `0.1.1` is tagged and
+unpublished, so the check under [After](#after) reports it against `0.1.0` on
+crates.io until a release publishes. Issue #3 records which commit each tag
+marks.
+
 ## Changelog
 
 Move `## Unreleased` entries into a new `## <version>` section with the date.

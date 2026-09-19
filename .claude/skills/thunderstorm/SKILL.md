@@ -8,8 +8,9 @@ description: Run one thunderstorm loop over an epic and its sub-issues. Dispatch
 One run covers one epic and the sub-issues declared under it. A human
 starts every run. Nothing here runs on a schedule.
 
-This skill dispatches and reports. It writes no code and touches no working
-tree. See `internal/thunderstorm.md` for the protocol this obeys.
+This skill dispatches and reports. It writes no code and edits no files; the
+one thing it does in the checkout is create and remove the worktrees it hands
+out. See `internal/thunderstorm.md` for the protocol this obeys.
 
 ## Start
 
@@ -47,17 +48,20 @@ anyway produces a worker with nothing to build on. Independent in the dependency
 graph is not the same as safe to run at once: check the file ownership the epic
 records before taking two at a time.
 
-Each implementer works in its own worktree, on either host. Two sharing a
-checkout share one `HEAD`, and the second to create its branch takes the
-first's work onto it without git raising anything. The `worktree` skill has the
-mechanism.
+Every implementer you dispatch gets its own worktree, on either host, and you
+create it before dispatching rather than leaving the subagent to. Two of them
+sharing a checkout share one `HEAD`, and the second to create its branch takes
+the first's work onto it without git raising anything. Make it through the
+`worktree` skill and do not ask the harness for one: an `isolation` setting on
+the dispatch places the worktree inside the repository root.
 
 For each sub-issue:
 
 1. Claim it through the `github-board` skill.
-2. Create its worktree through the `worktree` skill.
+2. Give it a working tree through the `worktree` skill.
 3. Dispatch an implementer. Give it the issue number, the acceptance criteria,
-   the file ownership, and the verification command. Nothing else.
+   the file ownership, the working directory, and the verification command.
+   Nothing else.
 4. When the pull request opens, move the issue to `status:review`.
 
 Use the model assignments in `internal/models.md`. The implementer and the
@@ -112,7 +116,7 @@ filed, never absorbed.
 
 ## Do not
 
-- Write code, edit files, or enter a worktree.
+- Write code, edit files, or work in an implementer's tree.
 - Merge, approve, or push to `edge` or `main`.
 - Change the protocol mid-run.
 - Continue past a stop condition because the remaining work looks small.

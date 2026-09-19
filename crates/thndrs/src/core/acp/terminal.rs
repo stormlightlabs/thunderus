@@ -360,7 +360,8 @@ fn terminal_event(id: String, snapshot: &TerminalSnapshot, result: Option<Box<Pr
     if snapshot.truncated {
         output.insert(0, "[terminal output truncated]".to_string());
     }
-    AgentEvent::ToolFinished { id, output, status, write_result: None, shell_result: result }
+    let process = result.as_deref().and_then(ProcessResult::process_metrics);
+    AgentEvent::ToolFinished { id, output, status, write_result: None, shell_result: result, process }
 }
 
 fn output_limit(limit: Option<u64>) -> usize {

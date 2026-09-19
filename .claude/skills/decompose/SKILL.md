@@ -86,7 +86,7 @@ issue that has children, so a nested one blocks the worker that claims it.
 
 ## Sizing
 
-A sub-issue is one claim, one worktree, one pull request. Two changes that must
+A sub-issue is one claim, one branch, one pull request. Two changes that must
 land together are one issue; two that could land a week apart are two.
 
 Resist filing everything you can see. An epic of twenty is a backlog wearing a

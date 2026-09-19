@@ -1,0 +1,6 @@
+# A worktree placed here is a second checkout and its build tree, not work to
+# commit. This file sits below the root .gitignore so that a negation added
+# there cannot re-include them: git lets a deeper ignore file override a
+# shallower one. The name is the harness's to choose, so a harness that picks
+# another one shows up untracked until it is added here.
+worktrees/

@@ -289,6 +289,7 @@ impl RunHandle {
                     }
                 };
                 let status = output.status;
+                let process = output.process;
                 let display_output = output.display_lines();
                 if let Some(store) = &self.config.artifact_store {
                     match store.create_tool_evidence(&format!("tool:{tool_id}"), &display_output) {
@@ -342,6 +343,7 @@ impl RunHandle {
                         status,
                         write_result,
                         shell_result: shell_result.map(Box::new),
+                        process,
                     },
                     cancel,
                 )
@@ -438,7 +440,14 @@ impl RunHandle {
         let display_output = output.display_lines();
         match send(
             tx,
-            ToolFinished { id: tool_id, output: display_output, status, write_result: None, shell_result: None },
+            ToolFinished {
+                id: tool_id,
+                output: display_output,
+                status,
+                write_result: None,
+                shell_result: None,
+                process: None,
+            },
             cancel,
         ) {
             None => return,
@@ -478,6 +487,7 @@ impl RunHandle {
                 }
             };
             let shell_status = shell_output.status;
+            let shell_process = shell_output.process;
             let shell_display_output = shell_output.display_lines();
             match send(
                 tx,
@@ -487,6 +497,7 @@ impl RunHandle {
                     status: shell_status,
                     write_result,
                     shell_result: shell_result.map(Box::new),
+                    process: shell_process,
                 },
                 cancel,
             ) {

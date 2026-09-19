@@ -1,11 +1,11 @@
 ---
 name: implement
-description: Work a GitHub issue end to end in an isolated worktree and open a pull request against edge. Use for /impl, /implement, or when asked to start work on an issue number.
+description: Work a GitHub issue end to end on its own branch and open a pull request against edge. Use for /impl, /implement, or when asked to start work on an issue number.
 ---
 
 # Implement
 
-Take one issue, do the work in its own worktree, open a pull request. One issue
+Take one issue, do the work on its own branch, open a pull request. One issue
 per run.
 
 ## Read before claiming
@@ -34,11 +34,36 @@ touches before planning the change.
 ## Claim it
 
 Assign yourself and move the status label to `claimed`. The claim is what stops
-a second run from taking the same issue, so make it before creating a worktree.
+a second run from taking the same issue, so make it before touching a tree.
 
-## Create the worktree
+## Take a working tree
 
-Outside the repository root, so Cargo does not find the parent
+A dispatched implementer already has one: the run created it and handed over the
+directory. Use it and skip this section.
+
+A session invoked directly takes its own tree. The `worktree` skill's **Who gets
+one** section says which kind, and is the only thing that creates a worktree.
+
+A cloud session holds a container checkout nobody else owns, so it works in that
+checkout and creates nothing beside it:
+
+```sh
+git fetch origin
+git branch -m agent/<n>
+```
+
+Rename the harness-supplied branch rather than keeping it or branching afresh.
+Every branch an agent pushes carries the `agent/` prefix, which is what tells a
+human reading the branch list what an agent owns. The rename also keeps whatever
+that branch already carries: `git switch -c agent/<n> origin/edge` matches it
+only while the branch sits at `origin/edge`, and otherwise leaves its commits on
+a name this session no longer uses. Harness branches get deleted, so that
+residue becomes unreachable rather than untidy.
+
+Where there is no branch to rename, that same `git switch -c` creates one.
+
+A local session takes a worktree, because the checkout there is the user's. It
+goes outside the repository root so Cargo does not find the parent
 `.cargo/config.toml`:
 
 ```sh
@@ -103,6 +128,6 @@ having run it.
 ## Do not
 
 - Merge, approve, or push to `edge` or `main`.
-- Touch the user's primary checkout.
+- Touch the user's primary checkout on a development machine.
 - Expand scope past the claimed issue.
-- Leave the worktree behind after the pull request merges.
+- Leave a worktree behind after the pull request merges.

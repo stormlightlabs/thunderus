@@ -131,6 +131,9 @@ cover it too.
   and say how many `nit` rows you left out.
 - Cite `<path>:<line>` instead of quoting the diff back at its author.
 - Group repeats. One finding naming every site beats one finding per site.
+- Report findings and nothing else, to the thread and to whoever invoked the
+  pass alike. Branch state either can see, such as the base branch having
+  moved, is not a finding.
 
 ## Which passes post
 

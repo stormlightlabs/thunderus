@@ -232,6 +232,36 @@ impl ToolModelProjection {
     }
 }
 
+/// Typed outcome of a process-backed tool run.
+///
+/// Display lines stay prose written for a person. Consumers that need the
+/// outcome of the process read these fields instead of parsing that prose back
+/// out, so rewording a summary cannot change what a surface reports.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProcessMetrics {
+    /// Exit code when the process exited on its own, `None` when it was killed
+    /// by a timeout or a cancellation and never reported one.
+    pub exit_code: Option<i32>,
+    /// Wall-clock time the process ran.
+    pub elapsed: Duration,
+}
+
+impl ProcessMetrics {
+    /// Build metrics for a process that has reached a terminal state.
+    pub const fn new(exit_code: Option<i32>, elapsed: Duration) -> Self {
+        Self { exit_code, elapsed }
+    }
+
+    /// Elapsed time in whole milliseconds, saturating at [`u64::MAX`].
+    ///
+    /// A run long enough to overflow `u64` milliseconds is not reachable from a
+    /// tool call, so the saturating conversion is a total function rather than
+    /// a case a caller has to handle.
+    pub fn elapsed_millis(self) -> u64 {
+        u64::try_from(self.elapsed.as_millis()).unwrap_or(u64::MAX)
+    }
+}
+
 /// Structured output returned by an application-owned tool executor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToolOutput {
@@ -247,6 +277,9 @@ pub struct ToolOutput {
     pub model: ToolModelProjection,
     /// Failure detail when execution did not succeed.
     pub error: Option<String>,
+    /// Typed process outcome for a process-backed tool, `None` for every other
+    /// tool and while a background process is still running.
+    pub process: Option<ProcessMetrics>,
 }
 
 impl ToolOutput {
@@ -260,6 +293,7 @@ impl ToolOutput {
             display: ToolDisplayProjection::new(output.clone()),
             model: ToolModelProjection::new(output),
             error: None,
+            process: None,
         }
     }
 
@@ -273,6 +307,7 @@ impl ToolOutput {
             display: ToolDisplayProjection::new(Vec::new()),
             model: ToolModelProjection::new(Vec::new()),
             error: Some(error.into()),
+            process: None,
         }
     }
 
@@ -283,6 +318,12 @@ impl ToolOutput {
     /// need to prove that two projections observed the same state.
     pub fn with_evidence_content_hash(mut self, content_hash: impl Into<String>) -> Self {
         self.evidence.content_hash = Some(content_hash.into());
+        self
+    }
+
+    /// Attach the typed outcome of a process-backed tool run.
+    pub fn with_process_metrics(mut self, metrics: ProcessMetrics) -> Self {
+        self.process = Some(metrics);
         self
     }
 
@@ -412,6 +453,24 @@ mod tests {
         assert_eq!(output.display.lines, vec!["shown to user"]);
         assert_eq!(output.model.lines, vec!["sent to model"]);
         assert_eq!(output.evidence.artifact_handle, None);
+    }
+
+    #[test]
+    fn process_metrics_ride_on_tool_output_for_process_backed_tools() {
+        let plain = ToolOutput::ok("read", vec!["ok".to_string()]);
+        assert_eq!(plain.process, None);
+
+        let metrics = ProcessMetrics::new(Some(101), Duration::from_millis(4_800));
+        let shell = ToolOutput::failed("run_shell", "command failed (exit 101)").with_process_metrics(metrics);
+        assert_eq!(shell.process, Some(metrics));
+        assert_eq!(shell.process.and_then(|metrics| metrics.exit_code), Some(101));
+        assert_eq!(shell.process.map(ProcessMetrics::elapsed_millis), Some(4_800));
+    }
+
+    #[test]
+    fn elapsed_millis_saturates_rather_than_wrapping() {
+        let metrics = ProcessMetrics::new(None, Duration::MAX);
+        assert_eq!(metrics.elapsed_millis(), u64::MAX);
     }
 
     #[test]

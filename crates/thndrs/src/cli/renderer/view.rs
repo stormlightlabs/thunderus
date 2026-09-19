@@ -11,8 +11,9 @@ mod tests;
 
 use crate::app::{
     App, BlockContentState, CONTEXT_INSPECTION_MAX_ITEMS, ChatGptOAuthMethod, Entry, FilePickerSource,
-    FirstRunRecovery, McpTrustAction, McpTrustSurface, Mode, PromptAccessory, QueueAuditState, QueueTarget,
-    RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlock, TranscriptBlockId, TranscriptBlockKind,
+    FirstRunRecovery, McpTrustAction, McpTrustSurface, Mode, ProcessMetrics, PromptAccessory, QueueAuditState,
+    QueueTarget, RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlock, TranscriptBlockId,
+    TranscriptBlockKind,
 };
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::renderer::row::{CursorCoord, Row};

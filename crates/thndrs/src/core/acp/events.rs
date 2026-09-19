@@ -133,7 +133,7 @@ fn tool_content_line(content: &ToolCallContent) -> Option<String> {
 }
 
 fn tool_finished(id: String, output: Vec<String>, status: ToolStatus) -> AgentEvent {
-    AgentEvent::ToolFinished { id, output, status, write_result: None, shell_result: None }
+    AgentEvent::ToolFinished { id, output, status, write_result: None, shell_result: None, process: None }
 }
 
 fn tool_status(status: ToolCallStatus) -> ToolStatus {
