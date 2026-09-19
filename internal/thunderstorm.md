@@ -88,8 +88,10 @@ Two conventions stand in for an account a query could filter on:
 
 - A review comment ends with a signature naming the model and reasoning level,
   under [Review sequence](#review-sequence).
-- A commit is authored as `Claude <noreply@anthropic.com>` and carries a
-  `Claude-Session` trailer, under the `commits-and-prs` skill's Attribution.
+- A commit from a dispatched agent is authored as
+  `Claude <noreply@anthropic.com>` and carries a `Claude-Session` trailer. One
+  from a session a person drove is authored by them, with the model as a
+  co-author. Both are under the `commits-and-prs` skill's Attribution.
 
 Neither is queryable. Activity feeds, `author:` filters, and branch protection
 rules all see `desertthunder`, so telling an agent's writes from a human's means

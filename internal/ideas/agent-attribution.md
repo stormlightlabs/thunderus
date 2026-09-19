@@ -33,6 +33,15 @@ reviewer roles to both.
 
 ### A GitHub App rather than a machine user
 
+`internal/thunderstorm.md` Identity records the opposite: no machine account and
+no app installation, with conventions standing in. Its reasoning is scoped to a
+cloud session, where the container's `GH_TOKEN` is a proxy placeholder and the
+MCP tools carry authorization from the account connected at
+`claude.ai/connect-github`, so a credential placed in the environment changes
+nothing. That section names its own reopen condition, and runs moving to the
+operator's machine is one: `gh` there holds a real token, and an installation
+token is a real token.
+
 GitHub does not bill for app bot accounts, and a machine user consumes a
 license. An app's installation access tokens expire after one hour and can be
 scoped to named repositories and to a subset of the permissions the
@@ -50,11 +59,12 @@ the model as a co-author. A commit from a dispatched agent is authored as
 `Claude <noreply@anthropic.com>`. The decisions in the first case are the
 owner's, and naming the harness there would tell a reader less than it hides.
 
-The worktree makes that checkable. A dispatched implementer always has one
-because `.claude/agents/implementer.md` declares `isolation: worktree`, and in a
-linked worktree `git rev-parse --git-dir` and `--git-common-dir` differ where in
-the main checkout they match. The rule this replaced keyed on the harness, which
-nothing can observe after the fact.
+This is not checkable, and neither was the rule it replaced. A worktree does not
+separate the cases, because the `worktree` skill gives one to a local session
+working directly as well as to a dispatched subagent. Supervision is decided at
+runtime and recorded nowhere the tree can read, so the rule stays a convention
+and `internal/thunderstorm.md` Identity is where this repository already accepts
+that trade.
 
 ### The pull request author is the mechanism
 

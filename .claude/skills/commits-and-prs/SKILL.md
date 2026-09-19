@@ -110,11 +110,11 @@ records. A commit from a dispatched agent is authored as
 `Claude <noreply@anthropic.com>`. So the log says which commits a person
 directed and which an agent produced on its own.
 
-The worktree is what separates the two. `.claude/agents/implementer.md` declares
-`isolation: worktree`, so dispatched work always runs in a linked worktree,
-where `git rev-parse --git-dir` and `--git-common-dir` differ. In the main
-checkout they match. A hook can read the author from that rather than asking anyone to
-remember which case they are in.
+Nothing in the tree records which case a commit came from. A worktree does not
+answer it, because a local session working directly takes one too, under the
+`worktree` skill's **Who gets one**. So this is a convention, like the review
+signature, and `internal/thunderstorm.md` Identity says why this repository
+accepts one here.
 
 The Verified badge is a separate matter: it tracks a cryptographic signature,
 not the author address, and signing is out of scope here.
