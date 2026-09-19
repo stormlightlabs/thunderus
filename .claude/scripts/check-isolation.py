@@ -106,8 +106,6 @@ def main(argv: list[str]) -> int:
 
     checked, failures = check_tree(root)
 
-    # Nothing found and everything correct produce the same empty list, and only
-    # one of them means the check did its job.
     if not checked:
         failures.append(f"no definitions found under {root}")
 
