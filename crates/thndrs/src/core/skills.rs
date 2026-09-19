@@ -880,11 +880,11 @@ mod tests {
         );
     }
 
+    /// Reproduces the shape of `stormlightlabs/mire`'s bundled skill: the
+    /// frontmatter `name` (`mire-review`) differs from the directory that
+    /// holds it (`mire`).
     #[test]
     fn skill_with_name_differing_from_directory_loads_with_a_warning() {
-        // Reproduces the shape of `stormlightlabs/mire`'s bundled skill: the
-        // frontmatter `name` (`mire-review`) differs from the directory that
-        // holds it (`mire`).
         let dir = tempfile::tempdir().expect("temp dir");
         write(
             &dir.path().join(".agents/skills/mire/SKILL.md"),

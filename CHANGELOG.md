@@ -60,9 +60,8 @@
 ### Fixed
 
 - Skill discovery no longer drops a skill whose frontmatter `name` differs
-  from its directory. The directory decides which skill is discovered, the
-  frontmatter `name` is what activates it, and the mismatch is reported as a
-  warning diagnostic instead of an inventory rejection.
+  from its directory; the mismatch is now a warning diagnostic, not a
+  rejection.
 
 ## v0.1.0
 
