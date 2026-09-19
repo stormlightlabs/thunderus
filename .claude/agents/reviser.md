@@ -42,6 +42,6 @@ resolved stops looking like it is waiting on anyone. Reopen it yourself if you
 do. Never resolve one that asks a question, one waiting on a decision, or one
 you opened yourself.
 
-Stop after 5 rounds on one pull request, when the same finding arrives twice
-with its cause unchanged, or when a fix needs a decision the issue does not
-record. Each stop is an escalation to your invoker.
+The `revise` skill's stop conditions are yours, and the round cap among them
+is stated once in `internal/thunderstorm.md` rather than here. Each stop is an
+escalation to your invoker.
