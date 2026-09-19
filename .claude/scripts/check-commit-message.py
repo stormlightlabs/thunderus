@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """Check a commit message against the rules in .claude/skills/commits-and-prs.
 
-Reads a message from a file, or several from `git log` when given a revision
-range:
+Reads a message from a file, or builds one from a pull request's title and
+body:
 
     check-commit-message.py .git/COMMIT_EDITMSG
-    check-commit-message.py --range origin/edge..HEAD
-    check-commit-message.py --range origin/edge..HEAD --warn
+    check-commit-message.py --pr --title-file t.txt --body-file b.txt
+    check-commit-message.py --pr --title-file t.txt --body-file b.txt --warn
+
+The title and body arrive as files rather than arguments. Both are written by
+whoever opened the pull request, and a workflow that interpolates a title into
+a shell command runs that title.
+
+The pull request is the one that matters. This repository merges with
+squash_merge_commit_title=PR_TITLE and squash_merge_commit_message=PR_BODY, so
+the title and body reach `edge` verbatim and the branch's own messages are
+discarded. Checking the branch would grade text nobody reads.
 
 Findings carry one of two severities, and only one of them can fail a run.
 
@@ -24,8 +33,8 @@ check that cannot be certain stays out of the way of the one that can. It names
 what it finds and leaves the judgement with the author.
 
 With `--warn` everything is reported and the exit code stays zero either way,
-which is what CI wants, because the only way to fix a message already pushed is
-to rewrite history that someone may have pulled.
+which is what CI wants: a pull request's title and body are editable until the
+merge, so naming a problem is worth more than blocking on it.
 
 The limits below are the whole policy; change them here and the hook, CI, and
 the skill stay in step.
@@ -38,9 +47,14 @@ import sys
 
 SUBJECT_LIMIT = 60  # "under 60 characters", so 59 is the longest allowed.
 BODY_LIMIT = 72
-# The commit body target from writing-docs, counted in lines, because lines are
-# what a reader scrolling `git log` spends rather than characters.
-BODY_LINES = 15
+# The pull request body becomes the squash commit body verbatim, so it is
+# counted in lines at 72 columns like any other commit body. Twenty lines at
+# that width is about 150 words, which is the figure
+# internal/ideas/commit-and-pr-length.md cites for a focused change.
+#
+# A branch commit body has no target. The squash discards it, so grading it
+# would spend a reader's attention on text that never reaches anyone.
+PR_BODY_LINES = 20
 # GitHub appends " (#NN)" to a squash subject server-side. Six characters for a
 # two-digit issue, seven past #99, and the author never sees them: the title
 # they wrote is the only part they control, so that is what the budget covers.
@@ -132,23 +146,22 @@ def message_lines(message: str, from_file: bool = True) -> list[str]:
     return lines
 
 
-def measure(message: str, from_file: bool = True) -> int:
-    """Body lines in one message, for the branch projection."""
-    lines = message_lines(message, from_file)
-    if not lines:
-        return 0
-    return body_length(lines, trailer_block(lines))
-
-
-def check(message: str, from_file: bool = True) -> tuple[list[str], list[str]]:
+def check(
+    message: str, from_file: bool = True, from_pull_request: bool = False
+) -> tuple[list[str], list[str]]:
     """Return (errors, advice); both empty when the message is clean.
 
     Errors are shape and fail the hook. Advice is length and never fails
     anything. See the module docstring for why the two are separated.
+
+    `from_file` says whether to strip the comment lines an editor adds.
+    `from_pull_request` says the subject is a pull request title, which is the
+    one subject the ` (#NN)` budget is certain to apply to.
     """
     lines = message_lines(message, from_file)
     if not lines:
         return ["the message is empty"], []
+
 
     problems: list[str] = []
     advice: list[str] = []
@@ -182,12 +195,18 @@ def check(message: str, from_file: bool = True) -> tuple[list[str], list[str]]:
             f"'(#NN)' suffix is added. A pull request title has about "
             f"{TITLE_BUDGET} characters before the squash overflows"
         )
-    # Only worth saying in the editor. Over a range, a branch commit's subject
-    # is not the pull request title, so the budget does not apply to it.
+    elif from_pull_request and len(title) > TITLE_BUDGET:
+        advice.append(
+            f"title is {len(title)} characters; the merged subject will be "
+            f"{len(title) + SQUASH_SUFFIX_WIDTH} once GitHub appends '(#NN)', "
+            f"over the {SUBJECT_LIMIT - 1} allowed"
+        )
+    # In the editor nothing knows whether this subject becomes a title, so the
+    # budget is advice rather than the verdict it is on a pull request.
     elif from_file and len(title) > TITLE_BUDGET:
         advice.append(
-            f"subject is {len(title)} characters; a squash merge appends "
-            f"'(#NN)', so a title over {TITLE_BUDGET} lands over the limit"
+            f"subject is {len(title)} characters; if it becomes a pull request "
+            f"title, the squash appends '(#NN)' and lands over the limit"
         )
 
     if len(lines) > 1 and lines[1].strip():
@@ -219,12 +238,14 @@ def check(message: str, from_file: bool = True) -> tuple[list[str], list[str]]:
             "so everything below it skipped the column check"
         )
 
-    length = body_length(lines, trailers_from)
-    if length > BODY_LINES:
-        advice.append(
-            f"body is {length} lines against a {BODY_LINES}-line target. "
-            "Cut what the diff already says; keep what it cannot say"
-        )
+    if from_pull_request:
+        length = body_length(lines, trailers_from)
+        if length > PR_BODY_LINES:
+            advice.append(
+                f"body is {length} lines against a {PR_BODY_LINES}-line "
+                "target, and it is the commit body. Cut what the diff already "
+                "says; keep what it cannot say"
+            )
 
     return problems, advice
 
@@ -240,118 +261,95 @@ def read_file(path: str) -> str:
         return handle.read().decode("utf-8", errors="replace")
 
 
-def read_range(revisions: str) -> tuple[list[str], str | None]:
-    """Messages in a revision range, or an explanation of why they are missing."""
-    # %x00 separates commits; a message may contain any other byte.
-    result = subprocess.run(
-        ["git", "log", "--format=%H%n%B%x00", revisions],
-        capture_output=True,
-        check=False,
+def read_pull_request(title_path: str, body_path: str) -> str:
+    """The commit message a squash merge will build from a pull request.
+
+    This repository merges with squash_merge_commit_title=PR_TITLE and
+    squash_merge_commit_message=PR_BODY, so the two files join exactly as git
+    joins a subject and a body. GitHub appends " (#NN)" to the subject at merge
+    time; it is not added here, because the budget covers the part the author
+    controls.
+    """
+    title = read_file(title_path).strip()
+    body = read_file(body_path).strip("\n")
+    return f"{title}\n\n{body}" if body else title
+
+
+def parse(argv: list[str]) -> tuple[str, bool]:
+    """Return (message, from_file), or exit with the usage line."""
+    usage = (
+        "usage: check-commit-message.py <file> [--warn]\n"
+        "       check-commit-message.py --pr --title-file <f> --body-file <f> "
+        "[--warn]"
     )
-    if result.returncode != 0:
-        detail = result.stderr.decode("utf-8", errors="replace").strip().splitlines()
-        reason = detail[-1] if detail else f"git log exited {result.returncode}"
-        return [], f"could not read {revisions}: {reason}"
-    out = result.stdout.decode("utf-8", errors="replace")
-    return [entry for entry in out.split("\0") if entry.strip()], None
+    if not argv:
+        sys.exit(usage)
+    if argv[0] != "--pr":
+        if len(argv) != 1:
+            sys.exit(usage)
+        return read_file(argv[0]), True
+
+    paths: dict[str, str] = {}
+    rest = argv[1:]
+    while rest:
+        flag = rest[0]
+        if flag not in ("--title-file", "--body-file") or len(rest) < 2:
+            sys.exit(usage)
+        paths[flag] = rest[1]
+        rest = rest[2:]
+    if len(paths) != 2:
+        sys.exit(usage)
+    return read_pull_request(paths["--title-file"], paths["--body-file"]), False
 
 
 def main() -> int:
     argv = sys.argv[1:]
     warn = "--warn" in argv
-    argv = [argument for argument in argv if argument != "--warn"]
-    if not argv:
-        sys.exit("usage: check-commit-message.py <file> | --range <revisions> [--warn]")
-
-    from_file = argv[0] != "--range"
+    message, from_file = parse([a for a in argv if a != "--warn"])
+    from_pull_request = not from_file
 
     # Warnings are results rather than errors, so they belong on stdout where a
     # job summary or a pipe can pick them up.
     stream = sys.stdout if warn else sys.stderr
     annotate = warn and os.environ.get("GITHUB_ACTIONS") == "true"
 
-    if from_file:
-        entries = [read_file(argv[0])]
-    else:
-        if len(argv) != 2:
-            sys.exit("--range takes one revision range")
-        entries, error = read_range(argv[1])
-        if error:
-            print(error, file=stream)
-            # Reporting is the whole job in warn mode, and a range this checkout
-            # cannot resolve is not a verdict on anyone's message.
-            return 0 if warn else 1
+    problems, advice = check(
+        message, from_file=from_file, from_pull_request=from_pull_request
+    )
+    subject = next(iter(message.splitlines()), "")
+    what = "pull request text" if from_pull_request else "commit message"
 
-    failed = 0
-    advised = 0
-    for entry in entries:
-        if from_file:
-            message, label = entry, ""
-        else:
-            commit, _, message = entry.strip("\n").partition("\n")
-            label = f"{commit[:7]} "
-        problems, advice = check(message, from_file=from_file)
-        if problems:
-            failed += 1
-        if advice:
-            advised += 1
-        if problems or advice:
-            subject = next(iter(message.splitlines()), "")
-            print(f"{label}{subject}", file=stream)
-            for problem in problems:
-                print(f"  error:  {problem}", file=stream)
-            for note in advice:
-                print(f"  length: {note}", file=stream)
-            if annotate:
-                for problem in problems:
-                    print(f"::warning title=Commit message::{label}{problem}")
-                for note in advice:
-                    print(f"::notice title=Commit length::{label}{note}")
-
-    total = len(entries)
-
-    # What the hook grades is one message; what reaches the trunk is all of
-    # them. GitHub squashes a branch by concatenating every commit body under a
-    # "* subject" bullet, so a branch of short messages still merges long. The
-    # projection is the only place that number is visible before the merge.
-    if not from_file and total:
-        projected = sum(
-            measure(entry.partition("\n")[2], False) + 1 for entry in entries
-        )
-        if projected > BODY_LINES:
-            print(
-                f"\nProjected squash body: about {projected} lines from "
-                f"{total} commit(s), against a {BODY_LINES}-line target. "
-                "Edit the message in GitHub's merge box, or land fewer "
-                "commits.",
-                file=stream,
-            )
-            if annotate:
-                print(
-                    f"::notice title=Squash length::about {projected} lines "
-                    f"from {total} commit(s); edit the squash message at merge"
-                )
-
-    if not failed and not advised:
-        print(f"{total} commit message(s) checked, all clean.", file=stream)
+    if not problems and not advice:
+        print(f"{what} checked, clean: {subject}", file=stream)
         return 0
 
-    verdict = "carry warnings" if warn else "rejected"
-    summary = []
-    if failed:
-        summary.append(f"{failed} of {total} commit message(s) {verdict}")
-    if advised:
+    print(subject, file=stream)
+    for problem in problems:
+        print(f"  error:  {problem}", file=stream)
+    for note in advice:
+        print(f"  length: {note}", file=stream)
+    if annotate:
+        for problem in problems:
+            print(f"::warning title=Commit message::{problem}")
+        for note in advice:
+            print(f"::notice title=Commit length::{note}")
+
+    if problems:
+        print(
+            f"\nThe {what} needs a shape fix. The rules live in "
+            ".claude/skills/commits-and-prs/SKILL.md.",
+            file=stream,
+        )
+    if advice:
         # Said plainly so nobody goes looking for the exit code that did not
         # happen. Length is reported to be read, not to stop anything.
-        summary.append(
-            f"{advised} of {total} carry length advice, which fails nothing"
+        print(
+            "\nLength advice fails nothing. A pull request's title and body "
+            "stay editable until the merge, so this is worth reading rather "
+            "than worth blocking on.",
+            file=stream,
         )
-    print(
-        "\n" + ". ".join(summary) + ". The rules live in "
-        ".claude/skills/commits-and-prs/SKILL.md.",
-        file=stream,
-    )
-    return 0 if warn or not failed else 1
+    return 0 if warn or not problems else 1
 
 
 if __name__ == "__main__":
