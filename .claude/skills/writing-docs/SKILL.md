@@ -41,6 +41,7 @@ targets.
 | Document                          | Target    |
 | --------------------------------- | --------- |
 | Error message                     | 2 lines   |
+| Chat reply                        | 20 lines  |
 | Commit body                       | 15 lines  |
 | Pull request description          | 20 lines  |
 | Pull request description, headings | 40 lines |
@@ -58,6 +59,11 @@ request title has before GitHub's ` (#NN)` suffix overflows it.
 A reference page that enumerates a surface, every configuration key or every
 flag, grows with that surface and is the usual exception. It still needs
 headings a reader can jump between.
+
+A chat reply is held to its target like anything else. A long answer in chat is
+a document with no home: nobody can find it again, and the length hides which
+sentence held the decision. When a reply wants to exceed the target, write the
+file instead and answer with where it went.
 
 A reader looking for one answer should reach it without reading the rest. When
 a document passes its target, cut in this order:

@@ -104,18 +104,31 @@ commits.
 
 ## Attribution
 
-A commit written from an agent session is authored as
-`Claude <noreply@anthropic.com>`, so the log says plainly which commits a person
-wrote and which an agent did. The Verified badge is a separate matter: it tracks
-a cryptographic signature, not the author address, and signing is out of scope
-here.
+A commit from a session the repository owner drove turn by turn is authored by
+them, with the model recorded as a co-author. They made the decisions the commit
+records. A commit from a dispatched agent is authored as
+`Claude <noreply@anthropic.com>`. So the log says which commits a person
+directed and which an agent produced on its own.
 
-Such a commit ends with the trailers the harness supplies:
+Nothing in the tree records which case a commit came from. A worktree does not
+answer it, because a local session working directly takes one too, under the
+`worktree` skill's **Who gets one**. So this is a convention, like the review
+signature, and `internal/thunderstorm.md` Identity says why this repository
+accepts one here.
+
+The Verified badge is a separate matter: it tracks a cryptographic signature,
+not the author address, and signing is out of scope here.
+
+Either commit carries whatever trailers the harness supplies:
 
 ```text
 Co-Authored-By: <model> <noreply@anthropic.com>
 Claude-Session: <session url>
 ```
+
+A harness that supplies neither leaves neither, and nothing checks for them, so
+their absence says nothing about who wrote a commit. Only the author field
+answers that.
 
 The session link is the useful half: it is the only way back to the reasoning
 behind a change once the branch is merged. Nothing else in the message names a
