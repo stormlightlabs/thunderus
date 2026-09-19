@@ -10,7 +10,7 @@ use std::ops::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{Entry, ToolStatus};
+use super::{Entry, ProcessMetrics, ToolStatus};
 use crate::tools::shell::redact_secrets;
 
 const MAX_TARGET_CHARS: usize = 240;
@@ -123,6 +123,19 @@ struct ToolBlockState {
     target_text: Option<String>,
     state: ToolLifecycleState,
     result: BlockContentState,
+    /// Typed process outcome reported by a process-backed tool. Absent for
+    /// every other tool and for a block rebuilt from a record written before
+    /// the outcome was carried as typed data.
+    #[serde(default)]
+    process: Option<ProcessMetrics>,
+}
+
+/// Terminal result applied to a tool block by a lifecycle transition.
+struct ToolCompletion {
+    status: ToolStatus,
+    output: Vec<String>,
+    truncated: bool,
+    process: Option<ProcessMetrics>,
 }
 
 /// Metadata and content for one transcript block.
@@ -155,6 +168,11 @@ impl TranscriptBlock<'_> {
 
     pub fn result_state(&self) -> Option<BlockContentState> {
         self.tool.map(|tool| tool.result)
+    }
+
+    /// Typed process outcome for a process-backed tool call.
+    pub fn process(&self) -> Option<ProcessMetrics> {
+        self.tool.and_then(|tool| tool.process)
     }
 }
 
@@ -247,6 +265,7 @@ impl TranscriptBlocks {
             target_text,
             state: ToolLifecycleState::Queued,
             result: BlockContentState::Unknown,
+            process: None,
         };
         self.push_metadata(
             entry,
@@ -263,6 +282,7 @@ impl TranscriptBlocks {
 
     pub fn finish_tool(
         &mut self, call_id: &str, status: ToolStatus, output: Vec<String>, truncated: bool,
+        process: Option<ProcessMetrics>,
     ) -> Result<(), ToolLifecycleError> {
         let requested = ToolLifecycleState::from_status(status);
         if requested == ToolLifecycleState::Running {
@@ -272,7 +292,11 @@ impl TranscriptBlocks {
                 requested,
             });
         }
-        self.transition_tool(call_id, requested, Some((status, output, truncated)))
+        self.transition_tool(
+            call_id,
+            requested,
+            Some(ToolCompletion { status, output, truncated, process }),
+        )
     }
 
     pub fn cancel_running_tools(&mut self) {
@@ -289,7 +313,12 @@ impl TranscriptBlocks {
             let _ = self.transition_tool(
                 &call_id,
                 ToolLifecycleState::Cancelled,
-                Some((ToolStatus::Cancelled, Vec::new(), false)),
+                Some(ToolCompletion {
+                    status: ToolStatus::Cancelled,
+                    output: Vec::new(),
+                    truncated: false,
+                    process: None,
+                }),
             );
         }
     }
@@ -337,7 +366,7 @@ impl TranscriptBlocks {
     }
 
     fn transition_tool(
-        &mut self, call_id: &str, requested: ToolLifecycleState, completion: Option<(ToolStatus, Vec<String>, bool)>,
+        &mut self, call_id: &str, requested: ToolLifecycleState, completion: Option<ToolCompletion>,
     ) -> Result<(), ToolLifecycleError> {
         let Some(index) = self
             .metadata
@@ -353,8 +382,9 @@ impl TranscriptBlocks {
             return Err(ToolLifecycleError { call_id: call_id.to_string(), current: Some(tool.state), requested });
         }
         tool.state = requested;
-        if let Some((status, output, truncated)) = completion {
+        if let Some(ToolCompletion { status, output, truncated, process }) = completion {
             tool.result = result_state(&output, truncated);
+            tool.process = process;
             if let Entry::Tool { status: entry_status, output: entry_output, .. } = &mut self.entries[index] {
                 *entry_status = status;
                 *entry_output = output;
@@ -484,6 +514,7 @@ fn tool_state_for_entry(entry: &Entry) -> Option<ToolBlockState> {
         } else {
             result_state(output, false)
         },
+        process: None,
     })
 }
 
@@ -546,11 +577,11 @@ mod tests {
         );
         transcript.start_tool("call-1").unwrap();
         transcript
-            .finish_tool("call-1", ToolStatus::Ok, vec!["one result".to_string()], false)
+            .finish_tool("call-1", ToolStatus::Ok, vec!["one result".to_string()], false, None)
             .unwrap();
 
         let duplicate = transcript
-            .finish_tool("call-1", ToolStatus::Ok, vec!["one result".to_string()], false)
+            .finish_tool("call-1", ToolStatus::Ok, vec!["one result".to_string()], false, None)
             .unwrap_err();
         assert_eq!(duplicate.current, Some(ToolLifecycleState::Succeeded));
         assert_eq!(transcript.block(0).unwrap().target(), Some("needle"));
@@ -569,12 +600,12 @@ mod tests {
             Some(BlockContentState::Unknown)
         );
         let out_of_order = transcript
-            .finish_tool("unknown", ToolStatus::Ok, Vec::new(), false)
+            .finish_tool("unknown", ToolStatus::Ok, Vec::new(), false, None)
             .unwrap_err();
         assert_eq!(out_of_order.current, Some(ToolLifecycleState::Queued));
         transcript.start_tool("unknown").unwrap();
         transcript
-            .finish_tool("unknown", ToolStatus::Ok, Vec::new(), false)
+            .finish_tool("unknown", ToolStatus::Ok, Vec::new(), false, None)
             .unwrap();
         assert_eq!(
             transcript.block(0).unwrap().result_state(),
@@ -584,7 +615,7 @@ mod tests {
         transcript.queue_tool("same", "read", "{}").unwrap();
         transcript.start_tool("same").unwrap();
         transcript
-            .finish_tool("same", ToolStatus::Ok, vec!["unchanged".to_string()], false)
+            .finish_tool("same", ToolStatus::Ok, vec!["unchanged".to_string()], false, None)
             .unwrap();
         assert_eq!(
             transcript.block(1).unwrap().result_state(),
@@ -594,7 +625,7 @@ mod tests {
         transcript.queue_tool("long", "compiler", "{}").unwrap();
         transcript.start_tool("long").unwrap();
         transcript
-            .finish_tool("long", ToolStatus::Failed, vec!["error".to_string()], true)
+            .finish_tool("long", ToolStatus::Failed, vec!["error".to_string()], true, None)
             .unwrap();
         assert_eq!(
             transcript.block(2).unwrap().result_state(),

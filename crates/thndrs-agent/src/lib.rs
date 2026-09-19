@@ -28,8 +28,9 @@ pub use context::deduplication::{
 };
 pub use context::reduction::{measure_lines, reduce_lines, reduce_projection, render_reduction_dashboard};
 pub use contracts::{
-    AgentEvent, AgentMessage, AgentTurn, RetryPolicy, ToolDefinition, ToolDisplayProjection, ToolEvidenceKind,
-    ToolEvidenceMetadata, ToolModelProjection, ToolOutput, ToolPermissionDecision, ToolStatus, ToolUseRequest,
+    AgentEvent, AgentMessage, AgentTurn, ProcessMetrics, RetryPolicy, ToolDefinition, ToolDisplayProjection,
+    ToolEvidenceKind, ToolEvidenceMetadata, ToolModelProjection, ToolOutput, ToolPermissionDecision, ToolStatus,
+    ToolUseRequest,
 };
 pub use instances::{
     AccountCapacitySnapshot, AccountCapacityWindow, CapacityField, CapacityProvider, ChangeHandle, ChangedPath,

@@ -1,7 +1,8 @@
 use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
 use crate::app::{
-    App, BlockContentState, Entry, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, PromptAccessory,
-    QueueTarget, RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlockKind, VISIBLE_ROWS,
+    App, BlockContentState, Entry, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, ProcessMetrics,
+    PromptAccessory, QueueTarget, RecoveryStage, RunState, ToolLifecycleState, ToolStatus, TranscriptBlockKind,
+    VISIBLE_ROWS,
 };
 use crate::cli::{Cli, Theme, commands::setup::SetupProviderArg};
 use crate::renderer;
@@ -573,6 +574,113 @@ fn semantic_write_patch_summary_uses_nested_argument_path() {
     let row = super::TranscriptRowView::from(&entry);
 
     assert_eq!(row.edit.and_then(|edit| edit.path), Some("src/lib.rs".to_string()));
+}
+
+/// Render one finished `run_shell` call whose summary line reads `summary`.
+///
+/// The block goes through the tool lifecycle rather than being pushed as a
+/// bare entry, so the typed outcome reaches the block metadata the renderer
+/// reads.
+fn rendered_shell_activity(summary: &str, process: Option<ProcessMetrics>) -> String {
+    rendered_shell_status(summary, process, ToolStatus::Failed)
+}
+
+/// Render the same call with a chosen lifecycle status.
+fn rendered_shell_status(summary: &str, process: Option<ProcessMetrics>, status: ToolStatus) -> String {
+    let mut app = test_app();
+    app.transcript
+        .entries
+        .queue_tool("call-1", "run_shell", r#"{"argv":["cargo","test","renderer"]}"#)
+        .expect("queue the tool call");
+    app.transcript
+        .entries
+        .start_tool("call-1")
+        .expect("start the tool call");
+    app.transcript
+        .entries
+        .finish_tool(
+            "call-1",
+            status,
+            vec![
+                "error: command failed (exit 101)".to_string(),
+                summary.to_string(),
+                "── stdout ──".to_string(),
+                "running 2 tests".to_string(),
+                "test renderer::keeps_diagnostics ... FAILED".to_string(),
+                "test result: FAILED. 1 passed; 1 failed".to_string(),
+            ],
+            false,
+            process,
+        )
+        .expect("finish the tool call");
+
+    RendererView::build(&app, 80, 24)
+        .transcript
+        .rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The check that the round trip through prose is gone: reword the summary,
+/// and the exit code and duration the transcript reports do not move.
+#[test]
+fn typed_process_outcome_survives_a_reworded_summary_line() {
+    let today = "$ cargo test renderer [one-shot failed exit 101 4800ms]";
+    let reworded = "$ cargo test renderer (stopped early, nonzero status)";
+    let metrics = ProcessMetrics::new(Some(101), std::time::Duration::from_millis(4_800));
+
+    let from_prose = rendered_shell_activity(today, None);
+    let from_metrics = rendered_shell_activity(reworded, Some(metrics));
+    let reworded_prose = rendered_shell_activity(reworded, None);
+
+    assert!(from_prose.contains("4.8s · exit 101"), "{from_prose}");
+    assert_eq!(
+        from_prose, from_metrics,
+        "the typed outcome should render exactly what the old wording rendered"
+    );
+    assert!(
+        !reworded_prose.contains("4.8s · exit 101"),
+        "without typed fields the wording is still what the fallback reads: {reworded_prose}"
+    );
+}
+
+/// A zero exit code is the absence of news. The prose never printed one, and
+/// neither does the typed projection, which is the common case for a command.
+#[test]
+fn a_successful_command_reports_its_duration_and_no_exit_code() {
+    let rendered = rendered_shell_status(
+        "$ cargo test renderer [one-shot ok 4800ms]",
+        Some(ProcessMetrics::new(Some(0), std::time::Duration::from_millis(4_800))),
+        ToolStatus::Ok,
+    );
+
+    assert!(rendered.contains("4.8s"), "{rendered}");
+    assert!(!rendered.contains("exit"), "{rendered}");
+}
+
+/// A command killed before it reported a code shows a duration alone.
+#[test]
+fn a_cancelled_command_reports_a_duration_without_an_exit_code() {
+    let rendered = rendered_shell_status(
+        "$ cargo test renderer [one-shot cancelled 1200ms]",
+        Some(ProcessMetrics::new(None, std::time::Duration::from_millis(1_200))),
+        ToolStatus::Cancelled,
+    );
+
+    assert!(rendered.contains("1.2s"), "{rendered}");
+    assert!(!rendered.contains("exit"), "{rendered}");
+}
+
+/// A transcript rebuilt from a session record carries no typed outcome, so the
+/// prose fallback still has to recover one.
+#[test]
+fn the_prose_fallback_still_reads_a_record_without_typed_fields() {
+    let rendered = rendered_shell_activity("$ cargo test renderer [one-shot failed exit 101 4800ms]", None);
+
+    assert!(rendered.contains("4.8s"), "{rendered}");
+    assert!(rendered.contains("exit 101"), "{rendered}");
 }
 
 #[test]

@@ -192,6 +192,7 @@ fn reading_a_discovered_skill_announces_it_during_the_run_once() {
                 status: ToolStatus::Ok,
                 write_result: None,
                 shell_result: None,
+                process: None,
             }),
         );
     }
@@ -244,6 +245,7 @@ fn failed_skill_read_does_not_announce_the_skill() {
             status: ToolStatus::Failed,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
     );
 
@@ -274,6 +276,7 @@ fn tool_finished_sets_output_and_status() {
             status: ToolStatus::Ok,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
     );
     assert_eq!(
@@ -317,6 +320,7 @@ fn tool_artifact_bodies_require_context_capture_opt_in() {
                 status: ToolStatus::Ok,
                 write_result: None,
                 shell_result: None,
+                process: None,
             }),
         );
 
@@ -346,6 +350,7 @@ fn tool_finished_marks_failed_status() {
             status: ToolStatus::Failed,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
     );
     match &app.transcript.entries[0] {
@@ -471,6 +476,7 @@ fn failed_tool_error_line_is_visible_and_persisted() {
             status: ToolStatus::Failed,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
     );
 
@@ -918,6 +924,7 @@ fn completed_request_snapshot_tracks_tool_observations_and_transcript_links() {
             status: ToolStatus::Ok,
             write_result: None,
             shell_result: None,
+            process: None,
         },
     );
 
@@ -991,4 +998,41 @@ fn acp_permission_run_cancel_responds_cancelled() {
     );
     assert!(app.overlay.permission().is_none());
     assert_eq!(app.runtime.run_state, RunState::Idle);
+}
+
+/// The typed outcome has to survive the event, not merely exist on it. The
+/// compiler checks that `ToolFinished` carries a `process`; only a test checks
+/// that the handler passes it on rather than dropping it.
+#[test]
+fn a_finished_shell_tool_leaves_its_typed_outcome_on_the_block() {
+    let mut app = fresh_app();
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolStarted {
+            id: String::from("toolu_shell"),
+            name: String::from("run_shell"),
+            arguments: String::from(r#"{"argv":["cargo","test"]}"#),
+        }),
+    );
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolFinished {
+            id: String::from("toolu_shell"),
+            output: vec!["$ cargo test [one-shot failed exit 101 4800ms]".to_string()],
+            status: ToolStatus::Failed,
+            write_result: None,
+            shell_result: None,
+            process: Some(ProcessMetrics::new(Some(101), std::time::Duration::from_millis(4_800))),
+        }),
+    );
+
+    let process = app
+        .transcript
+        .entries
+        .blocks()
+        .find_map(|block| block.process())
+        .expect("the finished shell block should carry its typed outcome");
+
+    assert_eq!(process.exit_code, Some(101));
+    assert_eq!(process.elapsed_millis(), 4_800);
 }

@@ -520,6 +520,7 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
                             status: ToolStatus::Ok,
                             write_result: None,
                             shell_result: None,
+                            process: None,
                         });
                         responder.respond(ReadTextFileResponse::new(result.content))
                     }
@@ -531,6 +532,7 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
                             status,
                             write_result: None,
                             shell_result: None,
+                            process: None,
                         });
                         responder.respond_with_error(agent_client_protocol::util::internal_error(message))
                     }
@@ -559,6 +561,7 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
                             status: ToolStatus::Ok,
                             write_result: Some(result.write_result),
                             shell_result: None,
+                            process: None,
                         });
                         responder.respond(WriteTextFileResponse::new())
                     }
@@ -570,6 +573,7 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
                             status,
                             write_result: None,
                             shell_result: None,
+                            process: None,
                         });
                         responder.respond_with_error(agent_client_protocol::util::internal_error(message))
                     }

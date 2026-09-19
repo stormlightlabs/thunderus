@@ -94,6 +94,7 @@ fn maps_tool_finished_with_ok_status() {
             status: ToolStatus::Ok,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
         vec![SessionUpdateIntent::ToolFinished {
             id: "tool-ok".to_string(),
@@ -114,6 +115,7 @@ fn maps_tool_finished_with_running_status() {
             status: ToolStatus::Running,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
         vec![SessionUpdateIntent::ToolFinished {
             id: "tool-running".to_string(),
@@ -134,6 +136,7 @@ fn maps_tool_finished_with_failed_and_cancelled_status() {
             status: ToolStatus::Failed,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
         vec![SessionUpdateIntent::ToolFinished {
             id: "tool-fail".to_string(),
@@ -151,6 +154,7 @@ fn maps_tool_finished_with_failed_and_cancelled_status() {
             status: ToolStatus::Cancelled,
             write_result: None,
             shell_result: None,
+            process: None,
         }),
         vec![SessionUpdateIntent::ToolFinished {
             id: "tool-cancel".to_string(),
@@ -247,6 +251,7 @@ fn caps_and_redacts_tool_output() {
         status: ToolStatus::Ok,
         write_result: None,
         shell_result: None,
+        process: None,
     });
 
     assert_eq!(intents.len(), 1);
@@ -286,6 +291,7 @@ fn map_events_and_updates_preserve_intent_order() {
             status: ToolStatus::Ok,
             write_result: None,
             shell_result: None,
+            process: None,
         },
         AgentEvent::ReasoningDelta("think".to_string()),
         AgentEvent::AssistantDelta("assistant".to_string()),
@@ -700,6 +706,7 @@ fn execute_prompt_persists_acp_server_turn_records() {
                     status: ToolStatus::Ok,
                     write_result: None,
                     shell_result: None,
+                    process: None,
                 })
                 .expect("send tool finished");
             event_tx
@@ -846,6 +853,7 @@ fn execute_prompt_preserves_update_order() {
             status: ToolStatus::Ok,
             write_result: None,
             shell_result: None,
+            process: None,
         })
         .expect("send tool finished");
     event_tx
