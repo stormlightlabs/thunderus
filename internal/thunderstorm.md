@@ -241,11 +241,9 @@ meant to parallelize.
 Remove the worktree when the run ends. A removal that fails because of
 uncommitted changes is an escalation, not something to force.
 
-The `worktree` skill is the only thing here that makes one, and
-`check-isolation.py` fails CI for any text under `.claude/` that asks the
-harness instead. Two runtime choices are past what a file can hold: the
-`isolation` argument a dispatch passes, and the directory a dispatched subagent
-writes into. The `worktree` skill's **Who gets one** section names both.
+Worktrees can only be made via the `worktree` skill, and `check-isolation.py`
+fails CI for any text under `.claude/` that asks the harness instead. What no
+check covers is in that skill's **Who gets one** section.
 
 ### Who gets one
 

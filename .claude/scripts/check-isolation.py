@@ -4,34 +4,22 @@
     check-isolation.py                    # check .claude/ next to this script
     check-isolation.py <dir>              # check some other tree
 
-The `worktree` skill is the only thing in this repository that makes a worktree,
-and it makes one outside the repository root so Cargo cannot reach the parent
-`.cargo/config.toml` and build into the parent `target/`. The harness makes them
-too, and places them inside the root. It takes the instruction two ways, so this
-checks both:
+The `worktree` skill makes every worktree here, outside the repository root so
+Cargo cannot reach the parent `.cargo/config.toml` and build into the parent
+`target/`. The harness makes them inside the root, and takes the instruction two
+ways:
 
-- An `isolation` key in the frontmatter of a definition. The harness provisions
-  from the definition before any skill is read, so the key wins over every
-  sentence written under it.
-- An `isolation` setting on a dispatch, as far as a file can carry one. That is
-  an argument to a tool call rather than a file, so what is checkable here is
-  the text a dispatch gets copied from: a fenced code block naming the setting.
-  A dispatch that passes the argument without the text existing anywhere in the
-  tree is outside this check, and the `worktree` skill says so.
+- An `isolation` key in a definition's frontmatter, which the harness reads
+  before any skill, so the key wins over every sentence written under it.
+- An `isolation` setting on a dispatch, as far as a file can carry one. The
+  argument is a tool call, so what is checkable is the text it gets copied
+  from: a fenced code block naming the setting.
 
-The rule is therefore that `isolation` may be discussed in prose and never
-declared. A sentence saying not to reach for it reads as prose; the same word in
-frontmatter or inside a fence is a thing somebody runs.
+The key is rejected everywhere rather than allowed for named files. No agent
+here could justify an allowlist entry: every worktree this repository wants is
+outside the root, which is the one place the harness will not put it.
 
-The key is rejected everywhere rather than allowed for named files. An allowlist
-is only as good as the justification for its entries, and no agent here has one:
-every worktree this repository wants is outside the root, which is the one place
-the harness will not put it.
-
-What is left over is the directory a dispatched subagent writes into. Removing
-the key traded an enforced worktree for an instructed one, and a subagent that
-skips the instruction stays in the run's checkout. Nothing in the tree records
-that choice, so nothing here can check it, and the `worktree` skill says so.
+What no file can hold, the `worktree` skill's **Who gets one** covers.
 
 Exits non-zero listing every file that fails, so one run reports the whole tree.
 A file that cannot be read is that file's failure and not the run's.
@@ -47,25 +35,19 @@ from pathlib import Path
 KEY = "isolation"
 FENCE = "---"
 
-# A key line in the opening block, at any depth. Nesting does not make a
-# declaration less of one, and no key here is allowed to carry a mapping that
-# would make an indented `isolation` mean something else.
+# A key line in the opening block, at any depth.
 FIELD = re.compile(r"^(\s*)([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*?)\s*$")
 
-# The setting as a dispatch would carry it: a YAML or JSON key, a keyword
-# argument, or a quoted field name. The bare word is prose and is left alone.
+# The setting as a dispatch carries it. The bare word is prose and is left alone.
 SETTING = re.compile(r"""(\bisolation\b\s*[:=]|["']isolation["'])""")
 
-# ``` or ~~~, with any info string. Three or more characters, because a longer
-# fence is how a block containing a fence is written.
+# ``` or ~~~, three or more, because a longer fence is how a block nests one.
 CODE_FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 SUFFIX = ".md"
 
-# A worktree that landed at .claude/worktrees/ carries a whole second copy of
-# this tree. `.claude/.gitignore` keeps it out of the checkout's status; this
-# keeps it out of the report, where it would double every finding and attribute
-# each one to a path that is not tracked.
+# A worktree landing here carries a second copy of this tree. Its findings
+# would be duplicates, against paths nothing tracks.
 SKIP = ("worktrees",)
 
 
@@ -79,9 +61,7 @@ def check_tree(root: Path) -> tuple[int, list[str]]:
         checked += 1
 
         try:
-            # utf-8-sig rather than utf-8: an editor that writes a BOM would
-            # otherwise put a character in front of the opening fence, and the
-            # block stops being frontmatter to everything below.
+            # utf-8-sig: a BOM would otherwise sit in front of the fence.
             text = path.read_text(encoding="utf-8-sig")
         except UnicodeDecodeError as error:
             failures.append(
@@ -152,15 +132,9 @@ def _problems(text: str) -> list[str]:
 def _frontmatter_problems(lines: list[str]) -> list[str]:
     """Read the opening block, if there is one, and report the key.
 
-    A block that never closes is not this check's failure to report:
-    `check-frontmatter.py` owns block shape. Reading to the end of the file
-    would make every fenced `---` inside the body look like frontmatter, so an
-    unclosed block is passed over rather than guessed at.
-
-    The block has to open the file. Skipping blank lines to find the fence would
-    make a `---` anywhere above the first heading look like frontmatter, and the
-    harness does not read one that starts late either, so a file with a blank
-    line above the fence carries no key this check is missing.
+    An unclosed block is left to `check-frontmatter.py`, which owns block shape.
+    The block also has to open the file, as the harness requires of it: reading
+    past either would make a `---` in the body look like frontmatter.
     """
     if not lines or lines[0] != FENCE:
         return []
@@ -174,12 +148,8 @@ def _frontmatter_problems(lines: list[str]) -> list[str]:
         match = FIELD.match(line)
         if match and match.group(2) == KEY:
             problems.append(_declared(number, match.group(3) or "(empty)"))
-        # The key in a shape no line-leading match reaches: a flow mapping such
-        # as `{name: a, isolation: worktree}`, or one nested in another key's
-        # value. Both are YAML the harness reads, and a check that only matches
-        # a key at the start of a line passes them. The line's own key has
-        # already been ruled out above, so prose in a value is not caught here:
-        # it would have to write the word with a colon or in quotes.
+        # A flow mapping, or the key nested in another key's value. The line's
+        # own key is ruled out above, so prose in a value does not reach here.
         elif SETTING.search(line):
             problems.append(_declared(number, "(inside this line)"))
 

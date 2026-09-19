@@ -9,12 +9,9 @@ tool differently: one on a root that does not exist, one bare against this
 repository, because the default root is the only path CI uses and no fixture
 reaches it.
 
-The cases are the two ways the setting gets declared and the several ways a
-check for it goes wrong: the word in prose, which is how the rule is written
-down and must keep passing; the word in a value rather than a key, which every
-`description` line in the tree carries; and a copy of the tree under
-`worktrees/`, which would otherwise report findings against a path nobody
-tracks.
+The cases are the ways the setting gets declared, and the ways a check for it
+goes wrong: the word in prose, the word in a value, and a copy of the tree under
+`worktrees/`. Each of those three must keep passing.
 """
 
 from __future__ import annotations
@@ -41,10 +38,8 @@ Use the `implement` skill. The run gives you a directory; work there.
 class Case(NamedTuple):
     """One fixture tree and what the tool should say about it.
 
-    `err` and `out` are substrings that must all appear in that stream, so a
-    case asserting nothing about a stream leaves its tuple empty. `why` is the
-    reason the case exists, printed when it fails, because a case that breaks
-    is read by whoever broke it rather than by whoever wrote it.
+    `err` and `out` are substrings that must all appear in that stream. `why` is
+    the reason the case exists, printed when it fails.
     """
 
     label: str
@@ -262,7 +257,6 @@ check(
     f"exit={missing.returncode} stderr={missing.stderr.strip()[:90]}",
 )
 
-# The default root is what CI runs, and no fixture reaches it.
 bare = subprocess.run(
     [sys.executable, str(TOOL)], capture_output=True, text=True, check=False
 )
